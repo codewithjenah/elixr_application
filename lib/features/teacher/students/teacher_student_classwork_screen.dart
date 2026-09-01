@@ -38,6 +38,7 @@ class TeacherStudentClassworkScreen extends StatefulWidget {
 class _TeacherStudentClassworkScreenState
     extends State<TeacherStudentClassworkScreen> {
   TeacherClassworkController? _controller;
+  _ClassworkFilter _filter = _ClassworkFilter.all;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -81,6 +82,7 @@ class _TeacherStudentClassworkScreenState
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) => TeacherScaffoldPage(
+        scrollable: false,
         header: ElixEditorialPageHeader(
           heading: widget.assignmentId == null
               ? 'Student classwork'
@@ -116,6 +118,8 @@ class _TeacherStudentClassworkScreenState
                 traineeId: widget.traineeId,
                 groupId: widget.groupId,
                 assignmentId: widget.assignmentId,
+                filter: _filter,
+                onFilterChanged: (filter) => setState(() => _filter = filter),
               ),
             ),
           ],
@@ -131,11 +135,15 @@ class _ClassworkBody extends StatelessWidget {
     required this.traineeId,
     required this.groupId,
     required this.assignmentId,
+    required this.filter,
+    required this.onFilterChanged,
   });
   final TeacherClassworkController controller;
   final String traineeId;
   final String groupId;
   final String? assignmentId;
+  final _ClassworkFilter filter;
+  final ValueChanged<_ClassworkFilter> onFilterChanged;
   @override
   Widget build(BuildContext context) {
     if (controller.loading) return const Center(child: ProgressRing());
@@ -174,6 +182,18 @@ class _ClassworkBody extends StatelessWidget {
           ),
         ],
       );
+    final filteredAssignments = [
+      for (final assignment in controller.assignments)
+        if (_matchesFilter(
+          filter: filter,
+          assignment: assignment,
+          attempt: controller.latestVisibleAttemptFor(
+            assignmentId: assignment.id,
+            traineeId: traineeId,
+          ),
+        ))
+          assignment,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -183,19 +203,34 @@ class _ClassworkBody extends StatelessWidget {
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.md),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          children: [
+            for (final value in _ClassworkFilter.values)
+              ToggleButton(
+                checked: filter == value,
+                onChanged: (_) => onFilterChanged(value),
+                child: Text(value.label),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
         Expanded(
-          child: controller.assignments.isEmpty
-              ? const ElixStatusPanel(
-                  message:
-                      'No classwork has been assigned to this student yet.',
+          child: filteredAssignments.isEmpty
+              ? ElixStatusPanel(
+                  message: controller.assignments.isEmpty
+                      ? 'No classwork has been assigned to this student yet.'
+                      : 'No assignments match this filter.',
                 )
               : ListView.separated(
-                  itemCount: controller.assignments.length,
+                  key: const Key('teacher_student_classwork_list'),
+                  itemCount: filteredAssignments.length,
                   separatorBuilder: (_, _) =>
                       const SizedBox(height: AppSpacing.sm),
                   itemBuilder: (context, index) => _AssignmentRow(
                     controller: controller,
-                    assignment: controller.assignments[index],
+                    assignment: filteredAssignments[index],
                     traineeId: traineeId,
                     // Replace this route so the list controller is disposed before
                     // the dedicated review workspace starts its own live streams.
@@ -203,7 +238,7 @@ class _ClassworkBody extends StatelessWidget {
                       AppRoutePaths.teacherStudentAssignmentReview(
                         traineeId,
                         groupId: groupId,
-                        assignmentId: controller.assignments[index].id,
+                        assignmentId: filteredAssignments[index].id,
                       ),
                     ),
                   ),
@@ -211,6 +246,36 @@ class _ClassworkBody extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+enum _ClassworkFilter {
+  all('All'),
+  toReview('To review'),
+  checked('Checked'),
+  missing('Missing');
+
+  const _ClassworkFilter(this.label);
+  final String label;
+}
+
+bool _matchesFilter({
+  required _ClassworkFilter filter,
+  required GroupAssignment assignment,
+  required AssignmentAttempt? attempt,
+}) {
+  switch (filter) {
+    case _ClassworkFilter.all:
+      return true;
+    case _ClassworkFilter.toReview:
+      return attempt?.status == AssignmentAttemptStatus.submitted &&
+          attempt!.isReviewFacingSubmission;
+    case _ClassworkFilter.checked:
+      return attempt?.isChecked == true ||
+          attempt?.status == AssignmentAttemptStatus.approved ||
+          attempt?.status == AssignmentAttemptStatus.needsRetry;
+    case _ClassworkFilter.missing:
+      return assignment.isOverdue && !isAssignmentAttemptTurnedIn(attempt);
   }
 }
 

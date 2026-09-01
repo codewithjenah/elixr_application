@@ -64,6 +64,7 @@ class _TeacherStudentPracticeHistoryScreenState
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) => TeacherScaffoldPage(
+        scrollable: false,
         header: const ElixEditorialPageHeader(
           heading: 'Practice history',
           eyebrow: 'TEACHER WORKSPACE',
