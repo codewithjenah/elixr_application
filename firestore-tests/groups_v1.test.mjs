@@ -82,7 +82,7 @@ function activeGroupPayload(name = 'BSHM 4A') {
     teacher_id: 'teacher',
     name,
     status: 'active',
-    schema_version: 1,
+    schema_version: 2,
     created_at: serverTimestamp(),
     updated_at: serverTimestamp(),
   };

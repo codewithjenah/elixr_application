@@ -2824,6 +2824,7 @@ service cloud.firestore {
       let membershipRef = groupMembershipPath(groupId, request.auth.uid);
       return isSignedIn()
         && exists(groupPath(groupId))
+        && get(groupPath(groupId)).data.status == 'active'
         && exists(membershipRef)
         && get(membershipRef).data.group_id == groupId
         && get(membershipRef).data.trainee_id == request.auth.uid
