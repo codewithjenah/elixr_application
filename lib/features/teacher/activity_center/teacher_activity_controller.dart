@@ -7,6 +7,7 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
+import '../../../data/repositories/public_profile_repository.dart';
 import 'activity_read_store.dart';
 
 enum TeacherActivityType {
@@ -27,6 +28,9 @@ class TeacherActivity {
     required this.description,
     required this.destination,
     required this.isRead,
+    this.actorUserId,
+    this.actorDisplayName,
+    this.actorProfilePictureUrl,
   });
 
   final String id;
@@ -37,7 +41,15 @@ class TeacherActivity {
   final String destination;
   final bool isRead;
 
-  TeacherActivity copyWith({bool? isRead}) => TeacherActivity(
+  /// The student who caused this activity. Class-wide reminders have no actor.
+  final String? actorUserId;
+  final String? actorDisplayName;
+  final String? actorProfilePictureUrl;
+
+  TeacherActivity copyWith({
+    bool? isRead,
+    String? actorProfilePictureUrl,
+  }) => TeacherActivity(
     id: id,
     type: type,
     occurredAt: occurredAt,
@@ -45,6 +57,10 @@ class TeacherActivity {
     description: description,
     destination: destination,
     isRead: isRead ?? this.isRead,
+    actorUserId: actorUserId,
+    actorDisplayName: actorDisplayName,
+    actorProfilePictureUrl:
+        actorProfilePictureUrl ?? this.actorProfilePictureUrl,
   );
 }
 
@@ -56,6 +72,7 @@ class TeacherActivityController extends ChangeNotifier {
     required this.assignmentRepository,
     required this.chatRepository,
     required this.readStore,
+    this.publicProfileRepository,
     DateTime Function()? now,
     Timer Function(Duration, void Function(Timer))? periodicTimer,
   }) : _now = now ?? (() => DateTime.now().toUtc()),
@@ -69,6 +86,7 @@ class TeacherActivityController extends ChangeNotifier {
   final ClassroomAssignmentRepository assignmentRepository;
   final ChatRepository chatRepository;
   final ActivityReadStore readStore;
+  final PublicProfileRepository? publicProfileRepository;
   final DateTime Function() _now;
   final Timer Function(Duration, void Function(Timer)) _periodicTimer;
 
@@ -76,6 +94,8 @@ class TeacherActivityController extends ChangeNotifier {
   StreamSubscription<List<GroupAssignment>>? _assignmentsSub;
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
   StreamSubscription<List<ChatConversation>>? _inboxSub;
+  final Map<String, StreamSubscription<dynamic>> _profileSubs = {};
+  final Map<String, String> _profilePictureUrls = {};
   Completer<void>? _membershipsReady;
   Completer<void>? _assignmentsReady;
   Completer<void>? _attemptsReady;
@@ -143,6 +163,7 @@ class TeacherActivityController extends ChangeNotifier {
     _inbox = const [];
     _readAtById = <String, DateTime>{};
     _activities = const [];
+    _cancelProfileWatches();
     membershipsStreamError = null;
     assignmentsStreamError = null;
     attemptsStreamError = null;
@@ -352,8 +373,57 @@ class TeacherActivityController extends ChangeNotifier {
 
   void _publish() {
     final teacherId = _teacherId;
-    if (teacherId != null) _activities = _buildActivities(teacherId);
+    if (teacherId != null) {
+      _activities = _buildActivities(teacherId);
+      _syncProfileWatches();
+    }
     if (!_disposed) notifyListeners();
+  }
+
+  void _syncProfileWatches() {
+    final repository = publicProfileRepository;
+    if (repository == null) return;
+
+    final actorIds = {
+      for (final activity in _activities)
+        if (activity.actorUserId != null) activity.actorUserId!,
+    };
+    final staleIds = _profileSubs.keys
+        .where((id) => !actorIds.contains(id))
+        .toList(growable: false);
+    for (final id in staleIds) {
+      unawaited(_profileSubs.remove(id)?.cancel());
+      _profilePictureUrls.remove(id);
+    }
+
+    for (final actorId in actorIds) {
+      if (_profileSubs.containsKey(actorId)) continue;
+      _profileSubs[actorId] = repository.watchProfileRoot(actorId).listen(
+        (profile) {
+          if (_disposed) return;
+          final url = profile?.profilePictureUrl?.trim();
+          final next = url == null || url.isEmpty ? null : url;
+          if (_profilePictureUrls[actorId] == next) return;
+          if (next == null) {
+            _profilePictureUrls.remove(actorId);
+          } else {
+            _profilePictureUrls[actorId] = next;
+          }
+          _publish();
+        },
+        onError: (_, _) {
+          // The activity remains usable when an optional avatar is unavailable.
+        },
+      );
+    }
+  }
+
+  void _cancelProfileWatches() {
+    for (final subscription in _profileSubs.values) {
+      unawaited(subscription.cancel());
+    }
+    _profileSubs.clear();
+    _profilePictureUrls.clear();
   }
 
   List<TeacherActivity> _buildActivities(String teacherId) {
@@ -382,6 +452,8 @@ class TeacherActivityController extends ChangeNotifier {
           title: '${membership.traineeDisplayName} requested to join',
           description: 'Review the request for this class in Groups.',
           destination: AppRoutePaths.teacherGroup(membership.groupId),
+          actorUserId: membership.traineeId,
+          actorDisplayName: membership.traineeDisplayName,
         ),
       );
     }
@@ -423,6 +495,8 @@ class TeacherActivityController extends ChangeNotifier {
               attempt.assignmentId,
               traineeId: attempt.traineeId,
             ),
+            actorUserId: attempt.traineeId,
+            actorDisplayName: traineeName,
           ),
         );
       }
@@ -443,6 +517,8 @@ class TeacherActivityController extends ChangeNotifier {
               attempt.assignmentId,
               traineeId: attempt.traineeId,
             ),
+            actorUserId: attempt.traineeId,
+            actorDisplayName: traineeName,
           ),
         );
       }
@@ -476,6 +552,9 @@ class TeacherActivityController extends ChangeNotifier {
               : 'Open Messages to reply.',
           destination:
               '${AppRoutePaths.teacherMessages}?userId=${Uri.encodeComponent(senderId)}&name=${Uri.encodeComponent(senderName)}&role=${Uri.encodeComponent(senderRole)}',
+          actorUserId: senderRole == User.roleTrainee ? senderId : null,
+          actorDisplayName:
+              senderRole == User.roleTrainee ? senderName : null,
         ),
       );
     }
@@ -526,6 +605,8 @@ class TeacherActivityController extends ChangeNotifier {
     required String title,
     required String description,
     required String destination,
+    String? actorUserId,
+    String? actorDisplayName,
   }) => TeacherActivity(
     id: id,
     type: type,
@@ -534,6 +615,11 @@ class TeacherActivityController extends ChangeNotifier {
     description: description,
     destination: destination,
     isRead: _readAtById.containsKey(id),
+    actorUserId: actorUserId,
+    actorDisplayName: actorDisplayName,
+    actorProfilePictureUrl: actorUserId == null
+        ? null
+        : _profilePictureUrls[actorUserId],
   );
 
   StreamSubscription<List<T>>? _listenSafely<T>({
@@ -590,6 +676,7 @@ class TeacherActivityController extends ChangeNotifier {
     _cancelSubscription(_assignmentsSub);
     _cancelSubscription(_attemptsSub);
     _cancelSubscription(_inboxSub);
+    _cancelProfileWatches();
     super.dispose();
   }
 }

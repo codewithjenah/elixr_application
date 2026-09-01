@@ -1,16 +1,18 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/profile_avatar.dart';
 import 'teacher_activity_controller.dart';
+import 'package:elixr_core/utils/user_name.dart';
 
 class TeacherActivityCenterScreen extends StatefulWidget {
   const TeacherActivityCenterScreen({super.key});
@@ -188,12 +190,7 @@ class _ActivityRow extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                _iconFor(activity.type),
-                color: activity.isRead
-                    ? context.elixTextSecondary
-                    : AppColors.accent,
-              ),
+              _ActivityLeadingVisual(activity: activity),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -219,9 +216,7 @@ class _ActivityRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      DateFormat(
-                        'MMM d, h:mm a',
-                      ).format(activity.occurredAt.toLocal()),
+                      formatElixrDateTime(activity.occurredAt),
                       style: AppTheme.caption.copyWith(
                         color: context.elixTextSecondary,
                       ),
@@ -255,4 +250,30 @@ class _ActivityRow extends StatelessWidget {
     TeacherActivityType.upcomingDeadline => FluentIcons.calendar,
     TeacherActivityType.movementCompleted => FluentIcons.completed,
   };
+}
+
+class _ActivityLeadingVisual extends StatelessWidget {
+  const _ActivityLeadingVisual({required this.activity});
+
+  final TeacherActivity activity;
+
+  @override
+  Widget build(BuildContext context) {
+    final actorName = activity.actorDisplayName;
+    if (actorName != null) {
+      return ExcludeSemantics(
+        child: ProfileAvatarWidget(
+          key: Key('teacher_activity_avatar_${activity.id}'),
+          radius: 20,
+          showBorder: false,
+          initials: userInitials(actorName),
+          networkImageUrl: activity.actorProfilePictureUrl,
+        ),
+      );
+    }
+    return Icon(
+      _ActivityRow._iconFor(activity.type),
+      color: activity.isRead ? context.elixTextSecondary : AppColors.accent,
+    );
+  }
 }

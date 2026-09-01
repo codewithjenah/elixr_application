@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/assignment_attempt.dart';
@@ -705,21 +706,7 @@ String assignedMovementDueLabel(GroupAssignment assignment) {
     'Sunday',
   ];
   if (diff > 1 && diff < 7) return 'Due ${weekdays[local.weekday - 1]}';
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return 'Due ${months[local.month - 1]} ${local.day}';
+  return 'Due ${formatElixrDate(local)}';
 }
 
 String assignedMovementStatusLabel(

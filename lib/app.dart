@@ -177,6 +177,7 @@ class _ElixrAppState extends State<ElixrApp> {
             assignmentRepository: context.read<ClassroomAssignmentRepository>(),
             chatRepository: context.read<ChatRepository>(),
             readStore: context.read<ActivityReadStore>(),
+            publicProfileRepository: context.read<PublicProfileRepository>(),
           ),
           update: (context, auth, controller) {
             controller ??= TeacherActivityController(
@@ -185,6 +186,7 @@ class _ElixrAppState extends State<ElixrApp> {
                   .read<ClassroomAssignmentRepository>(),
               chatRepository: context.read<ChatRepository>(),
               readStore: context.read<ActivityReadStore>(),
+              publicProfileRepository: context.read<PublicProfileRepository>(),
             );
             controller.setTeacher(
               auth.currentUser?.isTeacher == true ? auth.currentUser?.id : null,

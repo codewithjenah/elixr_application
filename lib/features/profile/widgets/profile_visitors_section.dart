@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_card.dart';
 import '../../../data/models/profile_visit.dart';
@@ -98,7 +98,7 @@ class _VisitorRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final lastVisited = visitor.visit.lastViewedAt;
     final label = lastVisited != null
-        ? DateFormat.yMMMd().add_jm().format(
+        ? formatElixrDateTime(
             DateTime.tryParse(lastVisited)?.toLocal() ?? DateTime.now(),
           )
         : 'Recently';

@@ -1,9 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
-
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/feedback.dart' as models;
 import '../../../data/models/session.dart';
@@ -76,7 +75,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
   Widget build(BuildContext context) {
     final s = widget.session;
     final time = s.createdAt != null
-        ? DateFormat.jm().format(DateTime.parse(s.createdAt!).toLocal())
+        ? formatElixrTime(DateTime.parse(s.createdAt!).toLocal())
         : '—';
     final duration = formatTrainingDuration(s.durationSeconds);
     final diffColor = difficultyColor(s.difficulty);

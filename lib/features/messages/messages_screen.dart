@@ -2,12 +2,12 @@ import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_card.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_editorial_header.dart';
@@ -1151,7 +1151,7 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     final metadata = <String>[
-      DateFormat.jm().format(message.createdAt.toLocal()),
+      formatElixrTime(message.createdAt),
       if (message.isEdited) 'Edited',
       if (message.deliveryState == ChatDeliveryState.sending) 'Sending',
       if (message.deliveryState == ChatDeliveryState.error) 'Error',
@@ -1300,7 +1300,7 @@ class _DateSeparator extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
             child: Text(
-              DateFormat.yMMMd().format(date.toLocal()),
+              formatElixrDate(date),
               style: AppTheme.caption.copyWith(
                 color: context.elixTextSecondary,
               ),
@@ -1430,7 +1430,7 @@ String _compactTime(DateTime value) {
   if (local.year == now.year &&
       local.month == now.month &&
       local.day == now.day) {
-    return DateFormat.jm().format(local);
+    return formatElixrTime(local);
   }
-  return DateFormat.MMMd().format(local);
+  return formatElixrDate(local);
 }

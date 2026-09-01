@@ -1,12 +1,12 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/rubric_assessment.dart';
@@ -402,9 +402,7 @@ class _RubricTrendChart extends StatelessWidget {
             getTooltipItems: (touched) => touched.map((t) {
               final s = sessions[t.x.toInt()];
               final date = s.createdAt != null
-                  ? DateFormat.MMMd().format(
-                      DateTime.parse(s.createdAt!).toLocal(),
-                    )
+                  ? formatElixrDate(DateTime.parse(s.createdAt!).toLocal())
                   : '';
               final total = s.rubricTotal ?? 0;
               final level = s.performanceLevel?.label ?? '';

@@ -59,7 +59,10 @@ void main() {
     expect(classCardDueLabel(DateTime(2026, 8, 27, 23), now: now), 'Due today');
     expect(classCardDueLabel(DateTime(2026, 8, 28), now: now), 'Due tomorrow');
     expect(classCardDueLabel(DateTime(2026, 8, 31), now: now), 'Due Monday');
-    expect(classCardDueLabel(DateTime(2026, 9, 8), now: now), 'Due Sep 8');
+    expect(
+      classCardDueLabel(DateTime(2026, 9, 8), now: now),
+      'Due Sep 8, 2026',
+    );
   });
 
   test('preview items keep two soonest active assignments', () {

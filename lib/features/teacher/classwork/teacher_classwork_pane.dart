@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
@@ -1349,9 +1350,5 @@ class _TeacherSubmissionReviewDetailState
 }
 
 String _formatDue(DateTime dueAt) {
-  final local = dueAt.toLocal();
-  final year = local.year.toString().padLeft(4, '0');
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  return '$year-$month-$day';
+  return formatElixrDate(dueAt);
 }

@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
@@ -205,7 +205,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (sessionDay == today.subtract(const Duration(days: 1))) {
       return 'Yesterday';
     }
-    return DateFormat.yMMMMd().format(date);
+    return formatElixrDate(date);
   }
 
   static double? _average(List<int> values) {
@@ -241,7 +241,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final hasSessions = _sessions.isNotEmpty;
     final dateFilterLabel = _dateFilter == null
         ? null
-        : DateFormat.yMMMMd().format(_dateFilter!);
+        : formatElixrDate(_dateFilter!);
 
     final body = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

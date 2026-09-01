@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/group_assignment.dart';
@@ -73,21 +74,6 @@ const _weekdayNames = [
   'Sunday',
 ];
 
-const _monthNames = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-
 String classCardDueLabel(DateTime? dueAt, {DateTime? now}) {
   if (dueAt == null) return 'Assigned';
   final local = dueAt.toLocal();
@@ -100,7 +86,7 @@ String classCardDueLabel(DateTime? dueAt, {DateTime? now}) {
   if (diff > 1 && diff < 7) {
     return 'Due ${_weekdayNames[local.weekday - 1]}';
   }
-  return 'Due ${_monthNames[local.month - 1]} ${local.day}';
+  return 'Due ${formatElixrDate(local)}';
 }
 
 List<ClassCardWorkItem> classCardWorkItemsFromAssignments(

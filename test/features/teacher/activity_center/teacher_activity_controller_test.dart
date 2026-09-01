@@ -6,7 +6,9 @@ import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/teacher/activity_center/activity_read_store.dart';
 import 'package:elixr_application/features/teacher/activity_center/teacher_activity_center_screen.dart';
 import 'package:elixr_application/features/teacher/activity_center/teacher_activity_controller.dart';
@@ -14,6 +16,8 @@ import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+
+import '../teacher_phase3_test_support.dart';
 
 const teacherId = 'teacher';
 final now = DateTime.utc(2026, 8, 29, 12);
@@ -40,11 +44,13 @@ void main() {
   TeacherActivityController createController({
     GroupRepository? groupRepository,
     ActivityReadStore? store,
+    PublicProfileRepository? publicProfileRepository,
   }) => TeacherActivityController(
     groupRepository: groupRepository ?? groups,
     assignmentRepository: assignments,
     chatRepository: chat,
     readStore: store ?? readStore,
+    publicProfileRepository: publicProfileRepository,
     now: () => now,
     periodicTimer: (_, _) => _NoopTimer(),
   );
@@ -128,6 +134,12 @@ void main() {
         ]),
       );
       expect(controller.activities, hasLength(6));
+      final submission = controller.activities.singleWhere(
+        (activity) => activity.type == TeacherActivityType.newSubmission,
+      );
+      expect(submission.actorUserId, 'student');
+      expect(submission.actorDisplayName, 'Ada Lovelace');
+      expect(submission.actorProfilePictureUrl, isNull);
       expect(
         controller.activities
             .singleWhere(
@@ -316,6 +328,56 @@ void main() {
       expect(find.text('You are all caught up'), findsOneWidget);
     },
   );
+
+  test('loads the student profile photo for activity', () async {
+    groups.seedMembership(_membership(status: GroupMembershipStatus.pending));
+    final profiles = FakePublicProfileRepository();
+    final controller = createController(publicProfileRepository: profiles)
+      ..setTeacher(teacherId);
+    addTearDown(controller.dispose);
+    await _settle();
+    expect(profiles.watchedUserIds, contains('student'));
+
+    profiles.emitProfile(
+      'student',
+      const PublicProfile(
+        userId: 'student',
+        displayName: 'Ada Lovelace',
+        visibility: ProfileVisibility.public,
+        profilePictureUrl: 'https://example.test/ada.png',
+      ),
+    );
+    await _settle();
+
+    expect(
+      controller.activities.single.actorProfilePictureUrl,
+      'https://example.test/ada.png',
+    );
+  });
+
+  testWidgets('shows the student avatar beside student activity', (
+    tester,
+  ) async {
+    groups.seedMembership(_membership(status: GroupMembershipStatus.pending));
+    final controller = createController()..setTeacher(teacherId);
+    addTearDown(controller.dispose);
+    await _settle();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TeacherActivityController>.value(
+        value: controller,
+        child: FluentApp(
+          theme: FluentThemeData(),
+          home: const TeacherActivityCenterScreen(),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const Key('teacher_activity_avatar_join_request:group_student')),
+      findsOneWidget,
+    );
+  });
 }
 
 Future<void> _settle() async {

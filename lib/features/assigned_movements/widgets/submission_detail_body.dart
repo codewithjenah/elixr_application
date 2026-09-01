@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/assignment_attempt.dart';
@@ -630,13 +631,7 @@ class _TeacherReviewedSection extends StatelessWidget {
 }
 
 String formatSubmissionTimestamp(DateTime value) {
-  final local = value.toLocal();
-  final y = local.year.toString().padLeft(4, '0');
-  final m = local.month.toString().padLeft(2, '0');
-  final d = local.day.toString().padLeft(2, '0');
-  final hh = local.hour.toString().padLeft(2, '0');
-  final mm = local.minute.toString().padLeft(2, '0');
-  return '$y-$m-$d $hh:$mm';
+  return formatElixrDateTime(value);
 }
 
 String formatSubmissionDurationMs(int durationMs) {

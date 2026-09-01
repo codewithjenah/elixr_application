@@ -2,13 +2,13 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
@@ -251,8 +251,7 @@ class _AnalyticsFilters extends StatelessWidget {
     final start = controller.customStartDate;
     final end = controller.customEndDate;
     if (start == null || end == null) return 'Choose dates';
-    return '${DateFormat('MMM d, yyyy').format(start)} – '
-        '${DateFormat('MMM d, yyyy').format(end)}';
+    return '${formatElixrDate(start)} – ${formatElixrDate(end)}';
   }
 }
 
@@ -335,7 +334,7 @@ class _AnalyticsBody extends StatelessWidget {
         if (controller.lastUpdated != null) ...[
           const SizedBox(height: AppSpacing.lg),
           Text(
-            'Last updated ${DateFormat('MMM d, yyyy h:mm a').format(controller.lastUpdated!.toLocal())}',
+            'Last updated ${formatElixrDateTime(controller.lastUpdated!)}',
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
         ],

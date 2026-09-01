@@ -2,13 +2,13 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
+import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
@@ -1017,7 +1017,7 @@ class _AccessListRow extends StatelessWidget {
 
 String _formatTime(DateTime? value) {
   if (value == null) return 'recently';
-  return DateFormat.yMMMd().add_jm().format(value.toLocal());
+  return formatElixrDateTime(value);
 }
 
 Future<void> _confirmLeaveClass(

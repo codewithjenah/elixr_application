@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/group_assignment.dart';
@@ -191,7 +192,7 @@ class _AssignmentStreamCard extends StatelessWidget {
                 Text(
                   assignment.dueAt == null
                       ? 'Assigned'
-                      : 'Due ${assignment.dueAt!.toLocal().month}/${assignment.dueAt!.toLocal().day}',
+                      : 'Due ${formatElixrDate(assignment.dueAt!)}',
                   style: AppTheme.caption.copyWith(
                     color: context.elixTextSecondary,
                   ),
@@ -310,11 +311,7 @@ class _AnnouncementCard extends StatelessWidget {
     String teacherDisplayName,
   ) {
     final created = announcement.createdAt?.toLocal();
-    final stamp = created == null
-        ? 'Just now'
-        : '${created.month}/${created.day}/${created.year} '
-              '${created.hour.toString().padLeft(2, '0')}:'
-              '${created.minute.toString().padLeft(2, '0')}';
+    final stamp = created == null ? 'Just now' : formatElixrDateTime(created);
     return announcement.isEdited
         ? '$teacherDisplayName · $stamp · Edited'
         : '$teacherDisplayName · $stamp';
