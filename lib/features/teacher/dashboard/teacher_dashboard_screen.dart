@@ -195,9 +195,16 @@ class _DashboardBody extends StatelessWidget {
               TeacherAnalyticsSummary(controller: analyticsController!),
             ],
             const SizedBox(height: AppSpacing.xl),
-            const ElixSectionHeader(
+            ElixSectionHeader(
               heading: 'Groups overview',
               eyebrow: 'CLASSROOM',
+              subtitle: 'Manage your rosters and keep join requests moving.',
+              actions: [
+                Button(
+                  onPressed: () => context.go(AppRoutePaths.teacherGroups),
+                  child: const Text('Open groups'),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.md),
             if (controller.groupSummaries.isEmpty)
@@ -238,18 +245,101 @@ class _GroupOverviewRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasPending = summary.pendingCount > 0;
+    final rosterLabel = summary.approvedCount == 1
+        ? '1 student enrolled'
+        : '${summary.approvedCount} students enrolled';
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: ElixPanelCard(
-        child: ListTile(
-          title: Text(summary.group.name),
-          subtitle: Text(
-            '${summary.approvedCount} students · ${summary.pendingCount} waiting',
-          ),
-          trailing: Button(
-            onPressed: () => context.go(AppRoutePaths.teacherGroups),
-            child: const Text('Manage'),
-          ),
+        accent: hasPending
+            ? context.elixColors.warning
+            : context.elixColors.brandPrimary,
+        showAccentBar: hasPending,
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 520;
+            final identity = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: context.elixColors.brandPrimary.withValues(
+                      alpha: context.isHighContrast ? 0 : 0.14,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    FluentIcons.education,
+                    size: 20,
+                    color: context.elixColors.brandPrimary,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        summary.group.name,
+                        style: AppTheme.cardTitle(
+                          color: context.elixTextPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        rosterLabel,
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+            final status = ElixPill(
+              compact: true,
+              color: hasPending
+                  ? context.elixColors.warning
+                  : context.elixColors.success,
+              text: hasPending
+                  ? '${summary.pendingCount} waiting'
+                  : 'Roster up to date',
+            );
+            final action = FilledButton(
+              onPressed: () => context.go(AppRoutePaths.teacherGroups),
+              child: const Text('Manage group'),
+            );
+
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  identity,
+                  const SizedBox(height: AppSpacing.md),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [status, action],
+                  ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: identity),
+                const SizedBox(width: AppSpacing.md),
+                status,
+                const SizedBox(width: AppSpacing.sm),
+                action,
+              ],
+            );
+          },
         ),
       ),
     );

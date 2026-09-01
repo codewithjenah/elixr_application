@@ -33,6 +33,7 @@ class ElixPanelCard extends StatelessWidget {
     final highContrast = context.isHighContrast;
     final surface = context.elixPanelSurface;
     final borderColor = context.elixColors.borderSubtle;
+    final accentColor = accent;
     final content = Padding(
       padding: padding ?? const EdgeInsets.all(AppSpacing.md),
       child: child,
@@ -47,15 +48,21 @@ class ElixPanelCard extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child: showAccentBar && accent != null
-            ? IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(width: 3, color: accent),
-                    Expanded(child: content),
-                  ],
-                ),
+        child: showAccentBar && accentColor != null
+            ? Stack(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 3),
+                    child: content,
+                  ),
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 3,
+                    child: ColoredBox(color: accentColor),
+                  ),
+                ],
               )
             : content,
       ),
