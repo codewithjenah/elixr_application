@@ -214,6 +214,7 @@
       "collectionGroup": "assignment_recipients",
       "fieldPath": "teacher_id",
       "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
         { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
     },
