@@ -1,6 +1,5 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
-import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
@@ -118,7 +117,12 @@ void main() {
       await pumpDetail(tester);
       await tester.pump();
 
-      expect(find.text('No history yet'), findsOneWidget);
+      expect(
+        find.byKey(const Key('teacher_student_practice_entry')),
+        findsOneWidget,
+      );
+      expect(find.text('Recent History'), findsNothing);
+      expect(find.text('View full history'), findsNothing);
       expect(
         find.textContaining('Classroom membership is required'),
         findsNothing,
@@ -156,8 +160,12 @@ void main() {
 
       expect(find.text('Ada Lovelace'), findsWidgets);
       expect(find.text('Profile locked'), findsOneWidget);
-      expect(find.text('Recent History'), findsOneWidget);
-      expect(find.text('Hand Stall'), findsWidgets);
+      expect(find.text('Recent History'), findsNothing);
+      expect(find.text('View full history'), findsNothing);
+      expect(
+        find.byKey(const Key('teacher_student_practice_entry')),
+        findsOneWidget,
+      );
       expect(find.text('Achievements'), findsNothing);
       expect(find.text('Completed Movements'), findsNothing);
       expect(find.text('Not authorized'), findsNothing);
@@ -223,7 +231,8 @@ void main() {
       expect(find.text('Profile highlights'), findsOneWidget);
       expect(find.text('Achievements'), findsOneWidget);
       expect(find.text('Completed Movements'), findsOneWidget);
-      expect(find.text('Recent History'), findsOneWidget);
+      expect(find.text('Recent History'), findsNothing);
+      expect(find.text('Hand Stall'), findsOneWidget);
     },
   );
 
@@ -256,13 +265,10 @@ void main() {
     progress.inner.sessions['trainee'] = [sampleSession()];
     await pumpDetail(tester);
     await tester.pump();
-    expect(find.text('Hand Stall'), findsWidgets);
+    expect(find.text('Recent History'), findsNothing);
     expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is MovementImage && widget.movementName == 'Hand Stall',
-      ),
-      findsWidgets,
+      find.byKey(const Key('teacher_student_practice_entry')),
+      findsOneWidget,
     );
   });
 
@@ -279,7 +285,10 @@ void main() {
     await pumpDetail(tester);
     await tester.pump();
 
-    expect(find.text('No history yet'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_student_practice_entry')),
+      findsOneWidget,
+    );
     expect(find.text('Hand Stall'), findsNothing);
   });
 
@@ -389,7 +398,14 @@ void main() {
               find.byKey(const Key('teacher_student_classwork_entry')),
             )
             .dy,
-        lessThan(tester.getTopLeft(find.text('No history yet')).dy),
+        lessThan(
+          tester
+                  .getBottomLeft(
+                    find.byKey(const Key('teacher_student_classwork_entry')),
+                  )
+                  .dy +
+              1,
+        ),
       );
     },
   );

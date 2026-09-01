@@ -7,16 +7,21 @@ import '../../../data/models/public_profile_summary.dart';
 import '../../history/history_format.dart';
 import 'profile_section_card.dart';
 
+/// Separates a confirmed absence from asynchronous rank resolution failures.
+enum ProfileRankState { resolving, ranked, unranked, unavailable }
+
 class ProfileStatsSection extends StatelessWidget {
   const ProfileStatsSection({
     super.key,
     required this.leaderboardEntry,
     this.rank,
+    this.rankState,
     this.summary,
   });
 
   final LeaderboardEntry? leaderboardEntry;
   final int? rank;
+  final ProfileRankState? rankState;
   final PublicProfileSummary? summary;
 
   static const _fiveColumnMinWidth = 1050.0;
@@ -27,7 +32,18 @@ class ProfileStatsSection extends StatelessWidget {
     final entry = leaderboardEntry;
     if (entry == null) return const SizedBox.shrink();
 
-    final rankLabel = rank != null ? '#$rank' : 'Unranked';
+    final effectiveRankState = rank != null
+        ? ProfileRankState.ranked
+        // Keep the established public-profile contract for callers that do
+        // not provide the richer asynchronous state. Teacher Details passes
+        // it explicitly and never uses this fallback while resolving.
+        : rankState ?? ProfileRankState.unranked;
+    final rankLabel = switch (effectiveRankState) {
+      ProfileRankState.ranked => '#$rank',
+      ProfileRankState.unranked => 'Unranked',
+      ProfileRankState.unavailable => 'Unavailable',
+      ProfileRankState.resolving => '—',
+    };
     final practiceTime = formatTrainingDuration(
       summary?.totalDurationSeconds ?? 0,
     );

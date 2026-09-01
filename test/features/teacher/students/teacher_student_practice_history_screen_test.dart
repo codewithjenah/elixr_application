@@ -134,11 +134,12 @@ void main() {
     await pumpScreen(tester);
 
     expect(evidence.downloads, isEmpty);
-    await tester.tap(
-      find.byKey(const Key('teacher_history_evidence_session-1')),
-    );
+    expect(find.textContaining('66.7%'), findsOneWidget);
+    expect(find.text('Assessment V2'), findsNothing);
+    await tester.tap(find.byKey(const Key('teacher_history_row_session-1')));
     await tester.pumpAndSettle();
     expect(evidence.downloads, ['trainee:session-1']);
+    expect(find.textContaining('Assessment V2'), findsOneWidget);
     expect(find.text('Saved image is unavailable.'), findsOneWidget);
 
     evidence.responses[session.sessionId] = Uint8List.fromList(_tinyPng);

@@ -8,6 +8,7 @@ import '../../../data/models/achievement.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
+import '../../profile/widgets/profile_stats_section.dart';
 
 enum TeacherStudentDetailState {
   loadingClassroom,
@@ -62,6 +63,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
   PublicProfile? profileRoot;
   LeaderboardEntry? leaderboardEntry;
   int? leaderboardRank;
+  ProfileRankState leaderboardRankState = ProfileRankState.resolving;
   List<AchievementDefinition> claimedAchievements = const [];
   bool profileHighlightsLoading = false;
   PublicProfileSummary? summary;
@@ -87,12 +89,14 @@ class TeacherStudentDetailController extends ChangeNotifier {
   int _dataEpoch = 0;
   int _pageEpoch = 0;
   int _profileHighlightsEpoch = 0;
+  int _rankRequestEpoch = 0;
   String? _preparingContextKey;
   String? _preparedContextKey;
   bool _firstSummarySettled = false;
   bool _firstPageSettled = false;
   bool _teacherGroupsLoaded = false;
   bool _disposed = false;
+  bool _publicHighlightsInitialized = false;
 
   bool get hasClassroomAuthorization => approvedMemberships.isNotEmpty;
 
@@ -256,8 +260,13 @@ class TeacherStudentDetailController extends ChangeNotifier {
       value,
     ) {
       if (!_isCurrentClassroom(classroomEpoch)) return;
+      final wasPublic = profileRoot?.isPublic ?? false;
       profileRoot = value;
-      _refreshPublicHighlights();
+      final isPublic = value?.isPublic ?? false;
+      if (!_publicHighlightsInitialized || wasPublic != isPublic) {
+        _publicHighlightsInitialized = true;
+        _refreshPublicHighlights();
+      }
       notifyListeners();
     }, onError: (_) {});
   }
@@ -269,18 +278,36 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _leaderboardSub = null;
     leaderboardEntry = null;
     leaderboardRank = null;
+    leaderboardRankState = ProfileRankState.resolving;
     claimedAchievements = const [];
     profileHighlightsLoading = profile?.isPublic ?? false;
     if (profile?.isPublic != true) return;
 
     final leaderboard = leaderboardRepository;
     if (leaderboard != null) {
-      _leaderboardSub = leaderboard.watchPlayer(traineeId).listen((entry) {
-        if (_disposed || epoch != _profileHighlightsEpoch) return;
-        leaderboardEntry = entry;
-        notifyListeners();
-      }, onError: (_) {});
-      unawaited(_loadLeaderboardRank(leaderboard, epoch));
+      _leaderboardSub = leaderboard
+          .watchPlayer(traineeId)
+          .listen(
+            (entry) {
+              if (_disposed || epoch != _profileHighlightsEpoch) return;
+              leaderboardEntry = entry;
+              leaderboardRank = null;
+              if (entry == null) {
+                leaderboardRankState = ProfileRankState.unranked;
+              } else {
+                leaderboardRankState = ProfileRankState.resolving;
+                unawaited(_loadLeaderboardRank(leaderboard, epoch));
+              }
+              notifyListeners();
+            },
+            onError: (_) {
+              if (_disposed || epoch != _profileHighlightsEpoch) return;
+              leaderboardRankState = ProfileRankState.unavailable;
+              notifyListeners();
+            },
+          );
+    } else {
+      leaderboardRankState = ProfileRankState.unavailable;
     }
     unawaited(_loadClaimedAchievements(epoch));
   }
@@ -289,13 +316,32 @@ class TeacherStudentDetailController extends ChangeNotifier {
     LeaderboardRepository leaderboard,
     int epoch,
   ) async {
+    final requestEpoch = ++_rankRequestEpoch;
     try {
       final rank = await leaderboard.computeRankForUser(traineeId);
-      if (_disposed || epoch != _profileHighlightsEpoch) return;
+      if (_disposed ||
+          epoch != _profileHighlightsEpoch ||
+          requestEpoch != _rankRequestEpoch) {
+        return;
+      }
       leaderboardRank = rank;
+      // The active watch has already confirmed this player has an entry. A
+      // null point-in-time rank is therefore an unresolved read, not proof
+      // that the player is unranked.
+      leaderboardRankState = rank == null
+          ? ProfileRankState.unavailable
+          : ProfileRankState.ranked;
       notifyListeners();
     } catch (_) {
-      // Rank is optional; the stat card still renders an unranked player.
+      if (_disposed ||
+          epoch != _profileHighlightsEpoch ||
+          requestEpoch != _rankRequestEpoch) {
+        return;
+      }
+      // A watched entry proves participation. A rank query failure is not an
+      // absence from the global leaderboard and can recover on later updates.
+      leaderboardRankState = ProfileRankState.unavailable;
+      notifyListeners();
     }
   }
 
@@ -323,6 +369,8 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _leaderboardSub = null;
     leaderboardEntry = null;
     leaderboardRank = null;
+    leaderboardRankState = ProfileRankState.resolving;
+    _rankRequestEpoch++;
     claimedAchievements = const [];
     profileHighlightsLoading = false;
   }
@@ -546,6 +594,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _profileSub = null;
     profileRoot = null;
     _clearProfileHighlights();
+    _publicHighlightsInitialized = false;
     _preparingContextKey = null;
     _preparedContextKey = null;
     summary = null;

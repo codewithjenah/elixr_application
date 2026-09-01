@@ -1,9 +1,6 @@
-import 'dart:typed_data';
-
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -15,9 +12,7 @@ import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
-import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
-import '../../../data/models/assessment_score_display.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../services/auth_service.dart';
@@ -243,8 +238,6 @@ class _Body extends StatelessWidget {
         Text('Learning', style: AppTheme.headingMedium),
         const SizedBox(height: AppSpacing.sm),
         _LearningEntries(controller: controller),
-        const SizedBox(height: AppSpacing.xl),
-        _PracticePreview(controller: controller),
         if (controller.profileRoot?.isPublic == true) ...[
           const SizedBox(height: AppSpacing.xl),
           _ProfileHighlights(controller: controller),
@@ -374,57 +367,6 @@ class _LearningEntry extends StatelessWidget {
   );
 }
 
-class _PracticePreview extends StatelessWidget {
-  const _PracticePreview({required this.controller});
-  final TeacherStudentDetailController controller;
-  @override
-  Widget build(BuildContext context) {
-    final summary = controller.summary;
-    if (controller.state == TeacherStudentDetailState.empty)
-      return const _Message(
-        title: 'No history yet',
-        body:
-            'Independent and Guided Practice sessions will appear here when available.',
-      );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Recent History', style: AppTheme.headingMedium),
-        const SizedBox(height: AppSpacing.sm),
-        if (summary != null)
-          _Metrics(summary: summary, sessions: controller.sessions),
-        const SizedBox(height: AppSpacing.md),
-        if (controller.sessions.isEmpty)
-          Text(
-            'No recent History sessions.',
-            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-          )
-        else
-          ElixPanelCard(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                for (final session in controller.sessions)
-                  _PracticeRow(controller: controller, session: session),
-              ],
-            ),
-          ),
-        const SizedBox(height: AppSpacing.sm),
-        Button(
-          key: const Key('teacher_student_view_practice_history'),
-          onPressed: () => context.push(
-            AppRoutePaths.teacherStudentPracticeHistory(
-              controller.traineeId,
-              groupId: controller.selectedGroupId,
-            ),
-          ),
-          child: const Text('View full history'),
-        ),
-      ],
-    );
-  }
-}
-
 class _LockedProfileNotice extends StatelessWidget {
   const _LockedProfileNotice();
 
@@ -473,6 +415,7 @@ class _ProfileHighlights extends StatelessWidget {
         ProfileStatsSection(
           leaderboardEntry: controller.leaderboardEntry,
           rank: controller.leaderboardRank,
+          rankState: controller.leaderboardRankState,
           summary: controller.summary,
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -517,151 +460,6 @@ class _ProfileHighlights extends StatelessWidget {
   );
 }
 
-class _Metrics extends StatelessWidget {
-  const _Metrics({required this.summary, required this.sessions});
-  final PublicProfileSummary summary;
-  final List<PublicProfileSession> sessions;
-  @override
-  Widget build(BuildContext context) {
-    final last = sessions.isEmpty ? null : sessions.first.createdAt;
-    return Wrap(
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.sm,
-      children: [
-        _Metric(
-          label: 'Total history',
-          value: _humanDuration(summary.totalDurationSeconds),
-        ),
-        _Metric(
-          label: 'Completed movements',
-          value: '${summary.completedMovementNames.length}',
-        ),
-        _Metric(
-          label: 'Last session',
-          value: last == null ? 'Not yet recorded' : _date(last),
-        ),
-      ],
-    );
-  }
-}
-
-class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
-  final String label;
-  final String value;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(
-      horizontal: AppSpacing.md,
-      vertical: AppSpacing.sm,
-    ),
-    decoration: BoxDecoration(
-      border: Border.all(color: context.elixColors.borderSubtle),
-      borderRadius: BorderRadius.circular(10),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-        ),
-        Text(value, style: AppTheme.body.copyWith(fontWeight: FontWeight.w600)),
-      ],
-    ),
-  );
-}
-
-class _PracticeRow extends StatelessWidget {
-  const _PracticeRow({required this.controller, required this.session});
-  final TeacherStudentDetailController controller;
-  final PublicProfileSession session;
-  @override
-  Widget build(BuildContext context) {
-    final score = session.isRubricAssessed
-        ? AssessmentScoreDisplay.official(session.rubric!.total)
-        : '${session.legacyScore ?? 0}%';
-    final when = session.createdAt == null
-        ? 'Date unavailable'
-        : _date(session.createdAt!);
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
-        children: [
-          MovementImage(movementName: session.movementName, size: 42),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  session.movementName,
-                  style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${session.difficulty} · $when · ${_humanDuration(session.durationSeconds)} · $score${session.isRubricAssessed ? ' · ${session.rubric!.performanceLevel.label}' : ''}',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                if (session.evidenceAvailable == true)
-                  Text(
-                    'Saved evidence available',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (session.evidenceAvailable == true)
-            _EvidenceButton(controller: controller, session: session),
-        ],
-      ),
-    );
-  }
-}
-
-class _EvidenceButton extends StatelessWidget {
-  const _EvidenceButton({required this.controller, required this.session});
-  final TeacherStudentDetailController controller;
-  final PublicProfileSession session;
-  @override
-  Widget build(BuildContext context) => Button(
-    onPressed: () async {
-      await controller.loadEvidence(session);
-      if (!context.mounted) return;
-      final bytes = controller.evidenceFor(session.sessionId);
-      if (bytes != null) _showEvidence(context, session, bytes);
-    },
-    child: const Text('Evidence'),
-  );
-}
-
-void _showEvidence(
-  BuildContext context,
-  PublicProfileSession session,
-  Uint8List bytes,
-) {
-  showDialog<void>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: Text('${session.movementName} · Saved image'),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 520),
-        child: Image.memory(bytes, fit: BoxFit.contain),
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
-        ),
-      ],
-    ),
-  );
-}
-
 class _Chip extends StatelessWidget {
   const _Chip({required this.label, required this.color});
   final String label;
@@ -690,19 +488,4 @@ class _Message extends StatelessWidget {
     actionLabel: action == null ? null : 'Retry',
     onAction: action,
   );
-}
-
-String _humanDuration(int seconds) {
-  if (seconds < 60) return '$seconds sec';
-  final duration = Duration(seconds: seconds);
-  final hours = duration.inHours;
-  final minutes = duration.inMinutes.remainder(60);
-  return hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
-}
-
-String _date(String value) {
-  final parsed = DateTime.tryParse(value);
-  return parsed == null
-      ? 'Date unavailable'
-      : DateFormat('MMM d, y · h:mm a').format(parsed.toLocal());
 }
