@@ -398,7 +398,7 @@ describe('Phase 6 teacher_review_submission', () => {
     );
   });
 
-  test('>20s metadata denied', async () => {
+  test('>60s metadata denied', async () => {
     await seedClassroom();
     await seedDraft();
     const db = context('trainee').firestore();
@@ -408,14 +408,14 @@ describe('Phase 6 teacher_review_submission', () => {
         video_storage_path: PATH,
         video_content_type: 'video/mp4',
         video_size_bytes: 2048,
-        video_duration_ms: 20001,
+        video_duration_ms: 60001,
         submitted_at: serverTimestamp(),
         video_expires_at: expiryUnreviewed(),
       }),
     );
   });
 
-  test('>15MiB metadata denied', async () => {
+  test('>50MiB metadata denied', async () => {
     await seedClassroom();
     await seedDraft();
     const db = context('trainee').firestore();
@@ -424,7 +424,7 @@ describe('Phase 6 teacher_review_submission', () => {
         status: 'submitted',
         video_storage_path: PATH,
         video_content_type: 'video/mp4',
-        video_size_bytes: 15 * 1024 * 1024 + 1,
+        video_size_bytes: 50 * 1024 * 1024 + 1,
         video_duration_ms: 4000,
         submitted_at: serverTimestamp(),
         video_expires_at: expiryUnreviewed(),

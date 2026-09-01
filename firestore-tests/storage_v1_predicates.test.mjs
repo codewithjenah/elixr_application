@@ -233,7 +233,7 @@ describe('assignment_submissions create predicates', () => {
     await seedClassroom();
     await assertFails(
       upload(TRAINEE, {
-        body: new Uint8Array(15 * 1024 * 1024 + 1),
+        body: new Uint8Array(50 * 1024 * 1024 + 1),
       }),
     );
   });

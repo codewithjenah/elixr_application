@@ -4311,7 +4311,25 @@ service cloud.firestore {
       allow create: if validAssignmentAttemptCreate(request.resource.data, attemptId);
       allow update: if isSignedIn()
         && (
-          validTeacherDraftAttemptUpdate()
+          // Gate the cleanup paths before their full predicates. This keeps
+          // ordinary submission transitions from evaluating recovery-only
+          // rules, while letting abandoned drafts avoid the later, expensive
+          // review-transition predicate chain.
+          (request.resource.data.keys().hasAny(['abandoned_at'])
+            && validTeacherReviewSubmissionAbandon(attemptId))
+          || (resource.data.keys().hasAny(['abandoned_at'])
+            && validAbandonedTeacherReviewCleanup(attemptId))
+          || (resource.data.attempt_kind == 'teacher_review_submission'
+            && resource.data.status == 'draft'
+            && request.resource.data.status == 'in_progress'
+            && validCanonicalTeacherReviewSubmissionPromote(attemptId))
+          || (resource.data.attempt_kind == 'teacher_review_submission'
+            && request.resource.data.status == 'submitted'
+            && validTeacherReviewSubmissionTraineeSubmit(attemptId))
+          || (request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['video_deleted_at'])
+            && validTeacherReviewSubmissionCleanup(attemptId))
+          || validTeacherDraftAttemptUpdate()
           || validTeacherReviewSubmissionTraineeSubmit(attemptId)
           || validCanonicalTeacherReviewSubmissionAttachDraft(attemptId)
           || validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId)
@@ -4324,8 +4342,6 @@ service cloud.firestore {
           || validTeacherReviewResultSent()
           || validTeacherReviewSubmissionTeacherReview(attemptId)
           || validTeacherReviewSubmissionCleanup(attemptId)
-          || validTeacherReviewSubmissionAbandon(attemptId)
-          || validAbandonedTeacherReviewCleanup(attemptId)
         );
       allow delete: if isSignedIn()
         && !exists(userPath(request.auth.uid))

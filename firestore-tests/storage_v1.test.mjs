@@ -296,7 +296,7 @@ describe('assignment_submissions Storage', () => {
     );
   });
 
-  test('approved Trainee creates matching <=15MiB video/mp4', async () => {
+  test('approved Trainee creates matching <=50MiB video/mp4', async () => {
     await seedClassroom();
     const storage = context('trainee').storage();
     await assertSucceeds(
@@ -304,13 +304,13 @@ describe('assignment_submissions Storage', () => {
     );
   });
 
-  test('over 15MiB denied', async () => {
+  test('over 50MiB denied', async () => {
     await seedClassroom();
     const storage = context('trainee').storage();
     await assertFails(
       uploadBytes(
         ref(storage, PATH),
-        new Uint8Array(15 * 1024 * 1024 + 1),
+        new Uint8Array(50 * 1024 * 1024 + 1),
         metadata(),
       ),
     );

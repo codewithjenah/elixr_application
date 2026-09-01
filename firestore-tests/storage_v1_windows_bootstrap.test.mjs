@@ -308,7 +308,7 @@ describe('assignment_submissions CREATE negatives', () => {
     await seedClassroom();
     await assertFails(
       uploadWindowsCreate('trainee', {
-        body: new Uint8Array(15 * 1024 * 1024 + 1),
+        body: new Uint8Array(50 * 1024 * 1024 + 1),
       }),
     );
   });

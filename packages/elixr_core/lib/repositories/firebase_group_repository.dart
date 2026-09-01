@@ -71,8 +71,8 @@ class FirebaseGroupRepository implements GroupRepository {
     await ref.set({
       'teacher_id': teacherId,
       'name': trimmed,
-      if (normalizedSection != null) 'section': normalizedSection,
-      if (normalizedSchedule != null) 'schedule': normalizedSchedule,
+      'section': ?normalizedSection,
+      'schedule': ?normalizedSchedule,
       'status': ElixrGroupStatus.active.name,
       'schema_version': ElixrGroup.currentSchemaVersion,
       'created_at': FieldValue.serverTimestamp(),
