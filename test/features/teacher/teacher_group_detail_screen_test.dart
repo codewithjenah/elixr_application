@@ -235,7 +235,17 @@ void main() {
       find.byKey(const Key('teacher_group_tab_assignments')),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('teacher_group_tab_grades')), findsOneWidget);
     expect(find.text('Waiting to join'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('teacher_group_tab_grades')));
+    await tester.pumpAndSettle();
+    expect(controller.tab, TeacherGroupDetailTab.grades);
+    expect(
+      find.byKey(const Key('teacher_group_grades_section')),
+      findsOneWidget,
+    );
+    expect(find.text('No students in this class yet.'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('teacher_group_tab_students')));
     await tester.pumpAndSettle();

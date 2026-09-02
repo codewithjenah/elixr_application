@@ -348,6 +348,9 @@ class TeacherClassworkController extends ChangeNotifier {
     return _attemptLoadErrors.contains(assignmentId);
   }
 
+  /// One reference instant for a single gradebook derivation pass.
+  DateTime get gradebookReferenceNow => _now().toUtc();
+
   AssignmentAttempt? latestVisibleAttemptFor({
     required String assignmentId,
     required String traineeId,

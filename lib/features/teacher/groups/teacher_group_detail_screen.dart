@@ -35,6 +35,7 @@ import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../../services/auth_service.dart';
 import '../classwork/teacher_classwork_controller.dart';
+import '../classwork/teacher_gradebook_pane.dart';
 import '../classwork/teacher_classwork_pane.dart';
 import '../movements/teacher_assignment_composer.dart';
 import '../movements/teacher_demo_recording_dialog.dart';
@@ -326,6 +327,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
 TeacherGroupDetailTab _teacherTabFromQuery(String? value) {
   return switch (value?.trim().toLowerCase()) {
     'classwork' => TeacherGroupDetailTab.classwork,
+    'grades' => TeacherGroupDetailTab.grades,
     'people' => TeacherGroupDetailTab.students,
     _ => TeacherGroupDetailTab.announcements,
   };
@@ -559,6 +561,28 @@ class _GroupDetailBody extends StatelessWidget {
                     ),
                   ),
                 )
+        else if (controller.tab == TeacherGroupDetailTab.grades)
+          TeacherGradebookPane(
+            key: const Key('teacher_group_grades_section'),
+            controller: classworkController,
+            profilePictureUrlFor: controller.profilePictureUrlFor,
+            onOpenStudent: (membership) => context.go(
+              AppRoutePaths.teacherStudentDetail(
+                membership.traineeId,
+                groupId: group.id,
+              ),
+            ),
+            onOpenAssignment: (assignment) => context.go(
+              AppRoutePaths.teacherGroupClasswork(group.id, assignment.id),
+            ),
+            onOpenCell: (assignment, traineeId) => context.go(
+              AppRoutePaths.teacherGroupClasswork(
+                group.id,
+                assignment.id,
+                traineeId: traineeId,
+              ),
+            ),
+          )
         else
           _StudentsSection(controller: controller),
       ],
@@ -595,6 +619,13 @@ class _GroupDetailTabBar extends StatelessWidget {
           icon: FluentIcons.education,
           selected: selectedTab == TeacherGroupDetailTab.classwork,
           onPressed: () => onChanged(TeacherGroupDetailTab.classwork),
+        ),
+        _GroupDetailTab(
+          key: const Key('teacher_group_tab_grades'),
+          label: 'Grades',
+          icon: FluentIcons.assessment_group,
+          selected: selectedTab == TeacherGroupDetailTab.grades,
+          onPressed: () => onChanged(TeacherGroupDetailTab.grades),
         ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_students'),

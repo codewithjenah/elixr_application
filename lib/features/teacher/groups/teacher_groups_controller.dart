@@ -14,7 +14,7 @@ import '../../../data/models/public_profile.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 
-enum TeacherGroupDetailTab { classwork, announcements, students }
+enum TeacherGroupDetailTab { classwork, announcements, grades, students }
 
 class TeacherGroupsController extends ChangeNotifier {
   TeacherGroupsController({
