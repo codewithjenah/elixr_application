@@ -585,8 +585,9 @@ class TeacherActivityController extends ChangeNotifier {
       final title = assignment?.displayTitle ?? 'an assigned movement';
       final group = assignment?.groupName ?? 'your class';
       final submittedAt = attempt.submittedAt?.toUtc();
-      if (attempt.isTeacherReviewSubmission &&
-          attempt.status == AssignmentAttemptStatus.submitted &&
+      // Activity Center records that a valid submission happened. Its current
+      // review state may later become checked without erasing that history.
+      if (attempt.isReviewFacingSubmission &&
           submittedAt != null &&
           !submittedAt.isBefore(cutoff)) {
         final isRetry = attempt.supersedesAttemptId != null;

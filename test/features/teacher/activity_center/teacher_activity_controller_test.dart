@@ -298,6 +298,51 @@ void main() {
     );
   });
 
+  test(
+    'keeps the original submission activity after the canonical review is checked',
+    () async {
+      groups.seedMembership(
+        _membership(status: GroupMembershipStatus.approved),
+      );
+      final assignment = _reviewAssignment();
+      final submittedAt = now.subtract(const Duration(hours: 1));
+      assignments.seedAssignment(assignment);
+      assignments.seedAttempt(
+        _reviewAttempt(
+          assignment: assignment,
+          traineeId: 'student',
+          submittedAt: submittedAt,
+        ),
+      );
+
+      final controller = createController()..setTeacher(teacherId);
+      addTearDown(controller.dispose);
+      await _settle();
+
+      expect(controller.pendingReviews, hasLength(1));
+      final originalSubmission = controller.activities.singleWhere(
+        (activity) => activity.type == TeacherActivityType.newSubmission,
+      );
+      expect(originalSubmission.occurredAt, submittedAt);
+
+      await assignments.saveTeacherReview(
+        teacherId: teacherId,
+        attempt: controller.pendingReviews.single.attempt,
+        assignment: assignment,
+        gradeScore: 90,
+      );
+      await _settle();
+
+      expect(controller.pendingReviews, isEmpty);
+      final submissionActivities = controller.activities
+          .where((activity) => activity.type == TeacherActivityType.newSubmission)
+          .toList();
+      expect(submissionActivities, hasLength(1));
+      expect(submissionActivities.single.id, originalSubmission.id);
+      expect(submissionActivities.single.occurredAt, submittedAt);
+    },
+  );
+
   testWidgets('To Review renders its empty state', (tester) async {
     final controller = createController()..setTeacher(teacherId);
     addTearDown(controller.dispose);
