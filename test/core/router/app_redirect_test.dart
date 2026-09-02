@@ -303,6 +303,12 @@ void main() {
         ),
         AppRoutePaths.teacherDashboard,
       );
+      expect(
+        resolveAppRedirect(
+          _state(user: _teacher(), location: AppRoutePaths.activityCenter),
+        ),
+        AppRoutePaths.teacherDashboard,
+      );
     },
   );
 
@@ -342,6 +348,15 @@ void main() {
         _state(
           user: _trainee(),
           location: AppRoutePaths.teacherGroup('group-1'),
+        ),
+      ),
+      AppRoutePaths.dashboard,
+    );
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.teacherActivityCenter,
         ),
       ),
       AppRoutePaths.dashboard,

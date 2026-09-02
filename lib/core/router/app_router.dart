@@ -352,6 +352,13 @@ class AppRouter {
               ),
             ),
             GoRoute(
+              path: AppRoutePaths.activityCenter,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const TraineeActivityCenterScreen(),
+              ),
+            ),
+            GoRoute(
               path: '/profile/:userId',
               pageBuilder: (context, state) {
                 final userId = state.pathParameters['userId'] ?? '';
@@ -527,13 +534,6 @@ class AppRouter {
                 child: const TeacherActivityCenterScreen(
                   initialView: TeacherActivityCenterView.toReview,
                 ),
-              ),
-            ),
-            GoRoute(
-              path: AppRoutePaths.activityCenter,
-              pageBuilder: (context, state) => fadeTransitionPage(
-                key: state.pageKey,
-                child: const TraineeActivityCenterScreen(),
               ),
             ),
             GoRoute(

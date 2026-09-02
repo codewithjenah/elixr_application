@@ -18,6 +18,44 @@ Iterable<GoRoute> _goRoutes(Iterable<RouteMatchBase> matches) sync* {
 }
 
 void main() {
+  test('activity center routes remain in their owning shell trees', () {
+    final auth = phase3TeacherAuth();
+    final tutorials = TutorialProgressService();
+    final joinLinks = JoinLinkService();
+    final router = AppRouter.create(auth, tutorials, joinLinks);
+    addTearDown(router.dispose);
+    addTearDown(auth.dispose);
+    addTearDown(tutorials.dispose);
+    addTearDown(joinLinks.dispose);
+
+    final shellRoutes = router.configuration.routes
+        .whereType<ShellRoute>()
+        .toList(growable: false);
+    final traineeShell = shellRoutes.singleWhere(
+      (shell) => shell.routes
+          .whereType<GoRoute>()
+          .any((route) => route.path == AppRoutePaths.dashboard),
+    );
+    final teacherShell = shellRoutes.singleWhere(
+      (shell) => shell.routes
+          .whereType<GoRoute>()
+          .any((route) => route.path == AppRoutePaths.teacherDashboard),
+    );
+
+    expect(
+      traineeShell.routes.whereType<GoRoute>().map((route) => route.path),
+      contains(AppRoutePaths.activityCenter),
+    );
+    expect(
+      teacherShell.routes.whereType<GoRoute>().map((route) => route.path),
+      contains(AppRoutePaths.teacherActivityCenter),
+    );
+    expect(
+      teacherShell.routes.whereType<GoRoute>().map((route) => route.path),
+      isNot(contains(AppRoutePaths.activityCenter)),
+    );
+  });
+
   test('classwork deep link matches one group-detail page route', () {
     final auth = phase3TeacherAuth();
     final tutorials = TutorialProgressService();
