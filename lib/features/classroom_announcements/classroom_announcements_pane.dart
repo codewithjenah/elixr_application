@@ -6,6 +6,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_status_panel.dart';
+import '../../core/widgets/elix_toast.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/group_assignment.dart';
 import 'package:elixr_core/utils/user_name.dart';
@@ -34,6 +35,10 @@ class ClassroomAnnouncementsPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.loading) return const Center(child: ProgressRing());
+    final pinned = controller.items.where((item) => item.isPinned).toList();
+    final chronological = controller.items
+        .where((item) => !item.isPinned)
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -77,6 +82,21 @@ class ClassroomAnnouncementsPane extends StatelessWidget {
           ElixStatusPanel(message: controller.actionMessage!),
         ],
         const SizedBox(height: AppSpacing.lg),
+        for (final announcement in pinned) ...[
+          _AnnouncementCard(
+            announcement: announcement,
+            teacherDisplayName: teacherDisplayName,
+            teacherProfilePictureUrl: teacherProfilePictureUrl,
+            canManage: canManage,
+            groupIsActive: groupIsActive,
+            busy: controller.busy,
+            onPinToggle: () => _togglePin(context, announcement, controller),
+            onEdit: () =>
+                _showEditor(context, controller, announcement: announcement),
+            onDelete: () => _confirmDelete(context, announcement, controller),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
         if (assignments.isNotEmpty) ...[
           for (final assignment in assignments.take(5)) ...[
             _AssignmentStreamCard(
@@ -97,22 +117,24 @@ class ClassroomAnnouncementsPane extends StatelessWidget {
             message: 'New classroom updates will appear here.',
           )
         else ...[
-          for (var index = 0; index < controller.items.length; index++) ...[
+          for (var index = 0; index < chronological.length; index++) ...[
             if (index > 0) const SizedBox(height: AppSpacing.sm),
             _AnnouncementCard(
-              announcement: controller.items[index],
+              announcement: chronological[index],
               teacherDisplayName: teacherDisplayName,
               teacherProfilePictureUrl: teacherProfilePictureUrl,
               canManage: canManage,
               groupIsActive: groupIsActive,
               busy: controller.busy,
+              onPinToggle: () =>
+                  _togglePin(context, chronological[index], controller),
               onEdit: () => _showEditor(
                 context,
                 controller,
-                announcement: controller.items[index],
+                announcement: chronological[index],
               ),
               onDelete: () =>
-                  _confirmDelete(context, controller.items[index], controller),
+                  _confirmDelete(context, chronological[index], controller),
             ),
           ],
           if (controller.hasMore) ...[
@@ -214,6 +236,7 @@ class _AnnouncementCard extends StatelessWidget {
     required this.canManage,
     required this.groupIsActive,
     required this.busy,
+    required this.onPinToggle,
     required this.onEdit,
     required this.onDelete,
   });
@@ -224,6 +247,7 @@ class _AnnouncementCard extends StatelessWidget {
   final bool canManage;
   final bool groupIsActive;
   final bool busy;
+  final VoidCallback onPinToggle;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -243,18 +267,45 @@ class _AnnouncementCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Text(
-                announcement.title,
-                style: AppTheme.headingMedium.copyWith(
-                  fontSize: 18,
-                  color: context.elixTextPrimary,
-                ),
+              child: Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    announcement.title,
+                    style: AppTheme.headingMedium.copyWith(
+                      fontSize: 18,
+                      color: context.elixTextPrimary,
+                    ),
+                  ),
+                  if (announcement.isPinned)
+                    Text(
+                      'Pinned',
+                      key: Key(
+                        'classroom_announcement_pinned_${announcement.id}',
+                      ),
+                      style: AppTheme.caption.copyWith(
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                ],
               ),
             ),
             if (canManage)
               Wrap(
                 spacing: AppSpacing.xs,
                 children: [
+                  Button(
+                    key: Key('classroom_announcement_pin_${announcement.id}'),
+                    onPressed: busy || !groupIsActive ? null : onPinToggle,
+                    child: Text(
+                      announcement.isPinned
+                          ? 'Unpin announcement'
+                          : 'Pin announcement',
+                    ),
+                  ),
                   Button(
                     key: Key('classroom_announcement_edit_${announcement.id}'),
                     onPressed: busy || !groupIsActive ? null : onEdit,
@@ -316,6 +367,19 @@ class _AnnouncementCard extends StatelessWidget {
         ? '$teacherDisplayName · $stamp · Edited'
         : '$teacherDisplayName · $stamp';
   }
+}
+
+Future<void> _togglePin(
+  BuildContext context,
+  ClassroomAnnouncement announcement,
+  ClassroomAnnouncementsController controller,
+) async {
+  final success = announcement.isPinned
+      ? await controller.unpin(announcement)
+      : await controller.pin(announcement);
+  if (!success || !context.mounted) return;
+  final message = controller.consumeActionMessage();
+  if (message != null) ElixToast.showSuccess(context, message: message);
 }
 
 Future<void> _showEditor(

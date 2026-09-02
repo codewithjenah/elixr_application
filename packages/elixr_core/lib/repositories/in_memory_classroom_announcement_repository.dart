@@ -14,6 +14,7 @@ class InMemoryClassroomAnnouncementRepository
   final DateTime Function()? _now;
   final String Function() _generateId;
   final Map<String, ClassroomAnnouncement> announcements = {};
+  final Map<String, String> pinnedAnnouncementIds = {};
   final Map<String, StreamController<List<ClassroomAnnouncement>>> _streams =
       {};
 
@@ -134,6 +135,32 @@ class InMemoryClassroomAnnouncementRepository
       throw StateError('Announcement is not available.');
     }
     announcements.remove(announcementId);
+    if (pinnedAnnouncementIds[groupId] == announcementId) {
+      pinnedAnnouncementIds.remove(groupId);
+    }
+    _emit(groupId);
+  }
+
+  @override
+  Future<void> setPinnedAnnouncement({
+    required String groupId,
+    required String teacherId,
+    String? announcementId,
+  }) async {
+    final normalized = announcementId?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      pinnedAnnouncementIds.remove(groupId);
+      _emit(groupId);
+      return;
+    }
+    final target = announcements[normalized];
+    if (target == null ||
+        target.groupId != groupId ||
+        target.teacherId != teacherId) {
+      throw StateError('Announcement is not available.');
+    }
+    pinnedAnnouncementIds[groupId] = normalized;
+    announcements[normalized] = target.copyWith(isPinned: true, pinnedAt: now);
     _emit(groupId);
   }
 
@@ -150,10 +177,19 @@ class InMemoryClassroomAnnouncementRepository
   }
 
   List<ClassroomAnnouncement> _itemsFor(String groupId) {
+    final pinnedId = pinnedAnnouncementIds[groupId];
     final items = announcements.values
         .where((item) => item.groupId == groupId)
+        .map(
+          (item) => item.copyWith(
+            isPinned: item.id == pinnedId,
+            pinnedAt: item.id == pinnedId ? item.pinnedAt : null,
+            clearPinnedAt: item.id != pinnedId,
+          ),
+        )
         .toList(growable: false);
     items.sort((a, b) {
+      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
       final byTime = (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
           .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0));
       return byTime != 0 ? byTime : b.id.compareTo(a.id);

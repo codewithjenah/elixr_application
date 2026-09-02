@@ -15,6 +15,8 @@ class ClassroomAnnouncement {
     required this.body,
     this.createdAt,
     this.editedAt,
+    this.isPinned = false,
+    this.pinnedAt,
     this.schemaVersion = currentSchemaVersion,
   });
 
@@ -25,6 +27,8 @@ class ClassroomAnnouncement {
   final String body;
   final DateTime? createdAt;
   final DateTime? editedAt;
+  final bool isPinned;
+  final DateTime? pinnedAt;
   final int schemaVersion;
 
   bool get isEdited => editedAt != null;
@@ -33,6 +37,9 @@ class ClassroomAnnouncement {
     String? title,
     String? body,
     DateTime? editedAt,
+    bool? isPinned,
+    DateTime? pinnedAt,
+    bool clearPinnedAt = false,
   }) => ClassroomAnnouncement(
     id: id,
     groupId: groupId,
@@ -41,6 +48,8 @@ class ClassroomAnnouncement {
     body: body ?? this.body,
     createdAt: createdAt,
     editedAt: editedAt ?? this.editedAt,
+    isPinned: isPinned ?? this.isPinned,
+    pinnedAt: clearPinnedAt ? null : pinnedAt ?? this.pinnedAt,
     schemaVersion: schemaVersion,
   );
 

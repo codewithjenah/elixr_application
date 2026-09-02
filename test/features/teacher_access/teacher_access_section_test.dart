@@ -491,6 +491,53 @@ void main() {
     expect(fallbackAvatar.initials, 'GH');
   });
 
+  testWidgets('trainee sees active classrooms only and no archive selector', (
+    tester,
+  ) async {
+    final active = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'Active class',
+    );
+    final archived = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'Archived class',
+    );
+    for (final group in [active, archived]) {
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      final membership = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+    }
+    await groupRepository.archiveGroup(
+      groupId: archived.id,
+      teacherId: 'teacher-1',
+    );
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+      onOpenClass: (_) {},
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('Active class'), findsOneWidget);
+    expect(find.text('Archived class'), findsNothing);
+    expect(find.byKey(const Key('teacher_access_status_filter')), findsNothing);
+    expect(find.text('Archived classrooms'), findsNothing);
+  });
+
   testWidgets('Trainee can leave an approved class from its card menu', (
     tester,
   ) async {

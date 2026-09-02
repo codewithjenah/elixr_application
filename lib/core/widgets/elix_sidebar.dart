@@ -17,6 +17,7 @@ import '../utils/user_name.dart';
 import 'elix_sidebar_chrome.dart';
 import 'profile_avatar.dart';
 import '../../features/profile/profile_menu.dart';
+import '../../features/trainee/activity_center/trainee_activity_controller.dart';
 
 const _pink = AppColors.primary;
 const _purple = AppColors.accent;
@@ -81,6 +82,12 @@ const elixSidebarItems = [
     icon: FluentIcons.education,
     route: '/learn',
     group: SidebarGroup.training,
+  ),
+  SidebarItem(
+    label: 'Activity Center',
+    icon: FluentIcons.activity_feed,
+    route: '/activity-center',
+    group: SidebarGroup.insights,
   ),
   SidebarItem(
     label: 'Messages',
@@ -187,6 +194,8 @@ class _ElixSidebarState extends State<ElixSidebar> {
     final user = context.watch<AuthService>().currentUser;
     final unreadCount =
         context.watch<MessageUnreadService?>()?.unreadCount ?? 0;
+    final activityUnreadCount =
+        context.watch<TraineeActivityController?>()?.unreadCount ?? 0;
     final initials = (user?.fullName.isNotEmpty == true)
         ? userInitials(user!.fullName)
         : '?';
@@ -228,6 +237,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
                         children: _buildGroupedItems(
                           showCollapsedLayout,
                           unreadCount,
+                          activityUnreadCount,
                         ),
                       ),
                     ),
@@ -243,7 +253,11 @@ class _ElixSidebarState extends State<ElixSidebar> {
     );
   }
 
-  List<Widget> _buildGroupedItems(bool showCollapsedLayout, int unreadCount) {
+  List<Widget> _buildGroupedItems(
+    bool showCollapsedLayout,
+    int unreadCount,
+    int activityUnreadCount,
+  ) {
     final List<Widget> children = [];
 
     void addGroup(SidebarGroup group, String title) {
@@ -261,7 +275,11 @@ class _ElixSidebarState extends State<ElixSidebar> {
             icon: item.icon,
             isActive: isElixSidebarRouteActive(widget.currentRoute, item.route),
             isCollapsed: showCollapsedLayout,
-            unreadCount: item.label == 'Messages' ? unreadCount : 0,
+            unreadCount: switch (item.label) {
+              'Messages' => unreadCount,
+              'Activity Center' => activityUnreadCount,
+              _ => 0,
+            },
             comingSoon: item.comingSoon,
             onTap: () => _onItemTap(item),
           ),

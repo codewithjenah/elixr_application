@@ -47,22 +47,20 @@ class TeacherActivity {
   final String? actorDisplayName;
   final String? actorProfilePictureUrl;
 
-  TeacherActivity copyWith({
-    bool? isRead,
-    String? actorProfilePictureUrl,
-  }) => TeacherActivity(
-    id: id,
-    type: type,
-    occurredAt: occurredAt,
-    title: title,
-    description: description,
-    destination: destination,
-    isRead: isRead ?? this.isRead,
-    actorUserId: actorUserId,
-    actorDisplayName: actorDisplayName,
-    actorProfilePictureUrl:
-        actorProfilePictureUrl ?? this.actorProfilePictureUrl,
-  );
+  TeacherActivity copyWith({bool? isRead, String? actorProfilePictureUrl}) =>
+      TeacherActivity(
+        id: id,
+        type: type,
+        occurredAt: occurredAt,
+        title: title,
+        description: description,
+        destination: destination,
+        isRead: isRead ?? this.isRead,
+        actorUserId: actorUserId,
+        actorDisplayName: actorDisplayName,
+        actorProfilePictureUrl:
+            actorProfilePictureUrl ?? this.actorProfilePictureUrl,
+      );
 }
 
 class TeacherPendingReview {
@@ -302,15 +300,15 @@ class TeacherActivityController extends ChangeNotifier {
     await _saveReadState();
   }
 
-  Future<void> markAllRead() async {
-    if (_teacherId == null || unreadCount == 0) return;
+  Future<bool> markAllRead() async {
+    if (_teacherId == null || unreadCount == 0) return false;
     final readAt = _now().toUtc();
     for (final activity in _activities) {
       _readAtById[activity.id] = readAt;
     }
     _readAtById = _pruneReadState(_readAtById);
     _publish();
-    await _saveReadState();
+    return _saveReadState();
   }
 
   void _onMemberships(
@@ -373,20 +371,22 @@ class TeacherActivityController extends ChangeNotifier {
     _publish();
   }
 
-  Future<void> _saveReadState() async {
+  Future<bool> _saveReadState() async {
     final teacherId = _teacherId;
-    if (teacherId == null) return;
+    if (teacherId == null) return false;
     try {
       await readStore.save(teacherId, Map<String, DateTime>.from(_readAtById));
       if (_teacherId == teacherId) {
         persistenceMessage = null;
         _publish();
       }
+      return true;
     } catch (_) {
       if (_teacherId == teacherId) {
         persistenceMessage = 'Activity read state could not be saved.';
         _publish();
       }
+      return false;
     }
   }
 
@@ -429,23 +429,25 @@ class TeacherActivityController extends ChangeNotifier {
 
     for (final actorId in actorIds) {
       if (_profileSubs.containsKey(actorId)) continue;
-      _profileSubs[actorId] = repository.watchProfileRoot(actorId).listen(
-        (profile) {
-          if (_disposed) return;
-          final url = profile?.profilePictureUrl?.trim();
-          final next = url == null || url.isEmpty ? null : url;
-          if (_profilePictureUrls[actorId] == next) return;
-          if (next == null) {
-            _profilePictureUrls.remove(actorId);
-          } else {
-            _profilePictureUrls[actorId] = next;
-          }
-          _publish();
-        },
-        onError: (_, _) {
-          // The activity remains usable when an optional avatar is unavailable.
-        },
-      );
+      _profileSubs[actorId] = repository
+          .watchProfileRoot(actorId)
+          .listen(
+            (profile) {
+              if (_disposed) return;
+              final url = profile?.profilePictureUrl?.trim();
+              final next = url == null || url.isEmpty ? null : url;
+              if (_profilePictureUrls[actorId] == next) return;
+              if (next == null) {
+                _profilePictureUrls.remove(actorId);
+              } else {
+                _profilePictureUrls[actorId] = next;
+              }
+              _publish();
+            },
+            onError: (_, _) {
+              // The activity remains usable when an optional avatar is unavailable.
+            },
+          );
     }
   }
 
@@ -496,8 +498,8 @@ class TeacherActivityController extends ChangeNotifier {
         continue;
       }
       final assignment = assignmentsById[current!.assignmentId]!;
-      final membership = authorizedMemberships[
-          '${current.groupId}:${current.traineeId}']!;
+      final membership =
+          authorizedMemberships['${current.groupId}:${current.traineeId}']!;
       pending.add(
         TeacherPendingReview(
           attempt: current,
@@ -524,9 +526,7 @@ class TeacherActivityController extends ChangeNotifier {
       final byAssignment = a.assignment.id.compareTo(b.assignment.id);
       if (byAssignment != 0) return byAssignment;
       final byTrainee = a.attempt.traineeId.compareTo(b.attempt.traineeId);
-      return byTrainee != 0
-          ? byTrainee
-          : a.attempt.id.compareTo(b.attempt.id);
+      return byTrainee != 0 ? byTrainee : a.attempt.id.compareTo(b.attempt.id);
     });
     return pending;
   }
@@ -667,8 +667,7 @@ class TeacherActivityController extends ChangeNotifier {
           destination:
               '${AppRoutePaths.teacherMessages}?userId=${Uri.encodeComponent(senderId)}&name=${Uri.encodeComponent(senderName)}&role=${Uri.encodeComponent(senderRole)}',
           actorUserId: senderRole == User.roleTrainee ? senderId : null,
-          actorDisplayName:
-              senderRole == User.roleTrainee ? senderName : null,
+          actorDisplayName: senderRole == User.roleTrainee ? senderName : null,
         ),
       );
     }

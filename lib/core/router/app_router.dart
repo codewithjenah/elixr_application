@@ -43,6 +43,7 @@ import '../../features/teacher_access/join_teacher_screen.dart';
 import '../../features/teacher_access/trainee_class_detail_screen.dart';
 import '../../features/training/training_screen.dart';
 import '../../features/training/training_view.dart';
+import '../../features/trainee/activity_center/trainee_activity_center_screen.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_link_service.dart';
 import '../../services/tutorial_progress_service.dart';
@@ -526,6 +527,13 @@ class AppRouter {
                 child: const TeacherActivityCenterScreen(
                   initialView: TeacherActivityCenterView.toReview,
                 ),
+              ),
+            ),
+            GoRoute(
+              path: AppRoutePaths.activityCenter,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const TraineeActivityCenterScreen(),
               ),
             ),
             GoRoute(

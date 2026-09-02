@@ -138,6 +138,33 @@ class ClassroomAnnouncementsController extends ChangeNotifier {
     ),
   );
 
+  Future<bool> pin(ClassroomAnnouncement announcement) => _runTeacherAction(
+    operation: 'pin',
+    requiresActiveGroup: true,
+    successMessage: 'Pinned announcement.',
+    action: () => repository.setPinnedAnnouncement(
+      groupId: groupId,
+      teacherId: currentUserId,
+      announcementId: announcement.id,
+    ),
+  );
+
+  Future<bool> unpin(ClassroomAnnouncement announcement) => _runTeacherAction(
+    operation: 'unpin',
+    requiresActiveGroup: true,
+    successMessage: 'Unpinned announcement.',
+    action: () => repository.setPinnedAnnouncement(
+      groupId: groupId,
+      teacherId: currentUserId,
+    ),
+  );
+
+  String? consumeActionMessage() {
+    final message = actionMessage;
+    actionMessage = null;
+    return message;
+  }
+
   Future<bool> _runTeacherAction({
     required String operation,
     required bool requiresActiveGroup,
@@ -205,6 +232,7 @@ class ClassroomAnnouncementsController extends ChangeNotifier {
   }
 
   static int _compare(ClassroomAnnouncement a, ClassroomAnnouncement b) {
+    if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
     final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
     final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
     final byTime = bTime.compareTo(aTime);

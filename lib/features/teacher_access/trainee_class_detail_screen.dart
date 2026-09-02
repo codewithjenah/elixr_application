@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
+import '../../core/router/navigation_helpers.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_back_button.dart';
@@ -170,7 +171,7 @@ class _ClassDetailBody extends StatelessWidget {
               label: 'Classes',
               tooltip: 'Back to classes',
               semanticLabel: 'Back to classes',
-              onPressed: () => context.go(AppRoutePaths.teacherAccess),
+              onPressed: () => popOrGo(context, AppRoutePaths.teacherAccess),
             ),
           ),
           Padding(
@@ -190,8 +191,8 @@ class _ClassDetailBody extends StatelessWidget {
       return const ElixStatusPanel(
         key: Key('teacher_access_class_unauthorized'),
         message:
-            'This class is not available. You need an approved membership '
-            'to open it.',
+            'This class is not available. Only active classes you have joined '
+            'can be opened here.',
         isError: true,
       );
     }

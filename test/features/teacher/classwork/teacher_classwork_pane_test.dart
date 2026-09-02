@@ -5,6 +5,7 @@ import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher/classwork/teacher_classwork_controller.dart';
 import 'package:elixr_application/features/teacher/classwork/teacher_classwork_pane.dart';
@@ -123,7 +124,7 @@ void main() {
         ),
       ),
     );
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
   }
 
   testWidgets('assignment roster uses the full workspace before drill-down', (
@@ -220,12 +221,10 @@ void main() {
       assignment: assignments.assignments['assignment']!,
       gradeScore: 90,
     );
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('No submissions are waiting for review'), findsOneWidget);
 
-    await tester.tap(
-      find.byKey(const Key('teacher_classwork_filter_checked')),
-    );
+    await tester.tap(find.byKey(const Key('teacher_classwork_filter_checked')));
     await tester.pump(const Duration(milliseconds: 150));
     expect(
       find.byKey(const Key('teacher_classwork_student_student')),
@@ -362,7 +361,7 @@ void main() {
     await tester.tap(
       find.byKey(const Key('teacher_classwork_student_student')),
     );
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(
       find.byKey(const Key('teacher_classwork_submission_detail')),
@@ -391,6 +390,121 @@ void main() {
     expect(checked?.gradeScore, 92);
     expect(checked?.reviewFeedback, 'Strong control.');
     expect(find.text('Score: 92/100 • 92%'), findsOneWidget);
+  });
+
+  testWidgets('scoring criteria are editable only while work awaits checking', (
+    tester,
+  ) async {
+    final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+    assignments.seedAssignment(
+      assignments.assignments['assignment']!.copyWith(
+        activityAssessment: assessment,
+        maxScore: assessment.rubric.maximumScore,
+      ),
+    );
+    assignments.seedAttempt(
+      AssignmentAttempt(
+        id: 'rubric-submission',
+        traineeId: 'student',
+        teacherId: 'teacher',
+        groupId: 'group',
+        assignmentId: 'assignment',
+        movementId: 'movement',
+        revisionId: 'revision',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.submitted,
+        submittedAt: DateTime.utc(2026, 9, 1),
+        activityAssessmentSnapshot: assessment,
+        assignmentConfigurationRevision: 1,
+      ),
+    );
+    await pumpPane(tester, const Size(1280, 720));
+    await tester.tap(
+      find.byKey(const Key('teacher_classwork_student_student')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.textContaining('Scoring criteria'), findsOneWidget);
+    for (final criterion in assessment.rubric.criteria) {
+      expect(
+        find.byKey(Key('teacher_classwork_criterion_${criterion.id}')),
+        findsOneWidget,
+      );
+    }
+  });
+
+  testWidgets('checked work shows its saved scoring criteria read-only', (
+    tester,
+  ) async {
+    final snapshot = TeacherActivityAssessmentConfig.newActivityDefaults();
+    final laterConfig = TeacherActivityAssessmentConfig(
+      readiness: const TeacherActivityReadinessSpec(),
+      rubric: TeacherActivityRubric.builtIn(
+        TeacherActivityRubricTemplate.performanceFlow,
+        100,
+      ),
+    );
+    assignments.seedAssignment(
+      assignments.assignments['assignment']!.copyWith(
+        activityAssessment: laterConfig,
+        maxScore: 100,
+        configurationRevision: 2,
+      ),
+    );
+    final scores = {
+      for (final criterion in snapshot.rubric.criteria)
+        criterion.id: criterion.maximumPoints,
+    };
+    assignments.seedAttempt(
+      AssignmentAttempt(
+        id: 'checked-rubric-submission',
+        traineeId: 'student',
+        teacherId: 'teacher',
+        groupId: 'group',
+        assignmentId: 'assignment',
+        movementId: 'movement',
+        revisionId: 'revision',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.checked,
+        submittedAt: DateTime.utc(2026, 9, 1),
+        checkedAt: DateTime.utc(2026, 9, 2),
+        gradeScore: snapshot.rubric.maximumScore,
+        gradeMaxScore: snapshot.rubric.maximumScore,
+        reviewRevision: 1,
+        activityAssessmentSnapshot: snapshot,
+        assignmentConfigurationRevision: 1,
+        criterionScores: scores,
+      ),
+    );
+    await pumpPane(tester, const Size(1280, 720));
+    await tester.tap(
+      find.byKey(const Key('teacher_classwork_student_student')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.byKey(const Key('scoring_criteria_breakdown')), findsOneWidget);
+    expect(
+      find.text(
+        '${snapshot.rubric.maximumScore} / ${snapshot.rubric.maximumScore}',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Flow'), findsNothing);
+    expect(
+      find.byKey(const Key('teacher_classwork_save_rubric_review')),
+      findsNothing,
+    );
+    for (final criterion in snapshot.rubric.criteria) {
+      expect(
+        find.byKey(Key('teacher_classwork_criterion_${criterion.id}')),
+        findsNothing,
+      );
+      expect(find.text(criterion.label), findsOneWidget);
+    }
   });
 
   testWidgets('attempt load failure never reports work as not turned in', (

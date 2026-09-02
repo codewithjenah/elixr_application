@@ -11,7 +11,7 @@ import 'package:provider/provider.dart';
 import '../../features/teacher/teacher_phase3_test_support.dart';
 
 void main() {
-  test('teacher sidebar groups keep the nine destinations', () {
+  test('teacher sidebar groups keep the ten destinations', () {
     List<String> routesIn(TeacherSidebarGroup group) {
       return teacherSidebarItems
           .where((item) => item.group == group)
@@ -19,13 +19,14 @@ void main() {
           .toList();
     }
 
-    expect(teacherSidebarItems, hasLength(9));
+    expect(teacherSidebarItems, hasLength(10));
     expect(routesIn(TeacherSidebarGroup.classroom), [
       AppRoutePaths.teacherDashboard,
       AppRoutePaths.teacherGroups,
       AppRoutePaths.teacherFaculties,
       AppRoutePaths.teacherStudents,
       AppRoutePaths.teacherMovements,
+      AppRoutePaths.teacherToReview,
     ]);
     expect(routesIn(TeacherSidebarGroup.insights), [
       AppRoutePaths.teacherLeaderboard,

@@ -11,6 +11,7 @@ import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/elix_toast.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_review_state.dart';
 import 'teacher_activity_controller.dart';
@@ -37,7 +38,8 @@ class _TeacherActivityCenterScreenState
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<TeacherActivityController>();
-    final showPending = widget.initialView == TeacherActivityCenterView.toReview;
+    final showPending =
+        widget.initialView == TeacherActivityCenterView.toReview;
     final visible = _unreadOnly
         ? controller.activities.where((activity) => !activity.isRead).toList()
         : controller.activities;
@@ -62,7 +64,15 @@ class _TeacherActivityCenterScreenState
                     label: const Text('Mark all read'),
                     onPressed: controller.unreadCount == 0
                         ? null
-                        : controller.markAllRead,
+                        : () async {
+                            final saved = await controller.markAllRead();
+                            if (saved && context.mounted) {
+                              ElixToast.showSuccess(
+                                context,
+                                message: 'Marked all activity as read.',
+                              );
+                            }
+                          },
                   ),
                 ],
               ),
@@ -147,7 +157,7 @@ class _TeacherActivityCenterScreenState
                       onOpen: () async {
                         final activity = visible[index];
                         await controller.markRead(activity);
-                        if (context.mounted) context.go(activity.destination);
+                        if (context.mounted) context.push(activity.destination);
                       },
                     ),
                   ),
@@ -200,7 +210,7 @@ class _PendingReviewList extends StatelessWidget {
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) => _PendingReviewRow(
         review: reviews[index],
-        onOpen: () => context.go(reviews[index].destination),
+        onOpen: () => context.push(reviews[index].destination),
       ),
     );
   }

@@ -262,7 +262,7 @@ class _GroupsGrid extends StatelessWidget {
                               ?.profilePictureUrl,
                           cardKey: Key('teacher_group_card_${group.id}'),
                           onOpen: () {
-                            context.go(AppRoutePaths.teacherGroup(group.id));
+                            context.push(AppRoutePaths.teacherGroup(group.id));
                           },
                           menuItems: (_) => [
                             MenuFlyoutItem(
@@ -374,7 +374,7 @@ Future<void> _showCreateGroupDialog(
       schedule: scheduleController.text,
     );
     if (group != null && context.mounted) {
-      context.go(AppRoutePaths.teacherGroup(group.id));
+      context.push(AppRoutePaths.teacherGroup(group.id));
     }
   }
   nameController.dispose();

@@ -8,6 +8,7 @@ import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/elix_toast.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_attempt.dart';
@@ -600,7 +601,6 @@ class _StudentAssignmentRow extends StatelessWidget {
       traineeId: traineeId,
     );
     final statusUnavailable = controller.hasAttemptLoadError(assignment.id);
-    final turnedIn = attempt != null && isAssignmentAttemptTurnedIn(attempt);
     final label = statusUnavailable
         ? 'Status unavailable'
         : _teacherFacingReviewLabel(assignment, attempt);
@@ -783,15 +783,19 @@ class _RosterState extends State<_Roster> {
             : 'The targeted students are no longer approved members of this class.',
       );
     }
-    final visible = entries.where((entry) => switch (_filter) {
-      _RosterFilter.all => true,
-      _RosterFilter.toReview =>
-        entry.reviewState == AssignmentReviewState.toReview,
-      _RosterFilter.checked =>
-        entry.reviewState == AssignmentReviewState.checked,
-      _RosterFilter.missing =>
-        entry.reviewState == AssignmentReviewState.missing,
-    }).toList(growable: false);
+    final visible = entries
+        .where(
+          (entry) => switch (_filter) {
+            _RosterFilter.all => true,
+            _RosterFilter.toReview =>
+              entry.reviewState == AssignmentReviewState.toReview,
+            _RosterFilter.checked =>
+              entry.reviewState == AssignmentReviewState.checked,
+            _RosterFilter.missing =>
+              entry.reviewState == AssignmentReviewState.missing,
+          },
+        )
+        .toList(growable: false);
     return Column(
       key: const Key('teacher_classwork_roster'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -825,111 +829,118 @@ class _RosterState extends State<_Roster> {
                   message: _rosterEmptyMessage(_filter),
                 )
               : ListView.separated(
-            key: const Key('teacher_classwork_roster_list'),
-            itemCount: visible.length,
-            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-            itemBuilder: (context, index) {
-              final entry = visible[index];
-              final member = entry.membership;
-              final attempt = entry.attempt;
-              final status = _rosterReviewLabel(entry);
-              final submittedAt = attempt?.submittedAt;
-              return Semantics(
-                button: true,
-                label: '${member.traineeDisplayName}, profile picture, $status',
-                child: HoverButton(
-                  key: Key('teacher_classwork_student_${member.traineeId}'),
-                  cursor: SystemMouseCursors.click,
-                  onPressed: () {
-                    final onOpen = widget.onOpenTrainee;
-                    if (onOpen != null) {
-                      onOpen(member.traineeId);
-                    } else {
-                      widget.controller.selectTrainee(member.traineeId);
-                    }
-                  },
-                  builder: (context, states) {
-                    final hovered = states.contains(WidgetState.hovered);
-                    final focused = states.contains(WidgetState.focused);
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.md,
-                      ),
-                      decoration: BoxDecoration(
-                        color: hovered
-                            ? context.elixColors.interactiveHover
-                            : context.elixPanelSurface,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: focused
-                              ? context.elixColors.focusRing
-                              : context.elixColors.borderSubtle,
-                          width: focused ? 2 : 1,
+                  key: const Key('teacher_classwork_roster_list'),
+                  itemCount: visible.length,
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(height: AppSpacing.sm),
+                  itemBuilder: (context, index) {
+                    final entry = visible[index];
+                    final member = entry.membership;
+                    final attempt = entry.attempt;
+                    final status = _rosterReviewLabel(entry);
+                    final submittedAt = attempt?.submittedAt;
+                    return Semantics(
+                      button: true,
+                      label:
+                          '${member.traineeDisplayName}, profile picture, $status',
+                      child: HoverButton(
+                        key: Key(
+                          'teacher_classwork_student_${member.traineeId}',
                         ),
-                      ),
-                      child: Row(
-                        children: [
-                          ExcludeSemantics(
-                            child: ProfileAvatarWidget(
-                              key: Key(
-                                'teacher_classwork_avatar_${member.traineeId}',
-                              ),
-                              networkImageUrl: widget.profilePictureUrlFor?.call(
-                                member.traineeId,
-                              ),
-                              initials: userInitials(member.traineeDisplayName),
-                              radius: 22,
-                              showBorder: false,
+                        cursor: SystemMouseCursors.click,
+                        onPressed: () {
+                          final onOpen = widget.onOpenTrainee;
+                          if (onOpen != null) {
+                            onOpen(member.traineeId);
+                          } else {
+                            widget.controller.selectTrainee(member.traineeId);
+                          }
+                        },
+                        builder: (context, states) {
+                          final hovered = states.contains(WidgetState.hovered);
+                          final focused = states.contains(WidgetState.focused);
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.md,
+                              vertical: AppSpacing.md,
                             ),
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            decoration: BoxDecoration(
+                              color: hovered
+                                  ? context.elixColors.interactiveHover
+                                  : context.elixPanelSurface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: focused
+                                    ? context.elixColors.focusRing
+                                    : context.elixColors.borderSubtle,
+                                width: focused ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
                               children: [
-                                Text(
-                                  member.traineeDisplayName,
-                                  style: AppTheme.body.copyWith(
-                                    fontWeight: FontWeight.w600,
+                                ExcludeSemantics(
+                                  child: ProfileAvatarWidget(
+                                    key: Key(
+                                      'teacher_classwork_avatar_${member.traineeId}',
+                                    ),
+                                    networkImageUrl: widget.profilePictureUrlFor
+                                        ?.call(member.traineeId),
+                                    initials: userInitials(
+                                      member.traineeDisplayName,
+                                    ),
+                                    radius: 22,
+                                    showBorder: false,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  _rosterStatusLine(
-                                    status: status,
-                                    submittedAt: submittedAt,
-                                    deadlineState: entry.deadlineState,
+                                const SizedBox(width: AppSpacing.md),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        member.traineeDisplayName,
+                                        style: AppTheme.body.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        _rosterStatusLine(
+                                          status: status,
+                                          submittedAt: submittedAt,
+                                          deadlineState: entry.deadlineState,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppTheme.caption.copyWith(
+                                          color: context.elixTextSecondary,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(width: AppSpacing.md),
+                                Text(
+                                  entry.reviewState ==
+                                          AssignmentReviewState.toReview
+                                      ? 'Review'
+                                      : 'View',
                                   style: AppTheme.caption.copyWith(
                                     color: context.elixTextSecondary,
                                   ),
                                 ),
+                                const SizedBox(width: AppSpacing.sm),
+                                const Icon(FluentIcons.chevron_right, size: 12),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Text(
-                            entry.reviewState == AssignmentReviewState.toReview
-                                ? 'Review'
-                                : 'View',
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          const Icon(FluentIcons.chevron_right, size: 12),
-                        ],
+                          );
+                        },
                       ),
                     );
                   },
                 ),
-              );
-            },
-          ),
         ),
       ],
     );
@@ -942,15 +953,18 @@ String _rosterFilterLabel(
 ) {
   final count = switch (filter) {
     _RosterFilter.all => entries.length,
-    _RosterFilter.toReview => entries
-        .where((entry) => entry.reviewState == AssignmentReviewState.toReview)
-        .length,
-    _RosterFilter.checked => entries
-        .where((entry) => entry.reviewState == AssignmentReviewState.checked)
-        .length,
-    _RosterFilter.missing => entries
-        .where((entry) => entry.reviewState == AssignmentReviewState.missing)
-        .length,
+    _RosterFilter.toReview =>
+      entries
+          .where((entry) => entry.reviewState == AssignmentReviewState.toReview)
+          .length,
+    _RosterFilter.checked =>
+      entries
+          .where((entry) => entry.reviewState == AssignmentReviewState.checked)
+          .length,
+    _RosterFilter.missing =>
+      entries
+          .where((entry) => entry.reviewState == AssignmentReviewState.missing)
+          .length,
   };
   final label = switch (filter) {
     _RosterFilter.all => 'All',
@@ -972,7 +986,7 @@ String _rosterEmptyMessage(_RosterFilter filter) => switch (filter) {
   _RosterFilter.toReview => 'New submitted work will appear here.',
   _RosterFilter.checked => 'Checked work will remain available here.',
   _RosterFilter.missing => 'There is no missing work for this assignment.',
-  _RosterFilter.all => 'No students are currently in this assignment audience.',
+  _RosterFilter.all => 'No students are currently assigned this work.',
 };
 
 String _rosterReviewLabel(TeacherAssignmentRosterEntry entry) =>
@@ -1000,11 +1014,12 @@ String _rosterStatusLine({
       '${deadline == null ? '' : ' · $deadline'}';
 }
 
-String? _submittedDeadlineLabel(AssignmentDeadlineState state) => switch (state) {
-  AssignmentDeadlineState.submittedOnTime => 'On time',
-  AssignmentDeadlineState.submittedLate => 'Late',
-  _ => null,
-};
+String? _submittedDeadlineLabel(AssignmentDeadlineState state) =>
+    switch (state) {
+      AssignmentDeadlineState.submittedOnTime => 'On time',
+      AssignmentDeadlineState.submittedLate => 'Late',
+      _ => null,
+    };
 
 class _SelectedStudentReviewWorkspace extends StatelessWidget {
   const _SelectedStudentReviewWorkspace({
@@ -1127,8 +1142,8 @@ String _teacherFacingReviewLabel(
     AssignmentAttemptStatus.checked => 'Checked',
     AssignmentAttemptStatus.approved => 'Approved',
     AssignmentAttemptStatus.needsRetry => 'Needs retry',
-    AssignmentAttemptStatus.draft || AssignmentAttemptStatus.inProgress =>
-      'Not turned in',
+    AssignmentAttemptStatus.draft ||
+    AssignmentAttemptStatus.inProgress => 'Not turned in',
     AssignmentAttemptStatus.unsubmitting => 'Withdrawing',
   };
 }
@@ -1230,9 +1245,7 @@ class _TeacherSubmissionReviewDetailState
     }
     final canGrade =
         current.isTeacherReviewSubmission &&
-        current.status != AssignmentAttemptStatus.unsubmitting &&
-        current.status != AssignmentAttemptStatus.inProgress &&
-        current.status != AssignmentAttemptStatus.draft;
+        current.status == AssignmentAttemptStatus.submitted;
     final activityAssessment = current.activityAssessmentSnapshot;
     final maximum = current.gradeMaxScore ?? widget.assignment.maxScore ?? 100;
     final parsedGrade = int.tryParse(_grade.text.trim());
@@ -1344,11 +1357,13 @@ class _TeacherSubmissionReviewDetailState
                 key: const Key('teacher_classwork_save_review'),
                 onPressed: widget.controller.busy || !validGrade
                     ? null
-                    : () => widget.controller.saveReview(
-                        attempt: current,
-                        assignment: widget.assignment,
-                        gradeScore: parsedGrade!,
-                        feedback: _feedback.text,
+                    : () => _saveAndConfirm(
+                        () => widget.controller.saveReview(
+                          attempt: current,
+                          assignment: widget.assignment,
+                          gradeScore: parsedGrade!,
+                          feedback: _feedback.text,
+                        ),
                       ),
                 child: Text(
                   current.isChecked
@@ -1361,11 +1376,13 @@ class _TeacherSubmissionReviewDetailState
                   key: const Key('teacher_classwork_save_next_review'),
                   onPressed: widget.controller.busy || !validGrade
                       ? null
-                      : () => widget.controller.saveReviewAndNext(
-                          attempt: current,
-                          assignment: widget.assignment,
-                          gradeScore: parsedGrade!,
-                          feedback: _feedback.text,
+                      : () => _saveAndConfirm(
+                          () => widget.controller.saveReviewAndNext(
+                            attempt: current,
+                            assignment: widget.assignment,
+                            gradeScore: parsedGrade!,
+                            feedback: _feedback.text,
+                          ),
                         ),
                   child: const Text('Save & Next'),
                 ),
@@ -1426,7 +1443,7 @@ class _TeacherSubmissionReviewDetailState
         if (canGrade) ...[
           const SizedBox(height: AppSpacing.md),
           Text(
-            'Rubric (${assessment.rubric.maximumScore} points)',
+            'Scoring criteria (${assessment.rubric.maximumScore} points)',
             style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -1475,11 +1492,13 @@ class _TeacherSubmissionReviewDetailState
                 key: const Key('teacher_classwork_save_rubric_review'),
                 onPressed: widget.controller.busy || !valid
                     ? null
-                    : () => widget.controller.saveTeacherActivityRubricReview(
-                        attempt: current,
-                        assignment: widget.assignment,
-                        criterionScores: scores,
-                        feedback: _feedback.text,
+                    : () => _saveAndConfirm(
+                        () => widget.controller.saveTeacherActivityRubricReview(
+                          attempt: current,
+                          assignment: widget.assignment,
+                          criterionScores: scores,
+                          feedback: _feedback.text,
+                        ),
                       ),
                 child: Text(
                   current.isChecked
@@ -1492,13 +1511,15 @@ class _TeacherSubmissionReviewDetailState
                   key: const Key('teacher_classwork_save_next_rubric_review'),
                   onPressed: widget.controller.busy || !valid
                       ? null
-                      : () => widget.controller
-                            .saveTeacherActivityRubricReviewAndNext(
-                              attempt: current,
-                              assignment: widget.assignment,
-                              criterionScores: scores,
-                              feedback: _feedback.text,
-                            ),
+                      : () => _saveAndConfirm(
+                          () => widget.controller
+                              .saveTeacherActivityRubricReviewAndNext(
+                                attempt: current,
+                                assignment: widget.assignment,
+                                criterionScores: scores,
+                                feedback: _feedback.text,
+                              ),
+                        ),
                   child: const Text('Save & Next'),
                 ),
             ],
@@ -1519,6 +1540,13 @@ class _TeacherSubmissionReviewDetailState
         ],
       ],
     );
+  }
+
+  Future<void> _saveAndConfirm(Future<bool> Function() save) async {
+    final success = await save();
+    if (!success || !mounted) return;
+    final name = widget.controller.traineeName(widget.traineeId);
+    ElixToast.showSuccess(context, message: "Checked $name's work.");
   }
 }
 

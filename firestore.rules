@@ -2387,7 +2387,10 @@ service cloud.firestore {
     }
 
     function groupAllowedKeys() {
-      return groupKeys().concat(['invite_code', 'section', 'schedule']);
+      return groupKeys().concat([
+        'invite_code', 'section', 'schedule', 'pinned_announcement_id',
+        'pinned_announcement_at'
+      ]);
     }
 
     function isVerifiedTeacher() {
@@ -2404,6 +2407,9 @@ service cloud.firestore {
         && isDisplayName(data.name)
         && data.status == 'active'
         && data.schema_version == 2
+        && !data.keys().hasAny([
+          'pinned_announcement_id', 'pinned_announcement_at'
+        ])
         && (!data.keys().hasAny(['section'])
           || isBoundedText(data.section, 80))
         && (!data.keys().hasAny(['schedule'])
@@ -2474,6 +2480,42 @@ service cloud.firestore {
             )
           )
           || validGroupInvitePointerUpdate(groupId)
+          || validGroupAnnouncementPinUpdate(groupId)
+        );
+    }
+
+    function announcementPath(groupId, announcementId) {
+      return /databases/$(database)/documents/groups/$(groupId)/announcements/$(announcementId);
+    }
+
+    function validGroupAnnouncementPinUpdate(groupId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let hasPinnedId = request.resource.data.keys().hasAny([
+        'pinned_announcement_id'
+      ]);
+      let hasPinnedAt = request.resource.data.keys().hasAny([
+        'pinned_announcement_at'
+      ]);
+      let pinnedId = request.resource.data.get('pinned_announcement_id', '');
+      return changed.hasOnly([
+          'pinned_announcement_id', 'pinned_announcement_at', 'updated_at'
+        ])
+        && request.resource.data.updated_at == request.time
+        && (
+          (!hasPinnedId && !hasPinnedAt)
+          || (
+            resource.data.status == 'active'
+            && request.resource.data.status == 'active'
+            && hasPinnedId
+            && hasPinnedAt
+            && isParticipantId(pinnedId)
+            && request.resource.data.pinned_announcement_at == request.time
+            && existsAfter(announcementPath(groupId, pinnedId))
+            && getAfter(announcementPath(groupId, pinnedId)).data.group_id
+              == groupId
+            && getAfter(announcementPath(groupId, pinnedId)).data.teacher_id
+              == request.auth.uid
+          )
         );
     }
 

@@ -50,4 +50,12 @@ abstract class ClassroomAnnouncementRepository {
     required String announcementId,
     required String teacherId,
   });
+
+  /// Sets the classroom's single pinned announcement. Passing null unpins the
+  /// current announcement. Implementations must update the pointer atomically.
+  Future<void> setPinnedAnnouncement({
+    required String groupId,
+    required String teacherId,
+    String? announcementId,
+  });
 }

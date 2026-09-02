@@ -33,6 +33,7 @@ import 'data/repositories/firebase_teacher_movement_repository.dart';
 import 'data/repositories/teacher_movement_repository.dart';
 import 'features/teacher/activity_center/activity_read_store.dart';
 import 'features/teacher/activity_center/teacher_activity_controller.dart';
+import 'features/trainee/activity_center/trainee_activity_controller.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/camera_device_service.dart';
@@ -192,6 +193,29 @@ class _ElixrAppState extends State<ElixrApp> {
             );
             controller.setTeacher(
               auth.currentUser?.isTeacher == true ? auth.currentUser?.id : null,
+            );
+            return controller;
+          },
+        ),
+        ChangeNotifierProxyProvider<AuthService, TraineeActivityController>(
+          create: (context) => TraineeActivityController(
+            groupRepository: context.read<GroupRepository>(),
+            assignmentRepository: context.read<ClassroomAssignmentRepository>(),
+            announcementRepository: context
+                .read<ClassroomAnnouncementRepository>(),
+            readStore: context.read<ActivityReadStore>(),
+          ),
+          update: (context, auth, controller) {
+            controller ??= TraineeActivityController(
+              groupRepository: context.read<GroupRepository>(),
+              assignmentRepository: context
+                  .read<ClassroomAssignmentRepository>(),
+              announcementRepository: context
+                  .read<ClassroomAnnouncementRepository>(),
+              readStore: context.read<ActivityReadStore>(),
+            );
+            controller.setTrainee(
+              auth.currentUser?.isTrainee == true ? auth.currentUser?.id : null,
             );
             return controller;
           },

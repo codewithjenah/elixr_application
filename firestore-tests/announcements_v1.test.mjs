@@ -9,6 +9,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -158,5 +159,33 @@ describe('Classroom announcements', () => {
     const trainee = context('trainee').firestore();
     await assertFails(getDoc(announcementRef(trainee)));
     await assertSucceeds(deleteDoc(announcementRef(context('teacher').firestore())));
+  });
+
+  test('owner alone can atomically point the classroom at one existing announcement', async () => {
+    await seedClass({approved: true});
+    const teacher = context('teacher').firestore();
+    const group = doc(teacher, 'groups', GROUP_ID);
+    await assertSucceeds(setDoc(announcementRef(teacher), announcementPayload()));
+    await assertSucceeds(updateDoc(group, {
+      pinned_announcement_id: ANNOUNCEMENT_ID,
+      pinned_announcement_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+
+    await assertFails(updateDoc(doc(context('trainee').firestore(), 'groups', GROUP_ID), {
+      pinned_announcement_id: ANNOUNCEMENT_ID,
+      pinned_announcement_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(group, {
+      pinned_announcement_id: 'missing-announcement',
+      pinned_announcement_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(group, {
+      pinned_announcement_id: deleteField(),
+      pinned_announcement_at: deleteField(),
+      updated_at: serverTimestamp(),
+    }));
   });
 });

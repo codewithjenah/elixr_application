@@ -174,9 +174,9 @@ class _Body extends StatelessWidget {
           children: [
             ElixBackButton(
               key: const Key('assignment_detail_back'),
-              label: 'Assigned movements',
-              tooltip: 'Back to assigned movements',
-              semanticLabel: 'Back to assigned movements',
+              label: 'Classwork',
+              tooltip: 'Back to classwork',
+              semanticLabel: 'Back to classwork',
               onPressed: onBack,
             ),
             const SizedBox(height: AppSpacing.md),
@@ -461,8 +461,8 @@ class _TeacherActivityOverview extends StatelessWidget {
         .length;
     final maximum = assignment.attemptPolicy.maximumAttempts;
     final attemptSummary = assignment.attemptPolicy.isUnlimited
-        ? '$consumed used · Unlimited attempts'
-        : '$consumed used · ${maximum! - consumed < 0 ? 0 : maximum - consumed} remaining of $maximum';
+        ? '$consumed used · Unlimited tries'
+        : '$consumed used · ${maximum! - consumed < 0 ? 0 : maximum - consumed} tries remaining of $maximum';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -478,7 +478,7 @@ class _TeacherActivityOverview extends StatelessWidget {
           label: 'Recording',
           value: '${assessment.recordingDurationSeconds} seconds',
         ),
-        _ActivityDetail(label: 'Attempts', value: attemptSummary),
+        _ActivityDetail(label: 'Tries', value: attemptSummary),
         const SizedBox(height: AppSpacing.md),
         Text('Camera readiness', style: AppTheme.headingMedium),
         const SizedBox(height: AppSpacing.xs),
@@ -489,7 +489,7 @@ class _TeacherActivityOverview extends StatelessWidget {
           style: AppTheme.body,
         ),
         const SizedBox(height: AppSpacing.md),
-        Text('How your Teacher will review it', style: AppTheme.headingMedium),
+        Text('How your teacher will check it', style: AppTheme.headingMedium),
         const SizedBox(height: AppSpacing.xs),
         Text(
           '${assessment.rubric.template.displayLabel} · '
@@ -582,9 +582,8 @@ class _YourWork extends StatelessWidget {
         if (attemptAssessment != null && current != null) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'This Activity recording uses the saved '
-            '${attemptAssessment.rubric.template.displayLabel} rubric '
-            '(${attemptAssessment.rubric.maximumScore} points maximum).',
+            'This recording uses the scoring criteria saved when you started '
+            'it (${attemptAssessment.rubric.maximumScore} points total).',
             style: AppTheme.bodySecondary.copyWith(
               color: context.elixTextSecondary,
             ),
@@ -676,7 +675,7 @@ class _YourWork extends StatelessWidget {
                     .length >
                 1) ...[
           const SizedBox(height: AppSpacing.lg),
-          Text('Attempt history', style: AppTheme.headingMedium),
+          Text('Work history', style: AppTheme.headingMedium),
           const SizedBox(height: AppSpacing.sm),
           for (final attempt in controller.attempts)
             if (!attempt.isAbandonedTeacherReviewDraft)
@@ -764,7 +763,7 @@ class _YourWork extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: ElixPill(
               text: isTeacherActivity && !hasAvailableActivityAttempt
-                  ? 'No attempts remaining'
+                  ? 'No tries remaining'
                   : assignedMovementActionLabel(assignment, current),
               color: context.elixTextSecondary,
             ),

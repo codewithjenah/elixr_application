@@ -75,7 +75,7 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
     final controller = _controller;
     return ElixScaffoldPage(
       header: const ElixEditorialPageHeader(
-        heading: 'Teacher Access',
+        heading: 'Classroom',
         eyebrow: 'CLASSROOM',
         subtitle: 'Join a class with the code shared by your teacher.',
         leading: Icon(FluentIcons.people, color: AppColors.primary),
@@ -94,7 +94,7 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
                     isActive: true,
                     controller: controller,
                     onOpenClass: (groupId) =>
-                        context.go(AppRoutePaths.teacherAccessClass(groupId)),
+                        context.push(AppRoutePaths.teacherAccessClass(groupId)),
                   ),
                 ),
               ),

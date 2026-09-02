@@ -45,7 +45,7 @@ void main() {
     auth.dispose();
   });
 
-  Future<void> pumpGroups(
+  Future<GoRouter> pumpGroups(
     WidgetTester tester, {
     TeacherGroupsController? controller,
   }) async {
@@ -86,6 +86,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
+    return router;
   }
 
   testWidgets('empty groups shows create copy instead of a side panel', (
@@ -131,7 +132,7 @@ void main() {
       dueAt: DateTime(2026, 8, 31),
     );
 
-    await pumpGroups(tester);
+    final router = await pumpGroups(tester);
 
     expect(find.text('BSIT-4A'), findsOneWidget);
     expect(find.text('BSHM 4B'), findsOneWidget);
@@ -155,6 +156,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('detail:${groupA.id}'), findsOneWidget);
+    expect(router.canPop(), isTrue);
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('BSIT-4A'), findsOneWidget);
   });
 
   testWidgets('archived classroom can be unarchived from its card menu', (

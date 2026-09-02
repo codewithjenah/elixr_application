@@ -77,7 +77,7 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
           header: const ElixEditorialPageHeader(
             heading: 'Students',
             eyebrow: 'TEACHER WORKSPACE',
-            subtitle: 'Review your active trainee roster.',
+            subtitle: 'Review students in your active classes.',
           ),
           scrollable: false,
           contentPadding: EdgeInsets.zero,
@@ -234,7 +234,7 @@ class _GroupedStudentRoster extends StatelessWidget {
                             membership.traineeId,
                           ),
                           onOpen: () {
-                            context.go(
+                            context.push(
                               AppRoutePaths.teacherStudentDetail(
                                 membership.traineeId,
                                 groupId: membership.groupId,

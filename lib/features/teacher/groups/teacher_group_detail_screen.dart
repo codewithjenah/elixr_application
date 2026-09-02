@@ -16,6 +16,7 @@ import 'package:video_player_win/video_player_win.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
+import '../../../core/router/navigation_helpers.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_back_button.dart';
@@ -219,13 +220,14 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
         final backButton = traineeId != null && assignment != null
             ? ElixBackButton(
                 key: const Key('teacher_classwork_back_to_roster'),
-                label: 'Student roster',
-                tooltip: 'Back to student roster',
-                semanticLabel: 'Back to student roster',
+                label: 'Students',
+                tooltip: 'Back to students',
+                semanticLabel: 'Back to students',
                 onPressed: () async {
                   await classwork.selectTrainee(null);
                   if (!context.mounted) return;
-                  context.go(
+                  popOrGo(
+                    context,
                     AppRoutePaths.teacherGroupClasswork(
                       widget.groupId,
                       assignment.id,
@@ -242,7 +244,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                 onPressed: () async {
                   await classwork.selectAssignment(null);
                   if (!context.mounted) return;
-                  context.go(AppRoutePaths.teacherGroup(widget.groupId));
+                  popOrGo(context, AppRoutePaths.teacherGroup(widget.groupId));
                 },
               )
             : ElixBackButton(
@@ -250,7 +252,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                 label: 'Classrooms',
                 tooltip: 'Back to classrooms',
                 semanticLabel: 'Back to classrooms',
-                onPressed: () => context.go(AppRoutePaths.teacherGroups),
+                onPressed: () => popOrGo(context, AppRoutePaths.teacherGroups),
               );
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
@@ -284,7 +286,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                     onOpenTrainee: (selectedTraineeId) async {
                       await classwork.selectTrainee(selectedTraineeId);
                       if (!context.mounted) return;
-                      context.go(
+                      context.push(
                         AppRoutePaths.teacherGroupClasswork(
                           widget.groupId,
                           assignment.id,
@@ -505,7 +507,7 @@ class _GroupDetailBody extends StatelessWidget {
           TeacherClassworkAssignmentList(
             key: const Key('teacher_group_assignments_section'),
             controller: classworkController,
-            onOpen: (assignment) => context.go(
+            onOpen: (assignment) => context.push(
               AppRoutePaths.teacherGroupClasswork(group.id, assignment.id),
             ),
             onCreate: group.isActive
@@ -554,7 +556,7 @@ class _GroupDetailBody extends StatelessWidget {
                   canManage: true,
                   groupIsActive: group.isActive,
                   assignments: classworkController.assignments,
-                  onOpenAssignment: (assignment) => context.go(
+                  onOpenAssignment: (assignment) => context.push(
                     AppRoutePaths.teacherGroupClasswork(
                       group.id,
                       assignment.id,
@@ -566,16 +568,16 @@ class _GroupDetailBody extends StatelessWidget {
             key: const Key('teacher_group_grades_section'),
             controller: classworkController,
             profilePictureUrlFor: controller.profilePictureUrlFor,
-            onOpenStudent: (membership) => context.go(
+            onOpenStudent: (membership) => context.push(
               AppRoutePaths.teacherStudentDetail(
                 membership.traineeId,
                 groupId: group.id,
               ),
             ),
-            onOpenAssignment: (assignment) => context.go(
+            onOpenAssignment: (assignment) => context.push(
               AppRoutePaths.teacherGroupClasswork(group.id, assignment.id),
             ),
-            onOpenCell: (assignment, traineeId) => context.go(
+            onOpenCell: (assignment, traineeId) => context.push(
               AppRoutePaths.teacherGroupClasswork(
                 group.id,
                 assignment.id,
@@ -768,7 +770,7 @@ class _StudentsSection extends StatelessWidget {
                   membership.traineeId,
                 ),
                 name: membership.traineeDisplayName,
-                onPressed: () => context.go(
+                onPressed: () => context.push(
                   AppRoutePaths.teacherStudentDetail(
                     membership.traineeId,
                     groupId: controller.selectedGroup!.id,
@@ -1375,7 +1377,7 @@ Future<void> showTeacherActivityAssignmentEditDialogLegacy(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Changes apply to future attempts. Existing recordings keep '
+                  'Changes apply to future submissions. Existing recordings keep '
                   'their original readiness and rubric snapshot.',
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -1592,7 +1594,7 @@ Future<void> showTeacherActivityAssignmentEditDialogLegacy(
                 ],
                 const SizedBox(height: AppSpacing.sm),
                 InfoLabel(
-                  label: 'Attempt limit',
+                  label: 'Try limit',
                   child: ComboBox<String>(
                     key: const Key('teacher_activity_edit_attempt_policy'),
                     value: attempts.isUnlimited
@@ -1600,9 +1602,9 @@ Future<void> showTeacherActivityAssignmentEditDialogLegacy(
                         : '${attempts.maximumAttempts}',
                     isExpanded: true,
                     items: const [
-                      ComboBoxItem(value: '1', child: Text('1 attempt')),
-                      ComboBoxItem(value: '2', child: Text('2 attempts')),
-                      ComboBoxItem(value: '3', child: Text('3 attempts')),
+                      ComboBoxItem(value: '1', child: Text('1 try')),
+                      ComboBoxItem(value: '2', child: Text('2 tries')),
+                      ComboBoxItem(value: '3', child: Text('3 tries')),
                       ComboBoxItem(
                         value: 'unlimited',
                         child: Text('Unlimited'),

@@ -46,7 +46,6 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
   TeacherAccessController? _owned;
   TeacherAccessController? _active;
   bool _started = false;
-  bool _showArchived = false;
 
   TeacherAccessController? get _controller => widget.controller ?? _active;
 
@@ -159,41 +158,15 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                     sideBySide: width >= _accessControlsBreakpoint,
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  if (controller.approvedGroupMemberships.isEmpty) ...[
+                  if (controller.activeApprovedGroupMemberships.isEmpty) ...[
                     const _EmptyClassesCard(),
                     const SizedBox(height: AppSpacing.lg),
                   ] else ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _ClassesHeading(archived: _showArchived),
-                        ),
-                        SizedBox(
-                          width: 180,
-                          child: ComboBox<bool>(
-                            key: const Key('teacher_access_status_filter'),
-                            value: _showArchived,
-                            items: const [
-                              ComboBoxItem(value: false, child: Text('Active')),
-                              ComboBoxItem(
-                                value: true,
-                                child: Text('Archived'),
-                              ),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _showArchived = value);
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
+                    const _ClassesHeading(),
                     const SizedBox(height: AppSpacing.md),
                     _ApprovedClassesGrid(
                       controller: controller,
                       compact: compact,
-                      showArchived: _showArchived,
                       onOpenClass: widget.onOpenClass,
                     ),
                     const SizedBox(height: AppSpacing.lg),
@@ -287,7 +260,7 @@ class _AccessMetricsRow extends StatelessWidget {
           Expanded(
             child: ElixStatCard(
               label: 'My classrooms',
-              value: '${controller.approvedGroupMemberships.length}',
+              value: '${controller.activeApprovedGroupMemberships.length}',
               icon: FluentIcons.completed,
             ),
           ),
@@ -784,15 +757,11 @@ class _EmptyClassesCard extends StatelessWidget {
 }
 
 class _ClassesHeading extends StatelessWidget {
-  const _ClassesHeading({required this.archived});
-
-  final bool archived;
+  const _ClassesHeading();
 
   @override
   Widget build(BuildContext context) {
-    return ElixSectionHeader(
-      heading: archived ? 'Archived classrooms' : 'Your classrooms',
-    );
+    return ElixSectionHeader(heading: 'Your classrooms');
   }
 }
 
@@ -800,30 +769,21 @@ class _ApprovedClassesGrid extends StatelessWidget {
   const _ApprovedClassesGrid({
     required this.controller,
     required this.compact,
-    required this.showArchived,
     this.onOpenClass,
   });
 
   final TeacherAccessController controller;
   final bool compact;
-  final bool showArchived;
   final ValueChanged<String>? onOpenClass;
 
   @override
   Widget build(BuildContext context) {
     final openClass = onOpenClass;
-    final memberships = [
-      for (final membership in controller.approvedGroupMemberships)
-        if ((controller.groupNamesById[membership.groupId]?.isActive ?? true) ==
-            !showArchived)
-          membership,
-    ];
+    final memberships = controller.activeApprovedGroupMemberships;
     if (memberships.isEmpty) {
       return ElixStatusPanel(
         key: const Key('teacher_access_status_empty'),
-        message: showArchived
-            ? 'No archived classrooms.'
-            : 'No active classrooms.',
+        message: 'No active classrooms.',
       );
     }
     return LayoutBuilder(
@@ -859,7 +819,6 @@ class _ApprovedClassesGrid extends StatelessWidget {
                       sectionLabel: () {
                         final group =
                             controller.groupNamesById[membership.groupId];
-                        if (group?.isActive == false) return 'Archived';
                         return [group?.section, group?.schedule]
                             .whereType<String>()
                             .where((value) => value.isNotEmpty)

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../database/firestore_collections.dart';
@@ -17,33 +19,87 @@ class FirebaseClassroomAnnouncementRepository
           .doc(groupId)
           .collection(FirestoreCollections.classroomAnnouncements);
 
+  DocumentReference<Map<String, dynamic>> _group(String groupId) =>
+      _firestore.collection(FirestoreCollections.groups).doc(groupId);
+
   @override
   Stream<ClassroomAnnouncementPage> watchAnnouncements({
     required String groupId,
     int pageSize = ClassroomAnnouncementRepository.defaultPageSize,
   }) {
     _validatePageSize(pageSize);
-    return _announcements(groupId)
+    final query = _announcements(groupId)
         .orderBy('created_at', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
-        .limit(pageSize)
-        .snapshots(includeMetadataChanges: true)
-        .map((snapshot) {
-          final items = snapshot.docs
-              .map(
-                (doc) =>
-                    ClassroomAnnouncement.tryFromMap(doc.data(), id: doc.id),
-              )
-              .whereType<ClassroomAnnouncement>()
-              .toList(growable: false);
-          return ClassroomAnnouncementPage(
+        .limit(pageSize);
+    return Stream<ClassroomAnnouncementPage>.multi((controller) {
+      QuerySnapshot<Map<String, dynamic>>? latestAnnouncements;
+      DocumentSnapshot<Map<String, dynamic>>? latestGroup;
+      var generation = 0;
+      var cancelled = false;
+
+      Future<void> emit() async {
+        final snapshot = latestAnnouncements;
+        final groupSnapshot = latestGroup;
+        if (snapshot == null || groupSnapshot == null) return;
+        final currentGeneration = ++generation;
+        final groupData = groupSnapshot.data() ?? const <String, dynamic>{};
+        final pinnedId = _readPinnedId(groupData);
+        final pinnedAt = _readDateTime(groupData['pinned_announcement_at']);
+        final byId = <String, ClassroomAnnouncement>{
+          for (final doc in snapshot.docs)
+            if (ClassroomAnnouncement.tryFromMap(doc.data(), id: doc.id)
+                case final item?)
+              item.id: item,
+        };
+        if (pinnedId != null && !byId.containsKey(pinnedId)) {
+          final pinnedSnapshot = await _announcements(
+            groupId,
+          ).doc(pinnedId).get();
+          final pinned = pinnedSnapshot.data() == null
+              ? null
+              : ClassroomAnnouncement.tryFromMap(
+                  pinnedSnapshot.data()!,
+                  id: pinnedSnapshot.id,
+                );
+          if (pinned != null) byId[pinned.id] = pinned;
+        }
+        if (cancelled || currentGeneration != generation) return;
+        final items = [
+          for (final item in byId.values)
+            item.copyWith(
+              isPinned: item.id == pinnedId,
+              pinnedAt: item.id == pinnedId ? pinnedAt : null,
+              clearPinnedAt: item.id != pinnedId,
+            ),
+        ]..sort(_compareAnnouncements);
+        controller.add(
+          ClassroomAnnouncementPage(
             items: items,
             hasMore: snapshot.docs.length == pageSize,
             nextCursor: snapshot.docs.isEmpty
                 ? null
                 : _FirestoreAnnouncementCursor(snapshot.docs.last),
-          );
-        });
+          ),
+        );
+      }
+
+      final announcementsSub = query
+          .snapshots(includeMetadataChanges: true)
+          .listen((snapshot) {
+            latestAnnouncements = snapshot;
+            unawaited(emit());
+          }, onError: controller.addError);
+      final groupSub = _group(groupId).snapshots().listen((snapshot) {
+        latestGroup = snapshot;
+        unawaited(emit());
+      }, onError: controller.addError);
+      controller.onCancel = () async {
+        cancelled = true;
+        generation++;
+        await Future.wait([announcementsSub.cancel(), groupSub.cancel()]);
+      };
+    });
   }
 
   @override
@@ -63,13 +119,26 @@ class FirebaseClassroomAnnouncementRepository
         .limit(pageSize + 1)
         .get();
     final docs = snapshot.docs.take(pageSize).toList(growable: false);
+    final groupData = (await _group(groupId).get()).data() ?? const {};
+    final pinnedId = _readPinnedId(groupData);
+    final pinnedAt = _readDateTime(groupData['pinned_announcement_at']);
+    final items =
+        docs
+            .map(
+              (doc) => ClassroomAnnouncement.tryFromMap(doc.data(), id: doc.id),
+            )
+            .whereType<ClassroomAnnouncement>()
+            .map(
+              (item) => item.copyWith(
+                isPinned: item.id == pinnedId,
+                pinnedAt: item.id == pinnedId ? pinnedAt : null,
+                clearPinnedAt: item.id != pinnedId,
+              ),
+            )
+            .toList()
+          ..sort(_compareAnnouncements);
     return ClassroomAnnouncementPage(
-      items: docs
-          .map(
-            (doc) => ClassroomAnnouncement.tryFromMap(doc.data(), id: doc.id),
-          )
-          .whereType<ClassroomAnnouncement>()
-          .toList(growable: false),
+      items: items,
       hasMore: snapshot.docs.length > pageSize,
       nextCursor: snapshot.docs.length > pageSize && docs.isNotEmpty
           ? _FirestoreAnnouncementCursor(docs.last)
@@ -128,7 +197,82 @@ class FirebaseClassroomAnnouncementRepository
     required String groupId,
     required String announcementId,
     required String teacherId,
-  }) => _announcements(groupId).doc(announcementId).delete();
+  }) async {
+    final groupRef = _group(groupId);
+    final announcementRef = _announcements(groupId).doc(announcementId);
+    await _firestore.runTransaction((transaction) async {
+      final groupSnapshot = await transaction.get(groupRef);
+      final announcementSnapshot = await transaction.get(announcementRef);
+      if (!announcementSnapshot.exists) return;
+      transaction.delete(announcementRef);
+      if (_readPinnedId(groupSnapshot.data() ?? const {}) == announcementId) {
+        transaction.update(groupRef, {
+          'pinned_announcement_id': FieldValue.delete(),
+          'pinned_announcement_at': FieldValue.delete(),
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      }
+    });
+  }
+
+  @override
+  Future<void> setPinnedAnnouncement({
+    required String groupId,
+    required String teacherId,
+    String? announcementId,
+  }) async {
+    final groupRef = _group(groupId);
+    final normalized = announcementId?.trim();
+    await _firestore.runTransaction((transaction) async {
+      final groupSnapshot = await transaction.get(groupRef);
+      final groupData = groupSnapshot.data();
+      if (!groupSnapshot.exists || groupData?['teacher_id'] != teacherId) {
+        throw StateError('Classroom is not available.');
+      }
+      if (normalized == null || normalized.isEmpty) {
+        transaction.update(groupRef, {
+          'pinned_announcement_id': FieldValue.delete(),
+          'pinned_announcement_at': FieldValue.delete(),
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+      final targetRef = _announcements(groupId).doc(normalized);
+      final target = await transaction.get(targetRef);
+      if (!target.exists || target.data()?['teacher_id'] != teacherId) {
+        throw StateError('Announcement is not available.');
+      }
+      transaction.update(groupRef, {
+        'pinned_announcement_id': normalized,
+        'pinned_announcement_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  static int _compareAnnouncements(
+    ClassroomAnnouncement a,
+    ClassroomAnnouncement b,
+  ) {
+    if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+    final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final byTime = bTime.compareTo(aTime);
+    return byTime != 0 ? byTime : b.id.compareTo(a.id);
+  }
+
+  static String? _readPinnedId(Map<String, dynamic> data) {
+    final value = data['pinned_announcement_id'];
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty || trimmed.length > 128 ? null : trimmed;
+  }
+
+  static DateTime? _readDateTime(Object? value) {
+    if (value is Timestamp) return value.toDate().toUtc();
+    if (value is DateTime) return value.toUtc();
+    return null;
+  }
 
   static void _validatePageSize(int pageSize) {
     if (pageSize < 1 || pageSize > 100) {

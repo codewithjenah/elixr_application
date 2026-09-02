@@ -2,13 +2,13 @@ import 'dart:typed_data';
 
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
+import '../../../core/router/navigation_helpers.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_back_button.dart';
@@ -91,7 +91,8 @@ class _TeacherStudentPracticeHistoryScreenState
               label: 'Student details',
               tooltip: 'Back to student details',
               semanticLabel: 'Back to student details',
-              onPressed: () => context.go(
+              onPressed: () => popOrGo(
+                context,
                 AppRoutePaths.teacherStudentDetail(
                   widget.traineeId,
                   groupId: widget.groupId,
@@ -114,25 +115,29 @@ class _HistoryBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = controller.state;
     if (state == TeacherStudentDetailState.loadingClassroom ||
-        state == TeacherStudentDetailState.loadingProgress)
+        state == TeacherStudentDetailState.loadingProgress) {
       return const Center(child: ProgressRing());
+    }
     if (state == TeacherStudentDetailState.unauthorized ||
         state == TeacherStudentDetailState.pending ||
-        state == TeacherStudentDetailState.relationshipRemoved)
+        state == TeacherStudentDetailState.relationshipRemoved) {
       return const ElixStatusPanel(
         isError: true,
         message: 'Classroom authorization is required to view History.',
       );
+    }
     if (state == TeacherStudentDetailState.error ||
-        state == TeacherStudentDetailState.connectionRequired)
+        state == TeacherStudentDetailState.connectionRequired) {
       return ElixStatusPanel(
         isError: true,
         message: 'History could not be loaded.',
         actionLabel: 'Retry',
         onAction: controller.refresh,
       );
-    if (controller.sessions.isEmpty)
+    }
+    if (controller.sessions.isEmpty) {
       return const ElixStatusPanel(message: 'No History yet.');
+    }
     return ListView(
       children: [
         for (final session in controller.sessions)
@@ -180,8 +185,9 @@ class _TeacherHistorySessionRowState extends State<_TeacherHistorySessionRow> {
   bool _expanded = false, _hovered = false, _focused = false;
   void _toggle() {
     setState(() => _expanded = !_expanded);
-    if (_expanded && widget.session.evidenceAvailable == true)
+    if (_expanded && widget.session.evidenceAvailable == true) {
       widget.controller.loadEvidence(widget.session);
+    }
   }
 
   @override
@@ -434,13 +440,14 @@ class _AssessmentDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rubric = session.rubric;
-    if (!session.isRubricAssessed || rubric == null)
+    if (!session.isRubricAssessed || rubric == null) {
       return Text(
         session.legacyScore == null
             ? 'No score recorded'
             : 'Score: ${session.legacyScore}%',
         style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
       );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -496,10 +503,12 @@ class _HistoryEvidence extends StatelessWidget {
     final state = controller.evidenceStateFor(session.sessionId);
     final bytes = controller.evidenceFor(session.sessionId);
     if (state == TeacherEvidenceState.loading ||
-        state == TeacherEvidenceState.idle)
+        state == TeacherEvidenceState.idle) {
       return const SizedBox(height: 80, child: Center(child: ProgressRing()));
-    if (state == TeacherEvidenceState.loaded && bytes != null)
+    }
+    if (state == TeacherEvidenceState.loaded && bytes != null) {
       return _EvidencePreview(session: session, bytes: bytes);
+    }
     return Row(
       children: [
         Expanded(

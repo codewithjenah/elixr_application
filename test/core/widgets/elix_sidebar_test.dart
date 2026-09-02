@@ -34,6 +34,12 @@ void main() {
         (item) => item.label == 'Sessions',
       );
       expect(sessions.route, '/training');
+
+      final activityCenter = elixSidebarItems.singleWhere(
+        (item) => item.label == 'Activity Center',
+      );
+      expect(activityCenter.route, '/activity-center');
+      expect(activityCenter.group, SidebarGroup.insights);
     },
   );
 

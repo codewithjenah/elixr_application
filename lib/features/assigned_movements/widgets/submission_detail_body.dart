@@ -16,6 +16,7 @@ import '../../../data/models/rubric_assessment.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../features/history/history_format.dart';
 import '../assigned_movement_list.dart';
+import 'scoring_criteria_breakdown.dart';
 
 enum SubmissionDetailViewerRole { trainee, teacher }
 
@@ -372,7 +373,8 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   }
 
   Widget _buildStatusPills() {
-    final statusLabel = widget.viewerRole == SubmissionDetailViewerRole.teacher &&
+    final statusLabel =
+        widget.viewerRole == SubmissionDetailViewerRole.teacher &&
             attempt.isTeacherReviewSubmission &&
             attempt.status == AssignmentAttemptStatus.submitted
         ? 'To Review'
@@ -558,6 +560,12 @@ class _TeacherReviewedSection extends StatelessWidget {
         attempt.status == AssignmentAttemptStatus.approved ||
         attempt.status == AssignmentAttemptStatus.needsRetry;
     final checked = attempt.isChecked;
+    final assessment = attempt.activityAssessmentSnapshot;
+    final criterionScores = attempt.criterionScores;
+    final hasCriterionBreakdown =
+        assessment != null &&
+        criterionScores != null &&
+        attempt.gradeScore != null;
     final reviewLabel = viewerRole == SubmissionDetailViewerRole.teacher
         ? 'Review'
         : 'Teacher review';
@@ -595,11 +603,18 @@ class _TeacherReviewedSection extends StatelessWidget {
         ],
         if (checked) ...[
           const SizedBox(height: AppSpacing.md),
-          Text(
-            'Score: ${AssessmentScoreDisplay.teacherActivity(earned: attempt.gradeScore!, maximum: attempt.gradeMaxScore!)}',
-            key: const Key('submission_grade'),
-            style: AppTheme.headingMedium,
-          ),
+          if (hasCriterionBreakdown)
+            ScoringCriteriaBreakdown(
+              assessment: assessment,
+              scores: criterionScores,
+              total: attempt.gradeScore!,
+            )
+          else
+            Text(
+              'Score: ${AssessmentScoreDisplay.teacherActivity(earned: attempt.gradeScore!, maximum: attempt.gradeMaxScore!)}',
+              key: const Key('submission_grade'),
+              style: AppTheme.headingMedium,
+            ),
           if (attempt.checkedAt != null)
             Text(
               'Checked ${formatSubmissionTimestamp(attempt.checkedAt!)}',

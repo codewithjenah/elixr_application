@@ -16,6 +16,8 @@ void main() {
     expect(announcement, isNotNull);
     expect(announcement!.createdAt, isNull);
     expect(announcement.isEdited, isFalse);
+    expect(announcement.isPinned, isFalse);
+    expect(announcement.pinnedAt, isNull);
   });
 
   test('announcement validation rejects blank and overlong fields', () {

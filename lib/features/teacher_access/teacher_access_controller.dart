@@ -76,6 +76,11 @@ class TeacherAccessController extends ChangeNotifier {
 
   int get pendingJoinCount => pendingGroupMemberships.length;
 
+  List<GroupMembership> get activeApprovedGroupMemberships => [
+    for (final membership in approvedGroupMemberships)
+      if (groupNamesById[membership.groupId]?.isActive == true) membership,
+  ];
+
   Future<void> start() async {
     loading = true;
     errorMessage = null;
@@ -258,6 +263,7 @@ class TeacherAccessController extends ChangeNotifier {
       }
     }
     _safeNotifyListeners();
+    unawaited(_refreshAssignments());
   }
 
   Future<void> _refreshAssignments() async {
@@ -268,7 +274,8 @@ class TeacherAccessController extends ChangeNotifier {
     }
     final gen = ++_assignmentLoadGen;
     final groupIds = [
-      for (final membership in approvedGroupMemberships) membership.groupId,
+      for (final membership in activeApprovedGroupMemberships)
+        membership.groupId,
     ];
     try {
       final visible = await repo.fetchAssignmentsForTrainee(

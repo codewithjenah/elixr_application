@@ -32,6 +32,7 @@ abstract final class AppRoutePaths {
   static const calendar = '/calendar';
   static const coaching = '/coaching';
   static const messages = '/messages';
+  static const activityCenter = '/activity-center';
   static const progress = '/progress';
   static const achievements = '/achievements';
 
@@ -87,6 +88,7 @@ abstract final class AppRoutePaths {
     calendar,
     coaching,
     messages,
+    activityCenter,
     progress,
     achievements,
   };

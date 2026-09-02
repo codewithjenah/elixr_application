@@ -6,6 +6,7 @@ import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/features/assigned_movements/widgets/submission_detail_body.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -250,6 +251,53 @@ void main() {
     expect(find.textContaining('Prop Positioning: 1/3'), findsOneWidget);
     expect(find.text('AI coaching'), findsNothing);
     expect(find.textContaining('does not save a video clip'), findsOneWidget);
+  });
+
+  testWidgets('trainee sees saved scoring criteria for checked work', (
+    tester,
+  ) async {
+    final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+    final scores = {
+      for (final criterion in assessment.rubric.criteria)
+        criterion.id: criterion.maximumPoints,
+    };
+    final attempt = AssignmentAttempt(
+      id: 'checked-work',
+      traineeId: 'trainee-1',
+      teacherId: 'teacher-1',
+      groupId: 'g1',
+      assignmentId: 'asg-1',
+      movementId: 'tm1',
+      revisionId: 'rev1',
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.teacherReviewed,
+      attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+      status: AssignmentAttemptStatus.checked,
+      submittedAt: DateTime.utc(2026, 9, 1),
+      checkedAt: DateTime.utc(2026, 9, 2),
+      gradeScore: assessment.rubric.maximumScore,
+      gradeMaxScore: assessment.rubric.maximumScore,
+      activityAssessmentSnapshot: assessment,
+      assignmentConfigurationRevision: 1,
+      criterionScores: scores,
+    );
+
+    await _pumpBody(tester, assignment: _teacherAssignment(), attempt: attempt);
+
+    expect(find.text('Scoring criteria'), findsOneWidget);
+    expect(
+      find.text(
+        '${assessment.rubric.maximumScore} / ${assessment.rubric.maximumScore}',
+      ),
+      findsOneWidget,
+    );
+    for (final criterion in assessment.rubric.criteria) {
+      expect(find.text(criterion.label), findsOneWidget);
+      expect(
+        find.text('${criterion.maximumPoints} / ${criterion.maximumPoints}'),
+        findsOneWidget,
+      );
+    }
   });
 
   testWidgets('dispose releases playback even when the clip is gone', (

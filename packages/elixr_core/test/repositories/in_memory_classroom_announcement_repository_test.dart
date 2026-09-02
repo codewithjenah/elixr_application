@@ -73,4 +73,54 @@ void main() {
     );
     expect(repository.announcements, isEmpty);
   });
+
+  test('pin replacement keeps exactly one announcement pinned', () async {
+    var counter = 0;
+    final repository = InMemoryClassroomAnnouncementRepository(
+      generateId: () => 'announcement-${counter++}',
+      now: () => DateTime.utc(2026, 9, 2, 10, counter),
+    );
+    addTearDown(repository.dispose);
+    final first = await repository.createAnnouncement(
+      groupId: 'group-1',
+      teacherId: 'teacher-1',
+      title: 'First',
+      body: 'First body',
+    );
+    final second = await repository.createAnnouncement(
+      groupId: 'group-1',
+      teacherId: 'teacher-1',
+      title: 'Second',
+      body: 'Second body',
+    );
+
+    await repository.setPinnedAnnouncement(
+      groupId: 'group-1',
+      teacherId: 'teacher-1',
+      announcementId: first.id,
+    );
+    var page = await repository.watchAnnouncements(groupId: 'group-1').first;
+    expect(page.items.first.id, first.id);
+    expect(page.items.where((item) => item.isPinned), hasLength(1));
+
+    await repository.setPinnedAnnouncement(
+      groupId: 'group-1',
+      teacherId: 'teacher-1',
+      announcementId: second.id,
+    );
+    page = await repository.watchAnnouncements(groupId: 'group-1').first;
+    expect(page.items.first.id, second.id);
+    expect(page.items.where((item) => item.isPinned), hasLength(1));
+    expect(
+      page.items.singleWhere((item) => item.id == first.id).isPinned,
+      isFalse,
+    );
+
+    await repository.setPinnedAnnouncement(
+      groupId: 'group-1',
+      teacherId: 'teacher-1',
+    );
+    page = await repository.watchAnnouncements(groupId: 'group-1').first;
+    expect(page.items.where((item) => item.isPinned), isEmpty);
+  });
 }

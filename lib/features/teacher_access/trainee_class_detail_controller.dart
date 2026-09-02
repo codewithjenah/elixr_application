@@ -128,10 +128,12 @@ class TraineeClassDetailController extends ChangeNotifier {
     try {
       final loaded = await groupRepository.getGroup(groupId: groupId);
       if (_disposed) return;
-      if (loaded != null) {
-        group = loaded;
-        _safeNotifyListeners();
+      group = loaded;
+      if (loaded == null || !loaded.isActive) {
+        unauthorized = true;
+        errorMessage = 'This class is not available.';
       }
+      _safeNotifyListeners();
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint('[TraineeClassDetail] getGroup failed: $error\n$stackTrace');

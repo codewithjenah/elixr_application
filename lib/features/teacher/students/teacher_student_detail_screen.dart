@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
+import '../../../core/router/navigation_helpers.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_back_button.dart';
@@ -88,7 +89,7 @@ class _TeacherStudentDetailScreenState
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    if (controller == null)
+    if (controller == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
           heading: 'Student',
@@ -97,6 +98,7 @@ class _TeacherStudentDetailScreenState
         ),
         content: Center(child: ProgressRing()),
       );
+    }
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) => TeacherScaffoldPage(
@@ -135,7 +137,8 @@ class _TeacherStudentDetailScreenState
               label: widget.preferredGroupId == null ? 'Students' : 'Classroom',
               tooltip: 'Back',
               semanticLabel: 'Back',
-              onPressed: () => context.go(
+              onPressed: () => popOrGo(
+                context,
                 widget.preferredGroupId == null
                     ? AppRoutePaths.teacherStudents
                     : AppRoutePaths.teacherGroup(widget.preferredGroupId!),
@@ -262,13 +265,14 @@ class _LearningEntries extends StatelessWidget {
               'Classroom assignments, submissions, review, grading, and feedback.',
           onOpen: () {
             final groupId = controller.selectedGroupId;
-            if (groupId != null)
+            if (groupId != null) {
               context.push(
                 AppRoutePaths.teacherStudentClasswork(
                   controller.traineeId,
                   groupId: groupId,
                 ),
               );
+            }
           },
         ),
         _LearningEntry(

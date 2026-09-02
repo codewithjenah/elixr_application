@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
+import '../../../core/router/navigation_helpers.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_back_button.dart';
@@ -99,7 +100,8 @@ class _TeacherStudentClassworkScreenState
                   : 'Classwork',
               tooltip: 'Back',
               semanticLabel: 'Back',
-              onPressed: () => context.go(
+              onPressed: () => popOrGo(
+                context,
                 widget.assignmentId == null
                     ? AppRoutePaths.teacherStudentDetail(
                         widget.traineeId,
@@ -147,21 +149,23 @@ class _ClassworkBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.loading) return const Center(child: ProgressRing());
-    if (controller.unauthorized || !controller.fixedStudentAuthorized)
+    if (controller.unauthorized || !controller.fixedStudentAuthorized) {
       return ElixStatusPanel(
         isError: true,
         message:
             controller.errorMessage ??
             'This student is not approved for this class.',
       );
+    }
     final review = assignmentId == null
         ? null
         : controller.assignmentById(assignmentId!);
-    if (assignmentId != null && review == null)
+    if (assignmentId != null && review == null) {
       return const ElixStatusPanel(
         message: 'This assignment is not available.',
       );
-    if (review != null)
+    }
+    if (review != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -182,6 +186,7 @@ class _ClassworkBody extends StatelessWidget {
           ),
         ],
       );
+    }
     final filteredAssignments = [
       for (final assignment in controller.assignments)
         if (_matchesFilter(
@@ -232,9 +237,7 @@ class _ClassworkBody extends StatelessWidget {
                     controller: controller,
                     assignment: filteredAssignments[index],
                     traineeId: traineeId,
-                    // Replace this route so the list controller is disposed before
-                    // the dedicated review workspace starts its own live streams.
-                    onOpen: () => context.go(
+                    onOpen: () => context.push(
                       AppRoutePaths.teacherStudentAssignmentReview(
                         traineeId,
                         groupId: groupId,
@@ -351,8 +354,9 @@ class _AssignmentRow extends StatelessWidget {
 }
 
 String _status(GroupAssignment assignment, AssignmentAttempt? attempt) {
-  if (attempt == null || !isAssignmentAttemptTurnedIn(attempt))
+  if (attempt == null || !isAssignmentAttemptTurnedIn(attempt)) {
     return assignment.isOverdue ? 'Missing' : 'Not turned in';
+  }
   return assignedMovementStatusLabel(
     assignment,
     attempt,
