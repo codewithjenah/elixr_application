@@ -330,8 +330,9 @@ class _ClassworkPane extends StatelessWidget {
           alignment: Alignment.centerRight,
           child: Button(
             key: const Key('teacher_access_class_view_your_work'),
-            onPressed: () => context.go(
+            onPressed: () => context.push(
               AppRoutePaths.teacherAccessClassWork(controller.groupId),
+              extra: true,
             ),
             child: const Text('View your work'),
           ),

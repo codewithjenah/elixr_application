@@ -225,7 +225,10 @@ class AppRouter {
                         final groupId = state.pathParameters['groupId'] ?? '';
                         return fadeTransitionPage(
                           key: state.pageKey,
-                          child: AssignedMovementsScreen(groupId: groupId),
+                          child: AssignedMovementsScreen(
+                            groupId: groupId,
+                            openedFromClasswork: state.extra == true,
+                          ),
                         );
                       },
                     ),

@@ -3,7 +3,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
+import '../../core/router/navigation_helpers.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
@@ -13,10 +16,16 @@ import 'assigned_movement_list.dart';
 import 'assigned_movements_controller.dart';
 
 class AssignedMovementsScreen extends StatefulWidget {
-  const AssignedMovementsScreen({super.key, this.controller, this.groupId});
+  const AssignedMovementsScreen({
+    super.key,
+    this.controller,
+    this.groupId,
+    this.openedFromClasswork = false,
+  });
 
   final AssignedMovementsController? controller;
   final String? groupId;
+  final bool openedFromClasswork;
 
   @override
   State<AssignedMovementsScreen> createState() =>
@@ -58,6 +67,9 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final classroomGroupId = widget.groupId?.trim();
+    final isClassroomScoped =
+        classroomGroupId != null && classroomGroupId.isNotEmpty;
     if (controller == null) {
       return const ElixScaffoldPage(content: Center(child: ProgressRing()));
     }
@@ -77,14 +89,35 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
                   0,
                 ),
                 child: ElixEditorialHeader(
-                  heading: widget.groupId == null
+                  heading: !isClassroomScoped
                       ? 'Assigned Movements'
                       : 'Your work',
-                  subtitle: widget.groupId == null
+                  subtitle: !isClassroomScoped
                       ? 'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.'
                       : 'Assignments for this classroom. Select an item to continue or review your work.',
                 ),
               ),
+              if (isClassroomScoped)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.sm,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: ElixBackButton(
+                    key: const Key('teacher_access_class_work_back'),
+                    label: 'Classwork',
+                    tooltip: 'Back to classroom classwork',
+                    semanticLabel: 'Back to classroom classwork',
+                    onPressed: () => popOrGo(
+                      context,
+                      '${AppRoutePaths.teacherAccessClass(classroomGroupId)}'
+                      '?tab=classwork',
+                      preferPop: widget.openedFromClasswork,
+                    ),
+                  ),
+                ),
               const SizedBox(height: AppSpacing.lg),
               Expanded(child: _Body(controller: controller)),
             ],
