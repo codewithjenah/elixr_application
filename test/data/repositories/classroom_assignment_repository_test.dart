@@ -376,6 +376,47 @@ void main() {
     },
   );
 
+  test(
+    'Teacher Activity rubric review preserves saved criterion scores',
+    () async {
+      final assessment = _activityAssessment();
+      final attempt = AssignmentAttempt(
+        id: 'activity-submission',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'activity-assignment',
+        movementId: 'movement-1',
+        revisionId: 'revision-1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.submitted,
+        activityAssessmentSnapshot: assessment,
+        assignmentConfigurationRevision: 1,
+      );
+      final scores = {
+        for (final criterion in assessment.rubric.criteria)
+          criterion.id: criterion.maximumPoints,
+      };
+      assignments.seedAttempt(attempt);
+
+      final checked = await assignments.saveTeacherActivityRubricReview(
+        teacherId: 'teacher-1',
+        attempt: attempt,
+        criterionScores: scores,
+        feedback: 'Well done.',
+      );
+      final persisted = await assignments.getAttempt(attemptId: attempt.id);
+
+      expect(checked.status, AssignmentAttemptStatus.checked);
+      expect(checked.criterionScores, scores);
+      expect(checked.gradeScore, assessment.rubric.maximumScore);
+      expect(persisted?.criterionScores, scores);
+      expect(persisted?.activityAssessmentSnapshot, assessment);
+    },
+  );
+
   test('archived Teacher movement cannot be newly assigned', () async {
     final movement = await movements.createMovement(
       teacherId: 'teacher-1',

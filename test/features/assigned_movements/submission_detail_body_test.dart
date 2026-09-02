@@ -300,6 +300,35 @@ void main() {
     }
   });
 
+  testWidgets('legacy checked work keeps its overall score without criteria', (
+    tester,
+  ) async {
+    final attempt = AssignmentAttempt(
+      id: 'legacy-checked-work',
+      traineeId: 'trainee-1',
+      teacherId: 'teacher-1',
+      groupId: 'g1',
+      assignmentId: 'asg-1',
+      movementId: 'tm1',
+      revisionId: 'rev1',
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.teacherReviewed,
+      attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+      status: AssignmentAttemptStatus.checked,
+      submittedAt: DateTime.utc(2026, 9, 1),
+      checkedAt: DateTime.utc(2026, 9, 2),
+      gradeScore: 90,
+      gradeMaxScore: 100,
+      reviewFeedback: 'Strong control.',
+    );
+
+    await _pumpBody(tester, assignment: _teacherAssignment(), attempt: attempt);
+
+    expect(find.byKey(const Key('submission_grade')), findsOneWidget);
+    expect(find.text('Scoring criteria'), findsNothing);
+    expect(find.text('Strong control.'), findsOneWidget);
+  });
+
   testWidgets('dispose releases playback even when the clip is gone', (
     tester,
   ) async {

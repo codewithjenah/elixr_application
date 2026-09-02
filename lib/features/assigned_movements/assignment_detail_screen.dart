@@ -541,10 +541,15 @@ class _YourWork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final current = assignment.isTeacherCreated
+    final isTeacherActivity = assignment.activityAssessment != null;
+    // Teacher Activities have a history selector. Keep the submitted-work
+    // card aligned with its selected row so a trainee sees the historical
+    // score and scoring criteria for that exact submission.
+    final current = isTeacherActivity
+        ? selected
+        : assignment.isTeacherCreated
         ? controller.currentSubmission
         : selected;
-    final isTeacherActivity = assignment.activityAssessment != null;
     final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
     final consumedAttempts = controller.attempts
         .where((attempt) => attempt.recordingStartedAt != null)
@@ -758,13 +763,11 @@ class _YourWork extends StatelessWidget {
             onPressed: () =>
                 context.go(AppRoutePaths.assignedPractice(assignment.id)),
           )
-        else
+        else if (isTeacherActivity && !hasAvailableActivityAttempt)
           Align(
             alignment: Alignment.centerLeft,
             child: ElixPill(
-              text: isTeacherActivity && !hasAvailableActivityAttempt
-                  ? 'No tries remaining'
-                  : assignedMovementActionLabel(assignment, current),
+              text: 'No tries remaining',
               color: context.elixTextSecondary,
             ),
           ),
