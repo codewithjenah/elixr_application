@@ -432,9 +432,13 @@ void main() {
       await tester.pump();
 
       expect(find.text('Welcome back, Jiro Lapuz'), findsOneWidget);
-      expect(find.text('Active groups'), findsOneWidget);
-      expect(find.text('Approved students'), findsOneWidget);
+      expect(find.text('Active classrooms'), findsOneWidget);
+      expect(find.text('Students'), findsOneWidget);
       expect(find.text('Pending requests'), findsOneWidget);
+      expect(find.text('Your classrooms'), findsOneWidget);
+      expect(find.text('No pending requests'), findsOneWidget);
+      expect(find.text('Open classroom'), findsOneWidget);
+      expect(find.textContaining('roster'), findsNothing);
       expect(find.byKey(const Key('teacher_dashboard_avatar')), findsOneWidget);
       expect(
         find.byKey(const Key('teacher_dashboard_open_classrooms')),

@@ -1,7 +1,9 @@
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher/analytics/teacher_analytics_controller.dart';
 import 'package:elixr_application/features/teacher/analytics/teacher_analytics_screen.dart';
+import 'package:elixr_application/features/teacher/analytics/teacher_analytics_summary.dart';
 import 'package:elixr_core/elixr_core.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -138,4 +140,63 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('dashboard summary shows concise charts from its snapshot', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await controller.start();
+    await tester.pumpWidget(
+      FluentApp(
+        theme: FluentThemeData(),
+        home: SingleChildScrollView(
+          child: SizedBox(
+            width: 1000,
+            child: TeacherAnalyticsSummary(controller: controller),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Score progress'), findsOneWidget);
+    expect(find.text('Practice by classroom'), findsOneWidget);
+    expect(find.text('Average practice score over time.'), findsOneWidget);
+    expect(find.text('Practice sessions recorded this week.'), findsOneWidget);
+    expect(find.byType(LineChart), findsOneWidget);
+    expect(find.byType(BarChart), findsOneWidget);
+    expect(find.byKey(const Key('teacher_analytics_refresh')), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_analytics_view_analytics')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dashboard summary uses friendly empty states without overflow', (
+    tester,
+  ) async {
+    progress.sessions['student'] = const [];
+    await tester.binding.setSurfaceSize(const Size(620, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await controller.start();
+    await tester.pumpWidget(
+      FluentApp(
+        theme: FluentThemeData(),
+        home: SingleChildScrollView(
+          child: SizedBox(
+            width: 560,
+            child: TeacherAnalyticsSummary(controller: controller),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('No scored practice yet.'), findsOneWidget);
+    expect(find.text('No practice activity yet.'), findsOneWidget);
+    expect(find.byType(LineChart), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

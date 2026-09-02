@@ -140,7 +140,7 @@ class _DashboardBody extends StatelessWidget {
                 children: [
                   Expanded(
                     child: ElixStatCard(
-                      label: 'Active groups',
+                      label: 'Active classrooms',
                       value: '${controller.activeGroupCount}',
                       icon: FluentIcons.people,
                     ),
@@ -148,7 +148,7 @@ class _DashboardBody extends StatelessWidget {
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: ElixStatCard(
-                      label: 'Approved students',
+                      label: 'Students',
                       value: '${controller.approvedStudentCount}',
                       icon: FluentIcons.contact,
                     ),
@@ -171,7 +171,7 @@ class _DashboardBody extends StatelessWidget {
                   ConstrainedBox(
                     constraints: const BoxConstraints(minWidth: 200),
                     child: ElixStatCard(
-                      label: 'Active groups',
+                      label: 'Active classrooms',
                       value: '${controller.activeGroupCount}',
                       icon: FluentIcons.people,
                     ),
@@ -179,7 +179,7 @@ class _DashboardBody extends StatelessWidget {
                   ConstrainedBox(
                     constraints: const BoxConstraints(minWidth: 200),
                     child: ElixStatCard(
-                      label: 'Approved students',
+                      label: 'Students',
                       value: '${controller.approvedStudentCount}',
                       icon: FluentIcons.contact,
                     ),
@@ -256,7 +256,7 @@ class _TeacherCommandHeader extends StatelessWidget {
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
-                      'Check classrooms, review student work, and keep your roster moving.',
+                      'Check classrooms, review student work, and keep your classes organized.',
                       style: AppTheme.supporting(
                         color: context.elixTextSecondary,
                       ),
@@ -312,16 +312,16 @@ class _DashboardWorkspace extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final groups = _WorkspaceSection(
-      heading: 'Groups overview',
+      heading: 'Your classrooms',
       eyebrow: 'CLASSROOMS',
-      subtitle: 'Manage rosters and class activity.',
+      subtitle: 'Manage students and class activity.',
       action: Button(
         onPressed: () => context.go(AppRoutePaths.teacherGroups),
-        child: const Text('Open groups'),
+        child: const Text('View classrooms'),
       ),
       child: controller.groupSummaries.isEmpty
           ? Text(
-              'No active groups yet.',
+              'No active classrooms yet.',
               style: AppTheme.body.copyWith(color: context.elixTextSecondary),
             )
           : Column(
@@ -416,7 +416,7 @@ class _GroupOverviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasPending = summary.pendingCount > 0;
-    final rosterLabel = summary.approvedCount == 1
+    final studentLabel = summary.approvedCount == 1
         ? '1 student enrolled'
         : '${summary.approvedCount} students enrolled';
     return Padding(
@@ -461,7 +461,7 @@ class _GroupOverviewRow extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        rosterLabel,
+                        studentLabel,
                         style: AppTheme.caption.copyWith(
                           color: context.elixTextSecondary,
                         ),
@@ -477,12 +477,12 @@ class _GroupOverviewRow extends StatelessWidget {
                   ? context.elixColors.warning
                   : context.elixColors.success,
               text: hasPending
-                  ? '${summary.pendingCount} waiting'
-                  : 'Roster up to date',
+                  ? '${summary.pendingCount} waiting to join'
+                  : 'No pending requests',
             );
             final action = FilledButton(
               onPressed: () => context.go(AppRoutePaths.teacherGroups),
-              child: const Text('Manage group'),
+              child: const Text('Open classroom'),
             );
 
             if (compact) {
@@ -531,7 +531,7 @@ class _PendingRequestRow extends StatelessWidget {
           subtitle: const Text('Wants to join a class'),
           trailing: Button(
             onPressed: () => context.go(AppRoutePaths.teacherGroups),
-            child: const Text('Review in Groups'),
+            child: const Text('Review request'),
           ),
         ),
       ),
@@ -555,7 +555,7 @@ class _EmptyDashboard extends StatelessWidget {
           message:
               'Create a class, then share the join code with your students. '
               'Each class keeps its own student list.',
-          actionLabel: 'Open Groups',
+          actionLabel: 'Open classrooms',
           onAction: onOpenGroups,
         ),
       ),
