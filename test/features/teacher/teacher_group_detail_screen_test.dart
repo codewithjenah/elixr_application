@@ -1,6 +1,9 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
@@ -405,6 +408,73 @@ void main() {
 
     expect(find.text('classwork:${group.id}:${own.id}'), findsOneWidget);
   });
+
+  testWidgets(
+    'Grades renders a populated matrix and supports hovering its header',
+    (tester) async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 26),
+      );
+      addTearDown(assignments.dispose);
+      final group = await repository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSIT-4A',
+      );
+      final invite = await repository.getActiveGroupInvite(groupId: group.id);
+      final membership = await repository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      await repository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+      final assignment = await assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: group,
+        officialMovementName: 'Normal Grip',
+      );
+      final controller = await controllerFor(
+        'teacher-1',
+        assignmentRepository: assignments,
+      );
+      addTearDown(controller.dispose);
+      await controller.startForGroup(group.id);
+
+      await pumpDetail(tester, controller: controller, groupId: group.id);
+      await tester.tap(find.byKey(const Key('teacher_group_tab_grades')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('teacher_group_grades_section')),
+        findsOneWidget,
+      );
+      expect(find.text('Ada Lovelace'), findsOneWidget);
+      expect(find.text('Normal Grip'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      final header = find.ancestor(
+        of: find.text(assignment.displayTitle),
+        matching: find.byType(ElixHoverSurface),
+      );
+      expect(header, findsOneWidget);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: tester.getCenter(header));
+      await mouse.moveTo(tester.getCenter(header));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      await tester.tap(header);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('classwork:${group.id}:${assignment.id}'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('teacher can edit the deadline and archive an assignment', (
     tester,

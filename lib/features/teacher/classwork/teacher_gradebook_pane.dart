@@ -182,105 +182,119 @@ class _GradeMatrix extends StatelessWidget {
   final void Function(GroupAssignment, String) onOpenCell;
   static const _studentWidth = 220.0;
   static const _assignmentWidth = 154.0;
+  // These rows sit in a horizontally scrolling matrix within the classroom's
+  // vertically scrolling page. Stretching their interactive cells is safe only
+  // when the Row receives a finite cross-axis height.
+  static const _headerRowHeight = 96.0;
+  static const _studentRowHeight = 56.0;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _headerCell(context, 'Student', _studentWidth),
-            for (final assignment in assignments)
-              SizedBox(
-                width: _assignmentWidth,
-                child: Tooltip(
-                  message: assignment.displayTitle,
-                  child: ElixHoverSurface(
-                    semanticLabel: 'Open ${assignment.displayTitle} classwork',
-                    onTap: () => onOpenAssignment(assignment),
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.sm),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            assignment.displayTitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            assignment.isOfficial
-                                ? 'Official ELIXR'
-                                : 'Teacher-created',
-                            style: AppTheme.bodySecondary.copyWith(
-                              fontSize: 11,
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                          if (!assignment.isActive)
+        SizedBox(
+          height: _headerRowHeight,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _headerCell(context, 'Student', _studentWidth),
+              for (final assignment in assignments)
+                SizedBox(
+                  width: _assignmentWidth,
+                  child: Tooltip(
+                    message: assignment.displayTitle,
+                    child: ElixHoverSurface(
+                      semanticLabel:
+                          'Open ${assignment.displayTitle} classwork',
+                      onTap: () => onOpenAssignment(assignment),
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.sm),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              'Archived',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: context.elixColors.warning,
+                              assignment.displayTitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
+                            const SizedBox(height: 3),
+                            Text(
+                              assignment.isOfficial
+                                  ? 'Official ELIXR'
+                                  : 'Teacher-created',
+                              style: AppTheme.bodySecondary.copyWith(
+                                fontSize: 11,
+                                color: context.elixTextSecondary,
+                              ),
+                            ),
+                            if (!assignment.isActive)
+                              Text(
+                                'Archived',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: context.elixColors.warning,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        for (final student in students)
+          SizedBox(
+            height: _studentRowHeight,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: _studentWidth,
+                  child: ElixHoverSurface(
+                    semanticLabel:
+                        'Open ${student.traineeDisplayName} student detail',
+                    onTap: () => onOpenStudent(student),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      child: Row(
+                        children: [
+                          ProfileAvatarWidget(
+                            initials: _initials(student.traineeDisplayName),
+                            networkImageUrl: profilePictureUrlFor(
+                              student.traineeId,
+                            ),
+                            radius: 15,
+                            showBorder: false,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              student.traineeDisplayName,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        ),
-        for (final student in students)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                width: _studentWidth,
-                child: ElixHoverSurface(
-                  semanticLabel:
-                      'Open ${student.traineeDisplayName} student detail',
-                  onTap: () => onOpenStudent(student),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.sm),
-                    child: Row(
-                      children: [
-                        ProfileAvatarWidget(
-                          initials: _initials(student.traineeDisplayName),
-                          networkImageUrl: profilePictureUrlFor(
-                            student.traineeId,
-                          ),
-                          radius: 15,
-                          showBorder: false,
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            student.traineeDisplayName,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
+                for (final assignment in assignments)
+                  _GradeCell(
+                    width: _assignmentWidth,
+                    student: student,
+                    assignment: assignment,
+                    controller: controller,
+                    now: now,
+                    onOpen: () => onOpenCell(assignment, student.traineeId),
                   ),
-                ),
-              ),
-              for (final assignment in assignments)
-                _GradeCell(
-                  width: _assignmentWidth,
-                  student: student,
-                  assignment: assignment,
-                  controller: controller,
-                  now: now,
-                  onOpen: () => onOpenCell(assignment, student.traineeId),
-                ),
-            ],
+              ],
+            ),
           ),
       ],
     );
