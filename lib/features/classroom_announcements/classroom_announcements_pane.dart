@@ -77,10 +77,6 @@ class ClassroomAnnouncementsPane extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           ElixStatusPanel(message: controller.errorMessage!, isError: true),
         ],
-        if (controller.actionMessage != null) ...[
-          const SizedBox(height: AppSpacing.md),
-          ElixStatusPanel(message: controller.actionMessage!),
-        ],
         const SizedBox(height: AppSpacing.lg),
         for (final announcement in pinned) ...[
           _AnnouncementCard(
@@ -474,6 +470,8 @@ Future<void> _showEditor(
           body: result.body,
         );
   if (!success || !context.mounted) return;
+  final message = controller.consumeActionMessage();
+  if (message != null) ElixToast.showSuccess(context, message: message);
 }
 
 Future<void> _confirmDelete(
@@ -501,7 +499,11 @@ Future<void> _confirmDelete(
       ],
     ),
   );
-  if (accepted == true) await controller.delete(announcement);
+  if (accepted != true) return;
+  final success = await controller.delete(announcement);
+  if (!success || !context.mounted) return;
+  final message = controller.consumeActionMessage();
+  if (message != null) ElixToast.showSuccess(context, message: message);
 }
 
 class _AnnouncementDraft {

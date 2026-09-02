@@ -175,7 +175,9 @@ class _SummaryMetrics extends StatelessWidget {
       ),
       _SummaryMetricData(
         label: 'Change from last week',
-        value: snapshot?.improvement == null ? '—' : _signed(snapshot!.improvement!),
+        value: snapshot?.improvement == null
+            ? '—'
+            : _signed(snapshot!.improvement!),
         icon: FluentIcons.trending12,
         color: _changeColor(context, snapshot?.improvement),
       ),
@@ -218,9 +220,7 @@ class _SummaryMetrics extends StatelessWidget {
 
   static Color _changeColor(BuildContext context, double? value) {
     if (value == null) return context.elixTextSecondary;
-    return value >= 0
-        ? context.elixColors.success
-        : context.elixColors.error;
+    return value >= 0 ? context.elixColors.success : context.elixColors.error;
   }
 }
 

@@ -32,6 +32,17 @@ abstract class GroupRepository {
 
   Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId});
 
+  /// Watches the active view of one classroom for an approved Trainee.
+  ///
+  /// The stream emits `null` when the classroom is archived or the
+  /// membership is no longer approved. Firebase implementations observe a
+  /// narrow lifecycle-status projection before reading active group metadata,
+  /// so archived classroom data is not exposed to Trainees.
+  Stream<ElixrGroup?> watchActiveGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  });
+
   Future<ElixrGroup?> getGroup({required String groupId});
 
   Future<void> renameGroup({

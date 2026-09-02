@@ -155,6 +155,85 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('publish, edit, and delete actions use one success toast', (
+    tester,
+  ) async {
+    final repository = InMemoryClassroomAnnouncementRepository();
+    final controller = ClassroomAnnouncementsController(
+      repository: repository,
+      groupId: 'group-1',
+      currentUserId: 'teacher-1',
+      canManage: true,
+      isGroupActive: () => true,
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) => ClassroomAnnouncementsPane(
+              controller: controller,
+              teacherDisplayName: 'Grace Hopper',
+              canManage: true,
+              groupIsActive: true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('classroom_announcements_new')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('classroom_announcement_title')),
+      'Reminder',
+    );
+    await tester.enterText(
+      find.byKey(const Key('classroom_announcement_body')),
+      'Practice today.',
+    );
+    await tester.tap(find.byKey(const Key('classroom_announcement_save')));
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.text('Announcement published.'), findsOneWidget);
+    expect(controller.actionMessage, isNull);
+    final item = controller.items.single;
+    await tester.tap(find.byKey(const Key('elix_toast_close')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(Key('classroom_announcement_edit_${item.id}')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('classroom_announcement_title')),
+      'Updated reminder',
+    );
+    await tester.tap(find.byKey(const Key('classroom_announcement_save')));
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.text('Announcement updated.'), findsOneWidget);
+    expect(controller.actionMessage, isNull);
+    await tester.tap(find.byKey(const Key('elix_toast_close')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(Key('classroom_announcement_delete_${item.id}')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('classroom_announcement_confirm_delete')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.text('Announcement deleted.'), findsOneWidget);
+    expect(controller.actionMessage, isNull);
+    expect(find.byKey(const Key('elix_toast')), findsOneWidget);
+  });
+
   testWidgets(
     'failed pin keeps inline error feedback and shows no success toast',
     (tester) async {

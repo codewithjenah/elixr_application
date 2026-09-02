@@ -70,6 +70,13 @@ class _SpyGroupRepository implements GroupRepository {
   }
 
   @override
+  Stream<ElixrGroup?> watchActiveGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  }) =>
+      inner.watchActiveGroupForTrainee(groupId: groupId, traineeId: traineeId);
+
+  @override
   Future<ElixrGroup?> getGroup({required String groupId}) {
     return inner.getGroup(groupId: groupId);
   }

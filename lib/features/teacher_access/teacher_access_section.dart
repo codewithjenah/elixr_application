@@ -117,9 +117,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
 
     final controller = _controller;
     if (controller == null) {
-      return const ElixStatusPanel(
-        message: 'Sign in to manage Teacher Access.',
-      );
+      return const ElixStatusPanel(message: 'Sign in to view your classes.');
     }
 
     return AnimatedBuilder(

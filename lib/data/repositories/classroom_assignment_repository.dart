@@ -23,7 +23,8 @@ abstract class ClassroomAssignmentRepository {
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   });
 
@@ -35,7 +36,8 @@ abstract class ClassroomAssignmentRepository {
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -83,7 +85,8 @@ abstract class ClassroomAssignmentRepository {
     DateTime? dueAt,
     String? displayInstructions,
     String? topic,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createOfficialAssignment(
     teacherId: teacherId,
@@ -104,7 +107,8 @@ abstract class ClassroomAssignmentRepository {
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -421,7 +425,8 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   required TeacherMovementRevision revision,
   int maxScore = 100,
   TeacherActivityAssessmentConfig? activityAssessment,
-  AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
+  AssignmentAttemptPolicy attemptPolicy =
+      AssignmentAttemptPolicy.teacherActivityDefault,
   String? displayTitle,
   String? displayInstructions,
   String? displaySafetyGuidance,

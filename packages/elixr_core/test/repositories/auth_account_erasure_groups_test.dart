@@ -81,6 +81,12 @@ void main() {
         'invite_code': '7KPMXR4DQ2WT',
       });
       await firestore
+          .collection(FirestoreCollections.groups)
+          .doc('g1')
+          .collection('lifecycle')
+          .doc('status')
+          .set({'status': 'active'});
+      await firestore
           .collection(FirestoreCollections.groupInvites)
           .doc('7KPMXR4DQ2WT')
           .set({'group_id': 'g1', 'teacher_id': 'teacher-1'});
@@ -123,6 +129,16 @@ void main() {
         (await firestore
                 .collection(FirestoreCollections.groups)
                 .doc('g1')
+                .get())
+            .exists,
+        isFalse,
+      );
+      expect(
+        (await firestore
+                .collection(FirestoreCollections.groups)
+                .doc('g1')
+                .collection('lifecycle')
+                .doc('status')
                 .get())
             .exists,
         isFalse,

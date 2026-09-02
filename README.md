@@ -345,6 +345,9 @@ assignment, public-profile, and other feature collections described below):
 - `groups/{groupId}/announcements` — Teacher-authored classroom broadcasts.
   Approved current members of an active class can read its history; posts are
   not direct messages and do not create unread counters or read receipts.
+- `groups/{groupId}/lifecycle/status` — lifecycle-only status projection used
+  by approved Trainee class views; it contains no archived group metadata and
+  is updated atomically with Teacher archive/unarchive changes.
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
 

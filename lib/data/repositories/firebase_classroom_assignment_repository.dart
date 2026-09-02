@@ -63,7 +63,8 @@ class FirebaseClassroomAssignmentRepository
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createOfficialAssignmentWithTopic(
     teacherId: teacherId,
@@ -85,7 +86,8 @@ class FirebaseClassroomAssignmentRepository
     DateTime? dueAt,
     String? displayInstructions,
     String? topic,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
@@ -119,7 +121,8 @@ class FirebaseClassroomAssignmentRepository
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -155,7 +158,8 @@ class FirebaseClassroomAssignmentRepository
     String? displaySafetyGuidance,
     DateTime? dueAt,
     String? topic,
-    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);

@@ -22,8 +22,7 @@ class TeacherMovementBuilderDraft {
     TeacherActivityAssessmentConfig? assessment,
   }) : safetyGuidance = safetyGuidance ?? '',
        readiness =
-           assessment?.readiness ??
-           const TeacherActivityReadinessSpec(),
+           assessment?.readiness ?? const TeacherActivityReadinessSpec(),
        rubricTemplate =
            assessment?.rubric.template ??
            TeacherActivityRubricTemplate.standardTechnique,

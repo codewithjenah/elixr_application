@@ -2399,6 +2399,59 @@ service cloud.firestore {
         && get(userPath(request.auth.uid)).data.get('role', '') == 'Teacher';
     }
 
+    // Trainees may observe only the lifecycle status of classrooms where they
+    // hold an approved membership. The status projection contains no group
+    // metadata, so archived classroom data remains protected by the group
+    // document's active-only GET rule.
+    function isApprovedTraineeForGroup(groupId) {
+      let membershipRef = groupMembershipPath(groupId, request.auth.uid);
+      return isSignedIn()
+        && exists(groupPath(groupId))
+        && exists(membershipRef)
+        && get(membershipRef).data.group_id == groupId
+        && get(membershipRef).data.trainee_id == request.auth.uid
+        && get(membershipRef).data.status == 'approved'
+        && get(groupPath(groupId)).data.teacher_id
+          == get(membershipRef).data.teacher_id;
+    }
+
+    function classroomStatusPath(groupId) {
+      return /databases/$(database)/documents/groups/$(groupId)/lifecycle/status;
+    }
+
+    function isGroupTeacher(groupId) {
+      return isVerifiedTeacher()
+        && exists(groupPath(groupId))
+        && get(groupPath(groupId)).data.teacher_id == request.auth.uid;
+    }
+
+    function isAccountDeletionInProgress() {
+      return isSignedIn()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.get(
+          'lifecycle_state', 'active'
+        ) == 'deleting';
+    }
+
+    function validClassroomStatusWrite(groupId) {
+      let groupAfter = getAfter(groupPath(groupId));
+      return isVerifiedTeacher()
+        && groupAfter != null
+        && groupAfter.data.teacher_id == request.auth.uid
+        && request.resource.data.keys().hasOnly(['status', 'updated_at'])
+        && request.resource.data.keys().hasAll(['status', 'updated_at'])
+        && request.resource.data.status in ['active', 'archived']
+        && request.resource.data.status == groupAfter.data.status
+        && request.resource.data.updated_at == request.time;
+    }
+
+    function classroomStatusMatchesAfter(groupId) {
+      let statusAfter = getAfter(classroomStatusPath(groupId));
+      return statusAfter != null
+        && statusAfter.data.status == request.resource.data.status
+        && statusAfter.data.updated_at == request.time;
+    }
+
     function validGroupCreate(data) {
       return isVerifiedTeacher()
         && data.keys().hasOnly(groupAllowedKeys())
@@ -2477,6 +2530,10 @@ service cloud.firestore {
                 && request.resource.data.status == 'archived')
               || (resource.data.status == 'archived'
                 && request.resource.data.status in ['archived', 'active'])
+            )
+            && (
+              !exists(classroomStatusPath(groupId))
+              || classroomStatusMatchesAfter(groupId)
             )
           )
           || validGroupInvitePointerUpdate(groupId)
@@ -2807,6 +2864,20 @@ service cloud.firestore {
         && validAnnouncementText(after.title, 120)
         && validAnnouncementText(after.body, 2000)
         && after.edited_at == request.time;
+    }
+
+    match /groups/{groupId}/lifecycle/{documentId} {
+      allow get: if documentId == 'status'
+        && (isApprovedTraineeForGroup(groupId) || isGroupTeacher(groupId));
+      allow list: if false;
+      allow create, update: if documentId == 'status'
+        && validClassroomStatusWrite(groupId);
+      allow delete: if documentId == 'status'
+        && isGroupTeacher(groupId)
+        && (
+          getAfter(groupPath(groupId)) == null
+          || isAccountDeletionInProgress()
+        );
     }
 
     match /groups/{groupId}/announcements/{announcementId} {

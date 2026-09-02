@@ -204,9 +204,7 @@ void main() {
   );
 
   test('To Review aggregates authorized targeted work oldest first', () async {
-    groups.seedMembership(
-      _membership(status: GroupMembershipStatus.approved),
-    );
+    groups.seedMembership(_membership(status: GroupMembershipStatus.approved));
     groups.seedMembership(
       _membership(
         traineeId: 'student-2',
@@ -335,7 +333,9 @@ void main() {
 
       expect(controller.pendingReviews, isEmpty);
       final submissionActivities = controller.activities
-          .where((activity) => activity.type == TeacherActivityType.newSubmission)
+          .where(
+            (activity) => activity.type == TeacherActivityType.newSubmission,
+          )
           .toList();
       expect(submissionActivities, hasLength(1));
       expect(submissionActivities.single.id, originalSubmission.id);
@@ -362,16 +362,11 @@ void main() {
     );
 
     expect(find.byKey(const Key('teacher_to_review_empty')), findsOneWidget);
-    expect(
-      find.text('No submissions are waiting for review'),
-      findsOneWidget,
-    );
+    expect(find.text('No submissions are waiting for review'), findsOneWidget);
   });
 
   testWidgets('To Review shows actionable submission context', (tester) async {
-    groups.seedMembership(
-      _membership(status: GroupMembershipStatus.approved),
-    );
+    groups.seedMembership(_membership(status: GroupMembershipStatus.approved));
     final assignment = _reviewAssignment();
     assignments.seedAssignment(assignment);
     assignments.seedAttempt(
@@ -578,7 +573,9 @@ void main() {
     );
 
     expect(
-      find.byKey(const Key('teacher_activity_avatar_join_request:group_student')),
+      find.byKey(
+        const Key('teacher_activity_avatar_join_request:group_student'),
+      ),
       findsOneWidget,
     );
   });

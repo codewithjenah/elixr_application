@@ -215,6 +215,7 @@ class GroupAssignment {
   /// as `/100` for compatibility, while all new Teacher-created assignments
   /// write the explicit field.
   final int? maxScore;
+
   /// Submission allowance belongs to this classroom delivery, never an
   /// Activity template. Missing historical values retain unlimited behavior.
   final AssignmentAttemptPolicy attemptPolicy;
@@ -440,7 +441,9 @@ class GroupAssignment {
       return null;
     }
     if (map.containsKey('attempt_policy')) {
-      final parsedPolicy = AssignmentAttemptPolicy.tryFrom(map['attempt_policy']);
+      final parsedPolicy = AssignmentAttemptPolicy.tryFrom(
+        map['attempt_policy'],
+      );
       if (parsedPolicy == null) return null;
       attemptPolicy = parsedPolicy;
     }

@@ -90,9 +90,31 @@ function activeGroupPayload(name = 'BSHM 4A') {
 
 async function createOwnedGroup(groupId = GROUP_ID) {
   const teacher = context('teacher').firestore();
+  const batch = writeBatch(teacher);
+  const groupRef = doc(teacher, 'groups', groupId);
+  const statusRef = doc(teacher, 'groups', groupId, 'lifecycle', 'status');
+  batch.set(groupRef, activeGroupPayload());
+  batch.set(statusRef, {
+    status: 'active',
+    updated_at: serverTimestamp(),
+  });
   await assertSucceeds(
-    setDoc(doc(teacher, 'groups', groupId), activeGroupPayload()),
+    batch.commit(),
   );
+}
+
+async function setGroupStatus(status) {
+  const teacher = context('teacher').firestore();
+  const batch = writeBatch(teacher);
+  batch.update(doc(teacher, 'groups', GROUP_ID), {
+    status,
+    updated_at: serverTimestamp(),
+  });
+  batch.set(doc(teacher, 'groups', GROUP_ID, 'lifecycle', 'status'), {
+    status,
+    updated_at: serverTimestamp(),
+  });
+  await assertSucceeds(batch.commit());
 }
 
 async function provisionGroupInvite({
@@ -269,13 +291,7 @@ describe('Phase 2 groups', () => {
     await seedUsers();
     await createOwnedGroup();
     await provisionGroupInvite();
-    const teacher = context('teacher').firestore();
-    await assertSucceeds(
-      updateDoc(doc(teacher, 'groups', GROUP_ID), {
-        status: 'archived',
-        updated_at: serverTimestamp(),
-      }),
-    );
+    await setGroupStatus('archived');
   });
 
   test('owning Teacher can unarchive a group without changing invite pointer', async () => {
@@ -283,18 +299,8 @@ describe('Phase 2 groups', () => {
     await createOwnedGroup();
     await provisionGroupInvite();
     const teacher = context('teacher').firestore();
-    await assertSucceeds(
-      updateDoc(doc(teacher, 'groups', GROUP_ID), {
-        status: 'archived',
-        updated_at: serverTimestamp(),
-      }),
-    );
-    await assertSucceeds(
-      updateDoc(doc(teacher, 'groups', GROUP_ID), {
-        status: 'active',
-        updated_at: serverTimestamp(),
-      }),
-    );
+    await setGroupStatus('archived');
+    await setGroupStatus('active');
     const saved = await getDoc(doc(teacher, 'groups', GROUP_ID));
     assert.equal(saved.data().invite_code, CODE);
     assert.equal(saved.data().status, 'active');
@@ -304,13 +310,7 @@ describe('Phase 2 groups', () => {
     await seedUsers();
     await createOwnedGroup();
     await provisionGroupInvite();
-    const teacher = context('teacher').firestore();
-    await assertSucceeds(
-      updateDoc(doc(teacher, 'groups', GROUP_ID), {
-        status: 'archived',
-        updated_at: serverTimestamp(),
-      }),
-    );
+    await setGroupStatus('archived');
     await assertFails(
       updateDoc(doc(context('other').firestore(), 'groups', GROUP_ID), {
         status: 'active',
@@ -322,13 +322,8 @@ describe('Phase 2 groups', () => {
   test('unarchive cannot change protected classroom fields', async () => {
     await seedUsers();
     await createOwnedGroup();
+    await setGroupStatus('archived');
     const teacher = context('teacher').firestore();
-    await assertSucceeds(
-      updateDoc(doc(teacher, 'groups', GROUP_ID), {
-        status: 'archived',
-        updated_at: serverTimestamp(),
-      }),
-    );
     await assertFails(
       updateDoc(doc(teacher, 'groups', GROUP_ID), {
         status: 'active',
@@ -336,6 +331,58 @@ describe('Phase 2 groups', () => {
         updated_at: serverTimestamp(),
       }),
     );
+  });
+
+  test('approved Trainee observes only the active classroom view', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(trainee, 'group_memberships', MEMBERSHIP_ID),
+        pendingMembershipPayload(),
+      ),
+    );
+    await approveMembership();
+
+    const statusRef = doc(
+      trainee,
+      'groups',
+      GROUP_ID,
+      'lifecycle',
+      'status',
+    );
+    const teacher = context('teacher').firestore();
+    await assertFails(
+      updateDoc(doc(teacher, 'groups', GROUP_ID), {
+        status: 'archived',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      deleteDoc(doc(teacher, 'groups', GROUP_ID, 'lifecycle', 'status')),
+    );
+    let visible = await assertSucceeds(getDoc(statusRef));
+    assert.equal(visible.data().status, 'active');
+
+    await setGroupStatus('archived');
+    visible = await assertSucceeds(getDoc(statusRef));
+    assert.equal(visible.data().status, 'archived');
+    await assertFails(getDoc(doc(trainee, 'groups', GROUP_ID)));
+
+    await setGroupStatus('active');
+    visible = await assertSucceeds(getDoc(statusRef));
+    assert.equal(visible.data().status, 'active');
+    await assertSucceeds(getDoc(doc(trainee, 'groups', GROUP_ID)));
+
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(
+        doc(admin.firestore(), 'group_memberships', MEMBERSHIP_ID),
+        { status: 'removed' },
+      );
+    });
+    await assertFails(getDoc(statusRef));
   });
 });
 

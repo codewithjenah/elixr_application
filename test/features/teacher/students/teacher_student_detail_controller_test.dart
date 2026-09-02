@@ -352,6 +352,13 @@ class _FailingTeacherGroupsRepository implements GroupRepository {
   }
 
   @override
+  Stream<ElixrGroup?> watchActiveGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  }) =>
+      inner.watchActiveGroupForTrainee(groupId: groupId, traineeId: traineeId);
+
+  @override
   Stream<List<GroupMembership>> watchTeacherMemberships({
     required String teacherId,
   }) => inner.watchTeacherMemberships(teacherId: teacherId);

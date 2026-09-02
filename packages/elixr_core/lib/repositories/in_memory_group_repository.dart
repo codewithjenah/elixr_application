@@ -40,6 +40,7 @@ class InMemoryGroupRepository implements GroupRepository {
 
   final _teacherGroupControllers =
       <String, StreamController<List<ElixrGroup>>>{};
+  final _traineeGroupControllers = <String, StreamController<ElixrGroup?>>{};
   final _groupMembershipControllers =
       <String, StreamController<List<GroupMembership>>>{};
   final _teacherMembershipControllers =
@@ -115,6 +116,9 @@ class InMemoryGroupRepository implements GroupRepository {
     for (final controller in _teacherGroupControllers.values) {
       controller.close();
     }
+    for (final controller in _traineeGroupControllers.values) {
+      controller.close();
+    }
     for (final controller in _groupMembershipControllers.values) {
       controller.close();
     }
@@ -185,6 +189,24 @@ class InMemoryGroupRepository implements GroupRepository {
   @override
   Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId}) =>
       _watchGroups(teacherId);
+
+  @override
+  Stream<ElixrGroup?> watchActiveGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  }) {
+    final key = '$traineeId::$groupId';
+    final existing = _traineeGroupControllers[key];
+    if (existing != null && !existing.isClosed) return existing.stream;
+    late final StreamController<ElixrGroup?> controller;
+    controller = StreamController<ElixrGroup?>.broadcast(
+      onListen: () => controller.add(
+        _activeGroupForTrainee(groupId: groupId, traineeId: traineeId),
+      ),
+    );
+    _traineeGroupControllers[key] = controller;
+    return controller.stream;
+  }
 
   @override
   Future<ElixrGroup?> getGroup({required String groupId}) async =>
@@ -687,6 +709,7 @@ class InMemoryGroupRepository implements GroupRepository {
         entry.value.add(_groupsForTeacher(entry.key));
       }
     }
+    _emitTraineeGroups();
   }
 
   void _emitMemberships() {
@@ -713,6 +736,42 @@ class InMemoryGroupRepository implements GroupRepository {
         final (teacherId, groupId) = _parseApprovedMemberWatchKey(entry.key);
         entry.value.add(_approvedMembersForGroup(teacherId, groupId));
       }
+    }
+    _emitTraineeGroups();
+  }
+
+  ElixrGroup? _activeGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  }) {
+    final group = groups[groupId];
+    final membership =
+        memberships[GroupMembership.documentId(
+          groupId: groupId,
+          traineeId: traineeId,
+        )];
+    if (group == null ||
+        !group.isActive ||
+        membership == null ||
+        !membership.isApproved ||
+        membership.traineeId != traineeId ||
+        membership.groupId != groupId ||
+        membership.teacherId != group.teacherId) {
+      return null;
+    }
+    return group;
+  }
+
+  void _emitTraineeGroups() {
+    for (final entry in _traineeGroupControllers.entries) {
+      if (entry.value.isClosed) continue;
+      final separator = entry.key.indexOf('::');
+      if (separator <= 0) continue;
+      final traineeId = entry.key.substring(0, separator);
+      final groupId = entry.key.substring(separator + 2);
+      entry.value.add(
+        _activeGroupForTrainee(groupId: groupId, traineeId: traineeId),
+      );
     }
   }
 }

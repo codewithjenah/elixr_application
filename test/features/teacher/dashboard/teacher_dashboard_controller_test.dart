@@ -428,6 +428,13 @@ class _ControllableGroupRepository implements GroupRepository {
   }
 
   @override
+  Stream<ElixrGroup?> watchActiveGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  }) =>
+      inner.watchActiveGroupForTrainee(groupId: groupId, traineeId: traineeId);
+
+  @override
   Future<ElixrGroup?> getGroup({required String groupId}) =>
       inner.getGroup(groupId: groupId);
 

@@ -42,6 +42,7 @@ class TeacherAccessController extends ChangeNotifier {
   final Map<String, String> _teacherDisplayNames = {};
   final Map<String, StreamSubscription<PublicProfile?>> _teacherProfileSubs =
       {};
+  final Map<String, StreamSubscription<ElixrGroup?>> _activeGroupSubs = {};
   int _assignmentLoadGen = 0;
   bool loading = false;
   bool busy = false;
@@ -87,6 +88,10 @@ class TeacherAccessController extends ChangeNotifier {
     notifyListeners();
     try {
       await _groupMembershipsSub?.cancel();
+      _groupMembershipsSub = null;
+      await _cancelActiveGroupWatches();
+      groupNamesById.clear();
+      assignmentsByGroupId = const {};
       final firstGroups = Completer<void>();
       _groupMembershipsSub = groupRepository
           .watchTraineeMemberships(traineeId: traineeId)
@@ -100,24 +105,25 @@ class TeacherAccessController extends ChangeNotifier {
                 for (final membership in memberships)
                   if (membership.isApproved) membership,
               ];
+              _syncActiveGroupWatches();
               _syncTeacherProfileWatches();
               if (!firstGroups.isCompleted) firstGroups.complete();
               _safeNotifyListeners();
-              unawaited(_refreshGroupNames(memberships));
+              unawaited(_refreshPendingGroupNames(memberships));
               unawaited(_refreshAssignments());
             },
             onError: (Object error) {
-              errorMessage = 'Could not load group memberships.';
+              errorMessage = 'Could not load your classes.';
               if (!firstGroups.isCompleted) firstGroups.completeError(error);
-              notifyListeners();
+              _safeNotifyListeners();
             },
           );
       await firstGroups.future;
     } catch (_) {
-      errorMessage = 'Could not load Teacher Access.';
+      errorMessage = 'Could not load your classes.';
     } finally {
       loading = false;
-      notifyListeners();
+      _safeNotifyListeners();
     }
   }
 
@@ -233,6 +239,7 @@ class TeacherAccessController extends ChangeNotifier {
     approvedGroupMemberships = approvedGroupMemberships
         .where((item) => item.id != membership.id)
         .toList();
+    _syncActiveGroupWatches();
     _syncTeacherProfileWatches();
     groupNamesById.remove(membership.groupId);
     assignmentsByGroupId = {...assignmentsByGroupId}
@@ -252,18 +259,6 @@ class TeacherAccessController extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
-  }
-
-  Future<void> _refreshGroupNames(List<GroupMembership> memberships) async {
-    for (final membership in memberships) {
-      if (_disposed) return;
-      final group = await groupRepository.getGroup(groupId: membership.groupId);
-      if (group != null) {
-        groupNamesById[membership.groupId] = group;
-      }
-    }
-    _safeNotifyListeners();
-    unawaited(_refreshAssignments());
   }
 
   Future<void> _refreshAssignments() async {
@@ -297,6 +292,101 @@ class TeacherAccessController extends ChangeNotifier {
         '[TeacherAccess] assignment preview load failed: $error\n$stackTrace',
       );
     }
+  }
+
+  Future<void> _refreshPendingGroupNames(
+    List<GroupMembership> memberships,
+  ) async {
+    final pending = [
+      for (final membership in memberships)
+        if (membership.isPending) membership,
+    ];
+    final visibleGroupIds = {
+      for (final membership in pending) membership.groupId,
+      for (final membership in approvedGroupMemberships) membership.groupId,
+    };
+    groupNamesById.removeWhere(
+      (groupId, _) => !visibleGroupIds.contains(groupId),
+    );
+    for (final membership in pending) {
+      if (_disposed) return;
+      try {
+        final group = await groupRepository.getGroup(
+          groupId: membership.groupId,
+        );
+        if (group != null &&
+            approvedGroupMemberships.every(
+              (item) => item.groupId != membership.groupId,
+            ) &&
+            pendingGroupMemberships.any((item) => item.id == membership.id)) {
+          groupNamesById[membership.groupId] = group;
+        }
+      } catch (_) {
+        // A pending class that is no longer readable stays out of the cache.
+      }
+    }
+    _safeNotifyListeners();
+  }
+
+  void _syncActiveGroupWatches() {
+    final approvedGroupIds = {
+      for (final membership in approvedGroupMemberships) membership.groupId,
+    };
+    final staleIds = _activeGroupSubs.keys
+        .where((groupId) => !approvedGroupIds.contains(groupId))
+        .toList(growable: false);
+    for (final groupId in staleIds) {
+      unawaited(_activeGroupSubs.remove(groupId)?.cancel());
+      groupNamesById.remove(groupId);
+    }
+
+    for (final groupId in approvedGroupIds) {
+      if (_activeGroupSubs.containsKey(groupId)) continue;
+      _activeGroupSubs[groupId] = groupRepository
+          .watchActiveGroupForTrainee(groupId: groupId, traineeId: traineeId)
+          .listen(
+            (group) {
+              if (_disposed) return;
+              final membership = _approvedMembershipForGroup(groupId);
+              if (group == null ||
+                  membership == null ||
+                  group.teacherId != membership.teacherId) {
+                groupNamesById.remove(groupId);
+              } else {
+                groupNamesById[groupId] = group;
+              }
+              _safeNotifyListeners();
+              unawaited(_refreshAssignments());
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (_disposed) return;
+              groupNamesById.remove(groupId);
+              if (kDebugMode) {
+                debugPrint(
+                  '[TeacherAccess] active class watch failed for '
+                  '$groupId: $error\n$stackTrace',
+                );
+              }
+              _safeNotifyListeners();
+              unawaited(_refreshAssignments());
+            },
+          );
+    }
+  }
+
+  GroupMembership? _approvedMembershipForGroup(String groupId) {
+    for (final membership in approvedGroupMemberships) {
+      if (membership.groupId == groupId) return membership;
+    }
+    return null;
+  }
+
+  Future<void> _cancelActiveGroupWatches() async {
+    final subscriptions = _activeGroupSubs.values.toList(growable: false);
+    _activeGroupSubs.clear();
+    await Future.wait(
+      subscriptions.map((subscription) => subscription.cancel()),
+    );
   }
 
   void _syncTeacherProfileWatches() {
@@ -375,6 +465,7 @@ class TeacherAccessController extends ChangeNotifier {
     _disposed = true;
     _assignmentLoadGen++;
     unawaited(_groupMembershipsSub?.cancel());
+    unawaited(_cancelActiveGroupWatches());
     _cancelTeacherProfileWatches();
     super.dispose();
   }

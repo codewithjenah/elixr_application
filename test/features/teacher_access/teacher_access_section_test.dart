@@ -536,6 +536,22 @@ void main() {
     expect(find.text('Archived class'), findsNothing);
     expect(find.byKey(const Key('teacher_access_status_filter')), findsNothing);
     expect(find.text('Archived classrooms'), findsNothing);
+
+    await groupRepository.archiveGroup(
+      groupId: active.id,
+      teacherId: 'teacher-1',
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Active class'), findsNothing);
+
+    await groupRepository.unarchiveGroup(
+      groupId: archived.id,
+      teacherId: 'teacher-1',
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Archived class'), findsOneWidget);
   });
 
   testWidgets('Trainee can leave an approved class from its card menu', (

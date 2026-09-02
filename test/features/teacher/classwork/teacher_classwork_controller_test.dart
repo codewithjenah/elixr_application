@@ -53,8 +53,7 @@ class _BlockingAssignmentUpdateRepository
   }
 }
 
-class _BlockingReviewRepository
-    extends InMemoryClassroomAssignmentRepository {
+class _BlockingReviewRepository extends InMemoryClassroomAssignmentRepository {
   final started = Completer<void>();
   final release = Completer<void>();
   var saveCalls = 0;
@@ -299,115 +298,117 @@ void main() {
     expect(counts.notTurnedIn, 0);
   });
 
-  test('Save & Next checks current work before selecting the oldest pending', () async {
-    groups.seedMembership(member('ada'));
-    groups.seedMembership(member('alan'));
-    groups.seedMembership(member('grace'));
-    assignments.seedAssignment(assignment);
-    final current = canonicalSubmitted(
-      'ada',
-      submittedAt: DateTime.utc(2026, 9, 1, 10),
-    );
-    assignments.seedAttempt(current);
-    assignments.seedAttempt(
-      canonicalSubmitted(
-        'alan',
-        submittedAt: DateTime.utc(2026, 9, 1, 12),
-      ),
-    );
-    assignments.seedAttempt(
-      canonicalSubmitted(
-        'grace',
-        submittedAt: DateTime.utc(2026, 9, 1, 11),
-      ),
-    );
-    final controller = create();
-    addTearDown(controller.dispose);
-    await controller.start();
-    await Future<void>.delayed(Duration.zero);
-    await controller.selectAssignment('a1');
-    await controller.selectTrainee('ada');
+  test(
+    'Save & Next checks current work before selecting the oldest pending',
+    () async {
+      groups.seedMembership(member('ada'));
+      groups.seedMembership(member('alan'));
+      groups.seedMembership(member('grace'));
+      assignments.seedAssignment(assignment);
+      final current = canonicalSubmitted(
+        'ada',
+        submittedAt: DateTime.utc(2026, 9, 1, 10),
+      );
+      assignments.seedAttempt(current);
+      assignments.seedAttempt(
+        canonicalSubmitted('alan', submittedAt: DateTime.utc(2026, 9, 1, 12)),
+      );
+      assignments.seedAttempt(
+        canonicalSubmitted('grace', submittedAt: DateTime.utc(2026, 9, 1, 11)),
+      );
+      final controller = create();
+      addTearDown(controller.dispose);
+      await controller.start();
+      await Future<void>.delayed(Duration.zero);
+      await controller.selectAssignment('a1');
+      await controller.selectTrainee('ada');
 
-    expect(
-      await controller.saveReviewAndNext(
-        attempt: current,
-        assignment: assignment,
-        gradeScore: 91,
-      ),
-      isTrue,
-    );
-    expect(
-      (await assignments.getAttempt(attemptId: current.id))?.status,
-      AssignmentAttemptStatus.checked,
-    );
-    expect(controller.selectedTraineeId, 'grace');
-    expect(
-      controller.pendingReviewAttemptsFor('a1').map((attempt) => attempt.traineeId),
-      ['grace', 'alan'],
-    );
-  });
+      expect(
+        await controller.saveReviewAndNext(
+          attempt: current,
+          assignment: assignment,
+          gradeScore: 91,
+        ),
+        isTrue,
+      );
+      expect(
+        (await assignments.getAttempt(attemptId: current.id))?.status,
+        AssignmentAttemptStatus.checked,
+      );
+      expect(controller.selectedTraineeId, 'grace');
+      expect(
+        controller
+            .pendingReviewAttemptsFor('a1')
+            .map((attempt) => attempt.traineeId),
+        ['grace', 'alan'],
+      );
+    },
+  );
 
-  test('Save & Next does not advance on failure or duplicate a busy write', () async {
-    groups.seedMembership(member('ada'));
-    groups.seedMembership(member('alan'));
+  test(
+    'Save & Next does not advance on failure or duplicate a busy write',
+    () async {
+      groups.seedMembership(member('ada'));
+      groups.seedMembership(member('alan'));
 
-    assignments.dispose();
-    final failing = _FailingReviewRepository();
-    assignments = failing;
-    assignments.seedAssignment(assignment);
-    final failedCurrent = canonicalSubmitted('ada');
-    assignments.seedAttempt(failedCurrent);
-    assignments.seedAttempt(canonicalSubmitted('alan'));
-    var controller = create();
-    await controller.start();
-    await Future<void>.delayed(Duration.zero);
-    await controller.selectAssignment('a1');
-    await controller.selectTrainee('ada');
-    expect(
-      await controller.saveReviewAndNext(
-        attempt: failedCurrent,
-        assignment: assignment,
-        gradeScore: 80,
-      ),
-      isFalse,
-    );
-    expect(controller.selectedTraineeId, 'ada');
-    controller.dispose();
+      assignments.dispose();
+      final failing = _FailingReviewRepository();
+      assignments = failing;
+      assignments.seedAssignment(assignment);
+      final failedCurrent = canonicalSubmitted('ada');
+      assignments.seedAttempt(failedCurrent);
+      assignments.seedAttempt(canonicalSubmitted('alan'));
+      var controller = create();
+      await controller.start();
+      await Future<void>.delayed(Duration.zero);
+      await controller.selectAssignment('a1');
+      await controller.selectTrainee('ada');
+      expect(
+        await controller.saveReviewAndNext(
+          attempt: failedCurrent,
+          assignment: assignment,
+          gradeScore: 80,
+        ),
+        isFalse,
+      );
+      expect(controller.selectedTraineeId, 'ada');
+      controller.dispose();
 
-    assignments.dispose();
-    final blocking = _BlockingReviewRepository();
-    assignments = blocking;
-    assignments.seedAssignment(assignment);
-    final current = canonicalSubmitted('ada');
-    assignments.seedAttempt(current);
-    assignments.seedAttempt(canonicalSubmitted('alan'));
-    controller = create();
-    addTearDown(controller.dispose);
-    await controller.start();
-    await Future<void>.delayed(Duration.zero);
-    await controller.selectAssignment('a1');
-    await controller.selectTrainee('ada');
+      assignments.dispose();
+      final blocking = _BlockingReviewRepository();
+      assignments = blocking;
+      assignments.seedAssignment(assignment);
+      final current = canonicalSubmitted('ada');
+      assignments.seedAttempt(current);
+      assignments.seedAttempt(canonicalSubmitted('alan'));
+      controller = create();
+      addTearDown(controller.dispose);
+      await controller.start();
+      await Future<void>.delayed(Duration.zero);
+      await controller.selectAssignment('a1');
+      await controller.selectTrainee('ada');
 
-    final first = controller.saveReviewAndNext(
-      attempt: current,
-      assignment: assignment,
-      gradeScore: 80,
-    );
-    await blocking.started.future;
-    expect(
-      await controller.saveReviewAndNext(
+      final first = controller.saveReviewAndNext(
         attempt: current,
         assignment: assignment,
         gradeScore: 80,
-      ),
-      isFalse,
-    );
-    expect(blocking.saveCalls, 1);
-    expect(controller.selectedTraineeId, 'ada');
-    blocking.release.complete();
-    expect(await first, isTrue);
-    expect(controller.selectedTraineeId, 'alan');
-  });
+      );
+      await blocking.started.future;
+      expect(
+        await controller.saveReviewAndNext(
+          attempt: current,
+          assignment: assignment,
+          gradeScore: 80,
+        ),
+        isFalse,
+      );
+      expect(blocking.saveCalls, 1);
+      expect(controller.selectedTraineeId, 'ada');
+      blocking.release.complete();
+      expect(await first, isTrue);
+      expect(controller.selectedTraineeId, 'alan');
+    },
+  );
 
   test('fixed student must have approved membership', () async {
     groups.seedMembership(member('ada', status: GroupMembershipStatus.pending));

@@ -33,6 +33,15 @@ class FirebaseGroupRepository implements GroupRepository {
   CollectionReference<Map<String, dynamic>> get _classroomAccess =>
       _firestore.collection(FirestoreCollections.classroomTeacherAccess);
 
+  DocumentReference<Map<String, dynamic>> _classroomLifecycleStatus(
+    String groupId,
+  ) => _groups.doc(groupId).collection('lifecycle').doc('status');
+
+  Map<String, Object?> _classroomStatusFields(ElixrGroupStatus status) => {
+    'status': status.name,
+    'updated_at': FieldValue.serverTimestamp(),
+  };
+
   @override
   Future<ElixrGroup> createGroup({
     required String teacherId,
@@ -68,7 +77,9 @@ class FirebaseGroupRepository implements GroupRepository {
       schedule,
       ElixrGroup.maxScheduleLength,
     );
-    await ref.set({
+    final statusRef = _classroomLifecycleStatus(ref.id);
+    final batch = _firestore.batch();
+    batch.set(ref, {
       'teacher_id': teacherId,
       'name': trimmed,
       'section': ?normalizedSection,
@@ -78,6 +89,8 @@ class FirebaseGroupRepository implements GroupRepository {
       'created_at': FieldValue.serverTimestamp(),
       'updated_at': FieldValue.serverTimestamp(),
     });
+    batch.set(statusRef, _classroomStatusFields(ElixrGroupStatus.active));
+    await batch.commit();
     try {
       await createOrRotateGroupInvite(
         groupId: ref.id,
@@ -86,7 +99,10 @@ class FirebaseGroupRepository implements GroupRepository {
       );
     } catch (e) {
       try {
-        await ref.delete();
+        final rollback = _firestore.batch();
+        rollback.delete(statusRef);
+        rollback.delete(ref);
+        await rollback.commit();
       } on FirebaseException {
         // Best-effort rollback when invite provisioning fails.
       }
@@ -117,6 +133,35 @@ class FirebaseGroupRepository implements GroupRepository {
               ?ElixrGroup.tryFromMap(doc.data(), id: doc.id),
           ],
         );
+  }
+
+  @override
+  Stream<ElixrGroup?> watchActiveGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  }) => _classroomLifecycleStatus(groupId).snapshots().asyncExpand((snapshot) {
+    final status = snapshot.data()?['status'];
+    if (status == ElixrGroupStatus.archived.name) {
+      return Stream<ElixrGroup?>.value(null);
+    }
+    return _readActiveGroup(groupId).asStream();
+  });
+
+  Future<ElixrGroup?> _readActiveGroup(String groupId) async {
+    try {
+      final snapshot = await _groups.doc(groupId).get();
+      if (!snapshot.exists) return null;
+      final group = ElixrGroup.tryFromMap(
+        snapshot.data() ?? const {},
+        id: snapshot.id,
+      );
+      return group?.isActive == true ? group : null;
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied' || error.code == 'not-found') {
+        return null;
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -202,10 +247,16 @@ class FirebaseGroupRepository implements GroupRepository {
     required String groupId,
     required String teacherId,
   }) async {
-    await _groups.doc(groupId).update({
+    final batch = _firestore.batch();
+    batch.update(_groups.doc(groupId), {
       'status': ElixrGroupStatus.archived.name,
       'updated_at': FieldValue.serverTimestamp(),
     });
+    batch.set(
+      _classroomLifecycleStatus(groupId),
+      _classroomStatusFields(ElixrGroupStatus.archived),
+    );
+    await batch.commit();
   }
 
   @override
@@ -213,10 +264,16 @@ class FirebaseGroupRepository implements GroupRepository {
     required String groupId,
     required String teacherId,
   }) async {
-    await _groups.doc(groupId).update({
+    final batch = _firestore.batch();
+    batch.update(_groups.doc(groupId), {
       'status': ElixrGroupStatus.active.name,
       'updated_at': FieldValue.serverTimestamp(),
     });
+    batch.set(
+      _classroomLifecycleStatus(groupId),
+      _classroomStatusFields(ElixrGroupStatus.active),
+    );
+    await batch.commit();
   }
 
   @override

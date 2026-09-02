@@ -13,9 +13,8 @@ void main() {
             accent: AppColors.primary,
             showAccentBar: true,
             child: LayoutBuilder(
-              builder: (context, constraints) => SizedBox(
-                height: constraints.maxWidth > 0 ? 80 : 0,
-              ),
+              builder: (context, constraints) =>
+                  SizedBox(height: constraints.maxWidth > 0 ? 80 : 0),
             ),
           ),
         ),

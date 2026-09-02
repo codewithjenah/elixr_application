@@ -1,8 +1,43 @@
+import 'dart:async';
+
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_controller.dart';
 import 'package:elixr_application/services/join_code_resolver.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _TrackingGroupRepository extends InMemoryGroupRepository {
+  int activeGroupWatchCalls = 0;
+  int activeGroupWatchCancellations = 0;
+
+  @override
+  Stream<ElixrGroup?> watchActiveGroupForTrainee({
+    required String groupId,
+    required String traineeId,
+  }) {
+    activeGroupWatchCalls++;
+    final source = super.watchActiveGroupForTrainee(
+      groupId: groupId,
+      traineeId: traineeId,
+    );
+    late final StreamSubscription<ElixrGroup?> sourceSubscription;
+    late final StreamController<ElixrGroup?> wrapper;
+    wrapper = StreamController<ElixrGroup?>(
+      onListen: () {
+        sourceSubscription = source.listen(
+          wrapper.add,
+          onError: (Object error, StackTrace stackTrace) =>
+              wrapper.addError(error, stackTrace),
+        );
+      },
+      onCancel: () async {
+        activeGroupWatchCancellations++;
+        await sourceSubscription.cancel();
+      },
+    );
+    return wrapper.stream;
+  }
+}
 
 void main() {
   late InMemoryTeacherRelationshipRepository relationshipRepository;
@@ -114,5 +149,92 @@ void main() {
       previewController.assignmentsFor(group.id).single.displayTitle,
       'Normal Grip',
     );
+  });
+
+  test('active class stream reacts to archive and unarchive', () async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    final membership = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await groupRepository.approveMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+
+    await controller.start();
+    await pumpEventQueue();
+    expect(controller.activeApprovedGroupMemberships, hasLength(1));
+
+    await groupRepository.archiveGroup(
+      groupId: group.id,
+      teacherId: 'teacher-1',
+    );
+    await pumpEventQueue();
+    expect(controller.activeApprovedGroupMemberships, isEmpty);
+
+    await groupRepository.unarchiveGroup(
+      groupId: group.id,
+      teacherId: 'teacher-1',
+    );
+    await pumpEventQueue();
+    expect(controller.activeApprovedGroupMemberships, hasLength(1));
+
+    await groupRepository.leaveMembership(
+      membershipId: membership.id,
+      traineeId: 'trainee-1',
+    );
+    await pumpEventQueue();
+    expect(controller.activeApprovedGroupMemberships, isEmpty);
+  });
+
+  test('disposing cancels the active class stream', () async {
+    final tracked = _TrackingGroupRepository();
+    final trackedJoinCodeResolver = JoinCodeResolver(groupRepository: tracked);
+    final trackedController = TeacherAccessController(
+      groupRepository: tracked,
+      joinCodeResolver: trackedJoinCodeResolver,
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+    );
+    final group = await tracked.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await tracked.getActiveGroupInvite(groupId: group.id);
+    final membership = await tracked.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await tracked.approveMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+
+    await trackedController.start();
+    await pumpEventQueue();
+    expect(tracked.activeGroupWatchCalls, 1);
+
+    await tracked.leaveMembership(
+      membershipId: membership.id,
+      traineeId: 'trainee-1',
+    );
+    await pumpEventQueue();
+    expect(tracked.activeGroupWatchCancellations, 1);
+
+    trackedController.dispose();
+    await pumpEventQueue();
+    expect(tracked.activeGroupWatchCancellations, 1);
+    tracked.dispose();
   });
 }

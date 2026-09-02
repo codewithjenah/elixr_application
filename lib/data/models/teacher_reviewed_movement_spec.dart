@@ -84,8 +84,7 @@ class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
   }
 
   TeacherActivityAssessmentConfig get effectiveAssessment =>
-      assessment ??
-      TeacherActivityAssessmentConfig.newActivityDefaults();
+      assessment ?? TeacherActivityAssessmentConfig.newActivityDefaults();
 
   static String? validateTitle(String? value) {
     final trimmed = value?.trim() ?? '';

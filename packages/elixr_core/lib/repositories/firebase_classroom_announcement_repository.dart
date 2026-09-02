@@ -46,12 +46,11 @@ class FirebaseClassroomAnnouncementRepository
         final groupData = groupSnapshot.data() ?? const <String, dynamic>{};
         final pinnedId = _readPinnedId(groupData);
         final pinnedAt = _readDateTime(groupData['pinned_announcement_at']);
-        final byId = <String, ClassroomAnnouncement>{
-          for (final doc in snapshot.docs)
-            if (ClassroomAnnouncement.tryFromMap(doc.data(), id: doc.id)
-                case final item?)
-              item.id: item,
-        };
+        final byId = <String, ClassroomAnnouncement>{};
+        for (final doc in snapshot.docs) {
+          final item = ClassroomAnnouncement.tryFromMap(doc.data(), id: doc.id);
+          if (item != null) byId[item.id] = item;
+        }
         if (pinnedId != null && !byId.containsKey(pinnedId)) {
           final pinnedSnapshot = await _announcements(
             groupId,

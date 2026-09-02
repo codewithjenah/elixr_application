@@ -374,11 +374,38 @@ void main() {
     },
   );
 
-  test('unarchiveGroup restores the archived status', () async {
-    await firestore.collection(FirestoreCollections.groups).doc(groupId).update(
-      {'status': ElixrGroupStatus.archived.name},
+  test('watchActiveGroupForTrainee follows lifecycle status changes', () async {
+    await _seedMembership(
+      firestore,
+      status: GroupMembershipStatus.approved,
+      createdAt: originalCreatedAt,
     );
+    final statusRef = firestore
+        .collection(FirestoreCollections.groups)
+        .doc(groupId)
+        .collection('lifecycle')
+        .doc('status');
 
+    final initial = await repository
+        .watchActiveGroupForTrainee(groupId: groupId, traineeId: traineeId)
+        .first;
+    expect(initial?.id, groupId);
+
+    await statusRef.update({'status': ElixrGroupStatus.archived.name});
+    final archived = await repository
+        .watchActiveGroupForTrainee(groupId: groupId, traineeId: traineeId)
+        .first;
+    expect(archived, isNull);
+
+    await statusRef.update({'status': ElixrGroupStatus.active.name});
+    final restored = await repository
+        .watchActiveGroupForTrainee(groupId: groupId, traineeId: traineeId)
+        .first;
+    expect(restored?.id, groupId);
+  });
+
+  test('unarchiveGroup restores the archived status', () async {
+    await repository.archiveGroup(groupId: groupId, teacherId: teacherId);
     await repository.unarchiveGroup(groupId: groupId, teacherId: teacherId);
 
     final saved = await firestore
@@ -386,6 +413,13 @@ void main() {
         .doc(groupId)
         .get();
     expect(saved.data()?['status'], ElixrGroupStatus.active.name);
+    final lifecycle = await firestore
+        .collection(FirestoreCollections.groups)
+        .doc(groupId)
+        .collection('lifecycle')
+        .doc('status')
+        .get();
+    expect(lifecycle.data()?['status'], ElixrGroupStatus.active.name);
   });
 }
 
@@ -405,6 +439,12 @@ Future<void> _seedActiveGroupAndInvite(FakeFirebaseFirestore firestore) async {
         'teacher_id': 'teacher-1',
         'teacher_display_name': 'Grace Hopper',
       });
+  await firestore
+      .collection(FirestoreCollections.groups)
+      .doc('group-1')
+      .collection('lifecycle')
+      .doc('status')
+      .set({'status': ElixrGroupStatus.active.name});
 }
 
 Future<void> _seedMembership(
