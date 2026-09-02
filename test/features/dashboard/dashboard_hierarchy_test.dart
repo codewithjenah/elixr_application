@@ -15,14 +15,19 @@ import 'package:elixr_application/features/progress/training_recommendation.dart
 import 'package:elixr_application/features/teacher/dashboard/teacher_dashboard_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 class _SilentAuthRepository implements AuthRepositoryBase {
+  _SilentAuthRepository([this.user]);
+  final User? user;
   @override
-  Future<User?> loadPersistedUser() async => null;
+  Future<User?> loadPersistedUser() async => user;
   @override
   Future<void> clearCurrentUser() async {}
   @override
@@ -354,7 +359,7 @@ void main() {
     expect(span.style!.color, ElixSemanticColors.dark.milestone);
   });
 
-  testWidgets('teacher dashboard chrome uses the hero type scale', (
+  testWidgets('teacher dashboard chrome uses a concise command center header', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -377,7 +382,68 @@ void main() {
 
     expect(find.text('TEACHER WORKSPACE'), findsOneWidget);
     expect(find.byKey(ElixEyebrow.ruleKey), findsOneWidget);
-    final heading = tester.widget<Text>(find.text('Dashboard'));
-    expect(heading.style!.fontSize, 52);
+    final heading = tester.widget<Text>(find.text('Teacher command center'));
+    expect(heading.style!.fontSize, lessThan(52));
   });
+
+  testWidgets(
+    'teacher dashboard shows teacher identity, metrics, and actions',
+    (tester) async {
+      await _setSurface(tester, const Size(1100, 800));
+      final teacher = const User(
+        id: 'teacher-1',
+        firstName: 'Jiro',
+        lastName: 'Lapuz',
+        email: 'jiro@example.test',
+        role: User.roleTeacher,
+        profilePictureUrl: 'https://example.test/jiro.png',
+      );
+      final auth = AuthService(
+        repository: _SilentAuthRepository(teacher),
+        awaitInitialAuthState: () async {},
+      );
+      final groups = InMemoryGroupRepository();
+      groups.seedGroup(
+        const ElixrGroup(
+          id: 'group-1',
+          teacherId: 'teacher-1',
+          name: 'BSIT-3A',
+          status: ElixrGroupStatus.active,
+        ),
+      );
+      addTearDown(auth.dispose);
+      addTearDown(groups.dispose);
+      await auth.initialize();
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthService>.value(value: auth),
+              Provider<GroupRepository>.value(value: groups),
+            ],
+            child: const TeacherDashboardScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Welcome back, Jiro Lapuz'), findsOneWidget);
+      expect(find.text('Active groups'), findsOneWidget);
+      expect(find.text('Approved students'), findsOneWidget);
+      expect(find.text('Pending requests'), findsOneWidget);
+      expect(find.byKey(const Key('teacher_dashboard_avatar')), findsOneWidget);
+      expect(
+        find.byKey(const Key('teacher_dashboard_open_classrooms')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_dashboard_to_review')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

@@ -10,18 +10,21 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/user_name.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elixr_video_player.dart';
+import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/teacher_activity_assessment.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/teacher_movement_repository.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import 'assigned_movement_list.dart';
 import 'assignment_detail_controller.dart';
@@ -65,6 +68,7 @@ class _AssignmentDetailScreenState extends State<AssignmentDetailScreen> {
       groupRepository: context.read<GroupRepository>(),
       assignmentRepository: context.read<ClassroomAssignmentRepository>(),
       submissionRepository: context.read<AssignmentSubmissionRepository>(),
+      publicProfileRepository: _tryPublicProfileRepository(context),
     )..start();
   }
 
@@ -161,6 +165,11 @@ class _Body extends StatelessWidget {
         final header = _AssignmentHeader(
           assignment: assignment,
           attempts: controller.attempts,
+          teacherProfilePictureUrl:
+              controller.teacherProfile?.profilePictureUrl,
+          teacherDisplayName:
+              controller.teacherProfile?.displayName ??
+              assignment.teacherDisplayName,
           movementRepository: _tryMovementRepository(context),
         );
         final work = _YourWork(
@@ -254,11 +263,15 @@ class _AssignmentHeader extends StatelessWidget {
     required this.assignment,
     required this.attempts,
     this.movementRepository,
+    this.teacherProfilePictureUrl,
+    required this.teacherDisplayName,
   });
 
   final GroupAssignment assignment;
   final List<AssignmentAttempt> attempts;
   final TeacherMovementRepository? movementRepository;
+  final String? teacherProfilePictureUrl;
+  final String teacherDisplayName;
 
   @override
   Widget build(BuildContext context) {
@@ -273,8 +286,51 @@ class _AssignmentHeader extends StatelessWidget {
                 : 'Teacher Activity: ${assignment.displayTitle}',
             variant: ElixEditorialHeaderVariant.compact,
             subtitle: activityAssessment == null
-                ? '${assignment.teacherDisplayName} · ${assignment.groupName}'
+                ? null
                 : 'A guided recording for your Teacher to review',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Semantics(
+            label: 'Teacher $teacherDisplayName, class ${assignment.groupName}',
+            child: Row(
+              children: [
+                ExcludeSemantics(
+                  child: ProfileAvatarWidget(
+                    key: const Key('assignment_detail_teacher_avatar'),
+                    radius: 20,
+                    showBorder: false,
+                    networkImageUrl: teacherProfilePictureUrl,
+                    initials: userInitials(teacherDisplayName),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        teacherDisplayName,
+                        style: AppTheme.body.copyWith(
+                          color: context.elixTextPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        assignment.groupName,
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Wrap(
@@ -339,6 +395,14 @@ class _AssignmentHeader extends StatelessWidget {
 TeacherMovementRepository? _tryMovementRepository(BuildContext context) {
   try {
     return context.read<TeacherMovementRepository>();
+  } on ProviderNotFoundException {
+    return null;
+  }
+}
+
+PublicProfileRepository? _tryPublicProfileRepository(BuildContext context) {
+  try {
+    return context.read<PublicProfileRepository>();
   } on ProviderNotFoundException {
     return null;
   }

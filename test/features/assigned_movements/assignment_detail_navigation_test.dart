@@ -4,16 +4,87 @@ import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/assigned_movements/assignment_detail_controller.dart';
 import 'package:elixr_application/features/assigned_movements/assignment_detail_screen.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 void main() {
+  testWidgets(
+    'assignment detail uses current teacher public avatar with initials fallback',
+    (tester) async {
+      final groups = InMemoryGroupRepository();
+      final assignments = InMemoryClassroomAssignmentRepository();
+      addTearDown(groups.dispose);
+      addTearDown(assignments.dispose);
+      final controller =
+          AssignmentDetailController(
+              assignmentId: 'asg-a',
+              traineeId: 'trainee-1',
+              groupRepository: groups,
+              assignmentRepository: assignments,
+            )
+            ..assignment = const GroupAssignment(
+              id: 'asg-a',
+              teacherId: 'teacher-1',
+              groupId: 'group-1',
+              movementId: 'official_hand_stall',
+              revisionId: 'official_hand_stall_v1',
+              origin: MovementOrigin.officialElixr,
+              assessmentMode: AssessmentMode.officialGuided,
+              status: GroupAssignmentStatus.active,
+              displayTitle: 'Hand Stall',
+              teacherDisplayName: 'Grace Hopper',
+              groupName: 'BSHM 4A',
+              officialMovementName: 'Hand Stall',
+            )
+            ..authorized = true
+            ..teacherProfile = const PublicProfile(
+              userId: 'teacher-1',
+              displayName: 'Grace Hopper',
+              visibility: ProfileVisibility.public,
+              profilePictureUrl: 'https://example.test/grace.png',
+            );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: AssignmentDetailScreen(
+            assignmentId: 'asg-a',
+            controller: controller,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final avatar = tester.widget<ProfileAvatarWidget>(
+        find.byKey(const Key('assignment_detail_teacher_avatar')),
+      );
+      expect(avatar.networkImageUrl, 'https://example.test/grace.png');
+      expect(avatar.initials, 'GH');
+
+      controller.teacherProfile = const PublicProfile(
+        userId: 'teacher-1',
+        displayName: 'Grace Hopper',
+        visibility: ProfileVisibility.public,
+      );
+      controller.notifyListeners();
+      await tester.pump();
+      final fallback = tester.widget<ProfileAvatarWidget>(
+        find.byKey(const Key('assignment_detail_teacher_avatar')),
+      );
+      expect(fallback.networkImageUrl, isNull);
+      expect(fallback.initials, 'GH');
+    },
+  );
+
   testWidgets('assignment detail back uses the classroom work fallback', (
     tester,
   ) async {

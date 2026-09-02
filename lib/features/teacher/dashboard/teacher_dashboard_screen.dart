@@ -1,4 +1,5 @@
 import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -9,10 +10,12 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/user_name.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_stat_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
 import '../analytics/teacher_analytics_controller.dart';
@@ -67,9 +70,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     if (controller == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
-          heading: 'Dashboard',
+          heading: 'Teacher command center',
           eyebrow: 'TEACHER WORKSPACE',
-          variant: ElixEditorialHeaderVariant.hero,
+          subtitle: 'Your classrooms and review work in one place.',
+          variant: ElixEditorialHeaderVariant.standard,
         ),
         content: Center(child: ProgressRing()),
       );
@@ -85,10 +89,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: const ElixEditorialPageHeader(
-            heading: 'Dashboard',
+            heading: 'Teacher command center',
             eyebrow: 'TEACHER WORKSPACE',
-            subtitle: 'Keep your groups and student activity in view.',
-            variant: ElixEditorialHeaderVariant.hero,
+            subtitle: 'Your classrooms and review work in one place.',
+            variant: ElixEditorialHeaderVariant.standard,
           ),
           content: controller.loading
               ? const Center(child: ProgressRing())
@@ -100,6 +104,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
               : _DashboardBody(
                   controller: controller,
                   analyticsController: _analyticsController,
+                  teacher: context.watch<AuthService>().currentUser,
                 ),
         );
       },
@@ -108,29 +113,28 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
 }
 
 class _DashboardBody extends StatelessWidget {
-  const _DashboardBody({required this.controller, this.analyticsController});
+  const _DashboardBody({
+    required this.controller,
+    required this.teacher,
+    this.analyticsController,
+  });
 
   final TeacherDashboardController controller;
   final TeacherAnalyticsController? analyticsController;
+  final User? teacher;
 
   @override
   Widget build(BuildContext context) {
     final hasData =
         controller.activeGroupCount > 0 || controller.memberships.isNotEmpty;
-    if (!hasData) {
-      return _EmptyDashboard(
-        onOpenGroups: () {
-          context.go(AppRoutePaths.teacherGroups);
-        },
-      );
-    }
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 960;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _TeacherCommandHeader(teacher: teacher),
+            const SizedBox(height: AppSpacing.lg),
             if (wide)
               Row(
                 children: [
@@ -190,52 +194,218 @@ class _DashboardBody extends StatelessWidget {
                   ),
                 ],
               ),
-            if (analyticsController != null) ...[
+            if (!hasData) ...[
               const SizedBox(height: AppSpacing.xl),
-              TeacherAnalyticsSummary(controller: analyticsController!),
-            ],
-            const SizedBox(height: AppSpacing.xl),
-            ElixSectionHeader(
-              heading: 'Groups overview',
-              eyebrow: 'CLASSROOM',
-              subtitle: 'Manage your rosters and keep join requests moving.',
-              actions: [
-                Button(
-                  onPressed: () => context.go(AppRoutePaths.teacherGroups),
-                  child: const Text('Open groups'),
-                ),
+              _EmptyDashboard(
+                onOpenGroups: () => context.go(AppRoutePaths.teacherGroups),
+              ),
+            ] else ...[
+              if (analyticsController != null) ...[
+                const SizedBox(height: AppSpacing.xl),
+                TeacherAnalyticsSummary(controller: analyticsController!),
               ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            if (controller.groupSummaries.isEmpty)
-              Text(
-                'No active groups yet.',
-                style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-              )
-            else
-              ...controller.groupSummaries.map(
-                (summary) => _GroupOverviewRow(summary: summary),
-              ),
-            const SizedBox(height: AppSpacing.xl),
-            const ElixSectionHeader(
-              heading: 'Pending join requests',
-              eyebrow: 'INBOX',
-            ),
-            const SizedBox(height: AppSpacing.md),
-            if (controller.pendingQueue.isEmpty)
-              Text(
-                'No pending requests.',
-                style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-              )
-            else
-              ...controller.pendingQueue.map(
-                (membership) => _PendingRequestRow(membership: membership),
-              ),
+              const SizedBox(height: AppSpacing.xl),
+              _DashboardWorkspace(controller: controller, wide: wide),
+            ],
           ],
         );
       },
     );
   }
+}
+
+class _TeacherCommandHeader extends StatelessWidget {
+  const _TeacherCommandHeader({required this.teacher});
+
+  final User? teacher;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = teacher?.fullName.trim();
+    final displayName = name == null || name.isEmpty ? 'Teacher' : name;
+    return ElixPanelCard(
+      accent: context.elixColors.brandPrimary,
+      showAccentBar: true,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 650;
+          final identity = Row(
+            children: [
+              ProfileAvatarWidget(
+                key: const Key('teacher_dashboard_avatar'),
+                radius: 28,
+                networkImageUrl: teacher?.profilePictureUrl,
+                legacyLocalPath: teacher?.profilePicturePath,
+                initials: userInitials(displayName),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const ElixEyebrow(label: 'TODAY'),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Welcome back, $displayName',
+                      style: AppTheme.sectionTitle(
+                        context,
+                        color: context.elixTextPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Check classrooms, review student work, and keep your roster moving.',
+                      style: AppTheme.supporting(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+          final actions = Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              FilledButton(
+                key: const Key('teacher_dashboard_open_classrooms'),
+                onPressed: () => context.go(AppRoutePaths.teacherGroups),
+                child: const Text('Open Classrooms'),
+              ),
+              Button(
+                key: const Key('teacher_dashboard_to_review'),
+                onPressed: () => context.go(AppRoutePaths.teacherToReview),
+                child: const Text('To Review'),
+              ),
+            ],
+          );
+          return compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    identity,
+                    const SizedBox(height: AppSpacing.md),
+                    actions,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: identity),
+                    const SizedBox(width: AppSpacing.md),
+                    actions,
+                  ],
+                );
+        },
+      ),
+    );
+  }
+}
+
+class _DashboardWorkspace extends StatelessWidget {
+  const _DashboardWorkspace({required this.controller, required this.wide});
+  final TeacherDashboardController controller;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = _WorkspaceSection(
+      heading: 'Groups overview',
+      eyebrow: 'CLASSROOMS',
+      subtitle: 'Manage rosters and class activity.',
+      action: Button(
+        onPressed: () => context.go(AppRoutePaths.teacherGroups),
+        child: const Text('Open groups'),
+      ),
+      child: controller.groupSummaries.isEmpty
+          ? Text(
+              'No active groups yet.',
+              style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+            )
+          : Column(
+              children: [
+                for (final summary in controller.groupSummaries)
+                  _GroupOverviewRow(summary: summary),
+              ],
+            ),
+    );
+    final attention = _WorkspaceSection(
+      heading: 'Needs attention',
+      eyebrow: 'INBOX',
+      subtitle: 'Pending join requests need a decision.',
+      child: controller.pendingQueue.isEmpty
+          ? Row(
+              children: [
+                Icon(FluentIcons.completed, color: context.elixColors.success),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'You are all caught up.',
+                    style: AppTheme.body.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Column(
+              children: [
+                for (final membership in controller.pendingQueue)
+                  _PendingRequestRow(membership: membership),
+              ],
+            ),
+    );
+    if (!wide) {
+      return Column(
+        children: [
+          groups,
+          const SizedBox(height: AppSpacing.lg),
+          attention,
+        ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(flex: 3, child: groups),
+        const SizedBox(width: AppSpacing.lg),
+        Expanded(flex: 2, child: attention),
+      ],
+    );
+  }
+}
+
+class _WorkspaceSection extends StatelessWidget {
+  const _WorkspaceSection({
+    required this.heading,
+    required this.eyebrow,
+    required this.subtitle,
+    required this.child,
+    this.action,
+  });
+  final String heading;
+  final String eyebrow;
+  final String subtitle;
+  final Widget child;
+  final Widget? action;
+  @override
+  Widget build(BuildContext context) => ElixPanelCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ElixSectionHeader(
+          heading: heading,
+          eyebrow: eyebrow,
+          subtitle: subtitle,
+          actions: action == null ? const [] : [action!],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        child,
+      ],
+    ),
+  );
 }
 
 class _GroupOverviewRow extends StatelessWidget {

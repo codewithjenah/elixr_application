@@ -8,8 +8,10 @@ import '../../data/models/assignment_attempt.dart';
 import '../../data/models/classroom_exceptions.dart';
 import '../../data/models/assignment_submission_limits.dart';
 import '../../data/models/group_assignment.dart';
+import '../../data/models/public_profile.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/public_profile_repository.dart';
 
 /// Read-only trainee view of one assignment and the trainee's own attempts.
 class AssignmentDetailController extends ChangeNotifier {
@@ -19,6 +21,7 @@ class AssignmentDetailController extends ChangeNotifier {
     required this.groupRepository,
     required this.assignmentRepository,
     this.submissionRepository,
+    this.publicProfileRepository,
   });
 
   final String assignmentId;
@@ -26,6 +29,7 @@ class AssignmentDetailController extends ChangeNotifier {
   final GroupRepository groupRepository;
   final ClassroomAssignmentRepository assignmentRepository;
   final AssignmentSubmissionRepository? submissionRepository;
+  final PublicProfileRepository? publicProfileRepository;
 
   GroupAssignment? assignment;
   List<AssignmentAttempt> attempts = const [];
@@ -38,9 +42,12 @@ class AssignmentDetailController extends ChangeNotifier {
   String? turnInErrorMessage;
   bool draftRemovalBusy = false;
   String? draftRemovalErrorMessage;
+  PublicProfile? teacherProfile;
 
   StreamSubscription<List<GroupMembership>>? _membershipsSub;
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
+  StreamSubscription<PublicProfile?>? _teacherProfileSub;
+  String? _watchedTeacherId;
   List<GroupMembership> _memberships = const [];
   List<AssignmentAttempt> _allAttempts = const [];
   SubmissionPlaybackFile? _playbackCache;
@@ -258,6 +265,7 @@ class AssignmentDetailController extends ChangeNotifier {
         errorMessage = 'This assignment is not available.';
         return;
       }
+      await _watchTeacherProfile(loaded.teacherId);
 
       final membershipsFirst = Completer<void>();
       await _membershipsSub?.cancel();
@@ -362,6 +370,29 @@ class AssignmentDetailController extends ChangeNotifier {
     _allAttempts = const [];
   }
 
+  Future<void> _watchTeacherProfile(String teacherId) async {
+    final repository = publicProfileRepository;
+    final id = teacherId.trim();
+    if (repository == null || id.isEmpty || _watchedTeacherId == id) return;
+    await _teacherProfileSub?.cancel();
+    _teacherProfileSub = null;
+    _watchedTeacherId = id;
+    teacherProfile = null;
+    _teacherProfileSub = repository
+        .watchProfileRoot(id)
+        .listen(
+          (profile) {
+            if (_disposed) return;
+            teacherProfile = profile;
+            _notify();
+          },
+          onError: (Object _) {
+            // The assignment remains available when the optional public identity
+            // projection is unavailable; the stored display name is its fallback.
+          },
+        );
+  }
+
   void _rebuildAttempts() {
     final id = assignmentId.trim();
     final filtered = [
@@ -392,6 +423,7 @@ class AssignmentDetailController extends ChangeNotifier {
     _disposed = true;
     _membershipsSub?.cancel();
     _attemptsSub?.cancel();
+    _teacherProfileSub?.cancel();
     unawaited(releaseLocalPlayback());
     super.dispose();
   }
