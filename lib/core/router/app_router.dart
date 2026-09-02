@@ -520,6 +520,15 @@ class AppRouter {
               ),
             ),
             GoRoute(
+              path: AppRoutePaths.teacherToReview,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const TeacherActivityCenterScreen(
+                  initialView: TeacherActivityCenterView.toReview,
+                ),
+              ),
+            ),
+            GoRoute(
               path: AppRoutePaths.teacherActivityCenter,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,

@@ -74,6 +74,12 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.classroom,
   ),
   TeacherSidebarItem(
+    label: 'To Review',
+    icon: FluentIcons.review_request_solid,
+    route: AppRoutePaths.teacherToReview,
+    group: TeacherSidebarGroup.classroom,
+  ),
+  TeacherSidebarItem(
     label: 'Activity Center',
     icon: FluentIcons.activity_feed,
     route: AppRoutePaths.teacherActivityCenter,
@@ -113,6 +119,8 @@ class TeacherSidebar extends StatelessWidget {
         context.watch<MessageUnreadService?>()?.unreadCount ?? 0;
     final activityUnreadCount =
         context.watch<TeacherActivityController?>()?.unreadCount ?? 0;
+    final pendingReviewCount =
+        context.watch<TeacherActivityController?>()?.pendingReviewCount ?? 0;
     final initials = (user?.fullName.isNotEmpty == true)
         ? userInitials(user!.fullName)
         : '?';
@@ -156,6 +164,7 @@ class TeacherSidebar extends StatelessWidget {
                           showCollapsedLayout,
                           unreadCount,
                           activityUnreadCount,
+                          pendingReviewCount,
                         ),
                       ),
                     ),
@@ -181,6 +190,7 @@ class TeacherSidebar extends StatelessWidget {
     bool showCollapsedLayout,
     int unreadCount,
     int activityUnreadCount,
+    int pendingReviewCount,
   ) {
     final children = <Widget>[];
 
@@ -202,6 +212,7 @@ class TeacherSidebar extends StatelessWidget {
             unreadCount: switch (item.route) {
               AppRoutePaths.teacherMessages => unreadCount,
               AppRoutePaths.teacherActivityCenter => activityUnreadCount,
+              AppRoutePaths.teacherToReview => pendingReviewCount,
               _ => 0,
             },
             onTap: () => context.go(item.route),

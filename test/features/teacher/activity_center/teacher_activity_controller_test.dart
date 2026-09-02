@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
@@ -202,6 +203,163 @@ void main() {
     },
   );
 
+  test('To Review aggregates authorized targeted work oldest first', () async {
+    groups.seedMembership(
+      _membership(status: GroupMembershipStatus.approved),
+    );
+    groups.seedMembership(
+      _membership(
+        traineeId: 'student-2',
+        name: 'Katherine Johnson',
+        groupId: 'group-2',
+        status: GroupMembershipStatus.approved,
+      ),
+    );
+    groups.seedMembership(
+      _membership(
+        traineeId: 'outside',
+        name: 'Outside Student',
+        status: GroupMembershipStatus.approved,
+      ),
+    );
+    final firstAssignment = _reviewAssignment(
+      audience: AssignmentAudience.selectedStudents(const ['student']),
+    );
+    final secondAssignment = _reviewAssignment(
+      id: 'assignment-2',
+      groupId: 'group-2',
+      groupName: 'BSHM 4B',
+      audience: AssignmentAudience.individualStudent(const ['student-2']),
+    );
+    assignments.seedAssignment(firstAssignment);
+    assignments.seedAssignment(secondAssignment);
+    assignments.seedAttempt(
+      _reviewAttempt(
+        assignment: firstAssignment,
+        traineeId: 'student',
+        submittedAt: now.subtract(const Duration(hours: 1)),
+      ),
+    );
+    assignments.seedAttempt(
+      _reviewAttempt(
+        assignment: secondAssignment,
+        traineeId: 'student-2',
+        submittedAt: now.subtract(const Duration(hours: 2)),
+      ),
+    );
+    assignments.seedAttempt(
+      _reviewAttempt(
+        assignment: firstAssignment,
+        traineeId: 'outside',
+        submittedAt: now.subtract(const Duration(hours: 3)),
+      ),
+    );
+    assignments.seedAttempt(
+      _reviewAttempt(
+        assignment: firstAssignment,
+        traineeId: 'student',
+        submittedAt: now.subtract(const Duration(hours: 4)),
+        status: AssignmentAttemptStatus.checked,
+        idSuffix: 'historical',
+      ),
+    );
+
+    final controller = createController()..setTeacher(teacherId);
+    addTearDown(controller.dispose);
+    await _settle();
+
+    expect(controller.pendingReviews, hasLength(2));
+    expect(
+      controller.pendingReviews.map((review) => review.attempt.traineeId),
+      ['student-2', 'student'],
+    );
+    expect(
+      controller.pendingReviews.first.destination,
+      AppRoutePaths.teacherGroupClasswork(
+        'group-2',
+        'assignment-2',
+        traineeId: 'student-2',
+      ),
+    );
+
+    final studentReview = controller.pendingReviews.singleWhere(
+      (review) => review.attempt.traineeId == 'student',
+    );
+    await assignments.saveTeacherReview(
+      teacherId: teacherId,
+      attempt: studentReview.attempt,
+      assignment: firstAssignment,
+      gradeScore: 90,
+    );
+    await _settle();
+    expect(
+      controller.pendingReviews.map((review) => review.attempt.traineeId),
+      ['student-2'],
+    );
+  });
+
+  testWidgets('To Review renders its empty state', (tester) async {
+    final controller = createController()..setTeacher(teacherId);
+    addTearDown(controller.dispose);
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TeacherActivityController>.value(
+        value: controller,
+        child: FluentApp(
+          theme: FluentThemeData(),
+          home: const TeacherActivityCenterScreen(
+            initialView: TeacherActivityCenterView.toReview,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('teacher_to_review_empty')), findsOneWidget);
+    expect(
+      find.text('No submissions are waiting for review'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('To Review shows actionable submission context', (tester) async {
+    groups.seedMembership(
+      _membership(status: GroupMembershipStatus.approved),
+    );
+    final assignment = _reviewAssignment();
+    assignments.seedAssignment(assignment);
+    assignments.seedAttempt(
+      _reviewAttempt(
+        assignment: assignment,
+        traineeId: 'student',
+        submittedAt: now.subtract(const Duration(hours: 1)),
+      ),
+    );
+    final controller = createController()..setTeacher(teacherId);
+    addTearDown(controller.dispose);
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TeacherActivityController>.value(
+        value: controller,
+        child: FluentApp(
+          theme: FluentThemeData(),
+          home: const TeacherActivityCenterScreen(
+            initialView: TeacherActivityCenterView.toReview,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Ada Lovelace'), findsOneWidget);
+    expect(find.text('Review assignment'), findsOneWidget);
+    expect(find.textContaining('BSHM 4A · Submitted'), findsOneWidget);
+    expect(find.textContaining('Late'), findsOneWidget);
+    expect(find.text('To Review'), findsWidgets);
+  });
+
   test('file read store round-trips account-scoped timestamps', () async {
     final directory = await Directory.systemTemp.createTemp(
       'elixr_activity_read_store_',
@@ -361,7 +519,8 @@ void main() {
     groups.seedMembership(_membership(status: GroupMembershipStatus.pending));
     final controller = createController()..setTeacher(teacherId);
     addTearDown(controller.dispose);
-    await _settle();
+    await tester.pump();
+    await tester.pump();
 
     await tester.pumpWidget(
       ChangeNotifierProvider<TeacherActivityController>.value(
@@ -389,10 +548,11 @@ Future<void> _settle() async {
 GroupMembership _membership({
   String traineeId = 'student',
   String name = 'Ada Lovelace',
+  String groupId = 'group',
   required GroupMembershipStatus status,
 }) => GroupMembership(
-  id: 'group_$traineeId',
-  groupId: 'group',
+  id: '${groupId}_$traineeId',
+  groupId: groupId,
   teacherId: teacherId,
   traineeId: traineeId,
   traineeDisplayName: name,
@@ -400,6 +560,55 @@ GroupMembership _membership({
   status: status,
   createdAt: now.subtract(const Duration(seconds: 30)),
   updatedAt: now.subtract(const Duration(seconds: 30)),
+);
+
+GroupAssignment _reviewAssignment({
+  String id = 'assignment',
+  String groupId = 'group',
+  String groupName = 'BSHM 4A',
+  AssignmentAudience audience = const AssignmentAudience.entireClass(),
+}) => GroupAssignment(
+  id: id,
+  teacherId: teacherId,
+  groupId: groupId,
+  movementId: 'movement-$id',
+  revisionId: 'revision-$id',
+  origin: MovementOrigin.teacherCreated,
+  assessmentMode: AssessmentMode.teacherReviewed,
+  status: GroupAssignmentStatus.active,
+  displayTitle: 'Review $id',
+  teacherDisplayName: 'Grace Hopper',
+  groupName: groupName,
+  dueAt: now.subtract(const Duration(minutes: 90)),
+  audience: audience,
+);
+
+AssignmentAttempt _reviewAttempt({
+  required GroupAssignment assignment,
+  required String traineeId,
+  required DateTime submittedAt,
+  AssignmentAttemptStatus status = AssignmentAttemptStatus.submitted,
+  String? idSuffix,
+}) => AssignmentAttempt(
+  id: idSuffix == null
+      ? assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+          assignmentId: assignment.id,
+          traineeId: traineeId,
+        )
+      : '${assignment.id}-$traineeId-$idSuffix',
+  traineeId: traineeId,
+  teacherId: teacherId,
+  groupId: assignment.groupId,
+  assignmentId: assignment.id,
+  movementId: assignment.movementId,
+  revisionId: assignment.revisionId,
+  origin: MovementOrigin.teacherCreated,
+  assessmentMode: AssessmentMode.teacherReviewed,
+  attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+  status: status,
+  submittedAt: submittedAt,
+  videoStoragePath: 'assignment_submissions/${assignment.id}/$traineeId.mp4',
+  videoExpiresAt: now.add(const Duration(days: 30)),
 );
 
 GroupAssignment _assignment({DateTime? dueAt}) => GroupAssignment(

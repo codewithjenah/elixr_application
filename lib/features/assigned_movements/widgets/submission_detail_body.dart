@@ -372,21 +372,28 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   }
 
   Widget _buildStatusPills() {
+    final statusLabel = widget.viewerRole == SubmissionDetailViewerRole.teacher &&
+            attempt.isTeacherReviewSubmission &&
+            attempt.status == AssignmentAttemptStatus.submitted
+        ? 'To Review'
+        : assignedMovementStatusLabel(
+            widget.assignment,
+            attempt,
+            attempt.isTeacherReviewSubmission ? attempt : null,
+          );
     return Wrap(
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,
       children: [
         ElixPill(
-          text: assignedMovementStatusLabel(
-            widget.assignment,
-            attempt,
-            attempt.isTeacherReviewSubmission ? attempt : null,
-          ),
-          color: assignedMovementStatusColor(
-            widget.assignment,
-            attempt,
-            attempt.isTeacherReviewSubmission ? attempt : null,
-          ),
+          text: statusLabel,
+          color: statusLabel == 'To Review'
+              ? AppColors.accent
+              : assignedMovementStatusColor(
+                  widget.assignment,
+                  attempt,
+                  attempt.isTeacherReviewSubmission ? attempt : null,
+                ),
           compact: true,
         ),
         if (attempt.supersedesAttemptId != null &&

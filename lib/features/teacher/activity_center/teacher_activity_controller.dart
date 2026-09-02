@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/router/app_route_paths.dart';
 import '../../../data/models/assignment_attempt.dart';
+import '../../../data/models/assignment_review_state.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
@@ -64,6 +65,26 @@ class TeacherActivity {
   );
 }
 
+class TeacherPendingReview {
+  const TeacherPendingReview({
+    required this.attempt,
+    required this.assignment,
+    required this.traineeName,
+    required this.submittedAt,
+    required this.deadlineState,
+    required this.destination,
+    this.traineeProfilePictureUrl,
+  });
+
+  final AssignmentAttempt attempt;
+  final GroupAssignment assignment;
+  final String traineeName;
+  final DateTime submittedAt;
+  final AssignmentDeadlineState deadlineState;
+  final String destination;
+  final String? traineeProfilePictureUrl;
+}
+
 /// Combines the existing teacher-facing streams without changing their
 /// Firestore contracts. Read state is local to the signed-in teacher.
 class TeacherActivityController extends ChangeNotifier {
@@ -117,8 +138,11 @@ class TeacherActivityController extends ChangeNotifier {
   List<ChatConversation> _inbox = const [];
   Map<String, DateTime> _readAtById = <String, DateTime>{};
   List<TeacherActivity> _activities = const [];
+  List<TeacherPendingReview> _pendingReviews = const [];
 
   List<TeacherActivity> get activities => _activities;
+  List<TeacherPendingReview> get pendingReviews => _pendingReviews;
+  int get pendingReviewCount => _pendingReviews.length;
   int get unreadCount =>
       _activities.where((activity) => !activity.isRead).length;
   bool get hasStreamError =>
@@ -126,6 +150,10 @@ class TeacherActivityController extends ChangeNotifier {
       assignmentsStreamError != null ||
       attemptsStreamError != null ||
       inboxStreamError != null;
+  bool get hasPendingReviewStreamError =>
+      membershipsStreamError != null ||
+      assignmentsStreamError != null ||
+      attemptsStreamError != null;
 
   void setTeacher(String? teacherId) {
     final normalized = teacherId?.trim();
@@ -163,6 +191,7 @@ class TeacherActivityController extends ChangeNotifier {
     _inbox = const [];
     _readAtById = <String, DateTime>{};
     _activities = const [];
+    _pendingReviews = const [];
     _cancelProfileWatches();
     membershipsStreamError = null;
     assignmentsStreamError = null;
@@ -375,6 +404,7 @@ class TeacherActivityController extends ChangeNotifier {
     final teacherId = _teacherId;
     if (teacherId != null) {
       _activities = _buildActivities(teacherId);
+      _pendingReviews = _buildPendingReviews(teacherId);
       _syncProfileWatches();
     }
     if (!_disposed) notifyListeners();
@@ -387,6 +417,7 @@ class TeacherActivityController extends ChangeNotifier {
     final actorIds = {
       for (final activity in _activities)
         if (activity.actorUserId != null) activity.actorUserId!,
+      for (final review in _pendingReviews) review.attempt.traineeId,
     };
     final staleIds = _profileSubs.keys
         .where((id) => !actorIds.contains(id))
@@ -416,6 +447,88 @@ class TeacherActivityController extends ChangeNotifier {
         },
       );
     }
+  }
+
+  List<TeacherPendingReview> _buildPendingReviews(String teacherId) {
+    final now = _now().toUtc();
+    final assignmentsById = <String, GroupAssignment>{
+      for (final assignment in _assignments)
+        if (assignment.teacherId == teacherId) assignment.id: assignment,
+    };
+    final authorizedMemberships = <String, GroupMembership>{
+      for (final membership in _memberships)
+        if (membership.teacherId == teacherId &&
+            membership.hasClassroomAuthorization)
+          '${membership.groupId}:${membership.traineeId}': membership,
+    };
+    final attemptsByRecipient = <String, List<AssignmentAttempt>>{};
+    for (final attempt in _attempts) {
+      if (attempt.teacherId != teacherId) continue;
+      final assignment = assignmentsById[attempt.assignmentId];
+      if (assignment == null ||
+          assignment.groupId != attempt.groupId ||
+          assignment.movementId != attempt.movementId ||
+          assignment.revisionId != attempt.revisionId ||
+          !assignment.isTeacherCreated ||
+          !assignment.isAvailableToTrainee(attempt.traineeId) ||
+          !authorizedMemberships.containsKey(
+            '${attempt.groupId}:${attempt.traineeId}',
+          )) {
+        continue;
+      }
+      attemptsByRecipient
+          .putIfAbsent(
+            '${attempt.assignmentId}:${attempt.traineeId}',
+            () => <AssignmentAttempt>[],
+          )
+          .add(attempt);
+    }
+
+    final pending = <TeacherPendingReview>[];
+    for (final attempts in attemptsByRecipient.values) {
+      final first = attempts.first;
+      final current = AssignmentAttemptSemantics.latestVisible(
+        attempts: attempts,
+        assignmentId: first.assignmentId,
+        traineeId: first.traineeId,
+      );
+      if (!AssignmentReviewSemantics.isActionablePending(current, now: now)) {
+        continue;
+      }
+      final assignment = assignmentsById[current!.assignmentId]!;
+      final membership = authorizedMemberships[
+          '${current.groupId}:${current.traineeId}']!;
+      pending.add(
+        TeacherPendingReview(
+          attempt: current,
+          assignment: assignment,
+          traineeName: membership.traineeDisplayName,
+          submittedAt: current.submittedAt!,
+          deadlineState: AssignmentReviewSemantics.deadlineStateFor(
+            assignment: assignment,
+            attempt: current,
+            now: now,
+          ),
+          destination: AppRoutePaths.teacherGroupClasswork(
+            current.groupId,
+            current.assignmentId,
+            traineeId: current.traineeId,
+          ),
+          traineeProfilePictureUrl: _profilePictureUrls[current.traineeId],
+        ),
+      );
+    }
+    pending.sort((a, b) {
+      final byTime = a.submittedAt.compareTo(b.submittedAt);
+      if (byTime != 0) return byTime;
+      final byAssignment = a.assignment.id.compareTo(b.assignment.id);
+      if (byAssignment != 0) return byAssignment;
+      final byTrainee = a.attempt.traineeId.compareTo(b.attempt.traineeId);
+      return byTrainee != 0
+          ? byTrainee
+          : a.attempt.id.compareTo(b.attempt.id);
+    });
+    return pending;
   }
 
   void _cancelProfileWatches() {

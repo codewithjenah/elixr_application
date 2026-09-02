@@ -11,6 +11,7 @@ import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_attempt.dart';
+import '../../../data/models/assignment_review_state.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
 import '../../assigned_movements/assigned_movement_list.dart';
@@ -602,13 +603,7 @@ class _StudentAssignmentRow extends StatelessWidget {
     final turnedIn = attempt != null && isAssignmentAttemptTurnedIn(attempt);
     final label = statusUnavailable
         ? 'Status unavailable'
-        : turnedIn
-        ? assignedMovementStatusLabel(
-            assignment,
-            attempt,
-            attempt.isTeacherReviewSubmission ? attempt : null,
-          )
-        : 'Not turned in';
+        : _teacherFacingReviewLabel(assignment, attempt);
     return Semantics(
       button: true,
       label: 'Open ${assignment.displayTitle}, $label',
@@ -703,7 +698,7 @@ class _AssignmentHeader extends StatelessWidget {
               _AssignmentMetric(value: counts.turnedIn, label: 'Turned in'),
               _AssignmentMetric(
                 value: counts.awaitingCheck,
-                label: 'Ready to check',
+                label: 'To Review',
               ),
               _AssignmentMetric(value: counts.checked, label: 'Checked'),
               _AssignmentMetric(
@@ -753,7 +748,9 @@ class _AssignmentMetric extends StatelessWidget {
   }
 }
 
-class _Roster extends StatelessWidget {
+enum _RosterFilter { all, toReview, checked, missing }
+
+class _Roster extends StatefulWidget {
   const _Roster({
     required this.controller,
     required this.assignment,
@@ -767,21 +764,34 @@ class _Roster extends StatelessWidget {
   final ValueChanged<String>? onOpenTrainee;
 
   @override
+  State<_Roster> createState() => _RosterState();
+}
+
+class _RosterState extends State<_Roster> {
+  _RosterFilter _filter = _RosterFilter.all;
+
+  @override
   Widget build(BuildContext context) {
-    final members = [
-      for (final member in controller.approvedMemberships)
-        if (assignment.isAvailableToTrainee(member.traineeId)) member,
-    ];
-    if (members.isEmpty) {
+    final entries = widget.controller.rosterEntriesFor(widget.assignment.id);
+    if (entries.isEmpty) {
       return ElixStatusPanel(
-        title: assignment.audience.isEntireClass
+        title: widget.assignment.audience.isEntireClass
             ? 'No students yet'
             : 'No assigned students available',
-        message: assignment.audience.isEntireClass
+        message: widget.assignment.audience.isEntireClass
             ? 'Share the class code, then approve students who join.'
             : 'The targeted students are no longer approved members of this class.',
       );
     }
+    final visible = entries.where((entry) => switch (_filter) {
+      _RosterFilter.all => true,
+      _RosterFilter.toReview =>
+        entry.reviewState == AssignmentReviewState.toReview,
+      _RosterFilter.checked =>
+        entry.reviewState == AssignmentReviewState.checked,
+      _RosterFilter.missing =>
+        entry.reviewState == AssignmentReviewState.missing,
+    }).toList(growable: false);
     return Column(
       key: const Key('teacher_classwork_roster'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -792,27 +802,37 @@ class _Roster extends StatelessWidget {
           'Select a student to review their latest submitted work.',
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final filter in _RosterFilter.values)
+              ToggleButton(
+                key: Key('teacher_classwork_filter_${filter.name}'),
+                checked: _filter == filter,
+                onChanged: (_) => setState(() => _filter = filter),
+                child: Text(_rosterFilterLabel(filter, entries)),
+              ),
+          ],
+        ),
         const SizedBox(height: AppSpacing.md),
         Expanded(
-          child: ListView.separated(
+          child: visible.isEmpty
+              ? ElixStatusPanel(
+                  key: const Key('teacher_classwork_filtered_empty'),
+                  title: _rosterEmptyTitle(_filter),
+                  message: _rosterEmptyMessage(_filter),
+                )
+              : ListView.separated(
             key: const Key('teacher_classwork_roster_list'),
-            itemCount: members.length,
+            itemCount: visible.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
             itemBuilder: (context, index) {
-              final member = members[index];
-              final attempt = controller.latestVisibleAttemptFor(
-                assignmentId: assignment.id,
-                traineeId: member.traineeId,
-              );
-              final turnedIn =
-                  attempt != null && isAssignmentAttemptTurnedIn(attempt);
-              final status = turnedIn
-                  ? assignedMovementStatusLabel(
-                      assignment,
-                      attempt,
-                      attempt.isTeacherReviewSubmission ? attempt : null,
-                    )
-                  : 'Not turned in';
+              final entry = visible[index];
+              final member = entry.membership;
+              final attempt = entry.attempt;
+              final status = _rosterReviewLabel(entry);
               final submittedAt = attempt?.submittedAt;
               return Semantics(
                 button: true,
@@ -821,11 +841,11 @@ class _Roster extends StatelessWidget {
                   key: Key('teacher_classwork_student_${member.traineeId}'),
                   cursor: SystemMouseCursors.click,
                   onPressed: () {
-                    final onOpen = onOpenTrainee;
+                    final onOpen = widget.onOpenTrainee;
                     if (onOpen != null) {
                       onOpen(member.traineeId);
                     } else {
-                      controller.selectTrainee(member.traineeId);
+                      widget.controller.selectTrainee(member.traineeId);
                     }
                   },
                   builder: (context, states) {
@@ -856,7 +876,7 @@ class _Roster extends StatelessWidget {
                               key: Key(
                                 'teacher_classwork_avatar_${member.traineeId}',
                               ),
-                              networkImageUrl: profilePictureUrlFor?.call(
+                              networkImageUrl: widget.profilePictureUrlFor?.call(
                                 member.traineeId,
                               ),
                               initials: userInitials(member.traineeDisplayName),
@@ -877,9 +897,11 @@ class _Roster extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
-                                  submittedAt == null
-                                      ? status
-                                      : '$status · Submitted ${formatSubmissionTimestamp(submittedAt)}',
+                                  _rosterStatusLine(
+                                    status: status,
+                                    submittedAt: submittedAt,
+                                    deadlineState: entry.deadlineState,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTheme.caption.copyWith(
@@ -891,7 +913,9 @@ class _Roster extends StatelessWidget {
                           ),
                           const SizedBox(width: AppSpacing.md),
                           Text(
-                            turnedIn ? 'Review' : 'View',
+                            entry.reviewState == AssignmentReviewState.toReview
+                                ? 'Review'
+                                : 'View',
                             style: AppTheme.caption.copyWith(
                               color: context.elixTextSecondary,
                             ),
@@ -911,6 +935,76 @@ class _Roster extends StatelessWidget {
     );
   }
 }
+
+String _rosterFilterLabel(
+  _RosterFilter filter,
+  List<TeacherAssignmentRosterEntry> entries,
+) {
+  final count = switch (filter) {
+    _RosterFilter.all => entries.length,
+    _RosterFilter.toReview => entries
+        .where((entry) => entry.reviewState == AssignmentReviewState.toReview)
+        .length,
+    _RosterFilter.checked => entries
+        .where((entry) => entry.reviewState == AssignmentReviewState.checked)
+        .length,
+    _RosterFilter.missing => entries
+        .where((entry) => entry.reviewState == AssignmentReviewState.missing)
+        .length,
+  };
+  final label = switch (filter) {
+    _RosterFilter.all => 'All',
+    _RosterFilter.toReview => 'To Review',
+    _RosterFilter.checked => 'Checked',
+    _RosterFilter.missing => 'Missing',
+  };
+  return '$label $count';
+}
+
+String _rosterEmptyTitle(_RosterFilter filter) => switch (filter) {
+  _RosterFilter.toReview => 'No submissions are waiting for review',
+  _RosterFilter.checked => 'No checked submissions yet',
+  _RosterFilter.missing => 'Everyone has turned in their work',
+  _RosterFilter.all => 'No assigned students',
+};
+
+String _rosterEmptyMessage(_RosterFilter filter) => switch (filter) {
+  _RosterFilter.toReview => 'New submitted work will appear here.',
+  _RosterFilter.checked => 'Checked work will remain available here.',
+  _RosterFilter.missing => 'There is no missing work for this assignment.',
+  _RosterFilter.all => 'No students are currently in this assignment audience.',
+};
+
+String _rosterReviewLabel(TeacherAssignmentRosterEntry entry) =>
+    switch (entry.reviewState) {
+      AssignmentReviewState.toReview => 'To Review',
+      AssignmentReviewState.checked => switch (entry.attempt?.status) {
+        AssignmentAttemptStatus.approved => 'Approved',
+        AssignmentAttemptStatus.needsRetry => 'Needs retry',
+        _ => 'Checked',
+      },
+      AssignmentReviewState.missing =>
+        entry.deadlineState == AssignmentDeadlineState.overdue
+            ? 'Overdue · Missing'
+            : 'Not turned in',
+    };
+
+String _rosterStatusLine({
+  required String status,
+  required DateTime? submittedAt,
+  required AssignmentDeadlineState deadlineState,
+}) {
+  if (submittedAt == null) return status;
+  final deadline = _submittedDeadlineLabel(deadlineState);
+  return '$status · Submitted ${formatSubmissionTimestamp(submittedAt)}'
+      '${deadline == null ? '' : ' · $deadline'}';
+}
+
+String? _submittedDeadlineLabel(AssignmentDeadlineState state) => switch (state) {
+  AssignmentDeadlineState.submittedOnTime => 'On time',
+  AssignmentDeadlineState.submittedLate => 'Late',
+  _ => null,
+};
 
 class _SelectedStudentReviewWorkspace extends StatelessWidget {
   const _SelectedStudentReviewWorkspace({
@@ -934,11 +1028,13 @@ class _SelectedStudentReviewWorkspace extends StatelessWidget {
     );
     final status = attempt == null || !isAssignmentAttemptTurnedIn(attempt)
         ? 'Not turned in'
-        : assignedMovementStatusLabel(
-            assignment,
-            attempt,
-            attempt.isTeacherReviewSubmission ? attempt : null,
-          );
+        : _teacherFacingReviewLabel(assignment, attempt);
+    final deadlineState = AssignmentReviewSemantics.deadlineStateFor(
+      assignment: assignment,
+      attempt: attempt,
+      now: DateTime.now(),
+    );
+    final submittedDeadlineLabel = _submittedDeadlineLabel(deadlineState);
     return Column(
       key: const Key('teacher_classwork_submission_workspace'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -973,6 +1069,18 @@ class _SelectedStudentReviewWorkspace extends StatelessWidget {
                       color: context.elixTextSecondary,
                     ),
                   ),
+                  if (attempt?.submittedAt != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Submitted ${formatSubmissionTimestamp(attempt!.submittedAt!)}'
+                      '${submittedDeadlineLabel == null ? '' : ' · $submittedDeadlineLabel'}',
+                      key: const Key('teacher_classwork_submission_timestamp'),
+                      style: AppTheme.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: context.elixTextPrimary,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1002,6 +1110,27 @@ class _SelectedStudentReviewWorkspace extends StatelessWidget {
       ],
     );
   }
+}
+
+String _teacherFacingReviewLabel(
+  GroupAssignment assignment,
+  AssignmentAttempt? attempt,
+) {
+  if (attempt == null || !isAssignmentAttemptTurnedIn(attempt)) {
+    return 'Not turned in';
+  }
+  if (!attempt.isTeacherReviewSubmission) {
+    return assignedMovementStatusLabel(assignment, attempt, null);
+  }
+  return switch (attempt.status) {
+    AssignmentAttemptStatus.submitted => 'To Review',
+    AssignmentAttemptStatus.checked => 'Checked',
+    AssignmentAttemptStatus.approved => 'Approved',
+    AssignmentAttemptStatus.needsRetry => 'Needs retry',
+    AssignmentAttemptStatus.draft || AssignmentAttemptStatus.inProgress =>
+      'Not turned in',
+    AssignmentAttemptStatus.unsubmitting => 'Withdrawing',
+  };
 }
 
 class TeacherSubmissionReviewDetail extends StatefulWidget {
@@ -1112,6 +1241,10 @@ class _TeacherSubmissionReviewDetailState
     final legacySubmitted =
         current.status == AssignmentAttemptStatus.submitted &&
         !current.isCanonicalTeacherReviewSubmission;
+    final hasNext = widget.controller.hasAnotherPendingReview(
+      assignmentId: widget.assignment.id,
+      currentAttemptId: current.id,
+    );
     final reviewControls = _buildReviewControls(
       current: current,
       canGrade: canGrade,
@@ -1120,6 +1253,7 @@ class _TeacherSubmissionReviewDetailState
       parsedGrade: parsedGrade,
       legacySubmitted: legacySubmitted,
       activityAssessment: activityAssessment,
+      hasNext: hasNext,
     );
     final submissionDetail = SubmissionDetailBody(
       key: ValueKey('${current.id}:${current.reviewRevision}'),
@@ -1155,12 +1289,14 @@ class _TeacherSubmissionReviewDetailState
     required int? parsedGrade,
     required bool legacySubmitted,
     required TeacherActivityAssessmentConfig? activityAssessment,
+    required bool hasNext,
   }) {
     if (activityAssessment != null) {
       return _buildTeacherActivityRubricControls(
         current: current,
         canGrade: canGrade,
         assessment: activityAssessment,
+        hasNext: hasNext,
       );
     }
     return Column(
@@ -1220,6 +1356,19 @@ class _TeacherSubmissionReviewDetailState
                       : 'Mark as checked',
                 ),
               ),
+              if (!current.isChecked && hasNext)
+                Button(
+                  key: const Key('teacher_classwork_save_next_review'),
+                  onPressed: widget.controller.busy || !validGrade
+                      ? null
+                      : () => widget.controller.saveReviewAndNext(
+                          attempt: current,
+                          assignment: widget.assignment,
+                          gradeScore: parsedGrade!,
+                          feedback: _feedback.text,
+                        ),
+                  child: const Text('Save & Next'),
+                ),
               if (current.isChecked && !current.resultSentForCurrentRevision)
                 Button(
                   key: const Key('teacher_classwork_retry_result'),
@@ -1255,6 +1404,7 @@ class _TeacherSubmissionReviewDetailState
     required AssignmentAttempt current,
     required bool canGrade,
     required TeacherActivityAssessmentConfig assessment,
+    required bool hasNext,
   }) {
     final scores = <String, int>{};
     var valid = true;
@@ -1317,19 +1467,41 @@ class _TeacherSubmissionReviewDetailState
             placeholder: 'Feedback for the student',
           ),
           const SizedBox(height: AppSpacing.sm),
-          FilledButton(
-            key: const Key('teacher_classwork_save_rubric_review'),
-            onPressed: widget.controller.busy || !valid
-                ? null
-                : () => widget.controller.saveTeacherActivityRubricReview(
-                    attempt: current,
-                    assignment: widget.assignment,
-                    criterionScores: scores,
-                    feedback: _feedback.text,
-                  ),
-            child: Text(
-              current.isChecked ? 'Update checked result' : 'Mark as checked',
-            ),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              FilledButton(
+                key: const Key('teacher_classwork_save_rubric_review'),
+                onPressed: widget.controller.busy || !valid
+                    ? null
+                    : () => widget.controller.saveTeacherActivityRubricReview(
+                        attempt: current,
+                        assignment: widget.assignment,
+                        criterionScores: scores,
+                        feedback: _feedback.text,
+                      ),
+                child: Text(
+                  current.isChecked
+                      ? 'Update checked result'
+                      : 'Mark as checked',
+                ),
+              ),
+              if (!current.isChecked && hasNext)
+                Button(
+                  key: const Key('teacher_classwork_save_next_rubric_review'),
+                  onPressed: widget.controller.busy || !valid
+                      ? null
+                      : () => widget.controller
+                            .saveTeacherActivityRubricReviewAndNext(
+                              attempt: current,
+                              assignment: widget.assignment,
+                              criterionScores: scores,
+                              feedback: _feedback.text,
+                            ),
+                  child: const Text('Save & Next'),
+                ),
+            ],
           ),
           if (current.isChecked && !current.resultSentForCurrentRevision) ...[
             const SizedBox(height: AppSpacing.sm),

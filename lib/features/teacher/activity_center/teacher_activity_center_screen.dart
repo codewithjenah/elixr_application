@@ -1,3 +1,4 @@
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -11,11 +12,18 @@ import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
+import '../../../data/models/assignment_review_state.dart';
 import 'teacher_activity_controller.dart';
-import 'package:elixr_core/utils/user_name.dart';
+
+enum TeacherActivityCenterView { activity, toReview }
 
 class TeacherActivityCenterScreen extends StatefulWidget {
-  const TeacherActivityCenterScreen({super.key});
+  const TeacherActivityCenterScreen({
+    super.key,
+    this.initialView = TeacherActivityCenterView.activity,
+  });
+
+  final TeacherActivityCenterView initialView;
 
   @override
   State<TeacherActivityCenterScreen> createState() =>
@@ -29,27 +37,35 @@ class _TeacherActivityCenterScreenState
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<TeacherActivityController>();
+    final showPending = widget.initialView == TeacherActivityCenterView.toReview;
     final visible = _unreadOnly
         ? controller.activities.where((activity) => !activity.isRead).toList()
         : controller.activities;
+    final relevantStreamError = showPending
+        ? controller.hasPendingReviewStreamError
+        : controller.hasStreamError;
 
     return TeacherScaffoldPage(
       header: ElixEditorialPageHeader(
-        heading: 'Activity Center',
+        heading: showPending ? 'To Review' : 'Activity Center',
         eyebrow: 'TEACHER WORKSPACE',
-        subtitle: 'Review what needs your attention across your classroom.',
-        commandBar: CommandBar(
-          mainAxisAlignment: MainAxisAlignment.end,
-          primaryItems: [
-            CommandBarButton(
-              icon: const Icon(FluentIcons.check_mark),
-              label: const Text('Mark all read'),
-              onPressed: controller.unreadCount == 0
-                  ? null
-                  : controller.markAllRead,
-            ),
-          ],
-        ),
+        subtitle: showPending
+            ? 'Outstanding submitted work across your classrooms.'
+            : 'Recent activity across your classrooms.',
+        commandBar: showPending
+            ? null
+            : CommandBar(
+                mainAxisAlignment: MainAxisAlignment.end,
+                primaryItems: [
+                  CommandBarButton(
+                    icon: const Icon(FluentIcons.check_mark),
+                    label: const Text('Mark all read'),
+                    onPressed: controller.unreadCount == 0
+                        ? null
+                        : controller.markAllRead,
+                  ),
+                ],
+              ),
       ),
       scrollable: false,
       contentPadding: EdgeInsets.zero,
@@ -66,30 +82,34 @@ class _TeacherActivityCenterScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Checkbox(
-                  checked: _unreadOnly,
-                  onChanged: (value) {
-                    setState(() => _unreadOnly = value ?? false);
-                  },
-                  content: const Text('Unread only'),
-                ),
-                if (controller.hasStreamError ||
+                if (!showPending) ...[
+                  Checkbox(
+                    checked: _unreadOnly,
+                    onChanged: (value) {
+                      setState(() => _unreadOnly = value ?? false);
+                    },
+                    content: const Text('Unread only'),
+                  ),
+                ],
+                if (relevantStreamError ||
                     controller.persistenceMessage != null) ...[
                   const SizedBox(height: AppSpacing.sm),
                   InfoBar(
-                    severity: controller.hasStreamError
+                    severity: relevantStreamError
                         ? InfoBarSeverity.warning
                         : InfoBarSeverity.info,
                     title: Text(
-                      controller.hasStreamError
-                          ? 'Some activity could not be refreshed'
+                      relevantStreamError
+                          ? showPending
+                                ? 'Pending work could not be refreshed'
+                                : 'Some activity could not be refreshed'
                           : 'Activity read state is temporary',
                     ),
                     content: Text(
                       controller.persistenceMessage ??
-                          'Some activity may be missing. You can retry the stream.',
+                          'Some information may be missing. Try refreshing.',
                     ),
-                    action: controller.hasStreamError
+                    action: relevantStreamError
                         ? Button(
                             onPressed: controller.retry,
                             child: const Text('Retry'),
@@ -104,6 +124,8 @@ class _TeacherActivityCenterScreenState
           Expanded(
             child: controller.loading
                 ? const Center(child: ProgressRing())
+                : showPending
+                ? _PendingReviewList(controller: controller)
                 : visible.isEmpty
                 ? _EmptyActivityState(
                     unreadOnly: _unreadOnly,
@@ -131,6 +153,141 @@ class _TeacherActivityCenterScreenState
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PendingReviewList extends StatelessWidget {
+  const _PendingReviewList({required this.controller});
+
+  final TeacherActivityController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final reviews = controller.pendingReviews;
+    if (reviews.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: ElixStatusPanel(
+          key: const Key('teacher_to_review_empty'),
+          isError: controller.hasPendingReviewStreamError,
+          icon: controller.hasPendingReviewStreamError
+              ? FluentIcons.error
+              : FluentIcons.completed,
+          title: controller.hasPendingReviewStreamError
+              ? 'Pending work could not be loaded'
+              : 'No submissions are waiting for review',
+          message: controller.hasPendingReviewStreamError
+              ? 'Try again to refresh outstanding submissions.'
+              : 'New submitted work will appear here automatically.',
+          actionLabel: controller.hasPendingReviewStreamError ? 'Retry' : null,
+          onAction: controller.hasPendingReviewStreamError
+              ? controller.retry
+              : null,
+        ),
+      );
+    }
+    return ListView.separated(
+      key: const Key('teacher_to_review_list'),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.lg,
+      ),
+      itemCount: reviews.length,
+      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
+      itemBuilder: (context, index) => _PendingReviewRow(
+        review: reviews[index],
+        onOpen: () => context.go(reviews[index].destination),
+      ),
+    );
+  }
+}
+
+class _PendingReviewRow extends StatelessWidget {
+  const _PendingReviewRow({required this.review, required this.onOpen});
+
+  final TeacherPendingReview review;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final deadline = switch (review.deadlineState) {
+      AssignmentDeadlineState.submittedOnTime => 'On time',
+      AssignmentDeadlineState.submittedLate => 'Late',
+      _ => null,
+    };
+    return Semantics(
+      button: true,
+      label:
+          '${review.traineeName}, ${review.assignment.displayTitle}, To Review',
+      child: HoverButton(
+        key: Key('teacher_to_review_${review.attempt.id}'),
+        cursor: SystemMouseCursors.click,
+        onPressed: onOpen,
+        builder: (context, states) => ElixPanelCard(
+          child: Row(
+            children: [
+              ExcludeSemantics(
+                child: ProfileAvatarWidget(
+                  key: Key(
+                    'teacher_to_review_avatar_${review.attempt.traineeId}',
+                  ),
+                  radius: 22,
+                  showBorder: false,
+                  initials: userInitials(review.traineeName),
+                  networkImageUrl: review.traineeProfilePictureUrl,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      review.traineeName,
+                      style: AppTheme.body.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: context.elixTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      review.assignment.displayTitle,
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${review.assignment.groupName} · Submitted ${formatElixrDateTime(review.submittedAt)}'
+                      '${deadline == null ? '' : ' · $deadline'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Text(
+                'To Review',
+                style: AppTheme.caption.copyWith(
+                  color: deadline == 'Late'
+                      ? AppColors.warning
+                      : AppColors.accent,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              const Icon(FluentIcons.chevron_right, size: 12),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -229,7 +386,7 @@ class _ActivityRow extends StatelessWidget {
                 Container(
                   width: 8,
                   height: 8,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: AppColors.accent,
                     shape: BoxShape.circle,
                   ),

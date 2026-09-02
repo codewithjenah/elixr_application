@@ -8,6 +8,7 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/assignment_attempt.dart';
+import '../../../data/models/assignment_review_state.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
@@ -40,6 +41,20 @@ class TeacherAssignmentRosterCounts {
   final int notTurnedIn;
 }
 
+class TeacherAssignmentRosterEntry {
+  const TeacherAssignmentRosterEntry({
+    required this.membership,
+    required this.attempt,
+    required this.reviewState,
+    required this.deadlineState,
+  });
+
+  final GroupMembership membership;
+  final AssignmentAttempt? attempt;
+  final AssignmentReviewState reviewState;
+  final AssignmentDeadlineState deadlineState;
+}
+
 /// Classroom-scoped source of truth for assignment roster and review state.
 ///
 /// Assignment attempts are watched per assignment. This keeps a classroom
@@ -59,8 +74,10 @@ class TeacherClassworkController extends ChangeNotifier {
     this.initialTraineeId,
     this.approvedMembershipsProvider,
     this.approvedMembershipsListenable,
+    DateTime Function()? now,
   }) : selectedAssignmentId = initialAssignmentId,
        selectedTraineeId = fixedTraineeId ?? initialTraineeId,
+       _now = now ?? DateTime.now,
        assert(
          (approvedMembershipsProvider == null) ==
              (approvedMembershipsListenable == null),
@@ -79,6 +96,7 @@ class TeacherClassworkController extends ChangeNotifier {
   final String? initialTraineeId;
   final List<GroupMembership> Function()? approvedMembershipsProvider;
   final Listenable? approvedMembershipsListenable;
+  final DateTime Function() _now;
 
   ElixrGroup? group;
   List<GroupAssignment> assignments = const [];
@@ -342,33 +360,20 @@ class TeacherClassworkController extends ChangeNotifier {
   }
 
   TeacherAssignmentRosterCounts rosterCountsFor(String assignmentId) {
-    final assignment = assignmentById(assignmentId);
-    if (assignment == null) {
-      return const TeacherAssignmentRosterCounts.empty();
-    }
     var turnedIn = 0;
     var awaitingCheck = 0;
     var checked = 0;
     var notTurnedIn = 0;
-    for (final member in approvedMemberships) {
-      if (!assignment.isAvailableToTrainee(member.traineeId)) continue;
-      final attempt = latestVisibleAttemptFor(
-        assignmentId: assignmentId,
-        traineeId: member.traineeId,
-      );
-      if (attempt == null || !isAssignmentAttemptTurnedIn(attempt)) {
-        notTurnedIn++;
-        continue;
-      }
-      turnedIn++;
-      if (attempt.status == AssignmentAttemptStatus.submitted &&
-          attempt.isReviewFacingSubmission) {
-        awaitingCheck++;
-      }
-      if (attempt.isChecked ||
-          attempt.status == AssignmentAttemptStatus.approved ||
-          attempt.status == AssignmentAttemptStatus.needsRetry) {
-        checked++;
+    for (final entry in rosterEntriesFor(assignmentId)) {
+      switch (entry.reviewState) {
+        case AssignmentReviewState.toReview:
+          turnedIn++;
+          awaitingCheck++;
+        case AssignmentReviewState.checked:
+          turnedIn++;
+          checked++;
+        case AssignmentReviewState.missing:
+          notTurnedIn++;
       }
     }
     return TeacherAssignmentRosterCounts(
@@ -378,6 +383,66 @@ class TeacherClassworkController extends ChangeNotifier {
       notTurnedIn: notTurnedIn,
     );
   }
+
+  List<TeacherAssignmentRosterEntry> rosterEntriesFor(String assignmentId) {
+    final assignment = assignmentById(assignmentId);
+    if (assignment == null) return const [];
+    final now = _now().toUtc();
+    return [
+      for (final member in approvedMemberships)
+        if (assignment.isAvailableToTrainee(member.traineeId))
+          _rosterEntry(assignment, member, now),
+    ];
+  }
+
+  TeacherAssignmentRosterEntry _rosterEntry(
+    GroupAssignment assignment,
+    GroupMembership member,
+    DateTime now,
+  ) {
+    final attempt = latestVisibleAttemptFor(
+      assignmentId: assignment.id,
+      traineeId: member.traineeId,
+    );
+    return TeacherAssignmentRosterEntry(
+      membership: member,
+      attempt: attempt,
+      reviewState: AssignmentReviewSemantics.reviewState(attempt),
+      deadlineState: AssignmentReviewSemantics.deadlineStateFor(
+        assignment: assignment,
+        attempt: attempt,
+        now: now,
+      ),
+    );
+  }
+
+  List<AssignmentAttempt> pendingReviewAttemptsFor(String assignmentId) {
+    final assignment = assignmentById(assignmentId);
+    if (assignment == null) return const [];
+    final now = _now().toUtc();
+    final pending = <AssignmentAttempt>[
+      for (final entry in rosterEntriesFor(assignmentId))
+        if (AssignmentReviewSemantics.isActionablePending(
+          entry.attempt,
+          now: now,
+        ))
+          entry.attempt!,
+    ];
+    pending.sort((a, b) {
+      final byTime = a.submittedAt!.compareTo(b.submittedAt!);
+      if (byTime != 0) return byTime;
+      final byTrainee = a.traineeId.compareTo(b.traineeId);
+      return byTrainee != 0 ? byTrainee : a.id.compareTo(b.id);
+    });
+    return pending;
+  }
+
+  bool hasAnotherPendingReview({
+    required String assignmentId,
+    required String currentAttemptId,
+  }) => pendingReviewAttemptsFor(
+    assignmentId,
+  ).any((attempt) => attempt.id != currentAttemptId);
 
   String traineeName(String traineeId) {
     for (final member in approvedMemberships) {
@@ -453,13 +518,13 @@ class TeacherClassworkController extends ChangeNotifier {
     }
   }
 
-  Future<void> saveReview({
+  Future<bool> saveReview({
     required AssignmentAttempt attempt,
     required GroupAssignment assignment,
     required int gradeScore,
     String? feedback,
   }) async {
-    await _runWrite(() async {
+    final saved = await _runWriteWithResult(() async {
       final updated = await assignmentRepository.saveTeacherReview(
         teacherId: teacherId,
         attempt: attempt,
@@ -470,6 +535,7 @@ class TeacherClassworkController extends ChangeNotifier {
       );
       _replaceAttempt(updated);
     });
+    if (!saved) return false;
     final checked = latestVisibleAttemptFor(
       assignmentId: assignment.id,
       traineeId: attempt.traineeId,
@@ -478,18 +544,39 @@ class TeacherClassworkController extends ChangeNotifier {
         checked!.resultSentForCurrentRevision == false) {
       await sendReviewResult(attempt: checked, assignment: assignment);
     }
+    return true;
+  }
+
+  Future<bool> saveReviewAndNext({
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required int gradeScore,
+    String? feedback,
+  }) async {
+    final saved = await saveReview(
+      attempt: attempt,
+      assignment: assignment,
+      gradeScore: gradeScore,
+      feedback: feedback,
+    );
+    if (!saved) return false;
+    final pending = pendingReviewAttemptsFor(assignment.id);
+    if (pending.isNotEmpty) {
+      await selectTrainee(pending.first.traineeId);
+    }
+    return true;
   }
 
   /// Saves a v2 Teacher Activity rubric review.  The immutable configuration
   /// snapshot on [attempt] is deliberately used by the repository, so an
   /// assignment edit can never change how an already-recorded clip is graded.
-  Future<void> saveTeacherActivityRubricReview({
+  Future<bool> saveTeacherActivityRubricReview({
     required AssignmentAttempt attempt,
     required GroupAssignment assignment,
     required Map<String, int> criterionScores,
     String? feedback,
   }) async {
-    await _runWrite(() async {
+    final saved = await _runWriteWithResult(() async {
       final updated = await assignmentRepository
           .saveTeacherActivityRubricReview(
             teacherId: teacherId,
@@ -499,6 +586,7 @@ class TeacherClassworkController extends ChangeNotifier {
           );
       _replaceAttempt(updated);
     });
+    if (!saved) return false;
     final checked = latestVisibleAttemptFor(
       assignmentId: assignment.id,
       traineeId: attempt.traineeId,
@@ -507,6 +595,27 @@ class TeacherClassworkController extends ChangeNotifier {
         checked!.resultSentForCurrentRevision == false) {
       await sendReviewResult(attempt: checked, assignment: assignment);
     }
+    return true;
+  }
+
+  Future<bool> saveTeacherActivityRubricReviewAndNext({
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required Map<String, int> criterionScores,
+    String? feedback,
+  }) async {
+    final saved = await saveTeacherActivityRubricReview(
+      attempt: attempt,
+      assignment: assignment,
+      criterionScores: criterionScores,
+      feedback: feedback,
+    );
+    if (!saved) return false;
+    final pending = pendingReviewAttemptsFor(assignment.id);
+    if (pending.isNotEmpty) {
+      await selectTrainee(pending.first.traineeId);
+    }
+    return true;
   }
 
   Future<void> reviewLegacy({

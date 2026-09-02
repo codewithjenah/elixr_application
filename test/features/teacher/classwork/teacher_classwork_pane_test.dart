@@ -2,6 +2,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
@@ -176,6 +177,62 @@ void main() {
     expect(find.textContaining('Individual: Ada Lovelace'), findsOneWidget);
   });
 
+  testWidgets('roster filters update after a submission is checked', (
+    tester,
+  ) async {
+    final submission = AssignmentAttempt(
+      id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+        assignmentId: 'assignment',
+        traineeId: 'student',
+      ),
+      traineeId: 'student',
+      teacherId: 'teacher',
+      groupId: 'group',
+      assignmentId: 'assignment',
+      movementId: 'movement',
+      revisionId: 'revision',
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.teacherReviewed,
+      attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+      status: AssignmentAttemptStatus.submitted,
+      submittedAt: DateTime.utc(2026, 9, 1, 16),
+      videoStoragePath: 'assignment_submissions/submission.mp4',
+      videoExpiresAt: DateTime.utc(2026, 10, 1),
+    );
+    assignments.seedAttempt(submission);
+    await pumpPane(tester, const Size(1280, 720));
+
+    await tester.tap(
+      find.byKey(const Key('teacher_classwork_filter_toReview')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(
+      find.byKey(const Key('teacher_classwork_student_student')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_classwork_student_alan')),
+      findsNothing,
+    );
+
+    await controller.saveReview(
+      attempt: submission,
+      assignment: assignments.assignments['assignment']!,
+      gradeScore: 90,
+    );
+    await tester.pump();
+    expect(find.text('No submissions are waiting for review'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('teacher_classwork_filter_checked')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(
+      find.byKey(const Key('teacher_classwork_student_student')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('roster rows expose semantics and support keyboard activation', (
     tester,
   ) async {
@@ -186,8 +243,10 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.pump();
+    for (var i = 0; i < 5; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+    }
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
 

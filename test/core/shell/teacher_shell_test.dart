@@ -108,7 +108,7 @@ class _ShellTestAuthRepository implements AuthRepositoryBase {
 }
 
 void main() {
-  testWidgets('teacher shell renders nine destinations', (tester) async {
+  testWidgets('teacher shell renders ten destinations', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -167,6 +167,7 @@ void main() {
     expect(find.text('Leaderboard'), findsWidgets);
     expect(find.text('Analytics'), findsOneWidget);
     expect(find.text('Movements'), findsWidgets);
+    expect(find.text('To Review'), findsOneWidget);
     expect(find.text('Activity Center'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);
     expect(find.text('Your classroom is ready'), findsOneWidget);

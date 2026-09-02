@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
+import 'package:elixr_application/data/models/assignment_review_state.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
@@ -51,6 +53,47 @@ class _BlockingAssignmentUpdateRepository
   }
 }
 
+class _BlockingReviewRepository
+    extends InMemoryClassroomAssignmentRepository {
+  final started = Completer<void>();
+  final release = Completer<void>();
+  var saveCalls = 0;
+
+  @override
+  Future<AssignmentAttempt> saveTeacherReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required int gradeScore,
+    String? feedback,
+    DateTime? reviewedAt,
+  }) async {
+    saveCalls++;
+    if (!started.isCompleted) started.complete();
+    await release.future;
+    return super.saveTeacherReview(
+      teacherId: teacherId,
+      attempt: attempt,
+      assignment: assignment,
+      gradeScore: gradeScore,
+      feedback: feedback,
+      reviewedAt: reviewedAt,
+    );
+  }
+}
+
+class _FailingReviewRepository extends InMemoryClassroomAssignmentRepository {
+  @override
+  Future<AssignmentAttempt> saveTeacherReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required int gradeScore,
+    String? feedback,
+    DateTime? reviewedAt,
+  }) => throw StateError('save failed');
+}
+
 void main() {
   late InMemoryGroupRepository groups;
   late InMemoryClassroomAssignmentRepository assignments;
@@ -81,6 +124,7 @@ void main() {
       groupRepository: groups,
       assignmentRepository: assignments,
       fixedTraineeId: fixedTraineeId,
+      now: () => DateTime.utc(2026, 9, 2),
     );
   }
 
@@ -133,6 +177,30 @@ void main() {
     videoSizeBytes: 2048,
     videoDurationMs: 4000,
     videoExpiresAt: DateTime.utc(2026, 9, 30),
+  );
+
+  AssignmentAttempt canonicalSubmitted(
+    String traineeId, {
+    DateTime? submittedAt,
+  }) => AssignmentAttempt(
+    id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+      assignmentId: 'a1',
+      traineeId: traineeId,
+    ),
+    traineeId: traineeId,
+    teacherId: 'teacher',
+    groupId: 'g1',
+    assignmentId: 'a1',
+    movementId: 'm1',
+    revisionId: 'r1',
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.teacherReviewed,
+    attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+    status: AssignmentAttemptStatus.submitted,
+    submittedAt: submittedAt ?? DateTime.utc(2026, 8, 30),
+    videoStoragePath:
+        'assignment_submissions/teacher/g1/a1/$traineeId/canonical.mp4',
+    videoExpiresAt: DateTime.utc(2026, 10, 1),
   );
 
   test('filters assignments and roster to the opened classroom', () async {
@@ -193,6 +261,152 @@ void main() {
       controller.latestVisibleAttemptFor(assignmentId: 'a1', traineeId: 'alan'),
       isNull,
     );
+  });
+
+  test('roster states partition only the targeted approved audience', () async {
+    groups.seedMembership(member('ada'));
+    groups.seedMembership(member('alan'));
+    groups.seedMembership(member('outside'));
+    assignments.seedAssignment(
+      assignment.copyWith(
+        audience: AssignmentAudience.selectedStudents(const ['ada', 'alan']),
+      ),
+    );
+    assignments.seedAttempt(canonicalSubmitted('ada'));
+    final checked = canonicalSubmitted('alan').copyWith(
+      status: AssignmentAttemptStatus.checked,
+      gradeScore: 90,
+      gradeMaxScore: 100,
+      checkedAt: DateTime.utc(2026, 9, 1),
+      reviewRevision: 1,
+    );
+    assignments.seedAttempt(checked);
+    assignments.seedAttempt(canonicalSubmitted('outside'));
+    final controller = create();
+    addTearDown(controller.dispose);
+    await controller.start();
+    await Future<void>.delayed(Duration.zero);
+
+    final entries = controller.rosterEntriesFor('a1');
+    expect(entries.map((entry) => entry.membership.traineeId), ['ada', 'alan']);
+    expect(entries.map((entry) => entry.reviewState), [
+      AssignmentReviewState.toReview,
+      AssignmentReviewState.checked,
+    ]);
+    final counts = controller.rosterCountsFor('a1');
+    expect(counts.awaitingCheck, 1);
+    expect(counts.checked, 1);
+    expect(counts.notTurnedIn, 0);
+  });
+
+  test('Save & Next checks current work before selecting the oldest pending', () async {
+    groups.seedMembership(member('ada'));
+    groups.seedMembership(member('alan'));
+    groups.seedMembership(member('grace'));
+    assignments.seedAssignment(assignment);
+    final current = canonicalSubmitted(
+      'ada',
+      submittedAt: DateTime.utc(2026, 9, 1, 10),
+    );
+    assignments.seedAttempt(current);
+    assignments.seedAttempt(
+      canonicalSubmitted(
+        'alan',
+        submittedAt: DateTime.utc(2026, 9, 1, 12),
+      ),
+    );
+    assignments.seedAttempt(
+      canonicalSubmitted(
+        'grace',
+        submittedAt: DateTime.utc(2026, 9, 1, 11),
+      ),
+    );
+    final controller = create();
+    addTearDown(controller.dispose);
+    await controller.start();
+    await Future<void>.delayed(Duration.zero);
+    await controller.selectAssignment('a1');
+    await controller.selectTrainee('ada');
+
+    expect(
+      await controller.saveReviewAndNext(
+        attempt: current,
+        assignment: assignment,
+        gradeScore: 91,
+      ),
+      isTrue,
+    );
+    expect(
+      (await assignments.getAttempt(attemptId: current.id))?.status,
+      AssignmentAttemptStatus.checked,
+    );
+    expect(controller.selectedTraineeId, 'grace');
+    expect(
+      controller.pendingReviewAttemptsFor('a1').map((attempt) => attempt.traineeId),
+      ['grace', 'alan'],
+    );
+  });
+
+  test('Save & Next does not advance on failure or duplicate a busy write', () async {
+    groups.seedMembership(member('ada'));
+    groups.seedMembership(member('alan'));
+
+    assignments.dispose();
+    final failing = _FailingReviewRepository();
+    assignments = failing;
+    assignments.seedAssignment(assignment);
+    final failedCurrent = canonicalSubmitted('ada');
+    assignments.seedAttempt(failedCurrent);
+    assignments.seedAttempt(canonicalSubmitted('alan'));
+    var controller = create();
+    await controller.start();
+    await Future<void>.delayed(Duration.zero);
+    await controller.selectAssignment('a1');
+    await controller.selectTrainee('ada');
+    expect(
+      await controller.saveReviewAndNext(
+        attempt: failedCurrent,
+        assignment: assignment,
+        gradeScore: 80,
+      ),
+      isFalse,
+    );
+    expect(controller.selectedTraineeId, 'ada');
+    controller.dispose();
+
+    assignments.dispose();
+    final blocking = _BlockingReviewRepository();
+    assignments = blocking;
+    assignments.seedAssignment(assignment);
+    final current = canonicalSubmitted('ada');
+    assignments.seedAttempt(current);
+    assignments.seedAttempt(canonicalSubmitted('alan'));
+    controller = create();
+    addTearDown(controller.dispose);
+    await controller.start();
+    await Future<void>.delayed(Duration.zero);
+    await controller.selectAssignment('a1');
+    await controller.selectTrainee('ada');
+
+    final first = controller.saveReviewAndNext(
+      attempt: current,
+      assignment: assignment,
+      gradeScore: 80,
+    );
+    await blocking.started.future;
+    expect(
+      await controller.saveReviewAndNext(
+        attempt: current,
+        assignment: assignment,
+        gradeScore: 80,
+      ),
+      isFalse,
+    );
+    expect(blocking.saveCalls, 1);
+    expect(controller.selectedTraineeId, 'ada');
+    blocking.release.complete();
+    expect(await first, isTrue);
+    expect(controller.selectedTraineeId, 'alan');
   });
 
   test('fixed student must have approved membership', () async {
