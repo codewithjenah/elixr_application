@@ -359,7 +359,7 @@ void main() {
     expect(span.style!.color, ElixSemanticColors.dark.milestone);
   });
 
-  testWidgets('teacher dashboard chrome uses a concise command center header', (
+  testWidgets('teacher dashboard chrome uses the canonical dashboard header', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -382,7 +382,8 @@ void main() {
 
     expect(find.text('TEACHER WORKSPACE'), findsOneWidget);
     expect(find.byKey(ElixEyebrow.ruleKey), findsOneWidget);
-    final heading = tester.widget<Text>(find.text('Teacher command center'));
+    expect(find.text('Teacher command center'), findsNothing);
+    final heading = tester.widget<Text>(find.text('Dashboard'));
     expect(heading.style!.fontSize, lessThan(52));
   });
 

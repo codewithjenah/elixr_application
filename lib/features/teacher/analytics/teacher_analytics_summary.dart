@@ -29,7 +29,7 @@ class TeacherAnalyticsSummary extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _SummaryHeader(controller: controller),
+              const _SummaryHeader(),
               const SizedBox(height: AppSpacing.md),
               if ((controller.loading || controller.sessionLoading) &&
                   snapshot == null)
@@ -55,6 +55,8 @@ class TeacherAnalyticsSummary extends StatelessWidget {
                   ),
                 ),
               ],
+              const SizedBox(height: AppSpacing.md),
+              _SummaryFooter(controller: controller),
             ],
           ),
         );
@@ -64,13 +66,11 @@ class TeacherAnalyticsSummary extends StatelessWidget {
 }
 
 class _SummaryHeader extends StatelessWidget {
-  const _SummaryHeader({required this.controller});
-
-  final TeacherAnalyticsController controller;
+  const _SummaryHeader();
 
   @override
   Widget build(BuildContext context) {
-    final copy = Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -106,15 +106,35 @@ class _SummaryHeader extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _SummaryFooter extends StatelessWidget {
+  const _SummaryFooter({required this.controller});
+
+  final TeacherAnalyticsController controller;
+
+  @override
+  Widget build(BuildContext context) {
     final actions = Wrap(
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Button(
-          onPressed: controller.sessionLoading ? null : controller.refresh,
-          child: const Text('Refresh'),
+        Tooltip(
+          message: 'Refresh analytics',
+          child: Semantics(
+            label: 'Refresh analytics',
+            button: true,
+            child: IconButton(
+              key: const Key('teacher_analytics_refresh'),
+              icon: const Icon(FluentIcons.refresh),
+              onPressed: controller.sessionLoading ? null : controller.refresh,
+            ),
+          ),
         ),
         FilledButton(
+          key: const Key('teacher_analytics_view_analytics'),
           onPressed: () => context.go(AppRoutePaths.teacherAnalytics),
           child: const Text('View Analytics'),
         ),
@@ -123,23 +143,9 @@ class _SummaryHeader extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 720) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              copy,
-              const SizedBox(height: AppSpacing.md),
-              actions,
-            ],
-          );
+          return Align(alignment: Alignment.centerLeft, child: actions);
         }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: copy),
-            const SizedBox(width: AppSpacing.lg),
-            Flexible(child: actions),
-          ],
-        );
+        return Align(alignment: Alignment.centerRight, child: actions);
       },
     );
   }

@@ -70,7 +70,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     if (controller == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
-          heading: 'Teacher command center',
+          heading: 'Dashboard',
           eyebrow: 'TEACHER WORKSPACE',
           subtitle: 'Your classrooms and review work in one place.',
           variant: ElixEditorialHeaderVariant.standard,
@@ -89,7 +89,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: const ElixEditorialPageHeader(
-            heading: 'Teacher command center',
+            heading: 'Dashboard',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle: 'Your classrooms and review work in one place.',
             variant: ElixEditorialHeaderVariant.standard,
