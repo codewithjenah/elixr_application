@@ -15,13 +15,19 @@ import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
+import '../export/teacher_csv_export.dart';
 import 'teacher_analytics_controller.dart';
 import 'teacher_analytics_models.dart';
 
 class TeacherAnalyticsScreen extends StatefulWidget {
-  const TeacherAnalyticsScreen({super.key, this.controller});
+  const TeacherAnalyticsScreen({
+    super.key,
+    this.controller,
+    this.csvFileSaver = const WindowsTeacherCsvFileSaver(),
+  });
 
   final TeacherAnalyticsController? controller;
+  final TeacherCsvFileSaver csvFileSaver;
 
   @override
   State<TeacherAnalyticsScreen> createState() => _TeacherAnalyticsScreenState();
@@ -31,6 +37,7 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
   TeacherAnalyticsController? _controller;
   late final bool _ownsController;
   String? _dependencyError;
+  bool _exporting = false;
 
   @override
   void initState() {
@@ -103,6 +110,19 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
                 CommandBarButton(
+                  key: const Key('teacher_analytics_export'),
+                  icon: const Icon(FluentIcons.download),
+                  label: Text(_exporting ? 'Exporting…' : 'Export'),
+                  onPressed:
+                      _exporting ||
+                          controller.sessionLoading ||
+                          controller.snapshot == null ||
+                          !(controller.snapshot!.hasActivity ||
+                              controller.snapshot!.hasExpectedWork)
+                      ? null
+                      : () => _export(controller),
+                ),
+                CommandBarButton(
                   key: const Key('teacher_analytics_refresh'),
                   icon: const Icon(FluentIcons.refresh),
                   label: const Text('Refresh'),
@@ -165,6 +185,60 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
         );
       },
     );
+  }
+
+  Future<void> _export(TeacherAnalyticsController controller) async {
+    final snapshot = controller.snapshot;
+    if (snapshot == null) return;
+    final selectedId = controller.selectedGroupId;
+    final className = selectedId == null
+        ? 'All Classes'
+        : controller.groups
+                  .where((group) => group.id == selectedId)
+                  .map((group) => group.name)
+                  .firstOrNull ??
+              'Class';
+    final periodLabel =
+        controller.period == AnalyticsPeriod.custom &&
+            controller.customStartDate != null &&
+            controller.customEndDate != null
+        ? '${formatElixrDate(controller.customStartDate!)} – ${formatElixrDate(controller.customEndDate!)}'
+        : controller.period.label;
+    final csv = TeacherCsvExport.analytics(
+      snapshot: snapshot,
+      classLabel: className,
+      periodLabel: periodLabel,
+    );
+    final filename =
+        'ELIXR_Analytics_${TeacherCsvExport.safeFilenamePart(className)}_${ManilaDay.dayKeyFor(snapshot.periodWindow.current.endUtc)}.csv';
+    setState(() => _exporting = true);
+    try {
+      final path = await widget.csvFileSaver.save(
+        suggestedName: filename,
+        csv: csv,
+      );
+      if (!mounted || path == null) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          severity: InfoBarSeverity.success,
+          title: const Text('Analytics exported'),
+          content: Text('Saved $filename to $path'),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          severity: InfoBarSeverity.error,
+          title: const Text('Could not export analytics'),
+          content: const Text('Choose another location and try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 }
 

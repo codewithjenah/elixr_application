@@ -4,11 +4,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_review_state.dart';
 import '../../../data/models/group_assignment.dart';
+import '../export/teacher_csv_export.dart';
 import 'teacher_classwork_controller.dart';
 import 'teacher_gradebook.dart';
 
@@ -22,6 +24,7 @@ class TeacherGradebookPane extends StatefulWidget {
     required this.onOpenStudent,
     required this.onOpenAssignment,
     required this.onOpenCell,
+    this.csvFileSaver = const WindowsTeacherCsvFileSaver(),
   });
 
   final TeacherClassworkController controller;
@@ -29,6 +32,7 @@ class TeacherGradebookPane extends StatefulWidget {
   final ValueChanged<GroupMembership> onOpenStudent;
   final ValueChanged<GroupAssignment> onOpenAssignment;
   final void Function(GroupAssignment assignment, String traineeId) onOpenCell;
+  final TeacherCsvFileSaver csvFileSaver;
 
   @override
   State<TeacherGradebookPane> createState() => _TeacherGradebookPaneState();
@@ -37,6 +41,8 @@ class TeacherGradebookPane extends StatefulWidget {
 class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
   final _searchController = TextEditingController();
   TeacherGradebookScope _scope = TeacherGradebookScope.all;
+  bool _exporting = false;
+  String? _exportMessage;
 
   @override
   void dispose() {
@@ -129,9 +135,40 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
                 ),
               ],
             ),
+            Tooltip(
+              message: 'Export the complete gradebook for this classwork scope',
+              child: Button(
+                key: const Key('teacher_gradebook_export'),
+                onPressed:
+                    _exporting ||
+                        controller.loading ||
+                        controller.unauthorized ||
+                        controller.approvedMemberships.isEmpty ||
+                        assignments.isEmpty
+                    ? null
+                    : () => _export(controller, assignments),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(FluentIcons.download),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(_exporting ? 'Exporting…' : 'Export CSV'),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.md),
+        if (_exportMessage != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: InfoBar(
+              severity: InfoBarSeverity.success,
+              title: const Text('Gradebook exported'),
+              content: Text(_exportMessage!),
+            ),
+          ),
         if (controller.approvedMemberships.isEmpty)
           const ElixStatusPanel(message: 'No students in this class yet.')
         else if (assignments.isEmpty)
@@ -157,6 +194,53 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
           ),
       ],
     );
+  }
+
+  Future<void> _export(
+    TeacherClassworkController controller,
+    List<GroupAssignment> assignments,
+  ) async {
+    final now = controller.gradebookReferenceNow;
+    final csv = TeacherCsvExport.gradebook(
+      students: controller.approvedMemberships,
+      assignments: assignments,
+      attemptFor: (assignmentId, traineeId) =>
+          controller.latestVisibleAttemptFor(
+            assignmentId: assignmentId,
+            traineeId: traineeId,
+          ),
+      attemptUnavailable: controller.hasAttemptLoadError,
+      referenceNow: now,
+    );
+    final className = TeacherCsvExport.safeFilenamePart(
+      controller.group?.name ?? 'Class',
+    );
+    final filename =
+        'ELIXR_${className}_Gradebook_${ManilaDay.dayKeyFor(now)}.csv';
+    setState(() {
+      _exporting = true;
+      _exportMessage = null;
+    });
+    try {
+      final path = await widget.csvFileSaver.save(
+        suggestedName: filename,
+        csv: csv,
+      );
+      if (!mounted || path == null) return;
+      setState(() => _exportMessage = 'Saved $filename to $path');
+    } on Object {
+      if (!mounted) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          severity: InfoBarSeverity.error,
+          title: const Text('Could not export gradebook'),
+          content: const Text('Choose another location and try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 }
 

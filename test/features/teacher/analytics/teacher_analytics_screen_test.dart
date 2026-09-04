@@ -2,6 +2,7 @@ import 'package:elixr_application/data/repositories/in_memory_classroom_assignme
 import 'package:elixr_application/features/teacher/analytics/teacher_analytics_controller.dart';
 import 'package:elixr_application/features/teacher/analytics/teacher_analytics_screen.dart';
 import 'package:elixr_application/features/teacher/analytics/teacher_analytics_summary.dart';
+import 'package:elixr_application/features/teacher/export/teacher_csv_export.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -9,6 +10,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _teacherId = 'teacher';
 final _now = DateTime.utc(2026, 8, 19, 10);
+
+class _RecordingCsvSaver implements TeacherCsvFileSaver {
+  String? suggestedName;
+  String? csv;
+
+  @override
+  Future<String?> save({
+    required String suggestedName,
+    required String csv,
+  }) async {
+    this.suggestedName = suggestedName;
+    this.csv = csv;
+    return r'C:\Exports\analytics.csv';
+  }
+}
 
 ElixrGroup _group() => ElixrGroup(
   id: 'group-1',
@@ -76,7 +92,11 @@ void main() {
     assignments.dispose();
   });
 
-  Future<void> pumpScreen(WidgetTester tester, Size size) async {
+  Future<void> pumpScreen(
+    WidgetTester tester,
+    Size size, {
+    TeacherCsvFileSaver? csvFileSaver,
+  }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await controller.start();
@@ -87,7 +107,10 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: FluentThemeData(),
-        home: TeacherAnalyticsScreen(controller: controller),
+        home: TeacherAnalyticsScreen(
+          controller: controller,
+          csvFileSaver: csvFileSaver ?? const WindowsTeacherCsvFileSaver(),
+        ),
       ),
     );
     await tester.pump();
@@ -111,6 +134,21 @@ void main() {
       greaterThan(1200),
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('exports the current snapshot through the injected saver', (
+    tester,
+  ) async {
+    final saver = _RecordingCsvSaver();
+    await pumpScreen(tester, const Size(1280, 900), csvFileSaver: saver);
+
+    expect(find.byKey(const Key('teacher_analytics_export')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('teacher_analytics_export')));
+    await tester.pump();
+
+    expect(saver.suggestedName, startsWith('ELIXR_Analytics_'));
+    expect(saver.csv, contains('ELIXR Analytics'));
+    await tester.pump(const Duration(seconds: 5));
   });
 
   testWidgets('uses simple words when no scored practice is available', (
