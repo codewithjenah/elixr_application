@@ -1207,11 +1207,24 @@ async function createClassroomAssignmentHandler(request, response, {
         const movementRef = firestore.collection('teacher_movements').doc(body.movement_id);
         const revisionRef = movementRef.collection('revisions').doc(body.revision_id);
         const [movement, revision] = await Promise.all([transaction.get(movementRef), transaction.get(revisionRef)]);
-        if (!movement.exists || !revision.exists || movement.get('teacher_id') !== token.uid ||
-            movement.get('status') !== 'active' || movement.get('current_revision_id') !== body.revision_id ||
-            revision.get('teacher_id') !== token.uid || revision.get('movement_id') !== body.movement_id ||
+        if (!movement.exists) {
+          const error = new Error('movement_not_found'); error.code = 'movement_not_found'; throw error;
+        }
+        if (!revision.exists) {
+          const error = new Error('revision_not_found'); error.code = 'revision_not_found'; throw error;
+        }
+        if (movement.get('teacher_id') !== token.uid || revision.get('teacher_id') !== token.uid) {
+          const error = new Error('invalid_movement_owner'); error.code = 'invalid_movement_owner'; throw error;
+        }
+        if (movement.get('status') !== 'active') {
+          const error = new Error('movement_archived'); error.code = 'movement_archived'; throw error;
+        }
+        if (movement.get('current_revision_id') !== body.revision_id) {
+          const error = new Error('stale_revision'); error.code = 'stale_revision'; throw error;
+        }
+        if (revision.get('movement_id') !== body.movement_id ||
             revision.get('assessment_mode') !== 'teacher_reviewed') {
-          const error = new Error('invalid_movement'); error.code = 'invalid_movement'; throw error;
+          const error = new Error('invalid_movement_spec'); error.code = 'invalid_movement_spec'; throw error;
         }
         const spec = revision.get('spec');
         const title = boundedText(body.display_title ?? movement.get('title'), 80);
@@ -1228,10 +1241,12 @@ async function createClassroomAssignmentHandler(request, response, {
         if (!spec || spec.capability !== 'teacher_review_only' ||
             !title || !instructions ||
             (rawSafety != null && rawSafety !== '' && !safetyGuidance) ||
-            !['bottle', 'shaker', 'bottle_and_shaker'].includes(spec.required_prop) ||
-            (activityAssessment != null &&
-              !validActivityAssessment(activityAssessment, body.max_score))) {
-          const error = new Error('invalid_movement'); error.code = 'invalid_movement'; throw error;
+            !['bottle', 'shaker', 'bottle_and_shaker'].includes(spec.required_prop)) {
+          const error = new Error('invalid_movement_spec'); error.code = 'invalid_movement_spec'; throw error;
+        }
+        if (activityAssessment != null &&
+            !validActivityAssessment(activityAssessment, body.max_score)) {
+          const error = new Error('invalid_activity_assessment'); error.code = 'invalid_activity_assessment'; throw error;
         }
         assignment = {...common, movement_id: body.movement_id, revision_id: body.revision_id,
           origin: 'teacher_created', assessment_mode: 'teacher_reviewed', display_title: title,
@@ -1255,7 +1270,11 @@ async function createClassroomAssignmentHandler(request, response, {
     });
     return response.status(200).json({assignment: {id: result.id, ...assignmentJsonValue(result.assignment)}, recipient_ids: recipientIds});
   } catch (error) {
-    if (['forbidden', 'invalid_recipient', 'invalid_movement', 'invalid_payload', 'invalid_instructions', 'invalid_identity', 'invalid_topic'].includes(error.code)) {
+    if (['forbidden', 'invalid_recipient', 'invalid_movement', 'movement_not_found',
+      'movement_archived', 'revision_not_found', 'stale_revision',
+      'invalid_movement_owner', 'invalid_movement_spec',
+      'invalid_activity_assessment', 'invalid_payload', 'invalid_instructions',
+      'invalid_identity', 'invalid_topic'].includes(error.code)) {
       return response.status(error.code === 'forbidden' ? 403 : 400).json({error: error.code});
     }
     return response.status(503).json({error: 'unavailable'});

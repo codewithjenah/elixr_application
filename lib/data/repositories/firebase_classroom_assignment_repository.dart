@@ -1569,6 +1569,12 @@ ClassroomException classroomFunctionFailure({
     'attempt_limit_conflict' => ClassroomError.attemptLimitConflict,
     'invalid_recipient' => ClassroomError.invalidRecipient,
     'invalid_movement' => ClassroomError.identityMismatch,
+    'movement_not_found' || 'revision_not_found' => ClassroomError.notFound,
+    'movement_archived' => ClassroomError.archived,
+    'stale_revision' => ClassroomError.identityMismatch,
+    'invalid_movement_owner' => ClassroomError.forbidden,
+    'invalid_movement_spec' => ClassroomError.malformed,
+    'invalid_activity_assessment' => ClassroomError.invalidGrade,
     'invalid_instructions' => ClassroomError.malformed,
     'invalid_identity' => ClassroomError.invalidState,
     'invalid_payload' ||
@@ -1590,6 +1596,19 @@ ClassroomException classroomFunctionFailure({
       'One or more selected trainees are no longer approved members of this classroom.',
     'invalid_movement' =>
       'This movement changed or is no longer available. Refresh it and try again.',
+    'movement_not_found' =>
+      'This Teacher Activity is no longer available. Refresh the activity list and try again.',
+    'revision_not_found' =>
+      'The current Teacher Activity revision is unavailable. Refresh the activity and try again.',
+    'movement_archived' => 'Archived Teacher Activities cannot be assigned.',
+    'stale_revision' =>
+      'This Teacher Activity was updated. Refresh it and try again.',
+    'invalid_movement_owner' =>
+      'You no longer have permission to assign this Teacher Activity.',
+    'invalid_movement_spec' =>
+      'This Teacher Activity has incomplete or unsupported details. Edit it and try again.',
+    'invalid_activity_assessment' =>
+      'The Teacher Activity assessment configuration is invalid. Review its rubric and try again.',
     'invalid_instructions' =>
       'Instructions must be between 1 and 2,000 characters.',
     'invalid_identity' =>

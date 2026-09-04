@@ -62,6 +62,26 @@ void main() {
       expect(movement.code, ClassroomError.identityMismatch);
       expect(movement.message, contains('no longer available'));
 
+      final staleRevision = classroomFunctionFailure(
+        statusCode: 400,
+        responseBody: {'error': 'stale_revision'},
+      );
+      expect(staleRevision.code, ClassroomError.identityMismatch);
+      expect(staleRevision.message, contains('updated'));
+
+      final archived = classroomFunctionFailure(
+        statusCode: 400,
+        responseBody: {'error': 'movement_archived'},
+      );
+      expect(archived.code, ClassroomError.archived);
+
+      final assessment = classroomFunctionFailure(
+        statusCode: 400,
+        responseBody: {'error': 'invalid_activity_assessment'},
+      );
+      expect(assessment.code, ClassroomError.invalidGrade);
+      expect(assessment.message, contains('rubric'));
+
       final instructions = classroomFunctionFailure(
         statusCode: 400,
         responseBody: {'error': 'invalid_instructions'},

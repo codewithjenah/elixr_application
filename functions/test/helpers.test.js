@@ -585,6 +585,95 @@ test('assignment creation accepts a current Teacher Activity revision for the en
   assert.equal(assignmentWrite.data.display_instructions, 'Balance the bottle upright.');
 });
 
+function teacherActivityDocuments({root = {}, revision = {}} = {}) {
+  return [
+    ['teacher_movements/movement-1', {
+      teacher_id: 'teacher', status: 'active', current_revision_id: 'revision-1',
+      title: 'Tin Balance', ...root,
+    }],
+    ['teacher_movements/movement-1/revisions/revision-1', {
+      teacher_id: 'teacher', movement_id: 'movement-1',
+      assessment_mode: 'teacher_reviewed',
+      spec: {
+        capability: 'teacher_review_only',
+        instructions: 'Balance the bottle upright.',
+        required_prop: 'bottle',
+      },
+      ...revision,
+    }],
+  ];
+}
+
+function teacherActivityCreationBody(overrides = {}) {
+  return {
+    group_id: 'g1', audience_type: 'entire_class', recipient_ids: [],
+    origin: 'teacher_created', movement_id: 'movement-1', revision_id: 'revision-1',
+    max_score: 50, attempt_policy: {type: 'unlimited'},
+    ...overrides,
+  };
+}
+
+async function createTeacherActivityAssignment({documents, body} = {}) {
+  const response = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {method: 'POST', body: body || teacherActivityCreationBody(), get: () => ''},
+    response,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true}),
+      databaseFactory: () => fakeCreationDatabase({
+        recipientIds: [], documents: documents || teacherActivityDocuments(),
+      }),
+    },
+  );
+  return response;
+}
+
+test('assignment creation accepts the current persisted Teacher Activity v3 shape', async () => {
+  const assessment = updateAssessment();
+  const response = await createTeacherActivityAssignment({
+    documents: teacherActivityDocuments({
+      revision: {schema_version: 2, spec: {
+        capability: 'teacher_review_only', instructions: 'Balance the bottle upright.',
+        required_prop: 'bottle', activity_assessment: assessment,
+      }},
+    }),
+    body: teacherActivityCreationBody({activity_assessment: assessment}),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.assignment.activity_assessment.schema_version, 3);
+});
+
+test('assignment creation accepts a supported legacy Teacher Activity assessment', async () => {
+  const legacyAssessment = activityAssessment();
+  const response = await createTeacherActivityAssignment({
+    documents: teacherActivityDocuments({revision: {spec: {
+      capability: 'teacher_review_only', instructions: 'Balance the bottle upright.',
+      required_prop: 'bottle', activity_assessment: legacyAssessment,
+    }}}),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.assignment.activity_assessment.schema_version, 2);
+});
+
+test('Teacher Activity creation returns distinct invariant errors', async () => {
+  const cases = [
+    [{root: {current_revision_id: 'revision-2'}}, 'stale_revision'],
+    [{root: {status: 'archived'}}, 'movement_archived'],
+    [{root: {teacher_id: 'another-teacher'}}, 'invalid_movement_owner'],
+    [{revision: {spec: {capability: 'teacher_review_only', instructions: 'Balance.', required_prop: 'glass'}}}, 'invalid_movement_spec'],
+    [{}, 'invalid_activity_assessment', teacherActivityCreationBody({
+      activity_assessment: {...updateAssessment(), recording_duration_seconds: 20},
+    })],
+  ];
+  for (const [overrides, expected, body] of cases) {
+    const response = await createTeacherActivityAssignment({
+      documents: teacherActivityDocuments(overrides), body,
+    });
+    assert.equal(response.statusCode, 400);
+    assert.deepEqual(response.body, {error: expected});
+  }
+});
+
 test('assignment JSON timestamps are converted recursively', () => {
   const timestamp = {toDate: () => new Date('2026-08-31T00:00:00.000Z')};
   assert.deepEqual(assignmentJsonValue({created_at: timestamp}), {
