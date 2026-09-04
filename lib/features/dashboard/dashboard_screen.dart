@@ -8,6 +8,7 @@ import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/utils/user_name.dart';
+import '../../core/utils/manila_day.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
@@ -15,6 +16,7 @@ import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../calendar/utils/calendar_metrics.dart';
+import '../trainee/activity_center/trainee_activity_controller.dart';
 import '../progress/training_recommendation.dart';
 import '../training/training_view.dart';
 import 'widgets/dashboard_calendar_card.dart';
@@ -465,6 +467,16 @@ class _RightRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final classroomDays = context
+        .watch<TraineeActivityController>()
+        .classroomWork
+        .where((item) => item.assignment.dueAt != null)
+        .map(
+          (item) => ManilaDay.civilDateFromDayKey(
+            ManilaDay.dayKeyFor(item.assignment.dueAt!.toUtc()),
+          ),
+        )
+        .toSet();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -477,6 +489,7 @@ class _RightRail extends StatelessWidget {
         const SizedBox(height: 18),
         DashboardCalendarCard(
           practicedDays: practicedDays,
+          classroomDays: classroomDays,
           onViewCalendar: () =>
               context.go(trainingLocation(view: TrainingView.planner)),
           onDateSelected: (date) {

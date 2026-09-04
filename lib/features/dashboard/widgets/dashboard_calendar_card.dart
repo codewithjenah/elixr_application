@@ -8,16 +8,18 @@ import '../../../core/widgets/elix_editorial_header.dart';
 import '../../calendar/utils/calendar_metrics.dart';
 import 'dashboard_panel_card.dart';
 
-/// Compact Monday-first practice calendar used on the Dashboard.
+/// Compact Monday-first unified Planner calendar used on the Dashboard.
 class DashboardCalendarCard extends StatelessWidget {
   const DashboardCalendarCard({
     super.key,
     required this.practicedDays,
+    this.classroomDays = const {},
     required this.onViewCalendar,
     required this.onDateSelected,
   });
 
   final Set<DateTime> practicedDays;
+  final Set<DateTime> classroomDays;
   final VoidCallback onViewCalendar;
   final ValueChanged<DateTime> onDateSelected;
 
@@ -35,9 +37,7 @@ class DashboardCalendarCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Expanded(
-                child: ElixSectionHeader(heading: 'Practice Calendar'),
-              ),
+              const Expanded(child: ElixSectionHeader(heading: 'Planner')),
               const SizedBox(width: AppSpacing.sm),
               HyperlinkButton(
                 onPressed: onViewCalendar,
@@ -94,6 +94,7 @@ class DashboardCalendarCard extends StatelessWidget {
                       inMonth:
                           dates[week * 7 + dow].month == visibleMonth.month,
                       practiced: practicedDays.contains(dates[week * 7 + dow]),
+                      classroom: classroomDays.contains(dates[week * 7 + dow]),
                       isToday: dates[week * 7 + dow] == today,
                       onTap: () => onDateSelected(dates[week * 7 + dow]),
                     ),
@@ -112,6 +113,7 @@ class _CompactDayCell extends StatelessWidget {
     required this.date,
     required this.inMonth,
     required this.practiced,
+    required this.classroom,
     required this.isToday,
     required this.onTap,
   });
@@ -119,6 +121,7 @@ class _CompactDayCell extends StatelessWidget {
   final DateTime date;
   final bool inMonth;
   final bool practiced;
+  final bool classroom;
   final bool isToday;
   final VoidCallback onTap;
 
@@ -128,46 +131,64 @@ class _CompactDayCell extends StatelessWidget {
       return const SizedBox(height: 30);
     }
 
-    final content = SizedBox(
-      height: 30,
-      child: Center(
-        child: Container(
-          width: 24,
-          height: 24,
-          alignment: Alignment.center,
-          decoration: isToday
-              ? BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.primary.withValues(alpha: 0.92),
-                )
-              : practiced
-              ? BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.accent.withValues(alpha: 0.18),
-                  border: Border.all(
-                    color: AppColors.accent.withValues(alpha: 0.45),
+    final content = Semantics(
+      label: [
+        '${date.day}',
+        if (practiced) 'practice completed',
+        if (classroom) 'classroom deadline',
+      ].join(', '),
+      button: practiced || classroom || isToday,
+      child: SizedBox(
+        height: 30,
+        child: Center(
+          child: Container(
+            width: 24,
+            height: 24,
+            alignment: Alignment.center,
+            decoration: isToday
+                ? BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.primary.withValues(alpha: 0.92),
+                  )
+                : practiced
+                ? BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.accent.withValues(alpha: 0.18),
+                    border: Border.all(
+                      color: AppColors.accent.withValues(alpha: 0.45),
+                    ),
+                  )
+                : null,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Text(
+                  '${date.day}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: isToday || practiced || classroom
+                        ? FontWeight.w700
+                        : FontWeight.w400,
+                    color: isToday
+                        ? Colors.white
+                        : practiced
+                        ? context.elixTextPrimary
+                        : context.elixTextSecondary,
                   ),
-                )
-              : null,
-          child: Text(
-            '${date.day}',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: isToday || practiced
-                  ? FontWeight.w700
-                  : FontWeight.w400,
-              color: isToday
-                  ? Colors.white
-                  : practiced
-                  ? context.elixTextPrimary
-                  : context.elixTextSecondary,
+                ),
+                if (classroom)
+                  const Positioned(
+                    bottom: 1,
+                    child: Icon(FluentIcons.education, size: 7),
+                  ),
+              ],
             ),
           ),
         ),
       ),
     );
 
-    if (!practiced && !isToday) return content;
+    if (!practiced && !classroom && !isToday) return content;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,

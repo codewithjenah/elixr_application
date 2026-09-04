@@ -140,7 +140,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final heading = find.widgetWithText(ElixSectionHeader, 'Practice Calendar');
+    final heading = find.widgetWithText(ElixSectionHeader, 'Planner');
     final link = find.widgetWithText(HyperlinkButton, 'View Planner');
 
     expect(tester.takeException(), isNull);
@@ -152,6 +152,38 @@ void main() {
       tester.getCenter(link).dx,
       greaterThan(tester.getCenter(heading).dx),
     );
+  });
+
+  testWidgets('a date can show both practice and a classroom deadline', (
+    tester,
+  ) async {
+    await _setSurface(tester);
+    final today = normalizeDate(DateTime.now());
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: DashboardCalendarCard(
+            practicedDays: {today},
+            classroomDays: {today},
+            onViewCalendar: () {},
+            onDateSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            widget.properties.label ==
+                '${today.day}, practice completed, classroom deadline',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byIcon(FluentIcons.education), findsOneWidget);
   });
 
   test('Dashboard and Calendar share streak and date utilities', () {

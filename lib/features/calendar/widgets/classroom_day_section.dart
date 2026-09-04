@@ -50,7 +50,7 @@ class _ClassroomAssignmentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dueAt = item.dueAt!;
-    final overdue = item.statusLabel == 'Overdue';
+    final overdue = item.isOverdue;
     final color = overdue ? AppColors.error : AppColors.accent;
     return Button(
       onPressed: onOpen,

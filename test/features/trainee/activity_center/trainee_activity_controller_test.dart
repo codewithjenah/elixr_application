@@ -340,6 +340,66 @@ void main() {
   });
 
   test(
+    'attempt stream failure withholds classroom work rather than guessing',
+    () async {
+      final submitted = _assignment(
+        id: 'submitted-work',
+        title: 'Submitted work',
+        dueAt: now.subtract(const Duration(days: 1)),
+      );
+      assignments
+        ..seedAssignment(submitted)
+        ..seedAttempt(
+          _attempt(
+            id: 'submitted-attempt',
+            assignment: submitted,
+            status: AssignmentAttemptStatus.submitted,
+          ),
+        );
+      final controller = createController()..setTrainee('trainee');
+      addTearDown(controller.dispose);
+      await _settle();
+      expect(controller.classroomWork.single.latestSubmission, isNotNull);
+
+      controller.attemptsStreamError = StateError('attempt stream failed');
+
+      expect(
+        controller.classroomDataStatus,
+        TraineeClassroomDataStatus.attemptsFailed,
+      );
+      expect(controller.classroomWork, isEmpty);
+    },
+  );
+
+  test(
+    'authorized archived submitted work remains in classroom history',
+    () async {
+      final archived = _assignment(
+        id: 'archived-submission',
+        title: 'Archived submission',
+        dueAt: now.subtract(const Duration(days: 1)),
+      ).copyWith(status: GroupAssignmentStatus.archived);
+      assignments
+        ..seedAssignment(archived)
+        ..seedAttempt(
+          _attempt(
+            id: 'archived-attempt',
+            assignment: archived,
+            status: AssignmentAttemptStatus.checked,
+          ),
+        );
+      final controller = createController()..setTrainee('trainee');
+      addTearDown(controller.dispose);
+      await _settle();
+
+      expect(
+        controller.classroomWork.map((item) => item.assignment.id),
+        contains('archived-submission'),
+      );
+    },
+  );
+
+  test(
     'mark all read reports persistence success and clears badge count',
     () async {
       assignments.seedAssignment(_assignment(id: 'new', title: 'New work'));

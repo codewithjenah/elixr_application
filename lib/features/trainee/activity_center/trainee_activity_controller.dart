@@ -24,6 +24,18 @@ enum TraineeActivityType {
   joinApproved,
 }
 
+/// Whether the combined classroom projection is safe to present to a trainee.
+///
+/// An assignment without its attempt stream is not enough to infer that work
+/// is missing, so consumers must not use [classroomWork] until this is ready.
+enum TraineeClassroomDataStatus {
+  loading,
+  ready,
+  membershipsFailed,
+  assignmentsFailed,
+  attemptsFailed,
+}
+
 class TraineeActivity {
   const TraineeActivity({
     required this.id,
@@ -108,7 +120,27 @@ class TraineeActivityController extends ChangeNotifier {
   List<TraineeActivity> _activities = const [];
 
   List<TraineeActivity> get activities => _activities;
-  List<TraineeClassroomWorkItem> get classroomWork => _classroomWork();
+  TraineeClassroomDataStatus get classroomDataStatus {
+    if (membershipsStreamError != null) {
+      return TraineeClassroomDataStatus.membershipsFailed;
+    }
+    if (assignmentsError != null) {
+      return TraineeClassroomDataStatus.assignmentsFailed;
+    }
+    if (attemptsStreamError != null) {
+      return TraineeClassroomDataStatus.attemptsFailed;
+    }
+    if (loading) return TraineeClassroomDataStatus.loading;
+    return TraineeClassroomDataStatus.ready;
+  }
+
+  /// This projection is intentionally unavailable after any partial classroom
+  /// failure. In particular, an absent attempt stream must never make a
+  /// submitted assignment look Due or Overdue.
+  List<TraineeClassroomWorkItem> get classroomWork =>
+      classroomDataStatus == TraineeClassroomDataStatus.ready
+      ? _classroomWork()
+      : const [];
   int get unreadCount =>
       _activities.where((activity) => !activity.isRead).length;
   bool get hasStreamError =>
@@ -129,17 +161,29 @@ class TraineeActivityController extends ChangeNotifier {
             .add(attempt);
       }
     }
-    return List.unmodifiable([
-      for (final assignment in _assignments)
-        TraineeClassroomWorkItem(
-          assignment: assignment,
-          latestSubmission: AssignmentAttemptSemantics.latestVisible(
-            attempts: attemptsByAssignment[assignment.id] ?? const [],
-            assignmentId: assignment.id,
-            traineeId: traineeId,
-          ),
-        ),
-    ]);
+    return List.unmodifiable(
+      [
+        for (final assignment in _assignments)
+          () {
+            final submission = AssignmentAttemptSemantics.latestVisible(
+              attempts: attemptsByAssignment[assignment.id] ?? const [],
+              assignmentId: assignment.id,
+              traineeId: traineeId,
+            );
+            // The authorized trainee endpoint can retain archived assignments.
+            // Preserve only their real submitted history; unfinished archived
+            // work must not reappear as an actionable Planner deadline.
+            if (!assignment.isActive &&
+                !AssignmentAttemptSemantics.isTurnedIn(submission)) {
+              return null;
+            }
+            return TraineeClassroomWorkItem(
+              assignment: assignment,
+              latestSubmission: submission,
+            );
+          }(),
+      ].whereType<TraineeClassroomWorkItem>().toList(growable: false),
+    );
   }
 
   void setTrainee(String? traineeId) {
@@ -291,8 +335,7 @@ class TraineeActivityController extends ChangeNotifier {
       }
       _assignments = [
         for (final assignment in assignments)
-          if (assignment.isActive &&
-              activeGroups.containsKey(assignment.groupId) &&
+          if (activeGroups.containsKey(assignment.groupId) &&
               assignment.isAvailableToTrainee(traineeId))
             assignment,
       ];
@@ -480,6 +523,7 @@ class TraineeActivityController extends ChangeNotifier {
     }
 
     for (final assignment in _assignments) {
+      if (!assignment.isActive) continue;
       final createdAt = assignment.createdAt?.toUtc();
       if (createdAt != null && !createdAt.isBefore(cutoff)) {
         activities.add(

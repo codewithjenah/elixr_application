@@ -26,7 +26,9 @@ void main() {
 
   test('uses friendly due and overdue wording for unsubmitted work', () {
     expect(item().statusLabel, 'Due');
+    expect(item().isOutstanding, isTrue);
     expect(item(now: DateTime.utc(2026, 9, 10, 16, 1)).statusLabel, 'Overdue');
+    expect(item(now: DateTime.utc(2026, 9, 10, 16, 1)).isOverdue, isTrue);
   });
 
   test('preserves on-time, late, and checked submission semantics', () {
@@ -53,6 +55,7 @@ void main() {
     );
     expect(checked.statusLabel, 'Submitted on time');
     expect(checked.isChecked, isTrue);
+    expect(checked.isOutstanding, isFalse);
   });
 
   test('draft attempts never appear submitted and no deadline has no date', () {

@@ -446,10 +446,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
       if (item.dueAt == null) return false;
       final date = _classroomCivilDate(item);
       return date.year == _visibleMonth.year &&
-          date.month == _visibleMonth.month;
+          date.month == _visibleMonth.month &&
+          item.isOutstanding;
     }).length;
     final classroomOverdue = classroomItems
-        .where((item) => item.statusLabel == 'Overdue')
+        .where((item) => item.isOverdue)
         .length;
 
     final content = _loading
@@ -503,18 +504,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         severity: InfoBarSeverity.info,
                       ),
                     ],
-                    if (activity?.assignmentsError != null) ...[
+                    if (activity != null &&
+                        activity.classroomDataStatus !=
+                            TraineeClassroomDataStatus.ready &&
+                        activity.classroomDataStatus !=
+                            TraineeClassroomDataStatus.loading) ...[
                       const SizedBox(height: AppSpacing.md),
                       InfoBar(
                         title: const Text(
-                          'Classroom work could not be refreshed.',
+                          'Classroom status could not be verified.',
                         ),
                         content: const Text(
-                          'Your practice planner is still available.',
+                          'Your practice planner is still available. Classroom due and submission status will return after retrying.',
                         ),
                         severity: InfoBarSeverity.warning,
                         action: Button(
-                          onPressed: activity!.retry,
+                          onPressed: activity.retry,
                           child: const Text('Retry'),
                         ),
                       ),

@@ -30,6 +30,12 @@ class CalendarClassroomAssignment {
       AssignmentReviewSemantics.reviewState(submission) ==
       AssignmentReviewState.checked;
 
+  bool get isOutstanding =>
+      deadlineState == AssignmentDeadlineState.missing ||
+      deadlineState == AssignmentDeadlineState.overdue;
+
+  bool get isOverdue => deadlineState == AssignmentDeadlineState.overdue;
+
   /// Friendly trainee-facing wording. `missing` is intentionally never shown
   /// before a deadline; it means the work is still due.
   String get statusLabel => switch (deadlineState) {
