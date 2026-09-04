@@ -286,6 +286,15 @@ class _AnnouncementCard extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                  if (canManage &&
+                      !announcement.isPublishedAt(DateTime.now().toUtc()))
+                    Text(
+                      'Scheduled ${formatElixrDateTime(announcement.publishAt!.toLocal())}',
+                      style: AppTheme.caption.copyWith(
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -295,7 +304,12 @@ class _AnnouncementCard extends StatelessWidget {
                 children: [
                   Button(
                     key: Key('classroom_announcement_pin_${announcement.id}'),
-                    onPressed: busy || !groupIsActive ? null : onPinToggle,
+                    onPressed:
+                        busy ||
+                            !groupIsActive ||
+                            !announcement.isPublishedAt(DateTime.now().toUtc())
+                        ? null
+                        : onPinToggle,
                     child: Text(
                       announcement.isPinned
                           ? 'Unpin announcement'
@@ -387,6 +401,10 @@ Future<void> _showEditor(
     text: announcement?.title ?? '',
   );
   final bodyController = TextEditingController(text: announcement?.body ?? '');
+  var schedule = announcement?.isScheduled == true;
+  var publishAt =
+      announcement?.publishAt?.toLocal() ??
+      DateTime.now().add(const Duration(days: 1));
   String? validationMessage;
   final result = await showDialog<_AnnouncementDraft>(
     context: context,
@@ -407,6 +425,28 @@ Future<void> _showEditor(
                 placeholder: 'Title',
                 autofocus: true,
               ),
+              const SizedBox(height: AppSpacing.md),
+              Checkbox(
+                checked: schedule,
+                content: const Text('Schedule for later'),
+                onChanged: (value) =>
+                    setDialogState(() => schedule = value ?? false),
+              ),
+              if (schedule) ...[
+                const SizedBox(height: AppSpacing.sm),
+                DatePicker(
+                  selected: publishAt,
+                  onChanged: (value) => setDialogState(() {
+                    publishAt = DateTime(
+                      value.year,
+                      value.month,
+                      value.day,
+                      publishAt.hour,
+                      publishAt.minute,
+                    );
+                  }),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               TextBox(
                 key: const Key('classroom_announcement_body'),
@@ -450,6 +490,7 @@ Future<void> _showEditor(
                 _AnnouncementDraft(
                   title: titleController.text,
                   body: bodyController.text,
+                  publishAt: schedule ? publishAt : null,
                 ),
               );
             },
@@ -463,11 +504,16 @@ Future<void> _showEditor(
   bodyController.dispose();
   if (result == null) return;
   final success = announcement == null
-      ? await controller.create(title: result.title, body: result.body)
+      ? await controller.create(
+          title: result.title,
+          body: result.body,
+          publishAt: result.publishAt,
+        )
       : await controller.update(
           announcement,
           title: result.title,
           body: result.body,
+          publishAt: result.publishAt,
         );
   if (!success || !context.mounted) return;
   final message = controller.consumeActionMessage();
@@ -507,8 +553,13 @@ Future<void> _confirmDelete(
 }
 
 class _AnnouncementDraft {
-  const _AnnouncementDraft({required this.title, required this.body});
+  const _AnnouncementDraft({
+    required this.title,
+    required this.body,
+    this.publishAt,
+  });
 
   final String title;
   final String body;
+  final DateTime? publishAt;
 }

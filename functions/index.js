@@ -774,7 +774,8 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
       if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
       const assignment = assignmentSnapshot.data();
       if (assignment.teacher_id !== uid || assignment.origin !== 'teacher_created' ||
-          assignment.assessment_mode !== 'teacher_reviewed' || assignment.status !== 'active' ||
+          assignment.assessment_mode !== 'teacher_reviewed' ||
+          !['draft', 'scheduled', 'active'].includes(assignment.status) ||
           assignment.deletion_state === 'deleting' ||
           (assignment.configuration_revision || 1) !== body.expected_configuration_revision) {
         const error = new Error('conflict'); error.code = 'conflict'; throw error;
@@ -1164,6 +1165,15 @@ async function createClassroomAssignmentHandler(request, response, {
   if (body.due_at != null && Number.isNaN(dueAt.getTime())) {
     return response.status(400).json({error: 'invalid_due_at'});
   }
+  const requestedStatus = body.status == null ? 'active' : body.status;
+  const publishDate = body.publish_at == null ? null : new Date(body.publish_at);
+  if (!['draft', 'scheduled', 'active'].includes(requestedStatus) ||
+      (body.publish_at != null && Number.isNaN(publishDate.getTime())) ||
+      (requestedStatus === 'scheduled' && (!publishDate || publishDate.getTime() <= Date.now())) ||
+      (requestedStatus !== 'scheduled' && publishDate) ||
+      (dueAt && publishDate && dueAt.getTime() <= publishDate.getTime())) {
+    return response.status(400).json({error: 'invalid_publication'});
+  }
   const topic = body.topic == null ? null : boundedText(body.topic, 80, {required: false});
   if (body.topic != null && !topic) {
     return response.status(400).json({error: 'invalid_topic'});
@@ -1196,10 +1206,11 @@ async function createClassroomAssignmentHandler(request, response, {
       const now = Timestamp.now();
       const common = {
         teacher_id: token.uid, group_id: body.group_id, audience_type: audienceType,
-        status: 'active', teacher_display_name: teacherDisplayName, group_name: groupName,
+        status: requestedStatus, teacher_display_name: teacherDisplayName, group_name: groupName,
         attempt_policy: attemptPolicy,
         created_at: now, updated_at: now,
         ...(dueAt ? {due_at: dueAt} : {}),
+        ...(publishDate ? {publish_at: Timestamp.fromDate(publishDate)} : {}),
         ...(topic ? {topic} : {}),
       };
       let assignment;

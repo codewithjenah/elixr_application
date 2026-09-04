@@ -98,23 +98,30 @@ class ClassroomAnnouncementsController extends ChangeNotifier {
     }
   }
 
-  Future<bool> create({required String title, required String body}) =>
-      _runTeacherAction(
-        operation: 'create',
-        requiresActiveGroup: true,
-        successMessage: 'Announcement published.',
-        action: () => repository.createAnnouncement(
-          groupId: groupId,
-          teacherId: currentUserId,
-          title: title,
-          body: body,
-        ),
-      );
+  Future<bool> create({
+    required String title,
+    required String body,
+    DateTime? publishAt,
+  }) => _runTeacherAction(
+    operation: 'create',
+    requiresActiveGroup: true,
+    successMessage: publishAt == null
+        ? 'Announcement published.'
+        : 'Announcement scheduled.',
+    action: () => repository.createAnnouncement(
+      groupId: groupId,
+      teacherId: currentUserId,
+      title: title,
+      body: body,
+      publishAt: publishAt,
+    ),
+  );
 
   Future<bool> update(
     ClassroomAnnouncement announcement, {
     required String title,
     required String body,
+    DateTime? publishAt,
   }) => _runTeacherAction(
     operation: 'update',
     requiresActiveGroup: true,
@@ -125,6 +132,7 @@ class ClassroomAnnouncementsController extends ChangeNotifier {
       teacherId: currentUserId,
       title: title,
       body: body,
+      publishAt: publishAt,
     ),
   );
 
@@ -143,11 +151,16 @@ class ClassroomAnnouncementsController extends ChangeNotifier {
     operation: 'pin',
     requiresActiveGroup: true,
     successMessage: 'Pinned announcement.',
-    action: () => repository.setPinnedAnnouncement(
-      groupId: groupId,
-      teacherId: currentUserId,
-      announcementId: announcement.id,
-    ),
+    action: () {
+      if (!announcement.isPublishedAt(DateTime.now().toUtc())) {
+        throw ArgumentError('A scheduled announcement cannot be pinned.');
+      }
+      return repository.setPinnedAnnouncement(
+        groupId: groupId,
+        teacherId: currentUserId,
+        announcementId: announcement.id,
+      );
+    },
   );
 
   Future<bool> unpin(ClassroomAnnouncement announcement) => _runTeacherAction(

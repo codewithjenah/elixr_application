@@ -2572,6 +2572,12 @@ service cloud.firestore {
               == groupId
             && getAfter(announcementPath(groupId, pinnedId)).data.teacher_id
               == request.auth.uid
+            && (
+              !getAfter(announcementPath(groupId, pinnedId)).data.keys()
+                .hasAny(['publish_at'])
+              || getAfter(announcementPath(groupId, pinnedId)).data.publish_at
+                <= request.time
+            )
           )
         );
     }
@@ -2844,7 +2850,8 @@ service cloud.firestore {
         && validAnnouncementText(data.body, 2000)
         && data.created_at == request.time
         && data.edited_at == null
-        && (!data.keys().hasAny(['publish_at']) || data.publish_at is timestamp)
+        && (!data.keys().hasAny(['publish_at'])
+          || (data.publish_at is timestamp && data.publish_at > request.time))
         && data.schema_version == 1;
     }
 
@@ -2864,7 +2871,12 @@ service cloud.firestore {
         && after.schema_version == before.schema_version
         && validAnnouncementText(after.title, 120)
         && validAnnouncementText(after.body, 2000)
-        && after.edited_at == request.time;
+        && after.edited_at == request.time
+        && (
+          !after.diff(before).affectedKeys().hasAny(['publish_at'])
+          || !after.keys().hasAny(['publish_at'])
+          || (after.publish_at is timestamp && after.publish_at > request.time)
+        );
     }
 
     match /groups/{groupId}/lifecycle/{documentId} {
@@ -2991,7 +3003,7 @@ service cloud.firestore {
       ).data;
       return isClassroomDocId(sessionId)
         && validAssignmentContextMap(ctx)
-        && assignment.status == 'active'
+        && assignmentIsPublished(assignment)
         && assignment.origin == 'official_elixr'
         && assignment.assessment_mode == 'official_guided'
         && assignment.teacher_id == ctx.teacher_id
@@ -3358,9 +3370,19 @@ service cloud.firestore {
     }
     function traineeCanAccessAssignment(data, assignmentId, traineeId) {
       let membership = get(groupMembershipPath(data.group_id, traineeId)).data;
-      return assignmentAllowsTrainee(data, assignmentId, traineeId)
+      return assignmentIsPublished(data)
+        && assignmentAllowsTrainee(data, assignmentId, traineeId)
         && hasApprovedTraineeMembership(data.group_id, traineeId)
         && membership.teacher_id == data.teacher_id;
+    }
+    // request.time is evaluated by Firestore, not the client. Legacy active
+    // records intentionally remain published without publication metadata.
+    function assignmentIsPublished(data) {
+      return data.status == 'active'
+        || (data.status == 'scheduled'
+          && data.keys().hasAny(['publish_at'])
+          && data.publish_at is timestamp
+          && request.time >= data.publish_at);
     }
     function validOfficialAssignmentCreate(data) {
       return data.origin == 'official_elixr'
@@ -3466,7 +3488,7 @@ service cloud.firestore {
             && data.display_safety_guidance.matches('.*[^[:space:]].*')
           ))
         && validActivityAttemptPolicy(data.attempt_policy)
-        && data.status == 'active'
+        && validAssignmentPublicationShape(data)
         && data.created_at == request.time
         && data.updated_at == request.time
         && data.configuration_revision == 1
@@ -3501,7 +3523,7 @@ service cloud.firestore {
         && data.teacher_display_name == userFullName(teacherId)
         && validActivityAttemptPolicy(data.attempt_policy)
         && isBoundedText(data.display_title, 80)
-        && data.status == 'active'
+        && validAssignmentPublicationShape(data)
         && data.created_at == request.time
         && data.updated_at == request.time
         && (
@@ -3524,7 +3546,8 @@ service cloud.firestore {
         && resource.data.assessment_mode != 'template_scored'
         && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
         && request.resource.data.keys().hasOnly(groupAssignmentAllowedKeys())
-        && request.resource.data.status in ['active', 'archived']
+        && validAssignmentPublicationShape(request.resource.data)
+        && validAssignmentLifecycleTransition(resource.data, request.resource.data)
         && request.resource.data.updated_at == request.time
         && (
           !request.resource.data.keys().hasAny(['due_at'])
@@ -3575,7 +3598,28 @@ service cloud.firestore {
         )
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'due_at', 'updated_at', 'max_score',
-          'grading_locked', 'grading_locked_at', 'topic']);
+          'grading_locked', 'grading_locked_at', 'topic', 'publish_at']);
+    }
+
+    function validAssignmentPublicationShape(data) {
+      return (
+          data.status in ['draft', 'active', 'archived']
+          && !data.keys().hasAny(['publish_at'])
+        ) || (
+          data.status == 'scheduled'
+          && data.keys().hasAny(['publish_at'])
+          && data.publish_at is timestamp
+          && request.time < data.publish_at
+          && (!data.keys().hasAny(['due_at']) || data.due_at > data.publish_at)
+        );
+    }
+
+    function validAssignmentLifecycleTransition(before, after) {
+      return (before.status == after.status)
+        || (before.status == 'draft' && after.status in ['scheduled', 'active', 'archived'])
+        || (before.status == 'scheduled' && after.status in ['scheduled', 'active', 'archived'])
+        || (before.status == 'active' && after.status == 'archived')
+        || (before.status == 'archived' && after.status == 'active');
     }
 
     match /group_assignments/{assignmentId} {
@@ -3750,11 +3794,11 @@ service cloud.firestore {
         && assignment.origin == data.origin
         && assignment.assessment_mode == data.assessment_mode
         && assignmentAllowsTrainee(assignment, data.assignment_id, data.trainee_id)
-        && assignment.status == 'active';
+        && assignmentIsPublished(assignment);
     }
     function assignmentSubmissionIsOpen(data) {
       let assignment = get(assignmentPath(data.assignment_id)).data;
-      return assignment.status == 'active'
+      return assignmentIsPublished(assignment)
         && assignment.get('deletion_state', 'active') != 'deleting'
         && (
           traineeCanAccessAssignment(assignment, data.assignment_id, data.trainee_id)

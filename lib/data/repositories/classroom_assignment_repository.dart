@@ -22,6 +22,8 @@ abstract class ClassroomAssignmentRepository {
     required ElixrGroup group,
     required String officialMovementName,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? displayInstructions,
     AssignmentAttemptPolicy attemptPolicy =
         AssignmentAttemptPolicy.legacyDefault,
@@ -42,6 +44,8 @@ abstract class ClassroomAssignmentRepository {
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   });
 
@@ -99,6 +103,8 @@ abstract class ClassroomAssignmentRepository {
     required ElixrGroup group,
     required String officialMovementName,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? displayInstructions,
     String? topic,
     AssignmentAttemptPolicy attemptPolicy =
@@ -110,6 +116,8 @@ abstract class ClassroomAssignmentRepository {
     group: group,
     officialMovementName: officialMovementName,
     dueAt: dueAt,
+    status: status,
+    publishAt: publishAt,
     displayInstructions: displayInstructions,
     attemptPolicy: attemptPolicy,
     audience: audience,
@@ -129,6 +137,8 @@ abstract class ClassroomAssignmentRepository {
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? topic,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createTeacherCreatedAssignment(
@@ -144,6 +154,8 @@ abstract class ClassroomAssignmentRepository {
     displayInstructions: displayInstructions,
     displaySafetyGuidance: displaySafetyGuidance,
     dueAt: dueAt,
+    status: status,
+    publishAt: publishAt,
     audience: audience,
   );
 
@@ -397,6 +409,8 @@ Map<String, dynamic> officialAssignmentPayload({
   required String officialMovementName,
   required String displayInstructions,
   DateTime? dueAt,
+  GroupAssignmentStatus status = GroupAssignmentStatus.active,
+  DateTime? publishAt,
   String? topic,
   AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
   AssignmentAudience audience = const AssignmentAudience.entireClass(),
@@ -417,7 +431,7 @@ Map<String, dynamic> officialAssignmentPayload({
     'revision_id': identity.revisionId,
     'origin': MovementOrigin.officialElixr.wireValue,
     'assessment_mode': AssessmentMode.officialGuided.wireValue,
-    'status': GroupAssignmentStatus.active.name,
+    'status': status.name,
     'official_movement_name': identity.catalogName,
     'display_title': identity.catalogName,
     'teacher_display_name': teacherDisplayName.trim(),
@@ -429,8 +443,31 @@ Map<String, dynamic> officialAssignmentPayload({
     if (displayInstructions.trim().isNotEmpty)
       'display_instructions': displayInstructions.trim(),
     'due_at': ?dueAt,
+    'publish_at': ?_validatedPublication(status: status, publishAt: publishAt),
     if (_normalizeTopic(topic) != null) 'topic': _normalizeTopic(topic),
   };
+}
+
+DateTime? _validatedPublication({
+  required GroupAssignmentStatus status,
+  required DateTime? publishAt,
+}) {
+  if (status == GroupAssignmentStatus.scheduled) {
+    if (publishAt == null) {
+      throw ArgumentError('Scheduled assignments require a publication time.');
+    }
+    return publishAt.toUtc();
+  }
+  if (publishAt != null ||
+      !{
+        GroupAssignmentStatus.active,
+        GroupAssignmentStatus.draft,
+      }.contains(status)) {
+    throw ArgumentError(
+      'This assignment lifecycle cannot have a publication time.',
+    );
+  }
+  return null;
 }
 
 Map<String, dynamic> teacherCreatedAssignmentPayload({
@@ -447,6 +484,8 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   String? displayInstructions,
   String? displaySafetyGuidance,
   DateTime? dueAt,
+  GroupAssignmentStatus status = GroupAssignmentStatus.active,
+  DateTime? publishAt,
   String? topic,
   AssignmentAudience audience = const AssignmentAudience.entireClass(),
   required Object createdAt,
@@ -506,7 +545,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'revision_id': revision.id,
     'origin': MovementOrigin.teacherCreated.wireValue,
     'assessment_mode': AssessmentMode.teacherReviewed.wireValue,
-    'status': GroupAssignmentStatus.active.name,
+    'status': status.name,
     'display_title': (displayTitle ?? movement.title).trim(),
     'display_instructions': (displayInstructions ?? revision.spec.instructions)
         .trim(),
@@ -528,6 +567,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'created_at': createdAt,
     'updated_at': updatedAt,
     'due_at': ?dueAt,
+    'publish_at': ?_validatedPublication(status: status, publishAt: publishAt),
     if (_normalizeTopic(topic) != null) 'topic': _normalizeTopic(topic),
   };
 

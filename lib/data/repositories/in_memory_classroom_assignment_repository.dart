@@ -70,6 +70,8 @@ class InMemoryClassroomAssignmentRepository
     required ElixrGroup group,
     required String officialMovementName,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? displayInstructions,
     AssignmentAttemptPolicy attemptPolicy =
         AssignmentAttemptPolicy.legacyDefault,
@@ -80,6 +82,8 @@ class InMemoryClassroomAssignmentRepository
     group: group,
     officialMovementName: officialMovementName,
     dueAt: dueAt,
+    status: status,
+    publishAt: publishAt,
     displayInstructions: displayInstructions,
     attemptPolicy: attemptPolicy,
     audience: audience,
@@ -92,6 +96,8 @@ class InMemoryClassroomAssignmentRepository
     required ElixrGroup group,
     required String officialMovementName,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? displayInstructions,
     String? topic,
     AssignmentAttemptPolicy attemptPolicy =
@@ -115,6 +121,8 @@ class InMemoryClassroomAssignmentRepository
       officialMovementName: officialMovementName,
       displayInstructions: displayInstructions ?? '',
       dueAt: dueAt,
+      status: status,
+      publishAt: publishAt,
       topic: topic,
       audience: audience,
       attemptPolicy: attemptPolicy,
@@ -151,6 +159,8 @@ class InMemoryClassroomAssignmentRepository
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createTeacherCreatedAssignmentWithTopic(
     teacherId: teacherId,
@@ -165,6 +175,8 @@ class InMemoryClassroomAssignmentRepository
     displayInstructions: displayInstructions,
     displaySafetyGuidance: displaySafetyGuidance,
     dueAt: dueAt,
+    status: status,
+    publishAt: publishAt,
     audience: audience,
   );
 
@@ -181,6 +193,8 @@ class InMemoryClassroomAssignmentRepository
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? topic,
     AssignmentAttemptPolicy attemptPolicy =
         AssignmentAttemptPolicy.teacherActivityDefault,
@@ -209,6 +223,8 @@ class InMemoryClassroomAssignmentRepository
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
+      status: status,
+      publishAt: publishAt,
       topic: topic,
       audience: audience,
       createdAt: created,

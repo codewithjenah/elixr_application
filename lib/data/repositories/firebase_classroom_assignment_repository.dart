@@ -62,6 +62,8 @@ class FirebaseClassroomAssignmentRepository
     required ElixrGroup group,
     required String officialMovementName,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? displayInstructions,
     AssignmentAttemptPolicy attemptPolicy =
         AssignmentAttemptPolicy.legacyDefault,
@@ -72,6 +74,8 @@ class FirebaseClassroomAssignmentRepository
     group: group,
     officialMovementName: officialMovementName,
     dueAt: dueAt,
+    status: status,
+    publishAt: publishAt,
     displayInstructions: displayInstructions,
     attemptPolicy: attemptPolicy,
     audience: audience,
@@ -84,6 +88,8 @@ class FirebaseClassroomAssignmentRepository
     required ElixrGroup group,
     required String officialMovementName,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? displayInstructions,
     String? topic,
     AssignmentAttemptPolicy attemptPolicy =
@@ -103,6 +109,8 @@ class FirebaseClassroomAssignmentRepository
       officialMovementName: officialMovementName,
       displayInstructions: displayInstructions ?? '',
       dueAt: dueAt,
+      status: status,
+      publishAt: publishAt,
       topic: topic,
       audience: audience,
       attemptPolicy: attemptPolicy,
@@ -127,6 +135,8 @@ class FirebaseClassroomAssignmentRepository
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createTeacherCreatedAssignmentWithTopic(
     teacherId: teacherId,
@@ -141,6 +151,8 @@ class FirebaseClassroomAssignmentRepository
     displayInstructions: displayInstructions,
     displaySafetyGuidance: displaySafetyGuidance,
     dueAt: dueAt,
+    status: status,
+    publishAt: publishAt,
     audience: audience,
   );
 
@@ -157,6 +169,8 @@ class FirebaseClassroomAssignmentRepository
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? topic,
     AssignmentAttemptPolicy attemptPolicy =
         AssignmentAttemptPolicy.teacherActivityDefault,
@@ -181,6 +195,8 @@ class FirebaseClassroomAssignmentRepository
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
+      status: status,
+      publishAt: publishAt,
       topic: topic,
       audience: audience,
       createdAt: DateTime.now().toUtc(),
@@ -1411,6 +1427,10 @@ class FirebaseClassroomAssignmentRepository
     final dueAt = requestPayload['due_at'];
     if (dueAt is DateTime) {
       requestPayload['due_at'] = dueAt.toUtc().toIso8601String();
+    }
+    final publishAt = requestPayload['publish_at'];
+    if (publishAt is DateTime) {
+      requestPayload['publish_at'] = publishAt.toUtc().toIso8601String();
     }
     final client = _httpClientFactory();
     try {

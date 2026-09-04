@@ -69,6 +69,8 @@ class TeacherAssignmentCreationService {
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? topic,
   }) async {
     final hasOfficial = officialMovement != null;
@@ -109,6 +111,8 @@ class TeacherAssignmentCreationService {
           group: group,
           officialMovementName: official.name,
           dueAt: dueAt,
+          status: status,
+          publishAt: publishAt,
           displayInstructions: official.description,
           attemptPolicy: attemptPolicy,
           audience: audience,
@@ -120,6 +124,8 @@ class TeacherAssignmentCreationService {
         group: group,
         officialMovementName: official.name,
         dueAt: dueAt,
+        status: status,
+        publishAt: publishAt,
         displayInstructions: official.description,
         topic: normalizedTopic,
         attemptPolicy: attemptPolicy,
@@ -169,6 +175,8 @@ class TeacherAssignmentCreationService {
         displayInstructions: displayInstructions,
         displaySafetyGuidance: displaySafetyGuidance,
         dueAt: dueAt,
+        status: status,
+        publishAt: publishAt,
         audience: audience,
       );
     }
@@ -185,6 +193,8 @@ class TeacherAssignmentCreationService {
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
+      status: status,
+      publishAt: publishAt,
       topic: normalizedTopic,
       audience: audience,
     );
