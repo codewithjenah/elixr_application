@@ -39,6 +39,7 @@ class TeacherGroupsController extends ChangeNotifier {
   ElixrGroup? selectedGroup;
   List<GroupMembership> pendingMemberships = const [];
   List<GroupMembership> approvedMemberships = const [];
+  bool approvedMembershipsReady = false;
   GroupInvite? activeInvite;
   bool loading = false;
   bool busy = false;
@@ -222,6 +223,7 @@ class TeacherGroupsController extends ChangeNotifier {
     selectedGroup = null;
     pendingMemberships = const [];
     approvedMemberships = const [];
+    approvedMembershipsReady = false;
     activeInvite = null;
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());
@@ -416,6 +418,7 @@ class TeacherGroupsController extends ChangeNotifier {
   Future<void> _watchSelectedGroup(String groupId) async {
     await _pendingSub?.cancel();
     await _approvedSub?.cancel();
+    approvedMembershipsReady = false;
     activeInvite = await repository.getActiveGroupInvite(groupId: groupId);
     final pendingFirst = Completer<void>();
     final approvedFirst = Completer<void>();
@@ -448,6 +451,7 @@ class TeacherGroupsController extends ChangeNotifier {
         .listen(
           (value) {
             approvedMemberships = value;
+            approvedMembershipsReady = true;
             _syncMemberProfileWatches();
             if (!approvedFirst.isCompleted) approvedFirst.complete();
             notifyListeners();

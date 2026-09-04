@@ -84,7 +84,7 @@ const elixSidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
-    label: 'Activity Center',
+    label: 'Notifications',
     icon: FluentIcons.activity_feed,
     route: '/activity-center',
     group: SidebarGroup.insights,
@@ -277,7 +277,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
             isCollapsed: showCollapsedLayout,
             unreadCount: switch (item.label) {
               'Messages' => unreadCount,
-              'Activity Center' => activityUnreadCount,
+              'Notifications' => activityUnreadCount,
               _ => 0,
             },
             comingSoon: item.comingSoon,

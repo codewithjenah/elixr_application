@@ -74,6 +74,7 @@ class TeacherClassworkController extends ChangeNotifier {
     this.initialTraineeId,
     this.approvedMembershipsProvider,
     this.approvedMembershipsListenable,
+    this.approvedMembershipsReady,
     DateTime Function()? now,
   }) : selectedAssignmentId = initialAssignmentId,
        selectedTraineeId = fixedTraineeId ?? initialTraineeId,
@@ -96,6 +97,7 @@ class TeacherClassworkController extends ChangeNotifier {
   final String? initialTraineeId;
   final List<GroupMembership> Function()? approvedMembershipsProvider;
   final Listenable? approvedMembershipsListenable;
+  final bool Function()? approvedMembershipsReady;
   final DateTime Function() _now;
 
   ElixrGroup? group;
@@ -242,6 +244,7 @@ class TeacherClassworkController extends ChangeNotifier {
 
   void _applyApprovedMemberships(List<GroupMembership> items) {
     if (_disposed) return;
+    final membershipIsReady = approvedMembershipsReady?.call() ?? true;
     approvedMemberships =
         [
           for (final member in items)
@@ -254,11 +257,13 @@ class TeacherClassworkController extends ChangeNotifier {
             b.traineeDisplayName.toLowerCase(),
           ),
         );
-    if (fixedTraineeId != null && !fixedStudentAuthorized) {
+    if (fixedTraineeId != null &&
+        membershipIsReady &&
+        !fixedStudentAuthorized) {
       unauthorized = true;
       selectedTraineeId = fixedTraineeId;
       errorMessage = 'This student is not an approved member of this class.';
-    } else if (fixedTraineeId != null) {
+    } else if (fixedTraineeId != null && membershipIsReady) {
       unauthorized = false;
       if (errorMessage ==
           'This student is not an approved member of this class.') {
@@ -267,6 +272,7 @@ class TeacherClassworkController extends ChangeNotifier {
     }
     if (selectedTraineeId != null &&
         fixedTraineeId == null &&
+        membershipIsReady &&
         !approvedMemberships.any(
           (member) => member.traineeId == selectedTraineeId,
         )) {
@@ -343,6 +349,11 @@ class TeacherClassworkController extends ChangeNotifier {
   List<AssignmentAttempt> attemptsFor(String assignmentId) {
     return _attemptsByAssignment[assignmentId] ?? const [];
   }
+
+  /// Whether the first attempt snapshot for [assignmentId] has arrived.
+  /// An empty snapshot is authoritative; an absent entry is still loading.
+  bool hasAttemptSnapshot(String assignmentId) =>
+      _attemptsByAssignment.containsKey(assignmentId);
 
   bool hasAttemptLoadError(String assignmentId) {
     return _attemptLoadErrors.contains(assignmentId);

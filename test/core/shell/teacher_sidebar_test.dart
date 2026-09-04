@@ -34,6 +34,10 @@ void main() {
       AppRoutePaths.teacherActivityCenter,
       AppRoutePaths.teacherMessages,
     ]);
+    final notifications = teacherSidebarItems.singleWhere(
+      (item) => item.label == 'Notifications',
+    );
+    expect(notifications.route, AppRoutePaths.teacherActivityCenter);
     expect(
       teacherSidebarItems.map((item) => item.route),
       isNot(contains(AppRoutePaths.teacherSettings)),

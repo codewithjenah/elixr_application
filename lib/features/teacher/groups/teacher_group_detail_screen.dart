@@ -116,6 +116,8 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
         approvedMembershipsProvider: () =>
             suppliedController.approvedMemberships,
         approvedMembershipsListenable: suppliedController,
+        approvedMembershipsReady: () =>
+            suppliedController.approvedMembershipsReady,
       )..start();
     }
     AuthService? auth;
@@ -161,6 +163,8 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
         initialTraineeId: widget.initialTraineeId,
         approvedMembershipsProvider: () => groupsController.approvedMemberships,
         approvedMembershipsListenable: groupsController,
+        approvedMembershipsReady: () =>
+            groupsController.approvedMembershipsReady,
       )..start();
     }
     if (_ownedAnnouncements == null && widget.announcementsController == null) {
@@ -283,9 +287,11 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                   child: TeacherAssignmentWorkPane(
                     controller: classwork,
                     profilePictureUrlFor: controller.profilePictureUrlFor,
-                    onOpenTrainee: (selectedTraineeId) async {
-                      await classwork.selectTrainee(selectedTraineeId);
-                      if (!context.mounted) return;
+                    onOpenTrainee: (selectedTraineeId) {
+                      // The pushed route owns its own classwork controller and
+                      // initializes selection from traineeId. Updating this
+                      // roster page first leaves a stale review selection when
+                      // the pushed page is popped back to it.
                       context.push(
                         AppRoutePaths.teacherGroupClasswork(
                           widget.groupId,

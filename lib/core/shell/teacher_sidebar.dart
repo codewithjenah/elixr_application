@@ -80,7 +80,7 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.classroom,
   ),
   TeacherSidebarItem(
-    label: 'Activity Center',
+    label: 'Notifications',
     icon: FluentIcons.activity_feed,
     route: AppRoutePaths.teacherActivityCenter,
     group: TeacherSidebarGroup.insights,

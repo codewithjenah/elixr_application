@@ -33,7 +33,7 @@ class _TraineeActivityCenterScreenState
         : controller.activities;
     return ElixScaffoldPage(
       header: ElixEditorialPageHeader(
-        heading: 'Activity Center',
+        heading: 'Notifications',
         eyebrow: 'TRAINEE WORKSPACE',
         subtitle: 'Assignments, deadlines, grades, and classroom updates.',
         commandBar: CommandBar(

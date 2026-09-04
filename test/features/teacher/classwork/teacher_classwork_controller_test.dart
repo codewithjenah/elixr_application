@@ -11,6 +11,7 @@ import 'package:elixr_application/data/repositories/in_memory_classroom_assignme
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/features/teacher/classwork/teacher_classwork_controller.dart';
 import 'package:elixr_core/elixr_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FailingAttemptStreamRepository
@@ -423,6 +424,42 @@ void main() {
     expect(controller.assignments, isEmpty);
     expect(controller.attemptsFor('a1'), isEmpty);
   });
+
+  test(
+    'route-selected trainee survives provisional membership data and clears after confirmed removal',
+    () async {
+      assignments.seedAssignment(assignment);
+      final memberships = ValueNotifier<List<GroupMembership>>(const []);
+      var membershipsReady = false;
+      final controller = TeacherClassworkController(
+        teacherId: 'teacher',
+        teacherDisplayName: 'Grace Hopper',
+        groupId: 'g1',
+        groupRepository: groups,
+        assignmentRepository: assignments,
+        initialAssignmentId: 'a1',
+        initialTraineeId: 'ada',
+        approvedMembershipsProvider: () => memberships.value,
+        approvedMembershipsListenable: memberships,
+        approvedMembershipsReady: () => membershipsReady,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(memberships.dispose);
+
+      await controller.start();
+      expect(controller.selectedAssignmentId, 'a1');
+      expect(controller.selectedTraineeId, 'ada');
+
+      membershipsReady = true;
+      memberships.value = [member('ada')];
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.selectedTraineeId, 'ada');
+
+      memberships.value = const [];
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.selectedTraineeId, isNull);
+    },
+  );
 
   test('submitted teacher-reviewed work can be graded', () async {
     groups.seedMembership(member('ada'));

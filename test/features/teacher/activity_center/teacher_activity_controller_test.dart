@@ -363,6 +363,7 @@ void main() {
 
     expect(find.byKey(const Key('teacher_to_review_empty')), findsOneWidget);
     expect(find.text('No submissions are waiting for review'), findsOneWidget);
+    expect(find.text('To Review'), findsOneWidget);
   });
 
   testWidgets('To Review shows actionable submission context', (tester) async {
@@ -578,6 +579,7 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('Notifications'), findsOneWidget);
   });
 }
 

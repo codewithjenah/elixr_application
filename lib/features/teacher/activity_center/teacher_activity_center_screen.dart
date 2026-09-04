@@ -49,7 +49,7 @@ class _TeacherActivityCenterScreenState
 
     return TeacherScaffoldPage(
       header: ElixEditorialPageHeader(
-        heading: showPending ? 'To Review' : 'Activity Center',
+        heading: showPending ? 'To Review' : 'Notifications',
         eyebrow: 'TEACHER WORKSPACE',
         subtitle: showPending
             ? 'Outstanding submitted work across your classrooms.'

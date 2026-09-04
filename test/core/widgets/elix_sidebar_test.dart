@@ -35,11 +35,11 @@ void main() {
       );
       expect(sessions.route, '/training');
 
-      final activityCenter = elixSidebarItems.singleWhere(
-        (item) => item.label == 'Activity Center',
+      final notifications = elixSidebarItems.singleWhere(
+        (item) => item.label == 'Notifications',
       );
-      expect(activityCenter.route, '/activity-center');
-      expect(activityCenter.group, SidebarGroup.insights);
+      expect(notifications.route, '/activity-center');
+      expect(notifications.group, SidebarGroup.insights);
     },
   );
 

@@ -168,7 +168,7 @@ void main() {
     expect(find.text('Analytics'), findsOneWidget);
     expect(find.text('Movements'), findsWidgets);
     expect(find.text('To Review'), findsOneWidget);
-    expect(find.text('Activity Center'), findsOneWidget);
+    expect(find.text('Notifications'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);
     expect(find.text('Your classroom is ready'), findsOneWidget);
     expect(find.byType(TeacherShell), findsOneWidget);

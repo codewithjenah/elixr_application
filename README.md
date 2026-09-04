@@ -390,7 +390,7 @@ tamper-proof analytics source against a hostile modified client.
 ### Direct Messages
 
 Both Teachers and Trainees use Messages (`/messages` and
-`/teacher/messages`). Teachers also have a unified Activity Center at
+`/teacher/messages`). Teachers also have a unified Notifications feed at
 `/teacher/activity-center`, which combines classroom events with local,
 account-scoped read state. `/coaching` redirects to `/messages`. Search calls the
 authenticated `searchChatUsers` HTTPS Function; email-shaped queries are exact

@@ -1037,11 +1037,14 @@ class _SelectedStudentReviewWorkspace extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = controller.traineeName(traineeId);
+    final attemptsLoading = !controller.hasAttemptSnapshot(assignment.id);
     final attempt = controller.latestVisibleAttemptFor(
       assignmentId: assignment.id,
       traineeId: traineeId,
     );
-    final status = attempt == null || !isAssignmentAttemptTurnedIn(attempt)
+    final status = attemptsLoading
+        ? 'Loading submitted work'
+        : attempt == null || !isAssignmentAttemptTurnedIn(attempt)
         ? 'Not turned in'
         : _teacherFacingReviewLabel(assignment, attempt);
     final deadlineState = AssignmentReviewSemantics.deadlineStateFor(
@@ -1102,7 +1105,7 @@ class _SelectedStudentReviewWorkspace extends StatelessWidget {
             const SizedBox(width: AppSpacing.md),
             ElixPill(
               text: status,
-              color: attempt == null
+              color: attemptsLoading || attempt == null
                   ? context.elixTextSecondary
                   : assignedMovementStatusColor(
                       assignment,
@@ -1235,6 +1238,12 @@ class _TeacherSubmissionReviewDetailState
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.controller.hasAttemptSnapshot(widget.assignment.id)) {
+      return const Center(
+        key: Key('teacher_classwork_attempts_loading'),
+        child: ProgressRing(),
+      );
+    }
     final current = attempt;
     if (current == null || !isAssignmentAttemptTurnedIn(current)) {
       return const ElixStatusPanel(
