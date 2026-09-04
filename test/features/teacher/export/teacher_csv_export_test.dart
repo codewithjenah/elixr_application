@@ -194,12 +194,25 @@ void main() {
         completionRate: null,
         expectedSubmissionCount: 0,
         turnedInSubmissionCount: 0,
-        improvement: null,
+        improvement: -1.2,
         matchedStudentCount: 0,
         trendBuckets: const [],
         mostPracticed: null,
         hardest: null,
-        groupComparisons: const [],
+        groupComparisons: const [
+          GroupComparison(
+            group: group,
+            eligibleStudentCount: 1,
+            sessionCount: 2,
+            averageScore: 8.5,
+            averagePracticeSessions: 2,
+            completionRate: 0.5,
+            improvement: -2.3,
+            expectedSubmissionCount: 2,
+            turnedInSubmissionCount: 1,
+            matchedStudentCount: 1,
+          ),
+        ],
       );
       final csv = TeacherCsvExport.analytics(
         snapshot: snapshot,
@@ -210,6 +223,10 @@ void main() {
       expect(csv, contains('"Class, A"'));
       expect(csv, contains('This Week'));
       expect(csv, contains('N/A'));
+      expect(csv, contains('Score change / improvement,-1.2'));
+      expect(csv, isNot(contains("Score change / improvement,'-1.2")));
+      expect(csv, contains(',-2.3\r\n'));
+      expect(csv, isNot(contains(",'-2.3")));
       expect(csv, isNot(contains('Average class score (out of 12),0.0')));
     },
   );

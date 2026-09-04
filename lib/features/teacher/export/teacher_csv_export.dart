@@ -19,22 +19,24 @@ abstract final class TeacherCsvExport {
     required bool Function(String assignmentId) attemptUnavailable,
     required DateTime referenceNow,
   }) {
-    final rows = <List<String>>[
+    final rows = <List<_CsvCell>>[
       [
-        'Student name',
-        for (final assignment in assignments) assignment.displayTitle,
+        _generated('Student name'),
+        for (final assignment in assignments) _text(assignment.displayTitle),
       ],
       for (final student in students)
         [
-          student.traineeDisplayName,
+          _text(student.traineeDisplayName),
           for (final assignment in assignments)
-            _gradebookCell(
-              TeacherGradebookSemantics.cellFor(
-                membership: student,
-                assignment: assignment,
-                attempt: attemptFor(assignment.id, student.traineeId),
-                attemptUnavailable: attemptUnavailable(assignment.id),
-                now: referenceNow,
+            _generated(
+              _gradebookCell(
+                TeacherGradebookSemantics.cellFor(
+                  membership: student,
+                  assignment: assignment,
+                  attempt: attemptFor(assignment.id, student.traineeId),
+                  attemptUnavailable: attemptUnavailable(assignment.id),
+                  now: referenceNow,
+                ),
               ),
             ),
         ],
@@ -51,91 +53,123 @@ abstract final class TeacherCsvExport {
         value == null ? 'N/A' : value.toStringAsFixed(digits);
     String percent(double? value) =>
         value == null ? 'N/A' : '${(value * 100).toStringAsFixed(1)}%';
-    final rows = <List<String>>[
-      ['ELIXR Analytics'],
-      ['Class', classLabel],
-      ['Period', periodLabel],
+    final rows = <List<_CsvCell>>[
+      [_generated('ELIXR Analytics')],
+      [_generated('Class'), _text(classLabel)],
+      [_generated('Period'), _text(periodLabel)],
       [
-        'Period start (UTC)',
-        snapshot.periodWindow.current.startUtc.toIso8601String(),
+        _generated('Period start (UTC)'),
+        _generated(snapshot.periodWindow.current.startUtc.toIso8601String()),
       ],
       [
-        'Period end (UTC)',
-        snapshot.periodWindow.current.endUtc.toIso8601String(),
+        _generated('Period end (UTC)'),
+        _generated(snapshot.periodWindow.current.endUtc.toIso8601String()),
       ],
       [],
-      ['Summary'],
-      ['Metric', 'Value'],
-      ['Eligible students', '${snapshot.eligibleStudentCount}'],
-      ['Practice sessions', '${snapshot.sessionCount}'],
-      ['Average class score (out of 12)', optional(snapshot.averageScore)],
+      [_generated('Summary')],
+      [_generated('Metric'), _generated('Value')],
       [
-        'Average practice sessions per student',
-        optional(snapshot.averagePracticeSessions),
+        _generated('Eligible students'),
+        _generated('${snapshot.eligibleStudentCount}'),
       ],
-      ['Assignment completion rate', percent(snapshot.completionRate)],
-      ['Expected submissions', '${snapshot.expectedSubmissionCount}'],
-      ['Turned in submissions', '${snapshot.turnedInSubmissionCount}'],
-      ['Score change / improvement', optional(snapshot.improvement)],
-      ['Students compared', '${snapshot.matchedStudentCount}'],
+      [_generated('Practice sessions'), _generated('${snapshot.sessionCount}')],
+      [
+        _generated('Average class score (out of 12)'),
+        _generated(optional(snapshot.averageScore)),
+      ],
+      [
+        _generated('Average practice sessions per student'),
+        _generated(optional(snapshot.averagePracticeSessions)),
+      ],
+      [
+        _generated('Assignment completion rate'),
+        _generated(percent(snapshot.completionRate)),
+      ],
+      [
+        _generated('Expected submissions'),
+        _generated('${snapshot.expectedSubmissionCount}'),
+      ],
+      [
+        _generated('Turned in submissions'),
+        _generated('${snapshot.turnedInSubmissionCount}'),
+      ],
+      [
+        _generated('Score change / improvement'),
+        _generated(optional(snapshot.improvement)),
+      ],
+      [
+        _generated('Students compared'),
+        _generated('${snapshot.matchedStudentCount}'),
+      ],
       [],
-      ['Score progress'],
-      ['Period', 'Sessions', 'Students', 'Average score (out of 12)'],
+      [_generated('Score progress')],
+      [
+        _generated('Period'),
+        _generated('Sessions'),
+        _generated('Students'),
+        _generated('Average score (out of 12)'),
+      ],
       for (final trend in snapshot.trendBuckets)
         [
-          trend.label,
-          '${trend.sessionCount}',
-          '${trend.distinctStudentCount}',
-          optional(trend.averageScore),
+          _generated(trend.label),
+          _generated('${trend.sessionCount}'),
+          _generated('${trend.distinctStudentCount}'),
+          _generated(optional(trend.averageScore)),
         ],
       [],
-      ['Movement insights'],
+      [_generated('Movement insights')],
       [
-        'Insight',
-        'Movement',
-        'Sessions',
-        'Students',
-        'Average score (out of 12)',
+        _generated('Insight'),
+        _generated('Movement'),
+        _generated('Sessions'),
+        _generated('Students'),
+        _generated('Average score (out of 12)'),
       ],
       _insightRow('Most practiced', snapshot.mostPracticed, optional),
       _insightRow('Most challenging', snapshot.hardest, optional),
       [],
-      ['Class comparison'],
+      [_generated('Class comparison')],
       [
-        'Class',
-        'Students',
-        'Sessions',
-        'Average score (out of 12)',
-        'Practice sessions per student',
-        'Completion rate',
-        'Score change / improvement',
+        _generated('Class'),
+        _generated('Students'),
+        _generated('Sessions'),
+        _generated('Average score (out of 12)'),
+        _generated('Practice sessions per student'),
+        _generated('Completion rate'),
+        _generated('Score change / improvement'),
       ],
       for (final comparison in snapshot.groupComparisons)
         [
-          comparison.group.name,
-          '${comparison.eligibleStudentCount}',
-          '${comparison.sessionCount}',
-          optional(comparison.averageScore),
-          optional(comparison.averagePracticeSessions),
-          percent(comparison.completionRate),
-          optional(comparison.improvement),
+          _text(comparison.group.name),
+          _generated('${comparison.eligibleStudentCount}'),
+          _generated('${comparison.sessionCount}'),
+          _generated(optional(comparison.averageScore)),
+          _generated(optional(comparison.averagePracticeSessions)),
+          _generated(percent(comparison.completionRate)),
+          _generated(optional(comparison.improvement)),
         ],
     ];
     return _csv(rows);
   }
 
-  static List<String> _insightRow(
+  static List<_CsvCell> _insightRow(
     String label,
     MovementInsight? insight,
     String Function(double?, {int digits}) optional,
   ) => insight == null
-      ? [label, 'N/A', 'N/A', 'N/A', 'N/A']
+      ? [
+          _generated(label),
+          _generated('N/A'),
+          _generated('N/A'),
+          _generated('N/A'),
+          _generated('N/A'),
+        ]
       : [
-          label,
-          insight.movementName,
-          '${insight.sessionCount}',
-          '${insight.distinctStudentCount}',
-          optional(insight.averageScore),
+          _generated(label),
+          _text(insight.movementName),
+          _generated('${insight.sessionCount}'),
+          _generated('${insight.distinctStudentCount}'),
+          _generated(optional(insight.averageScore)),
         ];
 
   static String _gradebookCell(TeacherGradebookCell cell) =>
@@ -143,11 +177,17 @@ abstract final class TeacherCsvExport {
       ? cell.label
       : '${cell.label} (${cell.detail})';
 
-  static String _csv(Iterable<List<String>> rows) =>
+  static _CsvCell _text(String value) => _CsvCell.text(value);
+
+  static _CsvCell _generated(String value) => _CsvCell.generated(value);
+
+  static String _csv(Iterable<List<_CsvCell>> rows) =>
       '\uFEFF${rows.map((row) => row.map(_field).join(',')).join('\r\n')}\r\n';
 
-  static String _field(String value) {
-    final sanitized = _neutralizeFormula(value);
+  static String _field(_CsvCell cell) {
+    final sanitized = cell.isUntrustedText
+        ? _neutralizeFormula(cell.value)
+        : cell.value;
     if (!sanitized.contains(RegExp('[,\\"\\r\\n]'))) return sanitized;
     return '"${sanitized.replaceAll('"', '""')}"';
   }
@@ -164,6 +204,14 @@ abstract final class TeacherCsvExport {
         .trim();
     return cleaned.isEmpty ? 'Export' : cleaned;
   }
+}
+
+class _CsvCell {
+  const _CsvCell.text(this.value) : isUntrustedText = true;
+  const _CsvCell.generated(this.value) : isUntrustedText = false;
+
+  final String value;
+  final bool isUntrustedText;
 }
 
 abstract interface class TeacherCsvFileSaver {
