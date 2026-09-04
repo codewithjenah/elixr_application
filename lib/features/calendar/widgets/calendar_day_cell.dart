@@ -18,10 +18,12 @@ class CalendarDayCell extends StatefulWidget {
     required this.isToday,
     required this.onTap,
     this.snapshot,
+    this.classroomCount = 0,
   });
 
   final DateTime date;
   final TrainingDaySnapshot? snapshot;
+  final int classroomCount;
   final bool isOutsideMonth;
   final bool isSelected;
   final bool isToday;
@@ -42,6 +44,7 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
     final unplannedActivity =
         status == TrainingDayStatus.unplanned &&
         (widget.snapshot?.hasUnplannedActivity ?? false);
+    final hasClassroom = widget.classroomCount > 0;
 
     final borderColor = widget.isSelected
         ? _pink
@@ -104,34 +107,50 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
                 ),
               ),
               const Spacer(),
-              if (hasPlan)
-                Align(
-                  alignment: Alignment.bottomLeft,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(
-                        alpha: widget.isOutsideMonth ? 0.5 : 1,
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: Wrap(
+                  spacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (hasPlan || unplannedActivity)
+                      Container(
+                        width: hasPlan ? 8 : 6,
+                        height: hasPlan ? 8 : 6,
+                        decoration: BoxDecoration(
+                          color: (hasPlan ? statusColor : _purple).withValues(
+                            alpha: widget.isOutsideMonth ? .5 : 1,
+                          ),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                )
-              else if (unplannedActivity)
-                Align(
-                  alignment: Alignment.bottomLeft,
-                  child: Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: _purple.withValues(
-                        alpha: widget.isOutsideMonth ? 0.35 : 0.55,
+                    if (hasClassroom)
+                      Semantics(
+                        label:
+                            '${widget.classroomCount} classroom assignment${widget.classroomCount == 1 ? '' : 's'} due',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              FluentIcons.education,
+                              size: 11,
+                              color: AppColors.accent,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${widget.classroomCount}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: context.elixTextSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
+                  ],
                 ),
+              ),
             ],
           ),
         ),

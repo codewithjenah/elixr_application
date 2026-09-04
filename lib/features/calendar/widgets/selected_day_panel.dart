@@ -10,6 +10,8 @@ import '../models/training_day_status.dart';
 import '../utils/training_day_status_style.dart';
 import '../utils/training_plan_progress.dart';
 import 'training_plan_editor.dart';
+import '../models/calendar_classroom_assignment.dart';
+import 'classroom_day_section.dart';
 
 const _purple = AppColors.accent;
 
@@ -28,6 +30,8 @@ class SelectedDayPanel extends StatelessWidget {
     required this.onRemovePlan,
     required this.onStartPractice,
     required this.onViewHistory,
+    this.classroomItems = const [],
+    this.onOpenClassroomAssignment,
     this.actionError,
   });
 
@@ -44,6 +48,8 @@ class SelectedDayPanel extends StatelessWidget {
   final VoidCallback onRemovePlan;
   final VoidCallback onStartPractice;
   final VoidCallback onViewHistory;
+  final List<CalendarClassroomAssignment> classroomItems;
+  final ValueChanged<CalendarClassroomAssignment>? onOpenClassroomAssignment;
 
   bool get _isActionable => snapshot.dayKey.compareTo(todayKey) >= 0;
   bool get _isToday => snapshot.dayKey == todayKey;
@@ -90,8 +96,14 @@ class SelectedDayPanel extends StatelessWidget {
               onCancel: onCancelEditing,
               onSave: onSavePlan,
             )
-          else
+          else ...[
             _buildBody(context),
+            if (onOpenClassroomAssignment != null)
+              ClassroomDaySection(
+                items: classroomItems,
+                onOpen: onOpenClassroomAssignment!,
+              ),
+          ],
         ],
       ),
     );

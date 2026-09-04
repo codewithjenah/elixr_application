@@ -16,12 +16,16 @@ class CalendarSummaryCards extends StatelessWidget {
     required this.completedDays,
     required this.adherencePercent,
     required this.planStreak,
+    this.classroomDue = 0,
+    this.classroomOverdue = 0,
   });
 
   final int plannedDays;
   final int completedDays;
   final int? adherencePercent;
   final int planStreak;
+  final int classroomDue;
+  final int classroomOverdue;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +70,19 @@ class CalendarSummaryCards extends StatelessWidget {
             icon: FluentIcons.lightning_bolt,
             accent: context.elixColors.milestone,
           ),
+          _SummaryCard(
+            label: classroomOverdue > 0 ? 'Overdue work' : 'Classroom work',
+            value: '${classroomOverdue > 0 ? classroomOverdue : classroomDue}',
+            subLabel: classroomOverdue > 0
+                ? 'Needs your attention'
+                : classroomDue == 1
+                ? 'Assignment due this month'
+                : 'Assignments due this month',
+            icon: FluentIcons.education,
+            accent: classroomOverdue > 0
+                ? AppColors.error
+                : context.elixColors.milestone,
+          ),
         ];
 
         if (wide) {
@@ -104,6 +121,10 @@ class CalendarSummaryCards extends StatelessWidget {
                   Expanded(child: cards[3]),
                 ],
               ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            IntrinsicHeight(
+              child: Row(children: [Expanded(child: cards[4])]),
             ),
           ],
         );

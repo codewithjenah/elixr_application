@@ -44,6 +44,19 @@ class TraineeActivity {
   final bool isRead;
 }
 
+/// Authorized assignment plus the canonical visible attempt for trainee views.
+/// This is a read-only projection of the same discovery and attempt streams
+/// that power Activity Center; it is not persisted calendar state.
+class TraineeClassroomWorkItem {
+  const TraineeClassroomWorkItem({
+    required this.assignment,
+    required this.latestSubmission,
+  });
+
+  final GroupAssignment assignment;
+  final AssignmentAttempt? latestSubmission;
+}
+
 /// Builds trainee activity from existing classroom sources of truth. Only the
 /// read/unread choice is local; assignments, announcements, membership, and
 /// grading remain owned by their existing repositories.
@@ -95,6 +108,7 @@ class TraineeActivityController extends ChangeNotifier {
   List<TraineeActivity> _activities = const [];
 
   List<TraineeActivity> get activities => _activities;
+  List<TraineeClassroomWorkItem> get classroomWork => _classroomWork();
   int get unreadCount =>
       _activities.where((activity) => !activity.isRead).length;
   bool get hasStreamError =>
@@ -102,6 +116,31 @@ class TraineeActivityController extends ChangeNotifier {
       attemptsStreamError != null ||
       assignmentsError != null ||
       announcementErrors.isNotEmpty;
+
+  List<TraineeClassroomWorkItem> _classroomWork() {
+    final traineeId = _traineeId;
+    if (traineeId == null) return const [];
+    final attemptsByAssignment = <String, List<AssignmentAttempt>>{};
+    for (final attempt in _attempts) {
+      if (attempt.traineeId == traineeId &&
+          _activeGroups.containsKey(attempt.groupId)) {
+        attemptsByAssignment
+            .putIfAbsent(attempt.assignmentId, () => [])
+            .add(attempt);
+      }
+    }
+    return List.unmodifiable([
+      for (final assignment in _assignments)
+        TraineeClassroomWorkItem(
+          assignment: assignment,
+          latestSubmission: AssignmentAttemptSemantics.latestVisible(
+            attempts: attemptsByAssignment[assignment.id] ?? const [],
+            assignmentId: assignment.id,
+            traineeId: traineeId,
+          ),
+        ),
+    ]);
+  }
 
   void setTrainee(String? traineeId) {
     final normalized = traineeId?.trim();

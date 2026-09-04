@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/session.dart';
@@ -12,9 +13,11 @@ import '../../data/models/training_plan.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../data/repositories/training_plan_repository.dart';
 import '../../features/training/training_view.dart';
+import '../trainee/activity_center/trainee_activity_controller.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import 'models/training_day_snapshot.dart';
+import 'models/calendar_classroom_assignment.dart';
 import 'utils/calendar_metrics.dart';
 import 'utils/training_plan_progress.dart';
 import 'widgets/calendar_header.dart';
@@ -133,6 +136,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   void _onSessionSaved() => _loadCalendar(fullScreen: false);
+
+  DateTime _classroomCivilDate(CalendarClassroomAssignment item) =>
+      ManilaDay.civilDateFromDayKey(ManilaDay.dayKeyFor(item.dueAt!.toUtc()));
 
   (String, String) _visibleRange() {
     final dates = monthGridDates(_visibleMonth.year, _visibleMonth.month);
@@ -408,6 +414,43 @@ class _CalendarScreenState extends State<CalendarScreen> {
       todayKey: _todayKey,
       monthKey: monthKey,
     );
+    TraineeActivityController? activity;
+    try {
+      activity = context.watch<TraineeActivityController>();
+    } on ProviderNotFoundException {
+      // Calendar is also embedded in focused practice-only contexts.
+    }
+    final workItems =
+        activity?.classroomWork ?? const <TraineeClassroomWorkItem>[];
+    final List<CalendarClassroomAssignment> classroomItems = List.unmodifiable([
+      for (final item in workItems)
+        CalendarClassroomAssignment(
+          assignment: item.assignment,
+          submission: item.latestSubmission,
+          now: _now,
+        ),
+    ]);
+    final classroomCounts = <DateTime, int>{};
+    for (final item in classroomItems) {
+      if (item.dueAt == null) continue;
+      final date = _classroomCivilDate(item);
+      classroomCounts[date] = (classroomCounts[date] ?? 0) + 1;
+    }
+    final selectedClassroom = classroomItems
+        .where(
+          (item) =>
+              item.dueAt != null && _classroomCivilDate(item) == _selectedDate,
+        )
+        .toList(growable: false);
+    final classroomDueThisMonth = classroomItems.where((item) {
+      if (item.dueAt == null) return false;
+      final date = _classroomCivilDate(item);
+      return date.year == _visibleMonth.year &&
+          date.month == _visibleMonth.month;
+    }).length;
+    final classroomOverdue = classroomItems
+        .where((item) => item.statusLabel == 'Overdue')
+        .length;
 
     final content = _loading
         ? const Center(child: ProgressRing())
@@ -446,8 +489,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       completedDays: metrics.completedDays,
                       adherencePercent: metrics.adherencePercent,
                       planStreak: metrics.planStreak,
+                      classroomDue: classroomDueThisMonth,
+                      classroomOverdue: classroomOverdue,
                     ),
-                    if (metrics.plannedDays == 0) ...[
+                    if (metrics.plannedDays == 0 &&
+                        classroomDueThisMonth == 0) ...[
                       const SizedBox(height: AppSpacing.md),
                       InfoBar(
                         title: const Text('No training planned this month'),
@@ -455,6 +501,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           'Select a day to schedule practice or a rest day.',
                         ),
                         severity: InfoBarSeverity.info,
+                      ),
+                    ],
+                    if (activity?.assignmentsError != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      InfoBar(
+                        title: const Text(
+                          'Classroom work could not be refreshed.',
+                        ),
+                        content: const Text(
+                          'Your practice planner is still available.',
+                        ),
+                        severity: InfoBarSeverity.warning,
+                        action: Button(
+                          onPressed: activity!.retry,
+                          child: const Text('Retry'),
+                        ),
                       ),
                     ],
                     const SizedBox(height: AppSpacing.lg),
@@ -470,6 +532,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           selectedDate: _selectedDate,
                           todayDate: _todayCivil,
                           snapshotsByDate: _byDate,
+                          classroomCountsByDate: classroomCounts,
                           onDateSelected: _onDateSelected,
                         );
                         final panel = SelectedDayPanel(
@@ -491,6 +554,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               view: TrainingView.history,
                               date: formatCalendarQueryDate(_selectedDate),
                             ),
+                          ),
+                          classroomItems: selectedClassroom,
+                          onOpenClassroomAssignment: (item) => context.push(
+                            AppRoutePaths.assignmentDetail(item.assignment.id),
                           ),
                         );
 

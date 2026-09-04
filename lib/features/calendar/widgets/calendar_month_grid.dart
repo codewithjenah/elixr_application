@@ -15,6 +15,7 @@ class CalendarMonthGrid extends StatelessWidget {
     required this.selectedDate,
     required this.todayDate,
     required this.snapshotsByDate,
+    this.classroomCountsByDate = const {},
     required this.onDateSelected,
   });
 
@@ -23,6 +24,7 @@ class CalendarMonthGrid extends StatelessWidget {
   final DateTime selectedDate;
   final DateTime todayDate;
   final Map<DateTime, TrainingDaySnapshot> snapshotsByDate;
+  final Map<DateTime, int> classroomCountsByDate;
   final ValueChanged<DateTime> onDateSelected;
 
   static const _weekdayLabels = [
@@ -76,6 +78,8 @@ class CalendarMonthGrid extends StatelessWidget {
                         child: CalendarDayCell(
                           date: dates[week * 7 + dow],
                           snapshot: snapshotsByDate[dates[week * 7 + dow]],
+                          classroomCount:
+                              classroomCountsByDate[dates[week * 7 + dow]] ?? 0,
                           isOutsideMonth:
                               dates[week * 7 + dow].month != visibleMonth.month,
                           isSelected: dates[week * 7 + dow] == selectedDate,
