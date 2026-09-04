@@ -26,6 +26,7 @@ class FirebaseClassroomAnnouncementRepository
   Stream<ClassroomAnnouncementPage> watchAnnouncements({
     required String groupId,
     int pageSize = ClassroomAnnouncementRepository.defaultPageSize,
+    bool includeUnpublished = false,
   }) {
     _validatePageSize(pageSize);
     final query = _announcements(groupId)
@@ -106,6 +107,7 @@ class FirebaseClassroomAnnouncementRepository
     required String groupId,
     required ClassroomAnnouncementCursor startAfter,
     int pageSize = ClassroomAnnouncementRepository.defaultPageSize,
+    bool includeUnpublished = false,
   }) async {
     _validatePageSize(pageSize);
     if (startAfter is! _FirestoreAnnouncementCursor) {
@@ -151,10 +153,12 @@ class FirebaseClassroomAnnouncementRepository
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   }) async {
     final trimmedTitle = _validatedTitle(title);
     final trimmedBody = _validatedBody(body);
     final ref = _announcements(groupId).doc();
+    final publication = _validatePublishAt(publishAt);
     await ref.set({
       'group_id': groupId,
       'teacher_id': teacherId,
@@ -162,6 +166,7 @@ class FirebaseClassroomAnnouncementRepository
       'body': trimmedBody,
       'created_at': FieldValue.serverTimestamp(),
       'edited_at': null,
+      if (publication != null) 'publish_at': Timestamp.fromDate(publication),
       'schema_version': ClassroomAnnouncement.currentSchemaVersion,
     });
     return ClassroomAnnouncement(
@@ -171,6 +176,7 @@ class FirebaseClassroomAnnouncementRepository
       title: trimmedTitle,
       body: trimmedBody,
       createdAt: DateTime.now().toUtc(),
+      publishAt: publication,
     );
   }
 
@@ -181,13 +187,18 @@ class FirebaseClassroomAnnouncementRepository
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   }) async {
     final trimmedTitle = _validatedTitle(title);
     final trimmedBody = _validatedBody(body);
+    final publication = _validatePublishAt(publishAt);
     await _announcements(groupId).doc(announcementId).update({
       'title': trimmedTitle,
       'body': trimmedBody,
       'edited_at': FieldValue.serverTimestamp(),
+      'publish_at': publication == null
+          ? FieldValue.delete()
+          : Timestamp.fromDate(publication),
     });
   }
 
@@ -241,6 +252,10 @@ class FirebaseClassroomAnnouncementRepository
       if (!target.exists || target.data()?['teacher_id'] != teacherId) {
         throw StateError('Announcement is not available.');
       }
+      final publishAt = _readDateTime(target.data()?['publish_at']);
+      if (publishAt != null && DateTime.now().toUtc().isBefore(publishAt)) {
+        throw StateError('A scheduled announcement cannot be pinned.');
+      }
       transaction.update(groupRef, {
         'pinned_announcement_id': normalized,
         'pinned_announcement_at': FieldValue.serverTimestamp(),
@@ -289,6 +304,15 @@ class FirebaseClassroomAnnouncementRepository
     final error = ClassroomAnnouncement.validateBody(value);
     if (error != null) throw ArgumentError(error);
     return value.trim();
+  }
+
+  static DateTime? _validatePublishAt(DateTime? value) {
+    if (value == null) return null;
+    final at = value.toUtc();
+    if (!at.isAfter(DateTime.now().toUtc())) {
+      throw ArgumentError('Publication time must be in the future.');
+    }
+    return at;
   }
 }
 

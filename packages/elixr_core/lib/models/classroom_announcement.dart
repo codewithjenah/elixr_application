@@ -15,6 +15,7 @@ class ClassroomAnnouncement {
     required this.body,
     this.createdAt,
     this.editedAt,
+    this.publishAt,
     this.isPinned = false,
     this.pinnedAt,
     this.schemaVersion = currentSchemaVersion,
@@ -27,16 +28,24 @@ class ClassroomAnnouncement {
   final String body;
   final DateTime? createdAt;
   final DateTime? editedAt;
+
+  /// Null is a legacy/immediate publication. A future value is Teacher-only.
+  final DateTime? publishAt;
   final bool isPinned;
   final DateTime? pinnedAt;
   final int schemaVersion;
 
   bool get isEdited => editedAt != null;
+  bool get isScheduled => publishAt != null;
+  bool isPublishedAt(DateTime instant) =>
+      publishAt == null || !instant.toUtc().isBefore(publishAt!.toUtc());
 
   ClassroomAnnouncement copyWith({
     String? title,
     String? body,
     DateTime? editedAt,
+    DateTime? publishAt,
+    bool clearPublishAt = false,
     bool? isPinned,
     DateTime? pinnedAt,
     bool clearPinnedAt = false,
@@ -48,6 +57,7 @@ class ClassroomAnnouncement {
     body: body ?? this.body,
     createdAt: createdAt,
     editedAt: editedAt ?? this.editedAt,
+    publishAt: clearPublishAt ? null : (publishAt ?? this.publishAt),
     isPinned: isPinned ?? this.isPinned,
     pinnedAt: clearPinnedAt ? null : pinnedAt ?? this.pinnedAt,
     schemaVersion: schemaVersion,
@@ -97,6 +107,7 @@ class ClassroomAnnouncement {
       body: body,
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
       editedAt: TeacherRosterInvite.readDateTime(map['edited_at']),
+      publishAt: TeacherRosterInvite.readDateTime(map['publish_at']),
       schemaVersion: _readInt(map['schema_version']) ?? currentSchemaVersion,
     );
   }

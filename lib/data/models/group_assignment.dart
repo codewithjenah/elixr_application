@@ -9,6 +9,11 @@ import 'teacher_activity_assessment.dart';
 import 'training_prop.dart';
 
 enum GroupAssignmentStatus {
+  /// Unpublished work visible only to its owner.
+  draft,
+
+  /// Unpublished work which becomes available when [publishAt] is reached.
+  scheduled,
   active,
   archived,
   deleting;
@@ -184,6 +189,7 @@ class GroupAssignment {
     this.gradingLocked = false,
     this.gradingLockedAt,
     this.dueAt,
+    this.publishAt,
     this.createdAt,
     this.updatedAt,
     this.audience = const AssignmentAudience.entireClass(),
@@ -227,11 +233,23 @@ class GroupAssignment {
   final bool gradingLocked;
   final DateTime? gradingLockedAt;
   final DateTime? dueAt;
+
+  /// Canonical publication time.  Legacy active records omit it and are
+  /// already published; drafts omit it; scheduled records must provide it.
+  final DateTime? publishAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final AssignmentAudience audience;
 
-  bool get isActive => status == GroupAssignmentStatus.active;
+  /// Client-side availability is presentation only; Firestore rules and
+  /// Functions independently gate scheduled work with server time.
+  bool get isActive => isPublishedAt(DateTime.now().toUtc());
+  bool get isDraft => status == GroupAssignmentStatus.draft;
+  bool get isScheduled => status == GroupAssignmentStatus.scheduled;
+  bool get isPublished => isActive;
+  bool isPublishedAt(DateTime instant) =>
+      status == GroupAssignmentStatus.active ||
+      (isScheduled && !instant.toUtc().isBefore(publishAt!.toUtc()));
   bool get isOfficial => origin == MovementOrigin.officialElixr;
   bool get isTeacherCreated => origin == MovementOrigin.teacherCreated;
   bool get isRetiredTemplate => assessmentMode == AssessmentMode.templateScored;
@@ -253,10 +271,12 @@ class GroupAssignment {
     bool? gradingLocked,
     DateTime? gradingLockedAt,
     DateTime? dueAt,
+    DateTime? publishAt,
     String? topic,
     bool clearTopic = false,
     bool clearGradingLockedAt = false,
     bool clearDueAt = false,
+    bool clearPublishAt = false,
     AssignmentAudience? audience,
   }) {
     return GroupAssignment(
@@ -287,6 +307,7 @@ class GroupAssignment {
           ? null
           : (gradingLockedAt ?? this.gradingLockedAt),
       dueAt: clearDueAt ? null : (dueAt ?? this.dueAt),
+      publishAt: clearPublishAt ? null : (publishAt ?? this.publishAt),
       createdAt: createdAt,
       updatedAt: updatedAt,
       audience: audience ?? this.audience,
@@ -334,6 +355,20 @@ class GroupAssignment {
         displayTitle == null ||
         teacherDisplayName == null ||
         groupName == null) {
+      return null;
+    }
+
+    final publishAt = TeacherRosterInvite.readDateTime(map['publish_at']);
+    // A single lifecycle value prevents impossible Draft+Published states.
+    // Existing records without publication metadata retain their active/archive
+    // behavior. Scheduled assignments require a future publication instant;
+    // exact future validation belongs to the trusted write path.
+    if ((status == GroupAssignmentStatus.scheduled && publishAt == null) ||
+        (status != GroupAssignmentStatus.scheduled && publishAt != null)) {
+      return null;
+    }
+    final dueAt = TeacherRosterInvite.readDateTime(map['due_at']);
+    if (publishAt != null && dueAt != null && !dueAt.isAfter(publishAt)) {
       return null;
     }
 
@@ -484,7 +519,8 @@ class GroupAssignment {
       activityAssessment: activityAssessment,
       gradingLocked: gradingLocked,
       gradingLockedAt: gradingLockedAt,
-      dueAt: TeacherRosterInvite.readDateTime(map['due_at']),
+      dueAt: dueAt,
+      publishAt: publishAt,
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
       updatedAt: TeacherRosterInvite.readDateTime(map['updated_at']),
       audience: audience,
@@ -516,3 +552,11 @@ class GroupAssignment {
     return value;
   }
 }
+
+/// The only deadline fallback used for a trainee. Override documents are
+/// private, assignment-scoped projections and are never embedded in the
+/// trainee-readable assignment document.
+DateTime? effectiveAssignmentDueAt(
+  GroupAssignment assignment, {
+  DateTime? traineeOverride,
+}) => traineeOverride?.toUtc() ?? assignment.dueAt?.toUtc();

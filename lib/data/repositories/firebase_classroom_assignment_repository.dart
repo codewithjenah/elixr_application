@@ -225,6 +225,79 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<void> restoreAssignment({
+    required String teacherId,
+    required String assignmentId,
+  }) => _transitionPublication(
+    teacherId: teacherId,
+    assignmentId: assignmentId,
+    allowed: {GroupAssignmentStatus.archived},
+    status: GroupAssignmentStatus.active,
+  );
+
+  @override
+  Future<void> publishAssignmentNow({
+    required String teacherId,
+    required String assignmentId,
+  }) => _transitionPublication(
+    teacherId: teacherId,
+    assignmentId: assignmentId,
+    allowed: {GroupAssignmentStatus.draft, GroupAssignmentStatus.scheduled},
+    status: GroupAssignmentStatus.active,
+  );
+
+  @override
+  Future<void> scheduleAssignmentPublication({
+    required String teacherId,
+    required String assignmentId,
+    required DateTime publishAt,
+  }) async {
+    final at = publishAt.toUtc();
+    if (!at.isAfter(DateTime.now().toUtc())) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final current = await getAssignment(assignmentId: assignmentId);
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (current.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if ((!current.isDraft && !current.isScheduled) ||
+        (current.dueAt != null && !current.dueAt!.toUtc().isAfter(at))) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _assignments.doc(assignmentId).update({
+      'status': GroupAssignmentStatus.scheduled.name,
+      'publish_at': Timestamp.fromDate(at),
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _transitionPublication({
+    required String teacherId,
+    required String assignmentId,
+    required Set<GroupAssignmentStatus> allowed,
+    required GroupAssignmentStatus status,
+  }) async {
+    final current = await getAssignment(assignmentId: assignmentId);
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (current.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!allowed.contains(current.status)) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _assignments.doc(assignmentId).update({
+      'status': status.name,
+      'publish_at': FieldValue.delete(),
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
   Future<GroupAssignment> updateAssignmentSettings({
     required String teacherId,
     required String assignmentId,

@@ -50,6 +50,22 @@ abstract class ClassroomAssignmentRepository {
     required String assignmentId,
   });
 
+  Future<void> restoreAssignment({
+    required String teacherId,
+    required String assignmentId,
+  });
+
+  Future<void> publishAssignmentNow({
+    required String teacherId,
+    required String assignmentId,
+  });
+
+  Future<void> scheduleAssignmentPublication({
+    required String teacherId,
+    required String assignmentId,
+    required DateTime publishAt,
+  });
+
   /// Updates the fields a teacher may safely change after publishing.
   ///
   /// Teacher-created assignments can also change their maximum score until a

@@ -277,6 +277,76 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
+  Future<void> restoreAssignment({
+    required String teacherId,
+    required String assignmentId,
+  }) async {
+    final existing = assignments[assignmentId];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (existing.status != GroupAssignmentStatus.archived) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    assignments[assignmentId] = existing.copyWith(
+      status: GroupAssignmentStatus.active,
+      clearPublishAt: true,
+    );
+    _emitTeacher(teacherId);
+  }
+
+  @override
+  Future<void> publishAssignmentNow({
+    required String teacherId,
+    required String assignmentId,
+  }) async {
+    final existing = assignments[assignmentId];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!existing.isDraft && !existing.isScheduled) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    assignments[assignmentId] = existing.copyWith(
+      status: GroupAssignmentStatus.active,
+      clearPublishAt: true,
+    );
+    _emitTeacher(teacherId);
+  }
+
+  @override
+  Future<void> scheduleAssignmentPublication({
+    required String teacherId,
+    required String assignmentId,
+    required DateTime publishAt,
+  }) async {
+    final existing = assignments[assignmentId];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final time = publishAt.toUtc();
+    if ((!existing.isDraft && !existing.isScheduled) ||
+        !time.isAfter(now) ||
+        (existing.dueAt != null && !existing.dueAt!.toUtc().isAfter(time))) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    assignments[assignmentId] = existing.copyWith(
+      status: GroupAssignmentStatus.scheduled,
+      publishAt: time,
+    );
+    _emitTeacher(teacherId);
+  }
+
+  @override
   Future<GroupAssignment> updateAssignmentSettings({
     required String teacherId,
     required String assignmentId,
@@ -464,6 +534,7 @@ class InMemoryClassroomAssignmentRepository
         .where(
           (assignment) =>
               assignment.isAvailableToTrainee(traineeId) &&
+              assignment.isPublishedAt(now) &&
               (groupId == null || assignment.groupId == groupId),
         )
         .toList();

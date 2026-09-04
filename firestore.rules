@@ -2802,7 +2802,7 @@ service cloud.firestore {
     function announcementKeys() {
       return [
         'group_id', 'teacher_id', 'title', 'body', 'created_at', 'edited_at',
-        'schema_version'
+        'schema_version', 'publish_at'
       ];
     }
 
@@ -2844,6 +2844,7 @@ service cloud.firestore {
         && validAnnouncementText(data.body, 2000)
         && data.created_at == request.time
         && data.edited_at == null
+        && (!data.keys().hasAny(['publish_at']) || data.publish_at is timestamp)
         && data.schema_version == 1;
     }
 
@@ -2854,7 +2855,7 @@ service cloud.firestore {
         && get(groupPath(groupId)).data.status == 'active'
         && after.keys().hasOnly(announcementKeys())
         && after.diff(before).affectedKeys().hasOnly([
-          'title', 'body', 'edited_at'
+          'title', 'body', 'edited_at', 'publish_at'
         ])
         && after.group_id == before.group_id
         && after.teacher_id == before.teacher_id
@@ -2884,7 +2885,9 @@ service cloud.firestore {
       allow get, list: if isSignedIn()
         && (
           isAnnouncementOwner(groupId)
-          || isApprovedAnnouncementMember(groupId)
+          || (isApprovedAnnouncementMember(groupId)
+            && (!resource.data.keys().hasAny(['publish_at'])
+              || request.time >= resource.data.publish_at))
         );
       allow create: if validAnnouncementCreate(request.resource.data, groupId);
       allow update: if validAnnouncementUpdate(groupId);
@@ -3282,7 +3285,7 @@ service cloud.firestore {
         'official_movement_name', 'display_instructions',
         'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
         'grading_locked', 'grading_locked_at', 'audience_type', 'topic',
-        'configuration_revision', 'activity_assessment', 'attempt_policy', 'deletion_state',
+        'configuration_revision', 'activity_assessment', 'attempt_policy', 'deletion_state', 'publish_at',
       ]);
     }
     function teacherCreatedAssignmentAllowedKeys() {
@@ -3290,7 +3293,7 @@ service cloud.firestore {
         'display_instructions', 'display_safety_guidance', 'allowed_prop',
         'due_at', 'max_score', 'grading_locked', 'audience_type', 'topic',
         'configuration_revision', 'activity_assessment', 'attempt_policy',
-        'deletion_state'
+        'deletion_state', 'publish_at'
       ]);
     }
     function isLegacyEntireClassAssignment(data) {

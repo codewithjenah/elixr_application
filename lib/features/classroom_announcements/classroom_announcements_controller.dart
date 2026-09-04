@@ -41,7 +41,7 @@ class ClassroomAnnouncementsController extends ChangeNotifier {
     await _subscription?.cancel();
     final first = Completer<void>();
     _subscription = repository
-        .watchAnnouncements(groupId: groupId)
+        .watchAnnouncements(groupId: groupId, includeUnpublished: canManage)
         .listen(
           (page) {
             if (_disposed) return;
@@ -81,6 +81,7 @@ class ClassroomAnnouncementsController extends ChangeNotifier {
       final page = await repository.fetchOlderAnnouncements(
         groupId: groupId,
         startAfter: cursor,
+        includeUnpublished: canManage,
       );
       if (_disposed) return;
       _appendOlderPage(page);

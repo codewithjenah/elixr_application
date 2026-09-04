@@ -38,6 +38,7 @@ class InMemoryClassroomAnnouncementRepository
   Stream<ClassroomAnnouncementPage> watchAnnouncements({
     required String groupId,
     int pageSize = ClassroomAnnouncementRepository.defaultPageSize,
+    bool includeUnpublished = false,
   }) {
     _validatePageSize(pageSize);
     final stream = _streams.putIfAbsent(
@@ -45,9 +46,9 @@ class InMemoryClassroomAnnouncementRepository
       () => StreamController<List<ClassroomAnnouncement>>.broadcast(),
     );
     return Stream.multi((controller) {
-      controller.add(_pageFor(groupId, pageSize));
+      controller.add(_pageFor(groupId, pageSize, includeUnpublished));
       final subscription = stream.stream.listen(
-        (_) => controller.add(_pageFor(groupId, pageSize)),
+        (_) => controller.add(_pageFor(groupId, pageSize, includeUnpublished)),
         onError: controller.addError,
       );
       controller.onCancel = subscription.cancel;
@@ -59,12 +60,13 @@ class InMemoryClassroomAnnouncementRepository
     required String groupId,
     required ClassroomAnnouncementCursor startAfter,
     int pageSize = ClassroomAnnouncementRepository.defaultPageSize,
+    bool includeUnpublished = false,
   }) async {
     _validatePageSize(pageSize);
     if (startAfter is! _InMemoryAnnouncementCursor) {
       throw ArgumentError('Cursor belongs to another repository.');
     }
-    final all = _itemsFor(groupId);
+    final all = _itemsFor(groupId, includeUnpublished: includeUnpublished);
     final start = all.indexWhere((item) => item.id == startAfter.id);
     if (start < 0) {
       return const ClassroomAnnouncementPage(items: [], hasMore: false);
@@ -86,6 +88,7 @@ class InMemoryClassroomAnnouncementRepository
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   }) async {
     final item = ClassroomAnnouncement(
       id: _generateId(),
@@ -94,6 +97,7 @@ class InMemoryClassroomAnnouncementRepository
       title: _validatedTitle(title),
       body: _validatedBody(body),
       createdAt: now,
+      publishAt: _validatePublishAt(publishAt),
     );
     announcements[item.id] = item;
     _emit(groupId);
@@ -107,6 +111,7 @@ class InMemoryClassroomAnnouncementRepository
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   }) async {
     final existing = announcements[announcementId];
     if (existing == null ||
@@ -118,6 +123,8 @@ class InMemoryClassroomAnnouncementRepository
       title: _validatedTitle(title),
       body: _validatedBody(body),
       editedAt: now,
+      publishAt: _validatePublishAt(publishAt),
+      clearPublishAt: publishAt == null,
     );
     _emit(groupId);
   }
@@ -159,13 +166,20 @@ class InMemoryClassroomAnnouncementRepository
         target.teacherId != teacherId) {
       throw StateError('Announcement is not available.');
     }
+    if (!target.isPublishedAt(now)) {
+      throw StateError('A scheduled announcement cannot be pinned.');
+    }
     pinnedAnnouncementIds[groupId] = normalized;
     announcements[normalized] = target.copyWith(isPinned: true, pinnedAt: now);
     _emit(groupId);
   }
 
-  ClassroomAnnouncementPage _pageFor(String groupId, int pageSize) {
-    final all = _itemsFor(groupId);
+  ClassroomAnnouncementPage _pageFor(
+    String groupId,
+    int pageSize,
+    bool includeUnpublished,
+  ) {
+    final all = _itemsFor(groupId, includeUnpublished: includeUnpublished);
     final items = all.take(pageSize).toList(growable: false);
     return ClassroomAnnouncementPage(
       items: items,
@@ -176,10 +190,17 @@ class InMemoryClassroomAnnouncementRepository
     );
   }
 
-  List<ClassroomAnnouncement> _itemsFor(String groupId) {
+  List<ClassroomAnnouncement> _itemsFor(
+    String groupId, {
+    bool includeUnpublished = false,
+  }) {
     final pinnedId = pinnedAnnouncementIds[groupId];
     final items = announcements.values
-        .where((item) => item.groupId == groupId)
+        .where(
+          (item) =>
+              item.groupId == groupId &&
+              (includeUnpublished || item.isPublishedAt(now)),
+        )
         .map(
           (item) => item.copyWith(
             isPinned: item.id == pinnedId,
@@ -215,6 +236,15 @@ class InMemoryClassroomAnnouncementRepository
     final error = ClassroomAnnouncement.validateBody(value);
     if (error != null) throw ArgumentError(error);
     return value.trim();
+  }
+
+  DateTime? _validatePublishAt(DateTime? value) {
+    if (value == null) return null;
+    final at = value.toUtc();
+    if (!at.isAfter(now)) {
+      throw ArgumentError('Publication time must be in the future.');
+    }
+    return at;
   }
 }
 

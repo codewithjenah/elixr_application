@@ -83,6 +83,15 @@ function isActiveChatProfile(data) {
     data.lifecycle_state !== 'deleting';
 }
 
+// Scheduled assignments are intentionally time-gated rather than requiring a
+// client timer or an external scheduler. All authorization-sensitive callers
+// use this server-clock predicate.
+function assignmentIsPublished(assignment, now = Timestamp.now()) {
+  return assignment.status === 'active' ||
+    (assignment.status === 'scheduled' && assignment.publish_at &&
+      now.toMillis() >= assignment.publish_at.toMillis());
+}
+
 function archivedConversationId(conversationId, activeIds) {
   const archiveHash = createHash('sha256')
     .update(`${conversationId}|${[...activeIds].sort().join('|')}`)
@@ -521,7 +530,7 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
       const assignment = assignmentSnapshot.data();
       if (!userSnapshot.exists || userSnapshot.get('role') !== 'Trainee' ||
           userSnapshot.get('lifecycle_state') === 'deleting' ||
-          assignment.status !== 'active' || assignment.deletion_state === 'deleting' ||
+          !assignmentIsPublished(assignment) || assignment.deletion_state === 'deleting' ||
           !validActivityAssessment(assignment.activity_assessment, assignment.max_score)) {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
@@ -628,7 +637,7 @@ async function consumeTeacherActivityAttemptHandler(request, response, {
       if (attemptSnapshot.get('recording_started_at')) return;
       const assignment = assignmentSnapshot.data();
       const attempt = attemptSnapshot.data();
-      if (assignment.status !== 'active' || assignment.deletion_state === 'deleting' ||
+      if (!assignmentIsPublished(assignment) || assignment.deletion_state === 'deleting' ||
           stateSnapshot.get('graded') === true || assignment.grading_locked === true ||
           !validActivityAssessment(assignment.activity_assessment, assignment.max_score)) {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
@@ -1098,6 +1107,9 @@ async function listTraineeAssignmentsHandler(
       .filter((document) => {
         const data = document.data();
         return teacherByGroupId.get(data.group_id) === data.teacher_id &&
+          (data.status === 'active' ||
+            (data.status === 'scheduled' && data.publish_at &&
+              Timestamp.now().toMillis() >= data.publish_at.toMillis())) &&
           (assignmentAudienceAllows(data, uid, null, document.id) ||
             targetedIds.has(document.id));
       })

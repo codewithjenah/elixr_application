@@ -22,12 +22,14 @@ abstract class ClassroomAnnouncementRepository {
   Stream<ClassroomAnnouncementPage> watchAnnouncements({
     required String groupId,
     int pageSize = defaultPageSize,
+    bool includeUnpublished = false,
   });
 
   Future<ClassroomAnnouncementPage> fetchOlderAnnouncements({
     required String groupId,
     required ClassroomAnnouncementCursor startAfter,
     int pageSize = defaultPageSize,
+    bool includeUnpublished = false,
   });
 
   Future<ClassroomAnnouncement> createAnnouncement({
@@ -35,6 +37,7 @@ abstract class ClassroomAnnouncementRepository {
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   });
 
   Future<void> updateAnnouncement({
@@ -43,6 +46,7 @@ abstract class ClassroomAnnouncementRepository {
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   });
 
   Future<void> deleteAnnouncement({
