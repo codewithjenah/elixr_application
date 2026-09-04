@@ -25,12 +25,11 @@ GroupAssignment _assignment({
   dueAt: dueAt,
 );
 
-ElixrGroup _group(String id, String name) => ElixrGroup(
-  id: id,
-  teacherId: 'teacher-1',
-  name: name,
-  status: ElixrGroupStatus.active,
-);
+ElixrGroup _group(
+  String id,
+  String name, {
+  ElixrGroupStatus status = ElixrGroupStatus.active,
+}) => ElixrGroup(id: id, teacherId: 'teacher-1', name: name, status: status);
 
 void main() {
   test('aggregates deadlines from authorized classrooms and filters a day', () {
@@ -58,7 +57,7 @@ void main() {
     );
   });
 
-  test('does not expose deadlines outside the authorized classrooms', () {
+  test('only active authorized classrooms contribute deadlines', () {
     final events = teacherCalendarEvents(
       assignments: [
         _assignment(
@@ -71,8 +70,20 @@ void main() {
           groupId: 'hidden',
           dueAt: DateTime.utc(2026, 9, 5),
         ),
+        _assignment(
+          id: 'archived',
+          groupId: 'archived',
+          dueAt: DateTime.utc(2026, 9, 5),
+        ),
       ],
-      authorizedGroups: [_group('allowed', 'Owned classroom')],
+      authorizedGroups: [
+        _group('allowed', 'Owned classroom'),
+        _group(
+          'archived',
+          'Archived classroom',
+          status: ElixrGroupStatus.archived,
+        ),
+      ],
       now: DateTime.utc(2026, 9, 1),
     );
 

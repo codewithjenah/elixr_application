@@ -23,9 +23,9 @@ import '../../calendar/widgets/calendar_header.dart';
 import 'teacher_calendar_models.dart';
 
 typedef TeacherCalendarAssignmentsLoader =
-    Stream<List<GroupAssignment>> Function(String teacherId);
+    Stream<List<GroupAssignment>> Function({required String teacherId});
 typedef TeacherCalendarGroupsLoader =
-    Stream<List<ElixrGroup>> Function(String teacherId);
+    Stream<List<ElixrGroup>> Function({required String teacherId});
 
 class TeacherCalendarScreen extends StatefulWidget {
   const TeacherCalendarScreen({
@@ -96,14 +96,14 @@ class _TeacherCalendarScreenState extends State<TeacherCalendarScreen> {
       _groupsReady = false;
       _error = null;
     });
-    _assignmentsSub = assignments(teacherId).listen((value) {
+    _assignmentsSub = assignments(teacherId: teacherId).listen((value) {
       if (!mounted) return;
       setState(() {
         _assignments = List.unmodifiable(value);
         _assignmentsReady = true;
       });
     }, onError: (_, _) => _setError('Could not load classroom deadlines.'));
-    _groupsSub = groups(teacherId).listen((value) {
+    _groupsSub = groups(teacherId: teacherId).listen((value) {
       if (!mounted) return;
       setState(() {
         _groups = List.unmodifiable(value);

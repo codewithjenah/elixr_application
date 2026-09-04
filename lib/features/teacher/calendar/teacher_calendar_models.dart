@@ -28,7 +28,8 @@ List<TeacherCalendarEvent> teacherCalendarEvents({
   required DateTime now,
 }) {
   final namesByGroupId = {
-    for (final group in authorizedGroups) group.id: group.name,
+    for (final group in authorizedGroups)
+      if (group.isActive) group.id: group.name,
   };
   final todayKey = ManilaDay.dayKeyFor(now.toUtc());
   final events = <TeacherCalendarEvent>[];
