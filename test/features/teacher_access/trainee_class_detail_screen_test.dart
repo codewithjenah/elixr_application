@@ -9,6 +9,7 @@ import 'package:elixr_application/data/repositories/classroom_assignment_reposit
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher_access/trainee_class_detail_controller.dart';
 import 'package:elixr_application/features/teacher_access/trainee_class_detail_screen.dart';
+import 'package:elixr_application/features/assigned_movements/assigned_movement_list.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_controller.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_screen.dart';
 import 'package:elixr_core/elixr_core.dart';
@@ -256,6 +257,15 @@ void main() {
       );
       controller.setTab(TraineeClassDetailTab.classwork);
       await tester.pump();
+
+      final action = tester.getRect(
+        find.byKey(const Key('teacher_access_class_view_your_work')),
+      );
+      final classworkContent = tester.getRect(
+        find.byType(ClassroomTopicContent),
+      );
+      expect(action.left, classworkContent.left);
+      expect(action.right, lessThan(tester.view.physicalSize.width));
 
       await tester.tap(
         find.byKey(const Key('teacher_access_class_view_your_work')),

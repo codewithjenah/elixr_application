@@ -323,23 +323,26 @@ class _ClassworkPane extends StatelessWidget {
         ),
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: Button(
-            key: const Key('teacher_access_class_view_your_work'),
-            onPressed: () => context.push(
-              AppRoutePaths.teacherAccessClassWork(controller.groupId),
-              extra: true,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 860),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Button(
+              key: const Key('teacher_access_class_view_your_work'),
+              onPressed: () => context.push(
+                AppRoutePaths.teacherAccessClassWork(controller.groupId),
+                extra: true,
+              ),
+              child: const Text('View your work'),
             ),
-            child: const Text('View your work'),
           ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        ClassroomTopicContent(items: assignments.items, showGroupName: false),
-      ],
+          const SizedBox(height: AppSpacing.md),
+          ClassroomTopicContent(items: assignments.items, showGroupName: false),
+        ],
+      ),
     );
   }
 }
