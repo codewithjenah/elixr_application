@@ -11,6 +11,14 @@ import '../classwork/teacher_gradebook.dart';
 
 /// Pure CSV serialization for teacher-owned data already loaded by the UI.
 abstract final class TeacherCsvExport {
+  /// Standards-compatible UTF-8 CSV with a BOM for Windows Excel.
+  static String rows({
+    required List<String> headers,
+    required Iterable<List<String>> rows,
+  }) => _csv([
+    headers.map(_text).toList(),
+    for (final row in rows) row.map(_text).toList(),
+  ]);
   static String gradebook({
     required Iterable<GroupMembership> students,
     required Iterable<GroupAssignment> assignments,
@@ -197,12 +205,14 @@ abstract final class TeacherCsvExport {
     return value;
   }
 
-  static String safeFilenamePart(String value) {
+  static String safeFilenamePart(String value, {String fallback = 'Export'}) {
     final cleaned = value
         .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
         .replaceAll(RegExp(r'[. ]+$'), '')
         .trim();
-    return cleaned.isEmpty ? 'Export' : cleaned;
+    return cleaned.isEmpty
+        ? fallback
+        : cleaned.substring(0, cleaned.length > 80 ? 80 : cleaned.length);
   }
 }
 

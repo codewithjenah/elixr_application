@@ -4,13 +4,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_review_state.dart';
 import '../../../data/models/group_assignment.dart';
-import '../export/teacher_csv_export.dart';
+import '../export/teacher_gradebook_export.dart';
 import 'teacher_classwork_controller.dart';
 import 'teacher_gradebook.dart';
 
@@ -24,7 +23,7 @@ class TeacherGradebookPane extends StatefulWidget {
     required this.onOpenStudent,
     required this.onOpenAssignment,
     required this.onOpenCell,
-    this.csvFileSaver = const WindowsTeacherCsvFileSaver(),
+    this.fileSaver = const WindowsTeacherGradebookFileSaver(),
   });
 
   final TeacherClassworkController controller;
@@ -32,7 +31,7 @@ class TeacherGradebookPane extends StatefulWidget {
   final ValueChanged<GroupMembership> onOpenStudent;
   final ValueChanged<GroupAssignment> onOpenAssignment;
   final void Function(GroupAssignment assignment, String traineeId) onOpenCell;
-  final TeacherCsvFileSaver csvFileSaver;
+  final TeacherGradebookFileSaver fileSaver;
 
   @override
   State<TeacherGradebookPane> createState() => _TeacherGradebookPaneState();
@@ -136,7 +135,7 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
               ],
             ),
             Tooltip(
-              message: 'Export the complete gradebook for this classwork scope',
+              message: 'Export the complete gradebook for this classroom',
               child: Button(
                 key: const Key('teacher_gradebook_export'),
                 onPressed:
@@ -144,15 +143,15 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
                         controller.loading ||
                         controller.unauthorized ||
                         controller.approvedMemberships.isEmpty ||
-                        assignments.isEmpty
+                        controller.assignments.isEmpty
                     ? null
-                    : () => _export(controller, assignments),
+                    : () => _chooseAndExport(controller),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(FluentIcons.download),
                     const SizedBox(width: AppSpacing.xs),
-                    Text(_exporting ? 'Exporting…' : 'Export CSV'),
+                    Text(_exporting ? 'Exporting…' : 'Export'),
                   ],
                 ),
               ),
@@ -196,12 +195,60 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
     );
   }
 
+  Future<void> _chooseAndExport(TeacherClassworkController controller) async {
+    var format = TeacherGradebookExportFormat.xlsx;
+    final selected = await showDialog<TeacherGradebookExportFormat>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => ContentDialog(
+          title: const Text('Export Gradebook'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Export the current classroom gradebook.'),
+              const SizedBox(height: AppSpacing.sm),
+              RadioButton(
+                checked: format == TeacherGradebookExportFormat.xlsx,
+                onChanged: (_) => setDialogState(
+                  () => format = TeacherGradebookExportFormat.xlsx,
+                ),
+                content: const Text('Excel (.xlsx)'),
+              ),
+              RadioButton(
+                checked: format == TeacherGradebookExportFormat.csv,
+                onChanged: (_) => setDialogState(
+                  () => format = TeacherGradebookExportFormat.csv,
+                ),
+                content: const Text('CSV (.csv)'),
+              ),
+            ],
+          ),
+          actions: [
+            Button(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            FilledButton(
+              child: const Text('Export'),
+              onPressed: () => Navigator.pop(context, format),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      await _export(controller, controller.assignments, selected);
+    }
+  }
+
   Future<void> _export(
     TeacherClassworkController controller,
     List<GroupAssignment> assignments,
+    TeacherGradebookExportFormat format,
   ) async {
     final now = controller.gradebookReferenceNow;
-    final csv = TeacherCsvExport.gradebook(
+    final rows = TeacherGradebookExportService.rows(
       students: controller.approvedMemberships,
       assignments: assignments,
       attemptFor: (assignmentId, traineeId) =>
@@ -212,22 +259,29 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
       attemptUnavailable: controller.hasAttemptLoadError,
       referenceNow: now,
     );
-    final className = TeacherCsvExport.safeFilenamePart(
-      controller.group?.name ?? 'Class',
+    final filename = TeacherGradebookExportService.filename(
+      className: controller.group?.name ?? 'Class',
+      now: now,
+      format: format,
     );
-    final filename =
-        'ELIXR_${className}_Gradebook_${ManilaDay.dayKeyFor(now)}.csv';
     setState(() {
       _exporting = true;
       _exportMessage = null;
     });
     try {
-      final path = await widget.csvFileSaver.save(
+      final bytes = format == TeacherGradebookExportFormat.csv
+          ? TeacherGradebookExportService.csvBytes(rows)
+          : TeacherGradebookExportService.xlsx(rows);
+      final path = await widget.fileSaver.save(
         suggestedName: filename,
-        csv: csv,
+        bytes: bytes,
+        format: format,
       );
       if (!mounted || path == null) return;
-      setState(() => _exportMessage = 'Saved $filename to $path');
+      setState(
+        () =>
+            _exportMessage = 'Gradebook exported successfully. Saved $filename',
+      );
     } on Object {
       if (!mounted) return;
       displayInfoBar(
