@@ -28,6 +28,7 @@ import '../../features/progress/progress_screen.dart';
 import '../../features/teacher/activity_center/teacher_activity_center_screen.dart';
 import '../../features/teacher/analytics/teacher_analytics_screen.dart';
 import '../../features/teacher/dashboard/teacher_dashboard_screen.dart';
+import '../../features/teacher/calendar/teacher_calendar_screen.dart';
 import '../../features/teacher/faculties/teacher_faculties_screen.dart';
 import '../../features/teacher/groups/teacher_group_detail_screen.dart';
 import '../../features/teacher/groups/teacher_groups_screen.dart';
@@ -384,6 +385,13 @@ class AppRouter {
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
                 child: const TeacherDashboardScreen(),
+              ),
+            ),
+            GoRoute(
+              path: AppRoutePaths.teacherCalendar,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const TeacherCalendarScreen(),
               ),
             ),
             GoRoute(

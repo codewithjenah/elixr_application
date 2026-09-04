@@ -38,6 +38,12 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.classroom,
   ),
   TeacherSidebarItem(
+    label: 'Calendar',
+    icon: FluentIcons.calendar,
+    route: AppRoutePaths.teacherCalendar,
+    group: TeacherSidebarGroup.classroom,
+  ),
+  TeacherSidebarItem(
     label: 'Classrooms',
     icon: FluentIcons.people,
     route: AppRoutePaths.teacherGroups,

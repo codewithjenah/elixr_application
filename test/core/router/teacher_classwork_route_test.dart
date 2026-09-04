@@ -32,14 +32,14 @@ void main() {
         .whereType<ShellRoute>()
         .toList(growable: false);
     final traineeShell = shellRoutes.singleWhere(
-      (shell) => shell.routes
-          .whereType<GoRoute>()
-          .any((route) => route.path == AppRoutePaths.dashboard),
+      (shell) => shell.routes.whereType<GoRoute>().any(
+        (route) => route.path == AppRoutePaths.dashboard,
+      ),
     );
     final teacherShell = shellRoutes.singleWhere(
-      (shell) => shell.routes
-          .whereType<GoRoute>()
-          .any((route) => route.path == AppRoutePaths.teacherDashboard),
+      (shell) => shell.routes.whereType<GoRoute>().any(
+        (route) => route.path == AppRoutePaths.teacherDashboard,
+      ),
     );
 
     expect(
@@ -49,6 +49,10 @@ void main() {
     expect(
       teacherShell.routes.whereType<GoRoute>().map((route) => route.path),
       contains(AppRoutePaths.teacherActivityCenter),
+    );
+    expect(
+      teacherShell.routes.whereType<GoRoute>().map((route) => route.path),
+      contains(AppRoutePaths.teacherCalendar),
     );
     expect(
       teacherShell.routes.whereType<GoRoute>().map((route) => route.path),

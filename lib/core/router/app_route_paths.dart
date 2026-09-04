@@ -38,6 +38,7 @@ abstract final class AppRoutePaths {
 
   // Teacher shell
   static const teacherDashboard = '/teacher/dashboard';
+  static const teacherCalendar = '/teacher/calendar';
   static const teacherGroups = '/teacher/groups';
   static const teacherFaculties = '/teacher/faculties';
   static const teacherStudents = '/teacher/students';
@@ -64,6 +65,7 @@ abstract final class AppRoutePaths {
 
   static const teacherShellRoutes = {
     teacherDashboard,
+    teacherCalendar,
     teacherGroups,
     teacherFaculties,
     teacherStudents,
