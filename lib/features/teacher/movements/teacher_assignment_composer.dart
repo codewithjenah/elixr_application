@@ -26,8 +26,10 @@ import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/models/teacher_reviewed_movement_spec.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
+import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import 'teacher_movement_builder_dialog.dart';
+import '../../activity_learning_materials/activity_learning_materials_panel.dart';
 
 const _teacherAssignmentContentMaxWidth = 1120.0;
 const _teacherAssignmentWideBreakpoint = 900.0;
@@ -256,6 +258,7 @@ Future<bool?> showTeacherAssignmentComposer(
   Movement? officialMovement,
   TeacherMovement? teacherCreatedMovement,
   Future<bool> Function()? ensureTeacherAuthorization,
+  ActivityLearningMaterialRepository? materialRepository,
 }) {
   final reduceMotion = MediaQuery.disableAnimationsOf(context);
   final service =
@@ -287,6 +290,7 @@ Future<bool?> showTeacherAssignmentComposer(
             lockedGroup: lockedGroup,
             officialMovement: officialMovement,
             teacherCreatedMovement: teacherCreatedMovement,
+            materialRepository: materialRepository,
           ),
       transitionsBuilder: (_, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
@@ -321,6 +325,7 @@ class TeacherAssignmentComposer extends StatefulWidget {
     this.lockedGroup,
     this.officialMovement,
     this.teacherCreatedMovement,
+    this.materialRepository,
   });
 
   final String teacherId;
@@ -332,6 +337,7 @@ class TeacherAssignmentComposer extends StatefulWidget {
   final ElixrGroup? lockedGroup;
   final Movement? officialMovement;
   final TeacherMovement? teacherCreatedMovement;
+  final ActivityLearningMaterialRepository? materialRepository;
 
   @override
   State<TeacherAssignmentComposer> createState() =>
@@ -1076,6 +1082,29 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ],
         ],
         if (!_isTeacherCreated || _hasValidTeacherMovement) ...[
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.education,
+            eyebrow: 'LEARNING MATERIALS',
+            title: 'Learning materials',
+            description: 'Optional supporting files or links for Trainees.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _ComposerField(
+            label: 'Attachments',
+            hint:
+                'Save this Activity first, then add PDFs, images, reference videos, or links through the secure uploader.',
+            child: Button(
+              key: const Key('teacher_assignment_add_material'),
+              onPressed: _submitting
+                  ? null
+                  : () => setState(
+                      () => _validationError =
+                          'Save the Activity first. You can add learning materials in the next step.',
+                    ),
+              child: const Text('Add material'),
+            ),
+          ),
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
             icon: FluentIcons.tag,
@@ -2089,7 +2118,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _validationError = null;
     });
     try {
-      await widget.creationService.create(
+      final created = await widget.creationService.create(
         group: group,
         audience: _audience,
         officialMovement: _selectedOfficialMovement,
@@ -2122,6 +2151,29 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             : null,
         topic: _topicController.text,
       );
+      if (pageContext.mounted && widget.materialRepository != null) {
+        await showDialog<void>(
+          context: pageContext,
+          builder: (dialogContext) => ContentDialog(
+            title: const Text('Learning materials'),
+            content: SizedBox(
+              width: 620,
+              child: SingleChildScrollView(
+                child: ActivityLearningMaterialsPanel(
+                  assignmentId: created.id,
+                  repository: widget.materialRepository!,
+                ),
+              ),
+            ),
+            actions: [
+              Button(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Done'),
+              ),
+            ],
+          ),
+        );
+      }
       if (pageContext.mounted) Navigator.pop(pageContext, true);
     } on ClassroomException catch (error) {
       if (!mounted) return;

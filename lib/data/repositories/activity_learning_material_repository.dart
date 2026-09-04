@@ -38,4 +38,9 @@ abstract class ActivityLearningMaterialRepository {
   /// Returns only materials the authenticated caller can access. File paths
   /// are consumed through authenticated Firebase Storage, never public URLs.
   Future<List<ActivityLearningMaterial>> list({required String assignmentId});
+
+  /// Downloads an authorized file material into ELIXR-managed cache storage.
+  /// Callers must never turn [ActivityLearningMaterial.storagePath] into a URL
+  /// or a local filename themselves.
+  Future<File> openFile(ActivityLearningMaterial material);
 }

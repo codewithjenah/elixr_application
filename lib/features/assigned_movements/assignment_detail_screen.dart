@@ -19,6 +19,7 @@ import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elixr_video_player.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
+import '../../data/repositories/activity_learning_material_repository.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/teacher_activity_assessment.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
@@ -28,6 +29,7 @@ import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import 'assigned_movement_list.dart';
 import 'assignment_detail_controller.dart';
+import '../activity_learning_materials/activity_learning_materials_panel.dart';
 import 'widgets/submission_detail_body.dart';
 
 class AssignmentDetailScreen extends StatefulWidget {
@@ -171,6 +173,7 @@ class _Body extends StatelessWidget {
               controller.teacherProfile?.displayName ??
               assignment.teacherDisplayName,
           movementRepository: _tryMovementRepository(context),
+          materialRepository: _tryMaterialRepository(context),
         );
         final work = _YourWork(
           controller: controller,
@@ -263,6 +266,7 @@ class _AssignmentHeader extends StatelessWidget {
     required this.assignment,
     required this.attempts,
     this.movementRepository,
+    this.materialRepository,
     this.teacherProfilePictureUrl,
     required this.teacherDisplayName,
   });
@@ -270,6 +274,7 @@ class _AssignmentHeader extends StatelessWidget {
   final GroupAssignment assignment;
   final List<AssignmentAttempt> attempts;
   final TeacherMovementRepository? movementRepository;
+  final ActivityLearningMaterialRepository? materialRepository;
   final String? teacherProfilePictureUrl;
   final String teacherDisplayName;
 
@@ -386,6 +391,11 @@ class _AssignmentHeader extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Text(assignment.displaySafetyGuidance!, style: AppTheme.body),
           ],
+          if (materialRepository != null)
+            ActivityLearningMaterialsTraineeSection(
+              assignmentId: assignment.id,
+              repository: materialRepository!,
+            ),
         ],
       ),
     );
@@ -395,6 +405,14 @@ class _AssignmentHeader extends StatelessWidget {
 TeacherMovementRepository? _tryMovementRepository(BuildContext context) {
   try {
     return context.read<TeacherMovementRepository>();
+  } on ProviderNotFoundException {
+    return null;
+  }
+}
+
+ActivityLearningMaterialRepository? _tryMaterialRepository(BuildContext context) {
+  try {
+    return context.read<ActivityLearningMaterialRepository>();
   } on ProviderNotFoundException {
     return null;
   }

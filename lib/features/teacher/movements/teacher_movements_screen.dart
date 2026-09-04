@@ -12,6 +12,7 @@ import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
+import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../movements/movements_presentation.dart';
 import '../../../services/auth_service.dart';
@@ -511,7 +512,16 @@ Future<void> _showAssignToClass(
     creationService: controller.assignmentCreationService,
     officialMovement: official,
     teacherCreatedMovement: custom,
+    materialRepository: _tryRead<ActivityLearningMaterialRepository>(context),
   );
+}
+
+T? _tryRead<T>(BuildContext context) {
+  try {
+    return context.read<T>();
+  } on ProviderNotFoundException {
+    return null;
+  }
 }
 
 class _TeacherMovementHoverCard extends StatefulWidget {

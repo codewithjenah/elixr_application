@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/activity_learning_material.dart';
 import '../models/classroom_exceptions.dart';
@@ -143,6 +144,81 @@ class FirebaseActivityLearningMaterialRepository
       materials.add(parsed);
     }
     return List.unmodifiable(materials);
+  }
+
+  @override
+  Future<File> openFile(ActivityLearningMaterial material) async {
+    if (material.type == ActivityLearningMaterialType.link ||
+        material.storagePath == null) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final directory = Directory(
+      '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}activity_learning_materials',
+    );
+    await directory.create(recursive: true);
+    await _clearStaleMaterialCache(directory);
+    final extension = switch (material.type) {
+      ActivityLearningMaterialType.pdf => 'pdf',
+      ActivityLearningMaterialType.image =>
+        material.detectedContentType == 'image/png' ? 'png' : 'jpg',
+      ActivityLearningMaterialType.video => 'mp4',
+      ActivityLearningMaterialType.link => throw StateError('unreachable'),
+    };
+    // Material IDs are server-generated identifiers. Still sanitize them so a
+    // malicious display name or storage path can never influence the cache.
+    final safeId = material.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}material_$safeId.$extension',
+    );
+    // A cache entry is never a read capability. Re-check the authenticated
+    // Storage object before returning it so removals and access revocations
+    // take effect even when ELIXR still has local bytes.
+    final reference = referenceFor(material);
+    if (await file.exists()) {
+      await reference.getMetadata();
+      final age = DateTime.now().difference(await file.lastModified());
+      final sizeMatches =
+          material.sizeBytes == null ||
+          await file.length() == material.sizeBytes;
+      if (age < const Duration(hours: 24) && sizeMatches) {
+        return file;
+      }
+    }
+    try {
+      await reference.writeToFile(file);
+      if (material.sizeBytes != null &&
+          await file.length() != material.sizeBytes) {
+        await file.delete();
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      return file;
+    } on FirebaseException {
+      if (await file.exists()) await file.delete();
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+  }
+
+  Future<void> _clearStaleMaterialCache(Directory directory) async {
+    try {
+      await for (final entity in directory.list()) {
+        final isManagedMaterial =
+            entity is File &&
+            entity.path
+                .split(Platform.pathSeparator)
+                .last
+                .startsWith('material_');
+        if (!isManagedMaterial) {
+          continue;
+        }
+        if (DateTime.now().difference(await entity.lastModified()) >
+            const Duration(days: 7)) {
+          await entity.delete();
+        }
+      }
+    } on FileSystemException {
+      // Cache cleanup is opportunistic. A locked file may still be open in a
+      // Windows viewer and must not make an authorized material unavailable.
+    }
   }
 
   /// Returns an authenticated Storage reference for a file material. Storage

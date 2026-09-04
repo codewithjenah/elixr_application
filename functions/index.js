@@ -1921,6 +1921,11 @@ async function getActivityMaterialUploadStatusHandler(request, response, {
         material.get('owner_teacher_id') !== uid) {
       output.state = 'rejected';
       output.rejection_reason = 'material_unavailable';
+    } else if (material.get('projection_sync_state') !== 'ready') {
+      // The final object exists, but a trainee must not be told it is usable
+      // before the Storage access projection has been rebuilt. Keep the UI in
+      // its bounded validating state; the reconciler can finish this safely.
+      output.state = 'validating';
     } else {
       output.material = {material_id: material.id, ...assignmentJsonValue(material.data())};
     }

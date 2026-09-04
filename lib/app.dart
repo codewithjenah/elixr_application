@@ -26,6 +26,8 @@ import 'core/theme/app_theme.dart';
 import 'data/repositories/leaderboard_repository.dart';
 import 'data/repositories/public_profile_repository.dart';
 import 'data/repositories/classroom_assignment_repository.dart';
+import 'data/repositories/activity_learning_material_repository.dart';
+import 'data/repositories/firebase_activity_learning_material_repository.dart';
 import 'data/repositories/assignment_submission_repository.dart';
 import 'data/repositories/firebase_assignment_submission_repository.dart';
 import 'data/repositories/firebase_classroom_assignment_repository.dart';
@@ -173,6 +175,9 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<ClassroomAssignmentRepository>(
           create: (_) => FirebaseClassroomAssignmentRepository(),
+        ),
+        Provider<ActivityLearningMaterialRepository>(
+          create: (_) => FirebaseActivityLearningMaterialRepository(),
         ),
         ChangeNotifierProxyProvider<AuthService, TeacherActivityController>(
           create: (context) => TeacherActivityController(

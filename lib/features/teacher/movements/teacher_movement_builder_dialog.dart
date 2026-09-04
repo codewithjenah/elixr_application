@@ -73,6 +73,7 @@ class TeacherMovementBuilderDialog extends StatefulWidget {
     this.assignment,
     this.approvedMemberships = const [],
     this.onEditAssignment,
+    this.onManageLearningMaterials,
   }) : assert(assignment == null || onEditAssignment != null);
 
   final TeacherMovement? existing;
@@ -85,6 +86,7 @@ class TeacherMovementBuilderDialog extends StatefulWidget {
   final GroupAssignment? assignment;
   final List<GroupMembership> approvedMemberships;
   final TeacherAssignmentActivitySaveCallback? onEditAssignment;
+  final Future<void> Function()? onManageLearningMaterials;
 
   @override
   State<TeacherMovementBuilderDialog> createState() =>
@@ -661,6 +663,27 @@ class _TeacherMovementBuilderDialogState
                     },
                   ),
                   const SizedBox(height: AppSpacing.lg),
+                  if (_isAssignmentEditor &&
+                      widget.onManageLearningMaterials != null) ...[
+                    _FormSection(
+                      icon: FluentIcons.education,
+                      title: 'Learning materials',
+                      description:
+                          'Optional supporting files or links for Trainees.',
+                      optional: true,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Button(
+                          key: const ValueKey('teacher_activity_manage_materials'),
+                          onPressed: _saving
+                              ? null
+                              : () => widget.onManageLearningMaterials!(),
+                          child: const Text('Manage materials'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
                   _FormSection(
                     icon: FluentIcons.heart,
                     title: 'Practice requirements',

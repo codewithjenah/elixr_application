@@ -39,6 +39,8 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     required ElixrGroup group,
     required String officialMovementName,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     String? displayInstructions,
     AssignmentAttemptPolicy attemptPolicy =
         AssignmentAttemptPolicy.legacyDefault,
@@ -54,6 +56,8 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
       group: group,
       officialMovementName: officialMovementName,
       dueAt: dueAt,
+      status: status,
+      publishAt: publishAt,
       displayInstructions: displayInstructions,
       attemptPolicy: attemptPolicy,
       audience: audience,
@@ -75,6 +79,8 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     String? displayInstructions,
     String? displaySafetyGuidance,
     DateTime? dueAt,
+    GroupAssignmentStatus status = GroupAssignmentStatus.active,
+    DateTime? publishAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     teacherCreatedCalls++;
@@ -98,6 +104,8 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
+      status: status,
+      publishAt: publishAt,
       audience: audience,
     );
   }

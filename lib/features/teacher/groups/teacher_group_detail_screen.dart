@@ -34,6 +34,7 @@ import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
+import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../services/auth_service.dart';
 import '../classwork/teacher_classwork_controller.dart';
 import '../classwork/teacher_gradebook_pane.dart';
@@ -44,6 +45,7 @@ import '../movements/teacher_movement_builder_dialog.dart';
 import '../../teacher_access/trainee_class_card.dart';
 import '../../classroom_announcements/classroom_announcements_controller.dart';
 import '../../classroom_announcements/classroom_announcements_pane.dart';
+import '../../activity_learning_materials/activity_learning_materials_panel.dart';
 import 'teacher_groups_controller.dart';
 
 class TeacherGroupDetailScreen extends StatefulWidget {
@@ -1110,6 +1112,7 @@ Future<void> _showGroupAssignmentComposer(
     groupRepository: controller.repository,
     creationService: service,
     lockedGroup: currentGroup,
+    materialRepository: _tryRead<ActivityLearningMaterialRepository>(context),
   );
 }
 
@@ -1203,6 +1206,38 @@ Future<void> _showEditAssignmentDialog(
                   ),
                 ],
               ],
+              const SizedBox(height: AppSpacing.lg),
+              ElixPanelCard(
+                child: Row(
+                  children: [
+                    const Icon(FluentIcons.education),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Learning materials', style: AppTheme.body),
+                          Text(
+                            'Optional supporting files or links for Trainees.',
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Button(
+                      onPressed: saving
+                          ? null
+                          : () => _showLearningMaterialsDialog(
+                              context,
+                              assignment.id,
+                            ),
+                      child: const Text('Manage materials'),
+                    ),
+                  ],
+                ),
+              ),
               if (validationMessage != null) ...[
                 const SizedBox(height: AppSpacing.md),
                 Text(
@@ -1328,7 +1363,38 @@ Future<void> _showTeacherActivityAssignmentEditor(
                     source: source,
                     assignmentId: assignment.id,
                   ),
+        onManageLearningMaterials: () =>
+            _showLearningMaterialsDialog(context, assignment.id),
       ),
+    ),
+  );
+}
+
+Future<void> _showLearningMaterialsDialog(
+  BuildContext context,
+  String assignmentId,
+) async {
+  final repository = _tryRead<ActivityLearningMaterialRepository>(context);
+  if (repository == null) return;
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => ContentDialog(
+      title: const Text('Learning materials'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: ActivityLearningMaterialsPanel(
+            assignmentId: assignmentId,
+            repository: repository,
+          ),
+        ),
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Done'),
+        ),
+      ],
     ),
   );
 }

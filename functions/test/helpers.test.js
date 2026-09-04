@@ -335,11 +335,25 @@ test('Learning Material upload status returns each owner lifecycle and requires 
       stage: {owner_teacher_id: 'teacher', assignment_id: 'assignment', material_id: 'material', state: 'ready'},
       material: {
         owner_teacher_id: 'teacher', material_id: 'material', assignment_id: 'assignment',
-        type: 'pdf', display_name: 'Sheet', status: 'ready', storage_path: 'activity_learning_materials/assignment/material',
+        type: 'pdf', display_name: 'Sheet', status: 'ready', projection_sync_state: 'ready',
+        storage_path: 'activity_learning_materials/assignment/material',
       },
     })});
   assert.equal(ready.statusCode, 200);
   assert.equal(ready.body.material.material_id, 'material');
+
+  const pendingProjection = fakeResponse();
+  await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'upload'}}, pendingProjection,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeUploadStatusDatabase({
+      stage: {owner_teacher_id: 'teacher', assignment_id: 'assignment', material_id: 'material', state: 'ready'},
+      material: {
+        owner_teacher_id: 'teacher', material_id: 'material', assignment_id: 'assignment',
+        type: 'pdf', display_name: 'Sheet', status: 'ready', projection_sync_state: 'pending',
+        storage_path: 'activity_learning_materials/assignment/material',
+      },
+    })});
+  assert.equal(pendingProjection.statusCode, 200);
+  assert.equal(pendingProjection.body.state, 'validating');
 
   const missing = fakeResponse();
   await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'missing'}}, missing,
