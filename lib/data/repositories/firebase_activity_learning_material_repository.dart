@@ -10,6 +10,22 @@ import '../models/activity_learning_material.dart';
 import '../models/classroom_exceptions.dart';
 import 'activity_learning_material_repository.dart';
 
+String activityLearningMaterialCacheFileName({
+  required String materialId,
+  required String extension,
+}) {
+  final safeId = materialId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+  return 'material_$safeId.$extension';
+}
+
+bool isManagedActivityLearningMaterialCacheFile(String fileName) =>
+    fileName.startsWith('material_');
+
+bool isStaleActivityLearningMaterialCacheEntry({
+  required DateTime lastModified,
+  required DateTime now,
+}) => now.difference(lastModified) > const Duration(days: 7);
+
 /// Thin client for the server-authoritative Activity Learning Material API.
 /// It has no authority to create final objects or metadata: Firebase Storage is
 /// used only for the exact quarantine upload path returned by Functions.
@@ -166,9 +182,8 @@ class FirebaseActivityLearningMaterialRepository
     };
     // Material IDs are server-generated identifiers. Still sanitize them so a
     // malicious display name or storage path can never influence the cache.
-    final safeId = material.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final file = File(
-      '${directory.path}${Platform.pathSeparator}material_$safeId.$extension',
+      '${directory.path}${Platform.pathSeparator}${activityLearningMaterialCacheFileName(materialId: material.id, extension: extension)}',
     );
     // A cache entry is never a read capability. Re-check the authenticated
     // Storage object before returning it so removals and access revocations
@@ -203,15 +218,16 @@ class FirebaseActivityLearningMaterialRepository
       await for (final entity in directory.list()) {
         final isManagedMaterial =
             entity is File &&
-            entity.path
-                .split(Platform.pathSeparator)
-                .last
-                .startsWith('material_');
+            isManagedActivityLearningMaterialCacheFile(
+              entity.path.split(Platform.pathSeparator).last,
+            );
         if (!isManagedMaterial) {
           continue;
         }
-        if (DateTime.now().difference(await entity.lastModified()) >
-            const Duration(days: 7)) {
+        if (isStaleActivityLearningMaterialCacheEntry(
+          lastModified: await entity.lastModified(),
+          now: DateTime.now(),
+        )) {
           await entity.delete();
         }
       }

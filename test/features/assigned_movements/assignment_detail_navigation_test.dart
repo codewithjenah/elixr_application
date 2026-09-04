@@ -1,12 +1,16 @@
+import 'dart:io';
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/activity_learning_material.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/activity_learning_material_repository.dart';
 import 'package:elixr_application/features/assigned_movements/assignment_detail_controller.dart';
 import 'package:elixr_application/features/assigned_movements/assignment_detail_screen.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
@@ -14,8 +18,120 @@ import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+class _MaterialRepository implements ActivityLearningMaterialRepository {
+  _MaterialRepository(this.materials);
+  final List<ActivityLearningMaterial> materials;
+  final List<ActivityLearningMaterial> openCalls = [];
+
+  @override
+  Future<ActivityLearningMaterial> addLink({
+    required String assignmentId,
+    required String displayName,
+    required Uri url,
+  }) => throw UnimplementedError();
+  @override
+  Future<ActivityMaterialUpload> beginUpload({
+    required String assignmentId,
+    required ActivityLearningMaterialType type,
+    required String displayName,
+    required String declaredContentType,
+    required int sizeBytes,
+  }) => throw UnimplementedError();
+  @override
+  Future<ActivityMaterialUploadStatus> getUploadStatus({
+    required String uploadId,
+  }) => throw UnimplementedError();
+  @override
+  Future<List<ActivityLearningMaterial>> list({
+    required String assignmentId,
+  }) async => materials;
+  @override
+  Future<File> openFile(ActivityLearningMaterial material) {
+    openCalls.add(material);
+    return Future.error(StateError('missing'));
+  }
+
+  @override
+  Future<void> remove({
+    required String assignmentId,
+    required String materialId,
+  }) => throw UnimplementedError();
+  @override
+  Future<void> uploadStagedFile({
+    required ActivityMaterialUpload upload,
+    required File file,
+  }) => throw UnimplementedError();
+}
 
 void main() {
+  testWidgets(
+    'opening learning material does not create or start an Activity attempt',
+    (tester) async {
+      final groups = InMemoryGroupRepository();
+      final assignments = InMemoryClassroomAssignmentRepository();
+      addTearDown(groups.dispose);
+      addTearDown(assignments.dispose);
+      const material = ActivityLearningMaterial(
+        id: 'material-1',
+        assignmentId: 'asg-a',
+        type: ActivityLearningMaterialType.pdf,
+        displayName: 'Safety.pdf',
+        storagePath: 'protected/path',
+      );
+      final materials = _MaterialRepository(const [material]);
+      final controller =
+          AssignmentDetailController(
+              assignmentId: 'asg-a',
+              traineeId: 'trainee-1',
+              groupRepository: groups,
+              assignmentRepository: assignments,
+            )
+            ..assignment = const GroupAssignment(
+              id: 'asg-a',
+              teacherId: 'teacher-1',
+              groupId: 'group-1',
+              movementId: 'official_hand_stall',
+              revisionId: 'official_hand_stall_v1',
+              origin: MovementOrigin.officialElixr,
+              assessmentMode: AssessmentMode.officialGuided,
+              status: GroupAssignmentStatus.active,
+              displayTitle: 'Hand Stall',
+              teacherDisplayName: 'Grace Hopper',
+              groupName: 'BSHM 4A',
+              officialMovementName: 'Hand Stall',
+            )
+            ..authorized = true;
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        Provider<ActivityLearningMaterialRepository>.value(
+          value: materials,
+          child: FluentApp(
+            theme: AppTheme.dark,
+            home: AssignmentDetailScreen(
+              assignmentId: 'asg-a',
+              controller: controller,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+
+      expect(materials.openCalls, [material]);
+      expect(controller.attempts, isEmpty);
+      expect(
+        find.text(
+          'This material is no longer available or could not be opened.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets(
     'assignment detail uses current teacher public avatar with initials fallback',
     (tester) async {

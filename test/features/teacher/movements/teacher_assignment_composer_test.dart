@@ -1,16 +1,19 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
+import 'package:elixr_application/data/models/activity_learning_material.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
+import 'package:elixr_application/data/repositories/activity_learning_material_repository.dart';
 import 'package:elixr_application/features/teacher/movements/teacher_assignment_composer.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
@@ -145,6 +148,55 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
     }
     return super.getRevision(movementId: movementId, revisionId: revisionId);
   }
+}
+
+class _MaterialRepository implements ActivityLearningMaterialRepository {
+  final List<String> listedAssignmentIds = [];
+  bool failList = false;
+
+  @override
+  Future<ActivityLearningMaterial> addLink({
+    required String assignmentId,
+    required String displayName,
+    required Uri url,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<ActivityMaterialUpload> beginUpload({
+    required String assignmentId,
+    required ActivityLearningMaterialType type,
+    required String displayName,
+    required String declaredContentType,
+    required int sizeBytes,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<ActivityMaterialUploadStatus> getUploadStatus({
+    required String uploadId,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<ActivityLearningMaterial>> list({required String assignmentId}) {
+    listedAssignmentIds.add(assignmentId);
+    if (failList) return Future.error(StateError('material load failed'));
+    return Future.value(const []);
+  }
+
+  @override
+  Future<File> openFile(ActivityLearningMaterial material) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> remove({
+    required String assignmentId,
+    required String materialId,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> uploadStagedFile({
+    required ActivityMaterialUpload upload,
+    required File file,
+  }) => throw UnimplementedError();
 }
 
 void main() {
@@ -376,6 +428,7 @@ void main() {
     TeacherMovement? teacherCreatedMovement,
     List<ElixrGroup> availableGroups = const [group],
     ElixrGroup? lockedGroup,
+    ActivityLearningMaterialRepository? materialRepository,
     Size size = const Size(1280, 900),
   }) async {
     tester.view.physicalSize = size;
@@ -395,6 +448,7 @@ void main() {
           creationService: creationService,
           officialMovement: officialMovement,
           teacherCreatedMovement: teacherCreatedMovement,
+          materialRepository: materialRepository,
         ),
       ),
     );
@@ -423,6 +477,60 @@ void main() {
     expect(createButton.onPressed, isNull);
     expect(assignments.teacherCreatedCalls, 0);
   });
+
+  testWidgets('pre-save learning materials are informational, not actionable', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_materials_post_save_hint')),
+    );
+    expect(
+      find.text('Materials can be added after this Activity is saved.'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_assignment_add_material')),
+      findsNothing,
+    );
+    expect(find.text('Add material'), findsNothing);
+  });
+
+  testWidgets(
+    'created Activity opens the manager with its authoritative ID and survives material errors',
+    (tester) async {
+      final materials = _MaterialRepository()..failList = true;
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+        materialRepository: materials,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_create')),
+      );
+      await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+      await tester.pumpAndSettle();
+
+      expect(assignments.assignments, hasLength(1));
+      expect(materials.listedAssignmentIds, [
+        assignments.assignments.single.id,
+      ]);
+      expect(
+        find.text('Learning materials could not be loaded.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      expect(assignments.assignments, hasLength(1));
+    },
+  );
 
   testWidgets(
     'Teacher Activity defaults prefill and assignment overrides publish a v2 snapshot',

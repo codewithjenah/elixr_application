@@ -12,6 +12,9 @@ import '../../core/widgets/elixr_video_player.dart';
 import '../../data/models/activity_learning_material.dart';
 import '../../data/repositories/activity_learning_material_repository.dart';
 
+typedef ActivityLearningMaterialFilePicker =
+    Future<XFile?> Function({required List<XTypeGroup> acceptedTypeGroups});
+
 /// Mirrors the server's current limits for early, friendly feedback only.
 /// Functions still validates bytes and content before publishing a material.
 abstract final class ActivityLearningMaterialLimits {
@@ -49,10 +52,20 @@ class ActivityLearningMaterialsPanel extends StatefulWidget {
     super.key,
     required this.assignmentId,
     required this.repository,
+    this.filePicker = openFile,
+    this.pollingInterval = const Duration(milliseconds: 1500),
+    this.maximumPollCount = 20,
   });
 
   final String assignmentId;
   final ActivityLearningMaterialRepository repository;
+
+  /// Kept injectable so lifecycle tests do not depend on the native picker.
+  final ActivityLearningMaterialFilePicker filePicker;
+
+  /// Server status remains authoritative; these only control bounded UI polls.
+  final Duration pollingInterval;
+  final int maximumPollCount;
 
   @override
   State<ActivityLearningMaterialsPanel> createState() =>
@@ -153,7 +166,9 @@ class _ActivityLearningMaterialsPanelState
 
   Future<void> _pickFile(ActivityLearningMaterialType type) async {
     final config = _fileConfig(type);
-    final selected = await openFile(acceptedTypeGroups: [config.group]);
+    final selected = await widget.filePicker(
+      acceptedTypeGroups: [config.group],
+    );
     if (selected == null || !mounted) return;
     final file = File(selected.path);
     try {
@@ -308,10 +323,10 @@ class _ActivityLearningMaterialsPanelState
       if (mounted) setState(() {});
       for (
         var attempt = 0;
-        attempt < 20 && !item.cancelled && !_disposed;
+        attempt < widget.maximumPollCount && !item.cancelled && !_disposed;
         attempt++
       ) {
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        await Future<void>.delayed(widget.pollingInterval);
         if (item.cancelled || _disposed) return;
         final status = await widget.repository.getUploadStatus(
           uploadId: upload.uploadId,

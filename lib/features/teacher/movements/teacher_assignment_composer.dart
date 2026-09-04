@@ -1092,17 +1092,19 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const SizedBox(height: AppSpacing.lg),
           _ComposerField(
             label: 'Attachments',
-            hint:
-                'Save this Activity first, then add PDFs, images, reference videos, or links through the secure uploader.',
-            child: Button(
-              key: const Key('teacher_assignment_add_material'),
-              onPressed: _submitting
-                  ? null
-                  : () => setState(
-                      () => _validationError =
-                          'Save the Activity first. You can add learning materials in the next step.',
-                    ),
-              child: const Text('Add material'),
+            hint: 'Supporting PDFs, images, videos, or secure web links.',
+            child: Row(
+              key: const Key('teacher_assignment_materials_post_save_hint'),
+              children: [
+                const Icon(FluentIcons.lock, size: 16),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Materials can be added after this Activity is saved.',
+                    style: AppTheme.bodySecondary,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: AppSpacing.xl),
