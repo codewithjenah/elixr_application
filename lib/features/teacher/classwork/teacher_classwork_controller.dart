@@ -770,6 +770,37 @@ class TeacherClassworkController extends ChangeNotifier {
     );
   }
 
+  Future<void> restoreAssignment(GroupAssignment assignment) {
+    return _runWrite(
+      () => assignmentRepository.restoreAssignment(
+        teacherId: teacherId,
+        assignmentId: assignment.id,
+      ),
+    );
+  }
+
+  Future<void> publishAssignmentNow(GroupAssignment assignment) {
+    return _runWrite(
+      () => assignmentRepository.publishAssignmentNow(
+        teacherId: teacherId,
+        assignmentId: assignment.id,
+      ),
+    );
+  }
+
+  Future<void> scheduleAssignmentPublication(
+    GroupAssignment assignment, {
+    required DateTime publishAt,
+  }) {
+    return _runWrite(
+      () => assignmentRepository.scheduleAssignmentPublication(
+        teacherId: teacherId,
+        assignmentId: assignment.id,
+        publishAt: publishAt,
+      ),
+    );
+  }
+
   Future<void> permanentlyDeleteAssignment(GroupAssignment assignment) {
     return _runWrite(
       () => assignmentRepository.permanentlyDeleteAssignment(

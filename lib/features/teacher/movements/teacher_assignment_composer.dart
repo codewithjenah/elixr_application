@@ -340,6 +340,8 @@ class TeacherAssignmentComposer extends StatefulWidget {
 
 enum _AssignmentOriginSelection { official, teacherCreated }
 
+enum _PublicationAction { draft, publish, schedule }
+
 extension on AssignmentAudienceType {
   bool get isTargeted => this != AssignmentAudienceType.entireClass;
 }
@@ -358,6 +360,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   late _AssignmentOriginSelection _origin;
 
   DateTime? _dueAt;
+  DateTime _publicationDate = _manilaCivilDateNow().add(
+    const Duration(days: 1),
+  );
+  int _publicationHour = 9;
+  int _publicationMinute = 0;
   bool _submitting = false;
   bool _creatingTeacherMovement = false;
   bool _loadingTeacherMovements = false;
@@ -842,7 +849,15 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ? _recordingDurationSeconds
           : null,
       rubricLabel: _isTeacherCreated ? _rubricTemplate.displayLabel : null,
-      onSubmit: _canSubmit ? () => _submit(context) : null,
+      onSaveDraft: _canSubmit
+          ? () => _submit(context, _PublicationAction.draft)
+          : null,
+      onPublish: _canSubmit
+          ? () => _submit(context, _PublicationAction.publish)
+          : null,
+      onSchedule: _canSubmit
+          ? () => _submit(context, _PublicationAction.schedule)
+          : null,
     );
     final wide = availableWidth >= _teacherAssignmentWideBreakpoint;
 
@@ -1104,6 +1119,25 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             },
             onChanged: (value) =>
                 setState(() => _dueAt = manilaEndOfDayUtc(value)),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.clock,
+            eyebrow: 'PUBLICATION',
+            title: 'Choose how trainees receive it',
+            description:
+                'Save a private draft, publish now, or set a Manila date and time.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _PublicationScheduleField(
+            date: _publicationDate,
+            hour: _publicationHour,
+            minute: _publicationMinute,
+            enabled: !_submitting,
+            onDateChanged: (value) => setState(() => _publicationDate = value),
+            onHourChanged: (value) => setState(() => _publicationHour = value),
+            onMinuteChanged: (value) =>
+                setState(() => _publicationMinute = value),
           ),
         ],
         if (_movementLoadError != null && _classroomScoped) ...[
@@ -1985,7 +2019,15 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     });
   }
 
-  String? _formValidationError() {
+  DateTime get _scheduledPublishAt => DateTime.utc(
+    _publicationDate.year,
+    _publicationDate.month,
+    _publicationDate.day,
+    _publicationHour - 8,
+    _publicationMinute,
+  );
+
+  String? _formValidationError([_PublicationAction? action]) {
     if (_selectedGroup?.isActive != true) {
       return 'Choose an active classroom.';
     }
@@ -2017,12 +2059,24 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _targetTraineeIds.length != 1) {
       return 'Select one trainee.';
     }
+    if (action == _PublicationAction.schedule) {
+      final publishAt = _scheduledPublishAt;
+      if (!publishAt.isAfter(DateTime.now().toUtc())) {
+        return 'Choose a future Manila publication date and time.';
+      }
+      if (_dueAt != null && !_dueAt!.toUtc().isAfter(publishAt)) {
+        return 'The due date must be later than the scheduled publication time.';
+      }
+    }
     return null;
   }
 
-  Future<void> _submit(BuildContext pageContext) async {
+  Future<void> _submit(
+    BuildContext pageContext,
+    _PublicationAction action,
+  ) async {
     if (_submitting) return;
-    final validationError = _formValidationError();
+    final validationError = _formValidationError(action);
     if (validationError != null) {
       setState(() => _validationError = validationError);
       return;
@@ -2058,6 +2112,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             ? _safetyGuidanceController.text.trim()
             : null,
         dueAt: _dueAt,
+        status: switch (action) {
+          _PublicationAction.draft => GroupAssignmentStatus.draft,
+          _PublicationAction.publish => GroupAssignmentStatus.active,
+          _PublicationAction.schedule => GroupAssignmentStatus.scheduled,
+        },
+        publishAt: action == _PublicationAction.schedule
+            ? _scheduledPublishAt
+            : null,
         topic: _topicController.text,
       );
       if (pageContext.mounted) Navigator.pop(pageContext, true);
@@ -3137,7 +3199,9 @@ class _AssignmentSummaryCard extends StatelessWidget {
     this.attemptsLabel,
     this.recordingDurationSeconds,
     this.rubricLabel,
-    required this.onSubmit,
+    required this.onSaveDraft,
+    required this.onPublish,
+    required this.onSchedule,
   });
 
   final ElixrGroup? group;
@@ -3153,7 +3217,9 @@ class _AssignmentSummaryCard extends StatelessWidget {
   final String? attemptsLabel;
   final int? recordingDurationSeconds;
   final String? rubricLabel;
-  final VoidCallback? onSubmit;
+  final VoidCallback? onSaveDraft;
+  final VoidCallback? onPublish;
+  final VoidCallback? onSchedule;
 
   @override
   Widget build(BuildContext context) {
@@ -3307,12 +3373,24 @@ class _AssignmentSummaryCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
+                Button(
+                  key: const Key('teacher_assignment_save_draft'),
+                  onPressed: isSubmitting ? null : onSaveDraft,
+                  child: const Text('Save draft'),
+                ),
+                const SizedBox(height: AppSpacing.sm),
                 ElixPrimaryButton(
-                  key: const Key('teacher_assignment_create'),
-                  label: 'Publish assignment',
+                  key: const Key('teacher_assignment_publish_now'),
+                  label: 'Publish now',
                   icon: FluentIcons.send,
                   isLoading: isSubmitting,
-                  onPressed: onSubmit,
+                  onPressed: onPublish,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Button(
+                  key: const Key('teacher_assignment_schedule'),
+                  onPressed: isSubmitting ? null : onSchedule,
+                  child: const Text('Schedule'),
                 ),
               ],
             ),
@@ -3340,6 +3418,88 @@ class _AssignmentSummaryCard extends StatelessWidget {
     final manila = dueAt.toUtc().add(const Duration(hours: 8));
     return '${months[manila.month - 1]} ${manila.day}, ${manila.year}';
   }
+}
+
+class _PublicationScheduleField extends StatelessWidget {
+  const _PublicationScheduleField({
+    required this.date,
+    required this.hour,
+    required this.minute,
+    required this.enabled,
+    required this.onDateChanged,
+    required this.onHourChanged,
+    required this.onMinuteChanged,
+  });
+
+  final DateTime date;
+  final int hour;
+  final int minute;
+  final bool enabled;
+  final ValueChanged<DateTime> onDateChanged;
+  final ValueChanged<int> onHourChanged;
+  final ValueChanged<int> onMinuteChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text('Schedule time (Manila)', style: AppTheme.body),
+      const SizedBox(height: AppSpacing.sm),
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: DatePicker(
+          key: const Key('teacher_assignment_publish_date'),
+          selected: date,
+          onChanged: enabled ? onDateChanged : null,
+        ),
+      ),
+      const SizedBox(height: AppSpacing.sm),
+      Row(
+        children: [
+          SizedBox(
+            width: 130,
+            child: ComboBox<int>(
+              key: const Key('teacher_assignment_publish_hour'),
+              value: hour,
+              placeholder: const Text('Hour'),
+              items: [
+                for (var value = 0; value < 24; value++)
+                  ComboBoxItem(
+                    value: value,
+                    child: Text(value.toString().padLeft(2, '0')),
+                  ),
+              ],
+              onChanged: enabled
+                  ? (value) {
+                      if (value != null) onHourChanged(value);
+                    }
+                  : null,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          SizedBox(
+            width: 130,
+            child: ComboBox<int>(
+              key: const Key('teacher_assignment_publish_minute'),
+              value: minute,
+              placeholder: const Text('Minute'),
+              items: const [
+                ComboBoxItem(value: 0, child: Text('00')),
+                ComboBoxItem(value: 15, child: Text('15')),
+                ComboBoxItem(value: 30, child: Text('30')),
+                ComboBoxItem(value: 45, child: Text('45')),
+              ],
+              onChanged: enabled
+                  ? (value) {
+                      if (value != null) onMinuteChanged(value);
+                    }
+                  : null,
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
 }
 
 class _SummaryItem extends StatelessWidget {

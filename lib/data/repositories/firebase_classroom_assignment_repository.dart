@@ -234,8 +234,12 @@ class FirebaseClassroomAssignmentRepository
         'Retired template-scored assignments are read-only.',
       );
     }
+    if (current.status != GroupAssignmentStatus.active) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
     await ref.update({
       'status': GroupAssignmentStatus.archived.name,
+      'publish_at': FieldValue.delete(),
       'updated_at': FieldValue.serverTimestamp(),
     });
   }

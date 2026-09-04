@@ -3616,8 +3616,8 @@ service cloud.firestore {
 
     function validAssignmentLifecycleTransition(before, after) {
       return (before.status == after.status)
-        || (before.status == 'draft' && after.status in ['scheduled', 'active', 'archived'])
-        || (before.status == 'scheduled' && after.status in ['scheduled', 'active', 'archived'])
+        || (before.status == 'draft' && after.status in ['scheduled', 'active'])
+        || (before.status == 'scheduled' && after.status in ['scheduled', 'active'])
         || (before.status == 'active' && after.status == 'archived')
         || (before.status == 'archived' && after.status == 'active');
     }

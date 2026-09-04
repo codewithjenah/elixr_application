@@ -401,10 +401,21 @@ Future<void> _showEditor(
     text: announcement?.title ?? '',
   );
   final bodyController = TextEditingController(text: announcement?.body ?? '');
-  var schedule = announcement?.isScheduled == true;
-  var publishAt =
-      announcement?.publishAt?.toLocal() ??
-      DateTime.now().add(const Duration(days: 1));
+  // Once the scheduled instant has passed it is a normal published item.
+  // Keeping scheduling enabled here would force the old, now-past timestamp
+  // through the future-only write contract.
+  var schedule =
+      announcement?.publishAt?.toUtc().isAfter(DateTime.now().toUtc()) ?? false;
+  final initialManila = (announcement?.publishAt ?? DateTime.now().toUtc())
+      .toUtc()
+      .add(const Duration(hours: 8));
+  var publishDate = DateTime(
+    initialManila.year,
+    initialManila.month,
+    initialManila.day,
+  );
+  var publishHour = announcement == null ? 9 : initialManila.hour;
+  var publishMinute = announcement == null ? 0 : initialManila.minute;
   String? validationMessage;
   final result = await showDialog<_AnnouncementDraft>(
     context: context,
@@ -435,16 +446,55 @@ Future<void> _showEditor(
               if (schedule) ...[
                 const SizedBox(height: AppSpacing.sm),
                 DatePicker(
-                  selected: publishAt,
+                  selected: publishDate,
                   onChanged: (value) => setDialogState(() {
-                    publishAt = DateTime(
-                      value.year,
-                      value.month,
-                      value.day,
-                      publishAt.hour,
-                      publishAt.minute,
-                    );
+                    publishDate = value;
                   }),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text('Publication time (Manila)', style: AppTheme.caption),
+                const SizedBox(height: AppSpacing.xs),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 130,
+                      child: ComboBox<int>(
+                        key: const Key('classroom_announcement_publish_hour'),
+                        value: publishHour,
+                        items: [
+                          for (var value = 0; value < 24; value++)
+                            ComboBoxItem(
+                              value: value,
+                              child: Text(value.toString().padLeft(2, '0')),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => publishHour = value);
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    SizedBox(
+                      width: 130,
+                      child: ComboBox<int>(
+                        key: const Key('classroom_announcement_publish_minute'),
+                        value: publishMinute,
+                        items: const [
+                          ComboBoxItem(value: 0, child: Text('00')),
+                          ComboBoxItem(value: 15, child: Text('15')),
+                          ComboBoxItem(value: 30, child: Text('30')),
+                          ComboBoxItem(value: 45, child: Text('45')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => publishMinute = value);
+                          }
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ],
               const SizedBox(height: AppSpacing.md),
@@ -485,6 +535,20 @@ Future<void> _showEditor(
                 );
                 return;
               }
+              final publishAt = DateTime.utc(
+                publishDate.year,
+                publishDate.month,
+                publishDate.day,
+                publishHour - 8,
+                publishMinute,
+              );
+              if (schedule && !publishAt.isAfter(DateTime.now().toUtc())) {
+                setDialogState(
+                  () => validationMessage =
+                      'Choose a future Manila publication date and time.',
+                );
+                return;
+              }
               Navigator.pop(
                 dialogContext,
                 _AnnouncementDraft(
@@ -494,7 +558,11 @@ Future<void> _showEditor(
                 ),
               );
             },
-            child: Text(announcement == null ? 'Publish' : 'Save changes'),
+            child: Text(
+              schedule
+                  ? 'Schedule'
+                  : (announcement == null ? 'Publish' : 'Save changes'),
+            ),
           ),
         ],
       ),

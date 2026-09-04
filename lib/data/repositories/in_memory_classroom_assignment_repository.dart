@@ -260,34 +260,12 @@ class InMemoryClassroomAssignmentRepository
         'Retired template-scored assignments are read-only.',
       );
     }
-    assignments[assignmentId] = GroupAssignment(
-      id: existing.id,
-      teacherId: existing.teacherId,
-      groupId: existing.groupId,
-      movementId: existing.movementId,
-      revisionId: existing.revisionId,
-      origin: existing.origin,
-      assessmentMode: existing.assessmentMode,
+    if (existing.status != GroupAssignmentStatus.active) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    assignments[assignmentId] = existing.copyWith(
       status: GroupAssignmentStatus.archived,
-      displayTitle: existing.displayTitle,
-      teacherDisplayName: existing.teacherDisplayName,
-      groupName: existing.groupName,
-      topic: existing.topic,
-      officialMovementName: existing.officialMovementName,
-      displayInstructions: existing.displayInstructions,
-      displaySafetyGuidance: existing.displaySafetyGuidance,
-      allowedProp: existing.allowedProp,
-      assessmentSpec: existing.assessmentSpec,
-      maxScore: existing.maxScore,
-      attemptPolicy: existing.attemptPolicy,
-      configurationRevision: existing.configurationRevision,
-      activityAssessment: existing.activityAssessment,
-      gradingLocked: existing.gradingLocked,
-      gradingLockedAt: existing.gradingLockedAt,
-      dueAt: existing.dueAt,
-      createdAt: existing.createdAt,
-      updatedAt: now,
-      audience: existing.audience,
+      clearPublishAt: true,
     );
     _emitTeacher(teacherId);
   }

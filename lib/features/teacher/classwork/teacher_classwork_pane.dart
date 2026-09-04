@@ -247,14 +247,18 @@ class _TeacherClassworkAssignmentListState
                         widget.onOpen(visibleTopics[topicIndex].$2[index]),
                     onEdit:
                         controller.group?.isActive == true &&
-                            visibleTopics[topicIndex].$2[index].isActive
+                            visibleTopics[topicIndex].$2[index].status !=
+                                GroupAssignmentStatus.archived &&
+                            visibleTopics[topicIndex].$2[index].status !=
+                                GroupAssignmentStatus.deleting
                         ? () => widget.onEdit?.call(
                             visibleTopics[topicIndex].$2[index],
                           )
                         : null,
                     onArchive:
                         controller.group?.isActive == true &&
-                            visibleTopics[topicIndex].$2[index].isActive
+                            visibleTopics[topicIndex].$2[index].status ==
+                                GroupAssignmentStatus.active
                         ? () => widget.onArchive?.call(
                             visibleTopics[topicIndex].$2[index],
                           )
@@ -263,6 +267,22 @@ class _TeacherClassworkAssignmentListState
                         controller.group?.isActive == true &&
                             visibleTopics[topicIndex].$2[index].isActive
                         ? () => widget.onDelete?.call(
+                            visibleTopics[topicIndex].$2[index],
+                          )
+                        : null,
+                    onRestore:
+                        controller.group?.isActive == true &&
+                            visibleTopics[topicIndex].$2[index].status ==
+                                GroupAssignmentStatus.archived
+                        ? () => controller.restoreAssignment(
+                            visibleTopics[topicIndex].$2[index],
+                          )
+                        : null,
+                    onPublish:
+                        controller.group?.isActive == true &&
+                            (visibleTopics[topicIndex].$2[index].isDraft ||
+                                visibleTopics[topicIndex].$2[index].isScheduled)
+                        ? () => controller.publishAssignmentNow(
                             visibleTopics[topicIndex].$2[index],
                           )
                         : null,
@@ -309,6 +329,8 @@ class _AssignmentRow extends StatelessWidget {
     required this.onEdit,
     required this.onArchive,
     required this.onDelete,
+    required this.onRestore,
+    required this.onPublish,
   });
 
   final GroupAssignment assignment;
@@ -319,6 +341,8 @@ class _AssignmentRow extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onArchive;
   final VoidCallback? onDelete;
+  final VoidCallback? onRestore;
+  final VoidCallback? onPublish;
 
   @override
   Widget build(BuildContext context) {
@@ -359,7 +383,7 @@ class _AssignmentRow extends StatelessWidget {
                             Text(
                               '${assignment.origin.displayLabel} · '
                               '$audienceLabel · '
-                              '${assignment.isActive ? 'Active' : 'Archived'}'
+                              '${_assignmentStatusLabel(assignment)}'
                               '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}',
                               style: AppTheme.caption.copyWith(
                                 color: context.elixTextSecondary,
@@ -388,6 +412,22 @@ class _AssignmentRow extends StatelessWidget {
               ),
             ),
           ),
+          if (assignment.isDraft || assignment.isScheduled) ...[
+            Button(
+              key: Key('teacher_group_publish_assignment_${assignment.id}'),
+              onPressed: onPublish,
+              child: const Text('Publish now'),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+          ],
+          if (assignment.status == GroupAssignmentStatus.archived) ...[
+            Button(
+              key: Key('teacher_group_restore_assignment_${assignment.id}'),
+              onPressed: onRestore,
+              child: const Text('Restore'),
+            ),
+            const SizedBox(width: AppSpacing.md),
+          ],
           if (assignment.isActive) ...[
             Button(
               key: Key('teacher_group_edit_assignment_${assignment.id}'),
@@ -411,6 +451,22 @@ class _AssignmentRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+String _assignmentStatusLabel(GroupAssignment assignment) {
+  switch (assignment.status) {
+    case GroupAssignmentStatus.draft:
+      return 'Draft';
+    case GroupAssignmentStatus.scheduled:
+      final at = assignment.publishAt;
+      return at == null ? 'Scheduled' : 'Scheduled · ${_formatDue(at)}';
+    case GroupAssignmentStatus.active:
+      return 'Published';
+    case GroupAssignmentStatus.archived:
+      return 'Archived';
+    case GroupAssignmentStatus.deleting:
+      return 'Removing';
   }
 }
 
