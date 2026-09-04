@@ -18,10 +18,6 @@ service firebase.storage {
       return /databases/(default)/documents/activity_material_access/$(assignmentId + '__' + materialId + '__' + userId);
     }
 
-    function materialMetadataPath(assignmentId, materialId) {
-      return /databases/(default)/documents/group_assignments/$(assignmentId)/learning_materials/$(materialId);
-    }
-
     function hasActivityMaterialAccess(assignmentId, materialId) {
       let access = firestore.get(materialAccessPath(
         assignmentId, materialId, request.auth.uid
@@ -29,7 +25,11 @@ service firebase.storage {
       let state = firestore.get(
         /databases/(default)/documents/activity_material_access_state/$(assignmentId)
       ).data;
-      let material = firestore.get(materialMetadataPath(assignmentId, materialId)).data;
+      let revoked = state.get('revoked_material_ids', []);
+      // Cloud Storage rules permit at most two Firestore document accesses per
+      // evaluation. The server-owned state document carries per-material
+      // revocations so deletion remains fail-closed without a third metadata
+      // lookup.
       return isSignedIn()
         && access.assignment_id == assignmentId
         && access.material_id == materialId
@@ -38,12 +38,9 @@ service firebase.storage {
         && state.assignment_id == assignmentId
         && state.state == 'ready'
         && state.schema_version == 1
-        && access.schema_version == 1
-        // A deletion state is a second, authoritative fail-closed guard
-        // against a projection rebuild that began before removal.
-        && material.assignment_id == assignmentId
-        && material.material_id == materialId
-        && material.status == 'ready';
+        && revoked is list
+        && !revoked.hasAny([materialId])
+        && access.schema_version == 1;
     }
 
     function stagingUploadPath(teacherId, assignmentId, uploadId) {

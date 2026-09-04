@@ -5,15 +5,17 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { deleteField, doc, setDoc, Timestamp } from 'firebase/firestore';
 import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
 const PROJECT_ID = 'demo-elixr';
 const ASSIGNMENT_ID = 'assignment-1';
 const MATERIAL_ID = 'material-1';
+const OTHER_MATERIAL_ID = 'material-2';
 const UPLOAD_ID = 'upload-1';
 const STAGING_PATH = `activity_material_staging/teacher/${ASSIGNMENT_ID}/${UPLOAD_ID}`;
 const FINAL_PATH = `activity_learning_materials/${ASSIGNMENT_ID}/${MATERIAL_ID}`;
+const OTHER_FINAL_PATH = `activity_learning_materials/${ASSIGNMENT_ID}/${OTHER_MATERIAL_ID}`;
 
 let testEnv;
 
@@ -46,7 +48,7 @@ beforeEach(async () => {
     });
     await setDoc(doc(db, 'activity_material_access_state', ASSIGNMENT_ID), {
       assignment_id: ASSIGNMENT_ID, generation: 1, state: 'ready',
-      schema_version: 1, updated_at: Timestamp.now(),
+      revoked_material_ids: [], schema_version: 1, updated_at: Timestamp.now(),
     });
     await setDoc(doc(db, 'group_assignments', ASSIGNMENT_ID,
       'learning_materials', MATERIAL_ID), {
@@ -103,20 +105,60 @@ describe('Learning Material Storage quarantine and access projection', () => {
       new Uint8Array([4]), {contentType: 'application/pdf'}));
   });
 
-  test('final material reads require the one-record server projection', async () => {
+  test('final material reads succeed within the two-document Storage rule lookup budget', async () => {
+    // A successful Storage read proves the rule stays within Firebase Storage
+    // Rules' two-Firestore-document access limit; a third unique get denies.
     await assertSucceeds(getBytes(ref(storage('teacher'), FINAL_PATH)));
     await assertSucceeds(getBytes(ref(storage('targeted'), FINAL_PATH)));
     await assertFails(getBytes(ref(storage('approvedButNotTargeted'), FINAL_PATH)));
+    await assertFails(getBytes(ref(storage('unrelatedTrainee'), FINAL_PATH)));
     await assertFails(uploadBytes(ref(storage('teacher'), FINAL_PATH),
       new Uint8Array([9]), {contentType: 'application/pdf'}));
   });
 
-  test('deleting canonical metadata fails closed even if a stale access record exists', async () => {
+  test('ready materials remain readable while legacy state documents are upgraded', async () => {
     await testEnv.withSecurityRulesDisabled(async (admin) => {
-      await setDoc(doc(admin.firestore(), 'group_assignments', ASSIGNMENT_ID,
-        'learning_materials', MATERIAL_ID), {status: 'deleting'}, {merge: true});
+      await setDoc(doc(admin.firestore(), 'activity_material_access_state', ASSIGNMENT_ID), {
+        revoked_material_ids: deleteField(),
+      }, {merge: true});
+    });
+    await assertSucceeds(getBytes(ref(storage('teacher'), FINAL_PATH)));
+    await assertSucceeds(getBytes(ref(storage('targeted'), FINAL_PATH)));
+  });
+
+  test('revoked material fails closed even if a stale access record exists', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'activity_material_access_state', ASSIGNMENT_ID), {
+        revoked_material_ids: [MATERIAL_ID],
+      }, {merge: true});
     });
     await assertFails(getBytes(ref(storage('targeted'), FINAL_PATH)));
+  });
+
+  test('revoking one material does not interrupt another ready material', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = admin.firestore();
+      await setDoc(doc(db, 'group_assignments', ASSIGNMENT_ID,
+        'learning_materials', OTHER_MATERIAL_ID), {
+        material_id: OTHER_MATERIAL_ID, assignment_id: ASSIGNMENT_ID,
+        owner_teacher_id: 'teacher', type: 'pdf', status: 'ready',
+        storage_path: OTHER_FINAL_PATH, schema_version: 1,
+      });
+      await setDoc(doc(db, 'activity_material_access',
+        `${ASSIGNMENT_ID}__${OTHER_MATERIAL_ID}__${'targeted'}`), {
+        assignment_id: ASSIGNMENT_ID, material_id: OTHER_MATERIAL_ID, user_id: 'targeted',
+        owner_teacher_id: 'teacher', projection_generation: 1,
+        schema_version: 1, created_at: Timestamp.now(),
+      });
+      await setDoc(doc(db, 'activity_material_access_state', ASSIGNMENT_ID), {
+        revoked_material_ids: [MATERIAL_ID],
+      }, {merge: true});
+      await uploadBytes(ref(admin.storage(), OTHER_FINAL_PATH), new Uint8Array([4, 5, 6]), {
+        contentType: 'application/pdf',
+      });
+    });
+    await assertFails(getBytes(ref(storage('targeted'), FINAL_PATH)));
+    await assertSucceeds(getBytes(ref(storage('targeted'), OTHER_FINAL_PATH)));
   });
 });
 

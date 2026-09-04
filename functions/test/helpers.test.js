@@ -24,6 +24,9 @@ const {
   stagingPathFor,
   beginActivityMaterialUploadHandler,
   getActivityMaterialUploadStatusHandler,
+  removeActivityLearningMaterialHandler,
+  runActivityMaterialReconciliation,
+  syncActivityMaterialAccess,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,
   normalizeSearchText,
@@ -1156,4 +1159,358 @@ test('dry-run migration write gate executes no actions', async () => {
   assert.equal(writes, 0);
   assert.equal(await executeMigrationWrites({write: true, actions}), 1);
   assert.equal(writes, 1);
+});
+
+function reconciliationSnapshot(data) {
+  return {
+    get exists() { return data.value != null; },
+    data: () => data.value,
+    get: (field) => data.value?.[field],
+  };
+}
+
+function fakeReconciliationFirestore({deleting = [], pending = [], failDeleting = new Set()} = {}) {
+  const state = {value: {cursors: {}}};
+  const access = new Map();
+  const assignment = {id: 'assignment', data: {teacher_id: 'teacher', status: 'draft'}};
+  const records = [...deleting, ...pending].map((record) => ({...record}));
+  const attempts = [];
+
+  function merge(target, patch) {
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'cursors' && value && typeof value === 'object') {
+        target.cursors ||= {};
+        for (const [cursorKey, cursor] of Object.entries(value)) {
+          // FieldValue.delete() has no cursor shape. This is sufficient for
+          // the state written by the reconciliation code under test.
+          if (!cursor?.document_id) delete target.cursors[cursorKey];
+          else target.cursors[cursorKey] = cursor;
+        }
+      } else {
+        target[key] = value;
+      }
+    }
+  }
+
+  const stateRef = {
+    id: 'v1',
+    get: async () => reconciliationSnapshot(state),
+    set: async (patch) => merge(state.value, patch),
+  };
+  const assignmentRef = {
+    id: assignment.id,
+    get: async () => ({exists: true, data: () => assignment.data, get: (field) => assignment.data[field]}),
+    collection(name) {
+      assert.equal(name, 'learning_materials');
+      return query('assignment_materials');
+    },
+  };
+
+  function document(record) {
+    const ref = {
+      id: record.id,
+      parent: {parent: assignmentRef},
+      get: async () => ({
+        exists: !record.deleted, data: () => record, get: (field) => record[field],
+      }),
+      async delete() {
+        if (record.status === 'deleting' && failDeleting.has(record.id)) {
+          throw new Error(`delete failed for ${record.id}`);
+        }
+        record.deleted = true;
+      },
+      async set(patch) { merge(record, patch); },
+    };
+    return {
+      id: record.id,
+      ref,
+      data: () => record,
+      get: (field) => record[field],
+    };
+  }
+
+  function query(kind, options = {}) {
+    const filters = [...(options.filters || [])];
+    let cursor = options.cursor;
+    let limit = options.limit;
+    return {
+      where(field, operator, value) {
+        return query(kind, {filters: [...filters, {field, operator, value}], cursor, limit});
+      },
+      orderBy() { return query(kind, {filters, cursor, limit}); },
+      startAfter(_value, documentId) {
+        return query(kind, {filters, cursor: documentId, limit});
+      },
+      limit(value) { return query(kind, {filters, cursor, limit: value}); },
+      async get() {
+        let values = kind === 'material_group' || kind === 'assignment_materials'
+          ? records.filter((record) => !record.deleted) : [];
+        for (const filter of filters) {
+          if (filter.operator === '==') values = values.filter((record) => record[filter.field] === filter.value);
+        }
+        values.sort((left, right) => left.id.localeCompare(right.id));
+        if (cursor) values = values.filter((record) => record.id > cursor);
+        if (limit != null) values = values.slice(0, limit);
+        const docs = values.map(document);
+        return {docs, size: docs.length, empty: docs.length === 0};
+      },
+    };
+  }
+
+  const firestore = {
+    attempts,
+    state,
+    collection(name) {
+      if (name === 'activity_material_reconciliation_state') return {doc: () => stateRef};
+      if (name === 'activity_material_access_state') {
+        return {doc: () => ({
+          get: async () => reconciliationSnapshot(state),
+          set: async (patch) => merge(state.value, patch),
+        })};
+      }
+      if (name === 'activity_material_access') {
+        return {
+          where: () => query('access'),
+          doc: (id) => ({set: async (value) => access.set(id, value)}),
+        };
+      }
+      if (name === 'activity_material_uploads') return {where: () => query('uploads')};
+      if (name === 'group_memberships') return {where: () => query('memberships'), doc: () => ({get: async () => ({exists: false})})};
+      throw new Error(`unexpected collection ${name}`);
+    },
+    collectionGroup(name) {
+      assert.equal(name, 'learning_materials');
+      return query('material_group');
+    },
+    batch() { return {delete: () => undefined, commit: async () => undefined}; },
+    async runTransaction(callback) {
+      return callback({
+        get: async (ref) => ref.get(),
+        set: (ref, patch) => ref.set(patch),
+        update: (ref, patch) => ref.set(patch),
+      });
+    },
+  };
+  const storage = {
+    bucket: () => ({file: (path) => ({delete: async () => attempts.push(path)})}),
+  };
+  return {firestore, storage, records, attempts, failDeleting};
+}
+
+test('Learning Material reconciliation advances past 100 records, retries failures, and resets cursors', async () => {
+  const deleting = Array.from({length: 101}, (_, index) => ({
+    id: `delete-${String(index).padStart(3, '0')}`,
+    status: 'deleting', deletion_requested_at: index,
+    storage_path: `activity_learning_materials/assignment/delete-${index}`,
+  }));
+  const pending = Array.from({length: 101}, (_, index) => ({
+    id: `pending-${String(index).padStart(3, '0')}`,
+    material_id: `pending-${String(index).padStart(3, '0')}`,
+    assignment_id: 'assignment', status: 'ready', projection_sync_state: 'pending', created_at: index,
+  }));
+  const fake = fakeReconciliationFirestore({
+    deleting, pending, failDeleting: new Set(['delete-000']),
+  });
+  const now = {toMillis: () => Date.now()};
+
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    await runActivityMaterialReconciliation({firestore: fake.firestore, storage: fake.storage, now});
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.equal(fake.records.find((record) => record.id === 'delete-100').deleted, undefined);
+  assert.equal(fake.records.find((record) => record.id === 'pending-100').projection_sync_state, 'pending');
+  assert.equal(fake.firestore.state.value.cursors.deleting_material.document_id, 'delete-099');
+  assert.equal(fake.firestore.state.value.cursors.pending_projection.document_id, 'pending-099');
+
+  await runActivityMaterialReconciliation({firestore: fake.firestore, storage: fake.storage, now});
+  assert.equal(fake.records.find((record) => record.id === 'delete-100').deleted, true);
+  assert.equal(fake.records.find((record) => record.id === 'pending-100').projection_sync_state, 'ready');
+  assert.equal(fake.firestore.state.value.cursors.deleting_material, undefined);
+  assert.equal(fake.firestore.state.value.cursors.pending_projection, undefined);
+
+  fake.failDeleting.clear();
+  await runActivityMaterialReconciliation({firestore: fake.firestore, storage: fake.storage, now});
+  assert.equal(fake.records.find((record) => record.id === 'delete-000').deleted, true);
+  assert.ok(fake.attempts.includes('activity_learning_materials/assignment/delete-100'));
+});
+
+function fakeMaterialRemovalDatabase() {
+  const material = {
+    material_id: 'material-a', assignment_id: 'assignment', owner_teacher_id: 'teacher',
+    status: 'ready', storage_path: 'activity_learning_materials/assignment/material-a',
+  };
+  const otherMaterial = {material_id: 'material-b', status: 'ready'};
+  const state = {
+    assignment_id: 'assignment', generation: 1, state: 'ready', schema_version: 1,
+    revoked_material_ids: [],
+  };
+  const access = [
+    {assignment_id: 'assignment', material_id: 'material-a', user_id: 'targeted'},
+    {assignment_id: 'assignment', material_id: 'material-b', user_id: 'targeted'},
+  ];
+  const snapshot = (data) => ({
+    get exists() { return data.value != null; },
+    data: () => data.value,
+    get: (field) => data.value?.[field],
+  });
+  const update = (data, patch) => Object.assign(data.value, patch);
+  const stateValue = {value: state};
+  const materialValue = {value: material};
+  const assignmentValue = {value: {teacher_id: 'teacher'}};
+  const userValue = {value: {role: 'Teacher'}};
+  const stateRef = {get: async () => snapshot(stateValue), set: async (patch) => update(stateValue, patch)};
+  const materialRef = {
+    get: async () => snapshot(materialValue),
+    set: async (patch) => update(materialValue, patch),
+    delete: async () => { materialValue.value = null; },
+  };
+  const assignmentRef = {
+    id: 'assignment',
+    get: async () => snapshot(assignmentValue),
+    collection(name) {
+      assert.equal(name, 'learning_materials');
+      return {
+        doc: () => materialRef,
+        where: () => ({get: async () => ({
+          docs: materialValue.value ? [] : [{get: (field) => otherMaterial[field], ref: {delete: async () => undefined}}],
+        })}),
+      };
+    },
+  };
+  const query = (filters = []) => ({
+    where: (field, operator, value) => query([...filters, {field, operator, value}]),
+    limit: () => query(filters),
+    get: async () => {
+      const docs = access.filter((entry) => !entry.deleted && filters.every((filter) =>
+        filter.operator === '==' && entry[filter.field] === filter.value,
+      )).map((entry) => ({
+        get: (field) => entry[field],
+        ref: {delete: async () => { entry.deleted = true; }},
+      }));
+      return {docs, size: docs.length, empty: docs.length === 0};
+    },
+  });
+  return {
+    state,
+    material,
+    materialExists: () => materialValue.value != null,
+    access,
+    collection(name) {
+      if (name === 'group_assignments') return {doc: () => assignmentRef};
+      if (name === 'users') return {doc: () => ({get: async () => snapshot(userValue)})};
+      if (name === 'activity_material_access_state') return {doc: () => stateRef};
+      if (name === 'activity_material_access') return {where: () => query()};
+      if (name === 'activity_material_uploads') return {where: () => ({get: async () => ({docs: []})})};
+      throw new Error(`unexpected collection ${name}`);
+    },
+    batch() {
+      const deletes = [];
+      return {delete: (ref) => deletes.push(ref), commit: async () => Promise.all(deletes.map((ref) => ref.delete()))};
+    },
+    async runTransaction(callback) {
+      return callback({
+        get: async (ref) => ref.get(),
+        set: (ref, patch) => ref.set(patch),
+      });
+    },
+  };
+}
+
+test('Learning Material removal revokes before Storage deletion and retains revocation on failure', async () => {
+  const database = fakeMaterialRemovalDatabase();
+  const objectDeletes = [];
+  let failDelete = true;
+  const storageFactory = () => ({bucket: () => ({file: (path) => ({delete: async () => {
+    objectDeletes.push({path, revoked: [...database.state.revoked_material_ids]});
+    if (failDelete) throw new Error('storage unavailable');
+  }})})});
+  const request = {method: 'POST', body: {assignment_id: 'assignment', material_id: 'material-a'}};
+
+  const failed = fakeResponse();
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    await removeActivityLearningMaterialHandler(request, failed, {
+      authenticate: async () => 'teacher', databaseFactory: () => database, storageFactory,
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.equal(failed.statusCode, 503);
+  assert.equal(database.material.status, 'deleting');
+  assert.deepEqual(database.state.revoked_material_ids, ['material-a']);
+  assert.deepEqual(objectDeletes[0].revoked, ['material-a']);
+  assert.equal(database.access.find((entry) => entry.material_id === 'material-b').deleted, undefined);
+
+  failDelete = false;
+  // Model an old synchronizer that wrote after the first revocation. The
+  // idempotent cleanup path must remove it before clearing the marker.
+  database.access.find((entry) => entry.material_id === 'material-a').deleted = false;
+  const retried = fakeResponse();
+  await removeActivityLearningMaterialHandler(request, retried, {
+    authenticate: async () => 'teacher', databaseFactory: () => database, storageFactory,
+  });
+  assert.equal(retried.statusCode, 200);
+  assert.equal(database.materialExists(), false);
+  assert.deepEqual(database.state.revoked_material_ids, []);
+  assert.equal(database.access.find((entry) => entry.material_id === 'material-a').deleted, true);
+
+  // If a prior process failed only after metadata deletion, its idempotent
+  // retry removes a stale projection before releasing the retained marker.
+  database.state.revoked_material_ids = ['material-a'];
+  database.access.find((entry) => entry.material_id === 'material-a').deleted = false;
+  const cleanup = fakeResponse();
+  await removeActivityLearningMaterialHandler(request, cleanup, {
+    authenticate: async () => 'teacher', databaseFactory: () => database, storageFactory,
+  });
+  assert.equal(cleanup.statusCode, 200);
+  assert.equal(database.access.find((entry) => entry.material_id === 'material-a').deleted, true);
+  assert.deepEqual(database.state.revoked_material_ids, []);
+});
+
+test('Learning Material projection sync does not publish a stale deleting material snapshot', async () => {
+  const state = {
+    assignment_id: 'assignment', generation: 1, state: 'ready', schema_version: 1,
+    revoked_material_ids: [],
+  };
+  const writes = [];
+  const materialDocs = ['material-a', 'material-b'].map((id) => {
+    const data = {
+      material_id: id, assignment_id: 'assignment',
+      status: id === 'material-a' ? 'deleting' : 'ready',
+    };
+    return {
+      id,
+      get: (field) => data[field],
+      ref: {
+        id,
+        get: async () => ({exists: true, data: () => data, get: (field) => data[field]}),
+        set: async () => undefined,
+      },
+    };
+  });
+  const stateRef = {get: async () => ({exists: true, data: () => state, get: (field) => state[field]}),
+    set: async (patch) => Object.assign(state, patch)};
+  const assignmentRef = {
+    id: 'assignment',
+    get: async () => ({exists: true, data: () => ({teacher_id: 'teacher', status: 'draft'})}),
+    collection: () => ({where: () => ({get: async () => ({docs: materialDocs, empty: false})})}),
+  };
+  const emptyQuery = () => ({where: () => emptyQuery(), limit: () => emptyQuery(), get: async () => ({docs: [], empty: true})});
+  const firestore = {
+    collection(name) {
+      if (name === 'activity_material_access_state') return {doc: () => stateRef};
+      if (name === 'activity_material_access') return {where: () => emptyQuery(), doc: (id) => ({set: async () => writes.push(id)})};
+      throw new Error(`unexpected collection ${name}`);
+    },
+    batch: () => ({delete: () => undefined, commit: async () => undefined}),
+    runTransaction: async (callback) => callback({get: async (ref) => ref.get(), set: (ref, patch) => ref.set(patch)}),
+  };
+  await syncActivityMaterialAccess({firestore, assignmentRef});
+  assert.equal(writes.some((id) => id.includes('material-a')), false);
+  assert.equal(writes.some((id) => id.includes('material-b')), true);
+  assert.deepEqual(state.revoked_material_ids, []);
 });

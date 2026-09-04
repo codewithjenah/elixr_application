@@ -1336,6 +1336,51 @@ function materialAccessStateRef(firestore, assignmentId) {
   return firestore.collection('activity_material_access_state').doc(assignmentId);
 }
 
+function revokedMaterialIds(state) {
+  return Array.isArray(state?.revoked_material_ids)
+    ? state.revoked_material_ids.filter(validId) : [];
+}
+
+// This is committed with the material's transition to deleting, before any
+// Storage delete. Storage rules consult the same state document as projection
+// generation, keeping the rule lookup budget at two documents.
+async function revokeActivityMaterialAccess(firestore, assignmentId, materialId, transaction) {
+  const stateRef = materialAccessStateRef(firestore, assignmentId);
+  const update = async (activeTransaction) => {
+    const state = await activeTransaction.get(stateRef);
+    const revoked = new Set(revokedMaterialIds(state.exists ? state.data() : null));
+    revoked.add(materialId);
+    // Retained materials include deleting ones, so this server-owned list is
+    // bounded by maxPerAssignment until each confirmed deletion is cleaned up.
+    activeTransaction.set(stateRef, {
+      assignment_id: assignmentId,
+      revoked_material_ids: [...revoked],
+      schema_version: 1,
+      updated_at: Timestamp.now(),
+    }, {merge: true});
+  };
+  if (transaction) return update(transaction);
+  return firestore.runTransaction(update);
+}
+
+// Only call after the final object deletion has succeeded and its canonical
+// metadata is gone. Retaining a marker on failure is safer than restoring a
+// potentially stale projection.
+async function clearActivityMaterialAccessRevocation(firestore, assignmentId, materialId) {
+  const stateRef = materialAccessStateRef(firestore, assignmentId);
+  return firestore.runTransaction(async (transaction) => {
+    const state = await transaction.get(stateRef);
+    if (!state.exists) return;
+    const current = revokedMaterialIds(state.data());
+    const revoked = current.filter((id) => id !== materialId);
+    if (revoked.length === current.length) return;
+    transaction.set(stateRef, {
+      revoked_material_ids: revoked,
+      updated_at: Timestamp.now(),
+    }, {merge: true});
+  });
+}
+
 async function hasReadyActivityMaterialAccess(
     firestore, assignmentId, materialId, userId) {
   const [access, state] = await Promise.all([
@@ -1361,9 +1406,51 @@ async function rejectStagedMaterialRecord(firestore, stage, reason) {
   });
 }
 
-async function markMaterialProjectionSynchronized(materialRef) {
-  await materialRef.set({projection_sync_state: 'ready', projection_synced_at: Timestamp.now()},
-    {merge: true});
+async function markMaterialProjectionSynchronized(firestore, materialRef) {
+  await firestore.runTransaction(async (transaction) => {
+    const material = await transaction.get(materialRef);
+    // Never recreate metadata after a concurrent removal. A missing or
+    // deleting material must remain pending only in historical work queues,
+    // where reconciliation will ignore it rather than restoring access.
+    if (!material.exists || material.get('status') !== 'ready' ||
+        material.get('material_id') !== materialRef.id) return;
+    transaction.set(materialRef, {
+      projection_sync_state: 'ready', projection_synced_at: Timestamp.now(),
+    }, {merge: true});
+  });
+}
+
+async function publishMaterialAccessProjection({
+  firestore, stateRef, assignmentRef, assignment, materialRef, generation, eligible, now,
+}) {
+  const recipients = [...eligible];
+  for (let index = 0; index < recipients.length; index += 400) {
+    const recipientChunk = recipients.slice(index, index + 400);
+    const published = await firestore.runTransaction(async (transaction) => {
+      const [state, material] = await Promise.all([
+        transaction.get(stateRef), transaction.get(materialRef),
+      ]);
+      // These reads make a removal transaction conflict with an in-flight
+      // publisher. If removal wins, the retried transaction sees its
+      // revocation/deleting metadata and cannot recreate usable access.
+      if (!state.exists || state.get('generation') !== generation ||
+          revokedMaterialIds(state.data()).includes(materialRef.id) ||
+          !material.exists || material.get('status') !== 'ready' ||
+          material.get('material_id') !== materialRef.id ||
+          material.get('assignment_id') !== assignmentRef.id) return false;
+      for (const userId of recipientChunk) {
+        transaction.set(firestore.collection('activity_material_access')
+          .doc(materialAccessId(assignmentRef.id, materialRef.id, userId)), {
+          assignment_id: assignmentRef.id, material_id: materialRef.id, user_id: userId,
+          owner_teacher_id: assignment.teacher_id, projection_generation: generation,
+          schema_version: 1, created_at: now,
+        });
+      }
+      return true;
+    });
+    if (!published) return false;
+  }
+  return true;
 }
 
 // Rebuild rather than incrementally mutate the access projection. A short
@@ -1381,15 +1468,19 @@ async function syncActivityMaterialAccess({firestore, assignmentRef, assignmentD
     return;
   }
   const stateRef = materialAccessStateRef(firestore, assignmentRef.id);
-  const generation = await firestore.runTransaction(async (transaction) => {
+  const {generation, revoked} = await firestore.runTransaction(async (transaction) => {
     const current = await transaction.get(stateRef);
     const next = (current.exists && Number.isInteger(current.get('generation'))
       ? current.get('generation') : 0) + 1;
     transaction.set(stateRef, {
       assignment_id: assignmentRef.id, generation: next, state: 'rebuilding',
-      schema_version: 1, updated_at: Timestamp.now(),
-    });
-    return next;
+      schema_version: 1, revoked_material_ids: revokedMaterialIds(
+        current.exists ? current.data() : null,
+      ), updated_at: Timestamp.now(),
+    }, {merge: true});
+    return {generation: next, revoked: new Set(revokedMaterialIds(
+      current.exists ? current.data() : null,
+    ))};
   });
   const materialSnapshot = await assignmentRef.collection('learning_materials')
     .where('status', '==', 'ready').get();
@@ -1428,16 +1519,15 @@ async function syncActivityMaterialAccess({firestore, assignmentRef, assignmentD
     }
   }
   const now = Timestamp.now();
+  // A sync that observes a revocation never recreates its projection. If a
+  // removal commits after this snapshot, the state revocation remains an
+  // immediate rule-level denial until final object deletion is confirmed.
   for (const material of materialSnapshot.docs) {
-    const writes = [...eligible].map((userId) => firestore.collection('activity_material_access')
-      .doc(materialAccessId(assignmentRef.id, material.id, userId)).set({
-        assignment_id: assignmentRef.id, material_id: material.id, user_id: userId,
-        owner_teacher_id: assignment.teacher_id, projection_generation: generation,
-        schema_version: 1, created_at: now,
-      }));
-    for (let index = 0; index < writes.length; index += 400) {
-      await Promise.all(writes.slice(index, index + 400));
-    }
+    if (revoked.has(material.id)) continue;
+    await publishMaterialAccessProjection({
+      firestore, stateRef, assignmentRef, assignment, materialRef: material.ref,
+      generation, eligible, now,
+    });
   }
   await firestore.runTransaction(async (transaction) => {
     const current = await transaction.get(stateRef);
@@ -1546,7 +1636,7 @@ async function finalizeStagedActivityMaterial(uploadId, {
       await syncActivityMaterialAccess({
         firestore, assignmentRef, assignmentData: published,
       });
-      await markMaterialProjectionSynchronized(materialRef);
+      await markMaterialProjectionSynchronized(firestore, materialRef);
     } catch (error) {
       // Publication already committed. Keep the terminal upload state intact
       // and let the dedicated pending-projection pass repair only this
@@ -1703,7 +1793,7 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
       return assignmentSnapshot.data();
     });
     await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment});
-    await markMaterialProjectionSynchronized(
+    await markMaterialProjectionSynchronized(firestore,
       assignmentRef.collection('learning_materials').doc(materialId),
     );
     return response.status(200).json({
@@ -1736,10 +1826,12 @@ async function removeActivityLearningMaterialHandler(request, response, {
   const firestore = databaseFactory();
   const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
   const materialRef = assignmentRef.collection('learning_materials').doc(body.material_id);
+  const stateRef = materialAccessStateRef(firestore, body.assignment_id);
   try {
     const material = await firestore.runTransaction(async (transaction) => {
-      const [assignment, user, existing] = await Promise.all([
-        transaction.get(assignmentRef), transaction.get(firestore.collection('users').doc(uid)), transaction.get(materialRef),
+      const [assignment, user, existing, state] = await Promise.all([
+        transaction.get(assignmentRef), transaction.get(firestore.collection('users').doc(uid)),
+        transaction.get(materialRef), transaction.get(stateRef),
       ]);
       if (!assignment.exists || !user.exists || user.get('role') !== 'Teacher' ||
           assignment.get('teacher_id') !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
@@ -1747,9 +1839,22 @@ async function removeActivityLearningMaterialHandler(request, response, {
       if (existing.get('status') !== 'deleting') {
         transaction.set(materialRef, {status: 'deleting', deletion_requested_at: Timestamp.now()}, {merge: true});
       }
+      const revoked = new Set(revokedMaterialIds(state.exists ? state.data() : null));
+      revoked.add(body.material_id);
+      transaction.set(stateRef, {
+        assignment_id: body.assignment_id, revoked_material_ids: [...revoked],
+        schema_version: 1, updated_at: Timestamp.now(),
+      }, {merge: true});
       return existing.data();
     });
-    if (!material) return response.status(200).json({removed: true, already_removed: true});
+    if (!material) {
+      // A prior invocation may have deleted metadata after object deletion but
+      // failed while cleaning its marker. Retrying this idempotent endpoint is
+      // the safe cleanup path; metadata absence is the post-delete proof.
+      await deleteMaterialAccessForMaterial(firestore, body.assignment_id, body.material_id);
+      await clearActivityMaterialAccessRevocation(firestore, body.assignment_id, body.material_id);
+      return response.status(200).json({removed: true, already_removed: true});
+    }
     // This is deliberately before any Storage operation. Storage rules consult
     // these records, so a failed object deletion remains fail-closed.
     await deleteMaterialAccessForMaterial(firestore, body.assignment_id, body.material_id);
@@ -1770,6 +1875,7 @@ async function removeActivityLearningMaterialHandler(request, response, {
       await storageFactory().bucket().file(material.storage_path).delete({ignoreNotFound: true});
     }
     await materialRef.delete();
+    await clearActivityMaterialAccessRevocation(firestore, body.assignment_id, body.material_id);
     // Do not rebuild the assignment generation here: its other materials have
     // unchanged authoritative recipients and must not have a user-visible
     // access gap while this one material is removed.
@@ -2232,12 +2338,14 @@ async function runActivityMaterialReconciliation({
     .orderBy(FieldPath.documentId()), async (material) => {
     const assignmentRef = material.ref.parent.parent;
     if (!assignmentRef) return;
+    await revokeActivityMaterialAccess(firestore, assignmentRef.id, material.id);
     await deleteMaterialAccessForMaterial(firestore, assignmentRef.id, material.id);
     const path = material.get('storage_path');
     if (typeof path === 'string' && path.startsWith('activity_learning_materials/')) {
       await storage.bucket().file(path).delete({ignoreNotFound: true});
     }
     await material.ref.delete();
+    await clearActivityMaterialAccessRevocation(firestore, assignmentRef.id, material.id);
     await synchronizeRemainingMaterialAccess(firestore, assignmentRef);
   }, 'deletion_requested_at');
 
@@ -2249,7 +2357,7 @@ async function runActivityMaterialReconciliation({
     const assignmentRef = material.ref.parent.parent;
     if (!assignmentRef) return;
     await syncActivityMaterialAccess({firestore, assignmentRef});
-    await markMaterialProjectionSynchronized(material.ref);
+    await markMaterialProjectionSynchronized(firestore, material.ref);
   });
 }
 
