@@ -15,6 +15,14 @@ const {
   listTraineeAssignmentsHandler,
   updateTeacherActivityAssignmentHandler,
   validActivityAssessment,
+  ACTIVITY_MATERIAL_LIMITS,
+  detectActivityMaterialContent,
+  finalMaterialPathFor,
+  materialAccessId,
+  materialMaximumBytes,
+  normalizeActivityMaterialLink,
+  stagingPathFor,
+  beginActivityMaterialUploadHandler,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,
   normalizeSearchText,
@@ -22,6 +30,59 @@ const {
   sanitizedResult,
   validateSearchQuery,
 } = require('../index')._test;
+
+test('Learning Material byte classification accepts only the narrow supported signatures', () => {
+  assert.deepEqual(
+    detectActivityMaterialContent(Buffer.from('%PDF-1.7\nminimal')),
+    {type: 'pdf', contentType: 'application/pdf'},
+  );
+  assert.deepEqual(
+    detectActivityMaterialContent(Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+    ])),
+    {type: 'image', contentType: 'image/png'},
+  );
+  assert.deepEqual(
+    detectActivityMaterialContent(Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00])),
+    {type: 'image', contentType: 'image/jpeg'},
+  );
+  assert.deepEqual(
+    detectActivityMaterialContent(Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+      0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x00, 0x00,
+    ])),
+    {type: 'video', contentType: 'video/mp4'},
+  );
+  assert.equal(detectActivityMaterialContent(Buffer.alloc(0)), null);
+  assert.equal(detectActivityMaterialContent(Buffer.from('not a PDF')), null);
+  assert.equal(detectActivityMaterialContent(Buffer.from('%PDF')), null);
+  assert.equal(detectActivityMaterialContent(Buffer.from([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  ])), null);
+});
+
+test('Learning Material canonical paths and links cannot be client-shaped capabilities', () => {
+  assert.equal(
+    stagingPathFor('teacher', 'assignment', 'upload-id'),
+    'activity_material_staging/teacher/assignment/upload-id',
+  );
+  assert.equal(
+    finalMaterialPathFor('assignment', 'material-id'),
+    'activity_learning_materials/assignment/material-id',
+  );
+  assert.equal(
+    materialAccessId('assignment', 'material', 'trainee'),
+    'assignment__material__trainee',
+  );
+  assert.equal(normalizeActivityMaterialLink(' HTTPS://example.com/path#fragment '),
+    'https://example.com/path');
+  assert.equal(normalizeActivityMaterialLink('javascript:alert(1)'), null);
+  assert.equal(normalizeActivityMaterialLink('https://user:pass@example.com/a'), null);
+  assert.equal(materialMaximumBytes('pdf'), ACTIVITY_MATERIAL_LIMITS.pdfBytes);
+  assert.equal(materialMaximumBytes('image'), ACTIVITY_MATERIAL_LIMITS.imageBytes);
+  assert.equal(materialMaximumBytes('video'), ACTIVITY_MATERIAL_LIMITS.videoBytes);
+});
 
 function activityAssessment({maximum = 50, attempts = 3, duration = 30} = {}) {
   return {
@@ -105,6 +166,93 @@ function fakeResponse() {
     },
   };
 }
+
+function fakeMaterialBeginDatabase({
+  assignment = {teacher_id: 'teacher', status: 'draft'},
+  user = {role: 'Teacher'},
+  materialStatuses = [],
+} = {}) {
+  const writes = [];
+  const document = (kind, id, data) => ({
+    kind, id,
+    snapshot: {
+      exists: data != null,
+      data: () => data,
+      get: (field) => data?.[field],
+      docs: Array.isArray(data)
+        ? data.map((value, index) => ({id: `material-${index}`, get: (field) => value[field]}))
+        : undefined,
+    },
+    collection(name) {
+      assert.equal(kind, 'assignment');
+      assert.equal(name, 'learning_materials');
+      const materials = document(
+        'materials', id, materialStatuses.map((status) => ({status})),
+      );
+      materials.doc = (materialId) => document('material', materialId, null);
+      return materials;
+    },
+  });
+  const database = {
+    writes,
+    collection(name) {
+      return {
+        doc(id) {
+          if (name === 'group_assignments') return document('assignment', id, assignment);
+          if (name === 'users') return document('user', id, user);
+          if (name === 'activity_material_uploads') return document('stage', id, null);
+          throw new Error(`unexpected collection ${name}`);
+        },
+      };
+    },
+    async runTransaction(callback) {
+      return callback({
+        get: async (ref) => ref.snapshot,
+        create: (ref, data) => writes.push({kind: ref.kind, id: ref.id, data}),
+      });
+    },
+  };
+  return database;
+}
+
+test('Learning Material upload initialization rejects unauthenticated and non-owner callers', async () => {
+  const unauthenticated = fakeResponse();
+  await beginActivityMaterialUploadHandler(
+    {method: 'POST', body: {}}, unauthenticated,
+    {authenticate: async () => null, databaseFactory: () => { throw new Error('unused'); }},
+  );
+  assert.equal(unauthenticated.statusCode, 401);
+
+  const forbidden = fakeResponse();
+  await beginActivityMaterialUploadHandler(
+    {method: 'POST', body: {
+      assignment_id: 'assignment', type: 'pdf', display_name: 'Sheet',
+      declared_content_type: 'application/pdf', size_bytes: 8,
+    }}, forbidden,
+    {authenticate: async () => 'other', databaseFactory: () => fakeMaterialBeginDatabase()},
+  );
+  assert.equal(forbidden.statusCode, 403);
+});
+
+test('Learning Material upload initialization reserves opaque server IDs and exact staging path', async () => {
+  const response = fakeResponse();
+  const database = fakeMaterialBeginDatabase();
+  await beginActivityMaterialUploadHandler(
+    {method: 'POST', body: {
+      assignment_id: 'assignment', type: 'image', display_name: '  Setup photo ',
+      declared_content_type: 'image/png', size_bytes: 8,
+    }}, response,
+    {authenticate: async () => 'teacher', databaseFactory: () => database},
+  );
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body.upload_id, /^[0-9a-f-]{36}$/);
+  assert.match(response.body.material_id, /^[0-9a-f-]{36}$/);
+  assert.equal(response.body.staging_path,
+    `activity_material_staging/teacher/assignment/${response.body.upload_id}`);
+  assert.equal(database.writes.length, 2);
+  assert.equal(database.writes.find((write) => write.kind === 'material').data.status, 'staging');
+  assert.equal(database.writes.find((write) => write.kind === 'stage').data.state, 'staging');
+});
 
 function fakeAssignmentDatabase({memberships, assignments, recipients = [], overrides = []}) {
   const assignmentQueries = [];

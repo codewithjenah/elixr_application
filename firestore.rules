@@ -3743,6 +3743,28 @@ service cloud.firestore {
             get(assignmentPath(assignmentId)).data, assignmentId, traineeId
           );
       }
+
+      // Learning-material records are written exclusively by Functions after
+      // byte validation. Future clients obtain authorized metadata through the
+      // server API; direct Firestore access would expose internal Storage paths
+      // and invite forged lifecycle transitions.
+      match /learning_materials/{materialId} {
+        allow read, write: if false;
+      }
+    }
+
+    // Server-owned upload authorization and one-lookup Storage access
+    // projections. Neither document is a client-authoritative capability.
+    match /activity_material_uploads/{uploadId} {
+      allow read, write: if false;
+    }
+
+    match /activity_material_access/{accessId} {
+      allow read, write: if false;
+    }
+
+    match /activity_material_access_state/{assignmentId} {
+      allow read, write: if false;
     }
 
     // Collection-group queries need a recursive match because their parent

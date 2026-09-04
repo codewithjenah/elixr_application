@@ -1,7 +1,8 @@
-const {createHash} = require('node:crypto');
+const {createHash, randomUUID} = require('node:crypto');
 const {onRequest} = require('firebase-functions/v2/https');
 const {onDocumentWritten, onDocumentDeleted} = require('firebase-functions/v2/firestore');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
+const {onObjectFinalized} = require('firebase-functions/v2/storage');
 const {initializeApp, getApps} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require('firebase-admin/firestore');
@@ -10,9 +11,38 @@ const {getStorage} = require('firebase-admin/storage');
 if (getApps().length === 0) initializeApp();
 
 const REGION = 'asia-southeast1';
+const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || 'elixr-app-2026.firebasestorage.app';
 const SUPPORTED_ROLES = new Set(['Teacher', 'Trainee']);
 const SEARCH_LIMIT = 20;
 const SEARCH_COOLDOWN_MS = 500;
+
+// Learning materials are deliberately a narrow, server-authoritative surface.
+// These limits are authoritative; client-side limits are UX only. Storage rules
+// additionally bind an upload to the server-created staging record.
+const ACTIVITY_MATERIAL_LIMITS = Object.freeze({
+  maxPerAssignment: 10,
+  stagingLifetimeMs: 15 * 60 * 1000,
+  validationLeaseMs: 5 * 60 * 1000,
+  pdfBytes: 20 * 1024 * 1024,
+  imageBytes: 10 * 1024 * 1024,
+  videoBytes: 100 * 1024 * 1024,
+  displayNameLength: 120,
+  linkLength: 2048,
+});
+const ACTIVITY_MATERIAL_TYPES = new Set(['pdf', 'image', 'video', 'link']);
+const ACTIVITY_UPLOAD_CONTENT_TYPES = Object.freeze({
+  pdf: new Set(['application/pdf']),
+  image: new Set(['image/jpeg', 'image/png']),
+  video: new Set(['video/mp4']),
+});
+
+/**
+ * @typedef {'pdf'|'image'|'video'|'link'} ActivityLearningMaterialType
+ * @typedef {'staging'|'validating'|'ready'|'rejected'|'deleting'} ActivityMaterialLifecycle
+ * @typedef {{upload_id:string, material_id:string, assignment_id:string,
+ *   owner_teacher_id:string, type:ActivityLearningMaterialType,
+ *   staging_path:string, state:ActivityMaterialLifecycle}} ActivityMaterialStage
+ */
 
 function normalizeSearchText(value) {
   return String(value || '')
@@ -354,7 +384,19 @@ async function cascadeAssignment({firestore, storage, assignmentRef, assignmentD
       storage,
       `teacher_activity_demos/${teacherId}/assignments/${assignmentId}/`,
     );
+    await deleteStoragePrefix(
+      storage,
+      `activity_material_staging/${teacherId}/${assignmentId}/`,
+    );
   }
+  await deleteStoragePrefix(storage, `activity_learning_materials/${assignmentId}/`);
+  await deleteQueryDocuments(
+    firestore,
+    firestore.collection('activity_material_uploads').where('assignment_id', '==', assignmentId),
+  );
+  await deleteMaterialAccessForAssignment(firestore, assignmentId);
+  await materialAccessStateRef(firestore, assignmentId).delete();
+  await deleteQueryDocuments(firestore, assignmentRef.collection('learning_materials'));
   await deleteQueryDocuments(
     firestore,
     assignmentRef.collection('assignment_recipients'),
@@ -1169,6 +1211,537 @@ function boundedText(value, max, {required = true} = {}) {
     value.trim().length <= max ? value.trim() : null;
 }
 
+function materialMaximumBytes(type) {
+  return type === 'pdf' ? ACTIVITY_MATERIAL_LIMITS.pdfBytes :
+    type === 'image' ? ACTIVITY_MATERIAL_LIMITS.imageBytes :
+      type === 'video' ? ACTIVITY_MATERIAL_LIMITS.videoBytes : 0;
+}
+
+function materialAccessId(assignmentId, materialId, userId) {
+  return `${assignmentId}__${materialId}__${userId}`;
+}
+
+function stagingPathFor(teacherId, assignmentId, uploadId) {
+  return `activity_material_staging/${teacherId}/${assignmentId}/${uploadId}`;
+}
+
+function finalMaterialPathFor(assignmentId, materialId) {
+  return `activity_learning_materials/${assignmentId}/${materialId}`;
+}
+
+function timestampsOlderThan(value, milliseconds) {
+  return value && typeof value.toMillis === 'function' &&
+    value.toMillis() <= Date.now() - milliseconds;
+}
+
+// This is intentionally byte-oriented. The client-declared MIME type and any
+// filename never influence the canonical content type written to Firestore or
+// Storage. It is not a full media parser; the narrow signatures below reject
+// malformed and type-confused uploads before publication.
+function detectActivityMaterialContent(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+  if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') {
+    return {type: 'pdf', contentType: 'application/pdf'};
+  }
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  )) return {type: 'image', contentType: 'image/png'};
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return {type: 'image', contentType: 'image/jpeg'};
+  }
+  // ISO base media files (including MP4) start with a box length followed by
+  // `ftyp`. Only a short known MP4 brand allowlist is accepted; this remains
+  // signature-level validation, not an attempt to decode untrusted video.
+  const majorBrand = buffer.length >= 12 ? buffer.subarray(8, 12).toString('ascii') : '';
+  if (buffer.length >= 16 && buffer.subarray(4, 8).toString('ascii') === 'ftyp' &&
+      ['isom', 'iso2', 'avc1', 'mp41', 'mp42', 'M4V '].includes(majorBrand)) {
+    return {type: 'video', contentType: 'video/mp4'};
+  }
+  return null;
+}
+
+function normalizeActivityMaterialLink(value) {
+  const raw = boundedText(value, ACTIVITY_MATERIAL_LIMITS.linkLength);
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname ||
+        parsed.username || parsed.password) return null;
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+function materialStageMatchesObject(stage, objectName) {
+  return stage && stage.schema_version === 1 &&
+    stage.state && ['staging', 'validating'].includes(stage.state) &&
+    validId(stage.upload_id) && validId(stage.material_id) &&
+    validId(stage.assignment_id) && validId(stage.owner_teacher_id) &&
+    ACTIVITY_MATERIAL_TYPES.has(stage.type) && stage.type !== 'link' &&
+    typeof stage.staging_path === 'string' && stage.staging_path === objectName &&
+    stage.staging_path === stagingPathFor(
+      stage.owner_teacher_id, stage.assignment_id, stage.upload_id,
+    ) && Number.isInteger(stage.declared_size_bytes) &&
+    stage.declared_size_bytes > 0 &&
+    stage.declared_size_bytes <= materialMaximumBytes(stage.type);
+}
+
+async function deleteMaterialAccessForAssignment(firestore, assignmentId) {
+  return deleteQueryDocuments(
+    firestore,
+    firestore.collection('activity_material_access').where('assignment_id', '==', assignmentId),
+  );
+}
+
+function materialAccessStateRef(firestore, assignmentId) {
+  return firestore.collection('activity_material_access_state').doc(assignmentId);
+}
+
+async function hasReadyActivityMaterialAccess(
+    firestore, assignmentId, materialId, userId) {
+  const [access, state] = await Promise.all([
+    firestore.collection('activity_material_access')
+      .doc(materialAccessId(assignmentId, materialId, userId)).get(),
+    materialAccessStateRef(firestore, assignmentId).get(),
+  ]);
+  return access.exists && state.exists && state.get('state') === 'ready' &&
+    access.get('assignment_id') === assignmentId && access.get('material_id') === materialId &&
+    access.get('user_id') === userId && access.get('projection_generation') === state.get('generation');
+}
+
+async function rejectStagedMaterialRecord(firestore, stage, reason) {
+  const materialRef = firestore.collection('group_assignments').doc(stage.assignment_id)
+    .collection('learning_materials').doc(stage.material_id);
+  await firestore.runTransaction(async (transaction) => {
+    const material = await transaction.get(materialRef);
+    if (material.exists && material.get('status') === 'staging') {
+      transaction.update(materialRef, {
+        status: 'rejected', rejection_reason: reason, updated_at: Timestamp.now(),
+      });
+    }
+  });
+}
+
+// Rebuild rather than incrementally mutate the access projection. A short
+// fail-closed gap is preferable to carrying forward a removed recipient. Each
+// Storage read uses the per-material projection plus its generation state,
+// rather than the assignment/membership/recipient source chain.
+async function syncActivityMaterialAccess({firestore, assignmentRef, assignmentData}) {
+  // Always take a fresh source snapshot. Trigger payloads may be stale by the
+  // time a concurrent audience or membership change starts its own rebuild.
+  const assignmentSnapshot = await assignmentRef.get();
+  const assignment = assignmentSnapshot.exists ? assignmentSnapshot.data() : null;
+  if (!assignment) {
+    await deleteMaterialAccessForAssignment(firestore, assignmentRef.id);
+    await materialAccessStateRef(firestore, assignmentRef.id).delete();
+    return;
+  }
+  const stateRef = materialAccessStateRef(firestore, assignmentRef.id);
+  const generation = await firestore.runTransaction(async (transaction) => {
+    const current = await transaction.get(stateRef);
+    const next = (current.exists && Number.isInteger(current.get('generation'))
+      ? current.get('generation') : 0) + 1;
+    transaction.set(stateRef, {
+      assignment_id: assignmentRef.id, generation: next, state: 'rebuilding',
+      schema_version: 1, updated_at: Timestamp.now(),
+    });
+    return next;
+  });
+  const materialSnapshot = await assignmentRef.collection('learning_materials')
+    .where('status', '==', 'ready').get();
+  await deleteMaterialAccessForAssignment(firestore, assignmentRef.id);
+  if (materialSnapshot.empty || !validId(assignment.teacher_id) ||
+      assignment.deletion_state === 'deleting') {
+    await firestore.runTransaction(async (transaction) => {
+      const current = await transaction.get(stateRef);
+      if (current.exists && current.get('generation') === generation) {
+        transaction.set(stateRef, {state: 'ready', updated_at: Timestamp.now()}, {merge: true});
+      }
+    });
+    return;
+  }
+
+  const eligible = new Set([assignment.teacher_id]);
+  if (assignmentIsPublished(assignment)) {
+    if (assignment.audience_type === 'entire_class') {
+      const memberships = await firestore.collection('group_memberships')
+        .where('group_id', '==', assignment.group_id).get();
+      for (const membership of memberships.docs) {
+        const data = membership.data();
+        if (data.status === 'approved' && data.teacher_id === assignment.teacher_id &&
+            validId(data.trainee_id)) eligible.add(data.trainee_id);
+      }
+    } else if (['selected_students', 'individual_student'].includes(assignment.audience_type)) {
+      const recipients = await assignmentRef.collection('assignment_recipients').get();
+      for (const recipient of recipients.docs) {
+        const data = recipient.data();
+        if (!validRecipientProjection(data, assignmentRef.id, recipient.id)) continue;
+        const membership = await firestore.collection('group_memberships')
+          .doc(`${assignment.group_id}_${recipient.id}`).get();
+        if (membership.exists && membership.get('status') === 'approved' &&
+            membership.get('teacher_id') === assignment.teacher_id) eligible.add(recipient.id);
+      }
+    }
+  }
+  const now = Timestamp.now();
+  for (const material of materialSnapshot.docs) {
+    const writes = [...eligible].map((userId) => firestore.collection('activity_material_access')
+      .doc(materialAccessId(assignmentRef.id, material.id, userId)).set({
+        assignment_id: assignmentRef.id, material_id: material.id, user_id: userId,
+        owner_teacher_id: assignment.teacher_id, projection_generation: generation,
+        schema_version: 1, created_at: now,
+      }));
+    for (let index = 0; index < writes.length; index += 400) {
+      await Promise.all(writes.slice(index, index + 400));
+    }
+  }
+  await firestore.runTransaction(async (transaction) => {
+    const current = await transaction.get(stateRef);
+    if (current.exists && current.get('generation') === generation) {
+      transaction.set(stateRef, {state: 'ready', updated_at: Timestamp.now()}, {merge: true});
+    }
+  });
+}
+
+async function finalizeStagedActivityMaterial(uploadId, {
+  databaseFactory = getFirestore,
+  storageFactory = getStorage,
+} = {}) {
+  if (!validId(uploadId)) return {processed: false, reason: 'invalid_upload'};
+  const firestore = databaseFactory();
+  const stageRef = firestore.collection('activity_material_uploads').doc(uploadId);
+  let stage;
+  try {
+    stage = await firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(stageRef);
+      if (!snapshot.exists) return null;
+      const data = snapshot.data();
+      if (data.state === 'ready' || data.state === 'rejected') return null;
+      if (!data.expires_at || typeof data.expires_at.toMillis !== 'function' ||
+          data.expires_at.toMillis() <= Date.now()) {
+        transaction.set(stageRef, {
+          state: 'rejected', rejection_reason: 'expired', rejected_at: Timestamp.now(),
+        }, {merge: true});
+        return {...data, expired: true};
+      }
+      if (!materialStageMatchesObject(data, data.staging_path)) return null;
+      if (data.state === 'validating' && !timestampsOlderThan(
+        data.validation_started_at, ACTIVITY_MATERIAL_LIMITS.validationLeaseMs,
+      )) return null;
+      transaction.update(stageRef, {
+        state: 'validating', validation_started_at: Timestamp.now(),
+      });
+      return data;
+    });
+  } catch (error) {
+    console.error('Activity material validation lease failed', error);
+    return {processed: false, reason: 'lease_failed'};
+  }
+  if (!stage) return {processed: false, reason: 'already_processed'};
+  const storage = storageFactory();
+  const bucket = storage.bucket();
+  const stagedFile = bucket.file(stage.staging_path);
+  if (stage.expired) {
+    await stagedFile.delete({ignoreNotFound: true}).catch(() => undefined);
+    await rejectStagedMaterialRecord(firestore, stage, 'expired').catch(() => undefined);
+    return {processed: false, reason: 'expired'};
+  }
+  try {
+    const [buffer] = await stagedFile.download();
+    if (buffer.length === 0 || buffer.length !== stage.declared_size_bytes ||
+        buffer.length > materialMaximumBytes(stage.type)) {
+      throw Object.assign(new Error('invalid_size'), {code: 'invalid_size'});
+    }
+    const detected = detectActivityMaterialContent(buffer);
+    if (!detected || detected.type !== stage.type) {
+      throw Object.assign(new Error('invalid_content'), {code: 'invalid_content'});
+    }
+    const finalPath = finalMaterialPathFor(stage.assignment_id, stage.material_id);
+    await bucket.file(finalPath).save(buffer, {
+      resumable: false,
+      metadata: {
+        contentType: detected.contentType,
+        metadata: {
+          assignment_id: stage.assignment_id,
+          material_id: stage.material_id,
+          owner_teacher_id: stage.owner_teacher_id,
+          schema_version: '1',
+        },
+      },
+    });
+    const assignmentRef = firestore.collection('group_assignments').doc(stage.assignment_id);
+    const materialRef = assignmentRef.collection('learning_materials').doc(stage.material_id);
+    const published = await firestore.runTransaction(async (transaction) => {
+      const [assignment, material, currentStage] = await Promise.all([
+        transaction.get(assignmentRef), transaction.get(materialRef), transaction.get(stageRef),
+      ]);
+      if (!assignment.exists || !material.exists || !currentStage.exists ||
+          assignment.get('teacher_id') !== stage.owner_teacher_id ||
+          assignment.get('deletion_state') === 'deleting' ||
+          material.get('status') === 'deleting' ||
+          currentStage.get('state') !== 'validating' ||
+          !currentStage.get('expires_at') ||
+          currentStage.get('expires_at').toMillis() <= Date.now()) return null;
+      transaction.update(materialRef, {
+        detected_content_type: detected.contentType, size_bytes: buffer.length,
+        storage_path: finalPath, status: 'ready', updated_at: Timestamp.now(),
+      });
+      transaction.set(stageRef, {
+        state: 'ready', final_storage_path: finalPath,
+        detected_content_type: detected.contentType, validated_size_bytes: buffer.length,
+        published_at: Timestamp.now(),
+      }, {merge: true});
+      return assignment.data();
+    });
+    if (!published) {
+      await bucket.file(finalPath).delete({ignoreNotFound: true});
+      throw Object.assign(new Error('material_unavailable'), {code: 'material_unavailable'});
+    }
+    await syncActivityMaterialAccess({
+      firestore, assignmentRef, assignmentData: published,
+    });
+    await stagedFile.delete({ignoreNotFound: true});
+    return {processed: true, materialId: stage.material_id};
+  } catch (error) {
+    const rejection = ['invalid_size', 'invalid_content', 'material_unavailable'].includes(error.code);
+    if (rejection) {
+      await stagedFile.delete({ignoreNotFound: true}).catch(() => undefined);
+      await stageRef.set({
+        state: 'rejected', rejection_reason: error.code, rejected_at: Timestamp.now(),
+      }, {merge: true}).catch(() => undefined);
+      await rejectStagedMaterialRecord(firestore, stage, error.code).catch(() => undefined);
+    } else {
+      // Leave a retryable record. The scheduled reconciler will retry the
+      // server-owned operation; no client can promote it to ready.
+      await stageRef.set({state: 'staging', last_error: 'publish_failed'}, {merge: true})
+        .catch(() => undefined);
+    }
+    console.error('Activity material validation failed', error);
+    return {processed: false, reason: error.code || 'validation_failed'};
+  }
+}
+
+async function beginActivityMaterialUploadHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  const type = body.type;
+  const displayName = boundedText(body.display_name, ACTIVITY_MATERIAL_LIMITS.displayNameLength);
+  const declaredContentType = typeof body.declared_content_type === 'string'
+    ? body.declared_content_type.toLowerCase().trim() : '';
+  if (!validId(body.assignment_id) || !['pdf', 'image', 'video'].includes(type) ||
+      !displayName || !ACTIVITY_UPLOAD_CONTENT_TYPES[type].has(declaredContentType) ||
+      !Number.isInteger(body.size_bytes) || body.size_bytes < 1 ||
+      body.size_bytes > materialMaximumBytes(type)) {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+  const firestore = databaseFactory();
+  const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+  const uploadId = randomUUID();
+  const materialId = randomUUID();
+  try {
+    const result = await firestore.runTransaction(async (transaction) => {
+      const userRef = firestore.collection('users').doc(uid);
+      const materials = assignmentRef.collection('learning_materials');
+      const [assignmentSnapshot, userSnapshot, materialSnapshot] = await Promise.all([
+        transaction.get(assignmentRef), transaction.get(userRef), transaction.get(materials),
+      ]);
+      if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
+      const assignment = assignmentSnapshot.data();
+      if (!userSnapshot.exists || userSnapshot.get('role') !== 'Teacher' ||
+          assignment.teacher_id !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
+      if (!['draft', 'scheduled', 'active'].includes(assignment.status) ||
+          assignment.deletion_state === 'deleting') {
+        const error = new Error('assignment_unavailable'); error.code = 'assignment_unavailable'; throw error;
+      }
+      const retained = materialSnapshot.docs.filter((doc) =>
+        !['deleted', 'rejected'].includes(doc.get('status')),
+      ).length;
+      if (retained >= ACTIVITY_MATERIAL_LIMITS.maxPerAssignment) {
+        const error = new Error('material_limit'); error.code = 'material_limit'; throw error;
+      }
+      const now = Timestamp.now();
+      const expiresAt = Timestamp.fromMillis(Date.now() + ACTIVITY_MATERIAL_LIMITS.stagingLifetimeMs);
+      const path = stagingPathFor(uid, body.assignment_id, uploadId);
+      // Reserve the canonical material ID before Storage receives any bytes.
+      // This lets a removal race mark the material deleting, which finalization
+      // checks transactionally instead of being able to recreate metadata.
+      transaction.create(assignmentRef.collection('learning_materials').doc(materialId), {
+        material_id: materialId, assignment_id: body.assignment_id,
+        owner_teacher_id: uid, type, display_name: displayName,
+        status: 'staging', schema_version: 1, created_at: now, updated_at: now,
+      });
+      transaction.create(firestore.collection('activity_material_uploads').doc(uploadId), {
+        upload_id: uploadId, material_id: materialId, assignment_id: body.assignment_id,
+        owner_teacher_id: uid, type, display_name: displayName,
+        declared_content_type: declaredContentType, declared_size_bytes: body.size_bytes,
+        staging_path: path, state: 'staging', schema_version: 1,
+        created_at: now, expires_at: expiresAt,
+      });
+      return {path, expiresAt};
+    });
+    return response.status(200).json({
+      upload_id: uploadId, material_id: materialId, staging_path: result.path,
+      declared_content_type: declaredContentType,
+      expires_at: result.expiresAt.toDate().toISOString(),
+    });
+  } catch (error) {
+    if (['not_found', 'forbidden', 'assignment_unavailable', 'material_limit'].includes(error.code)) {
+      return response.status(error.code === 'forbidden' ? 403 : 409).json({error: error.code});
+    }
+    console.error('Activity material upload initialization failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function addActivityLearningMaterialLinkHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  const displayName = boundedText(body.display_name, ACTIVITY_MATERIAL_LIMITS.displayNameLength);
+  const url = normalizeActivityMaterialLink(body.url);
+  if (!validId(body.assignment_id) || !displayName || !url) {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+  const firestore = databaseFactory();
+  const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+  const materialId = randomUUID();
+  try {
+    const assignment = await firestore.runTransaction(async (transaction) => {
+      const [assignmentSnapshot, userSnapshot, materials] = await Promise.all([
+        transaction.get(assignmentRef), transaction.get(firestore.collection('users').doc(uid)),
+        transaction.get(assignmentRef.collection('learning_materials')),
+      ]);
+      if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
+      if (!userSnapshot.exists || userSnapshot.get('role') !== 'Teacher' ||
+          assignmentSnapshot.get('teacher_id') !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
+      if (!['draft', 'scheduled', 'active'].includes(assignmentSnapshot.get('status')) ||
+          assignmentSnapshot.get('deletion_state') === 'deleting') {
+        const error = new Error('assignment_unavailable'); error.code = 'assignment_unavailable'; throw error;
+      }
+      if (materials.docs.filter((doc) =>
+        !['deleted', 'rejected'].includes(doc.get('status')),
+      ).length >=
+          ACTIVITY_MATERIAL_LIMITS.maxPerAssignment) {
+        const error = new Error('material_limit'); error.code = 'material_limit'; throw error;
+      }
+      transaction.create(assignmentRef.collection('learning_materials').doc(materialId), {
+        material_id: materialId, assignment_id: body.assignment_id, owner_teacher_id: uid,
+        type: 'link', display_name: displayName, external_url: url, status: 'ready',
+        schema_version: 1, created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      return assignmentSnapshot.data();
+    });
+    await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment});
+    return response.status(200).json({
+      material_id: materialId, assignment_id: body.assignment_id, type: 'link',
+      display_name: displayName, external_url: url,
+    });
+  } catch (error) {
+    if (['not_found', 'forbidden', 'assignment_unavailable', 'material_limit'].includes(error.code)) {
+      return response.status(error.code === 'forbidden' ? 403 : 409).json({error: error.code});
+    }
+    console.error('Activity material link creation failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function removeActivityLearningMaterialHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+  storageFactory = getStorage,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  if (!validId(body.assignment_id) || !validId(body.material_id)) {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+  const firestore = databaseFactory();
+  const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+  const materialRef = assignmentRef.collection('learning_materials').doc(body.material_id);
+  try {
+    const material = await firestore.runTransaction(async (transaction) => {
+      const [assignment, user, existing] = await Promise.all([
+        transaction.get(assignmentRef), transaction.get(firestore.collection('users').doc(uid)), transaction.get(materialRef),
+      ]);
+      if (!assignment.exists || !user.exists || user.get('role') !== 'Teacher' ||
+          assignment.get('teacher_id') !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
+      if (!existing.exists) return null;
+      transaction.set(materialRef, {status: 'deleting', deletion_requested_at: Timestamp.now()}, {merge: true});
+      return existing.data();
+    });
+    if (!material) return response.status(200).json({removed: true, already_removed: true});
+    const stages = await firestore.collection('activity_material_uploads')
+      .where('material_id', '==', body.material_id).get();
+    for (const stage of stages.docs) {
+      const path = stage.get('staging_path');
+      if (typeof path === 'string' && path.startsWith('activity_material_staging/')) {
+        await storageFactory().bucket().file(path).delete({ignoreNotFound: true});
+      }
+      await stage.ref.set({
+        state: 'rejected', rejection_reason: 'material_deleted', rejected_at: Timestamp.now(),
+      }, {merge: true});
+    }
+    if (typeof material.storage_path === 'string' && material.storage_path.startsWith('activity_learning_materials/')) {
+      await storageFactory().bucket().file(material.storage_path).delete({ignoreNotFound: true});
+    }
+    await deleteMaterialAccessForAssignment(firestore, body.assignment_id);
+    await materialRef.delete();
+    const assignment = await assignmentRef.get();
+    if (assignment.exists) await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment.data()});
+    return response.status(200).json({removed: true});
+  } catch (error) {
+    if (error.code === 'forbidden') return response.status(403).json({error: 'forbidden'});
+    console.error('Activity material removal failed', error);
+    return response.status(503).json({error: 'remove_failed'});
+  }
+}
+
+async function listActivityLearningMaterialsHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  if (!validId(body.assignment_id)) return response.status(400).json({error: 'invalid_payload'});
+  const firestore = databaseFactory();
+  const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+  const assignment = await assignmentRef.get();
+  if (!assignment.exists) return response.status(404).json({error: 'not_found'});
+  const materials = await assignmentRef.collection('learning_materials').where('status', '==', 'ready').get();
+  const allowed = assignment.get('teacher_id') === uid;
+  const output = [];
+  for (const material of materials.docs) {
+    const access = allowed || await hasReadyActivityMaterialAccess(
+      firestore, body.assignment_id, material.id, uid,
+    );
+    if (access) output.push({material_id: material.id, ...assignmentJsonValue(material.data())});
+  }
+  return response.status(200).json({materials: output});
+}
+
 async function createClassroomAssignmentHandler(request, response, {
   verifyToken = async (request) => {
     const token = firebaseBearerToken(request);
@@ -1379,6 +1952,145 @@ exports.updateTeacherActivityAssignment = onRequest(
 exports.gradeTeacherActivityAttempt = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 30},
   gradeTeacherActivityAttemptHandler,
+);
+
+exports.beginActivityMaterialUpload = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  beginActivityMaterialUploadHandler,
+);
+
+exports.addActivityLearningMaterialLink = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  addActivityLearningMaterialLinkHandler,
+);
+
+exports.removeActivityLearningMaterial = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 60},
+  removeActivityLearningMaterialHandler,
+);
+
+exports.listActivityLearningMaterials = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  listActivityLearningMaterialsHandler,
+);
+
+exports.validateStagedActivityLearningMaterial = onObjectFinalized(
+  {region: REGION, bucket: STORAGE_BUCKET, timeoutSeconds: 120, memory: '512MiB'},
+  async (event) => {
+    const objectName = event.data.name || '';
+    const match = objectName.match(
+      /^activity_material_staging\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9-]+)$/,
+    );
+    if (!match || !validId(match[1]) || !validId(match[2]) || !validId(match[3])) return;
+    await finalizeStagedActivityMaterial(match[3]);
+  },
+);
+
+// Assignment writes and membership changes are the authoritative sources for
+// projection reconciliation. This handles audience edits, archive/restore,
+// publish-now, and immediate membership revocation without trusting a client.
+exports.syncActivityMaterialAccessForAssignment = onDocumentWritten(
+  {region: REGION, document: 'group_assignments/{assignmentId}'},
+  async (event) => {
+    const firestore = getFirestore();
+    if (!event.data.after.exists) {
+      await deleteMaterialAccessForAssignment(firestore, event.params.assignmentId);
+      return;
+    }
+    await syncActivityMaterialAccess({
+      firestore, assignmentRef: event.data.after.ref, assignmentData: event.data.after.data(),
+    });
+  },
+);
+
+exports.syncActivityMaterialAccessForRecipient = onDocumentWritten(
+  {region: REGION, document: 'group_assignments/{assignmentId}/assignment_recipients/{traineeId}'},
+  async (event) => {
+    const firestore = getFirestore();
+    const assignmentRef = firestore.collection('group_assignments').doc(event.params.assignmentId);
+    await syncActivityMaterialAccess({firestore, assignmentRef});
+  },
+);
+
+exports.syncActivityMaterialAccessForMembership = onDocumentWritten(
+  {region: REGION, document: 'group_memberships/{membershipId}'},
+  async (event) => {
+    const membership = event.data.after.exists ? event.data.after.data() : event.data.before.data();
+    if (!membership || !validId(membership.group_id)) return;
+    const firestore = getFirestore();
+    const assignments = await firestore.collection('group_assignments')
+      .where('group_id', '==', membership.group_id).get();
+    for (const assignment of assignments.docs) {
+      await syncActivityMaterialAccess({
+        firestore, assignmentRef: assignment.ref, assignmentData: assignment.data(),
+      });
+    }
+  },
+);
+
+exports.reconcileActivityLearningMaterials = onSchedule(
+  {region: REGION, schedule: 'every 10 minutes', timeoutSeconds: 540, memory: '512MiB'},
+  async () => {
+    const firestore = getFirestore();
+    const storage = getStorage();
+    const now = Timestamp.now();
+    const stages = await firestore.collection('activity_material_uploads').limit(100).get();
+    for (const document of stages.docs) {
+      const stage = document.data();
+      if (typeof stage.staging_path !== 'string') continue;
+      if (stage.state === 'ready' || stage.state === 'rejected') {
+        await storage.bucket().file(stage.staging_path).delete({ignoreNotFound: true});
+        continue;
+      }
+      if (stage.expires_at && stage.expires_at.toMillis() <= now.toMillis()) {
+        await storage.bucket().file(stage.staging_path).delete({ignoreNotFound: true});
+        await document.ref.set({
+          state: 'rejected', rejection_reason: 'expired', rejected_at: now,
+        }, {merge: true});
+        await rejectStagedMaterialRecord(firestore, stage, 'expired');
+      } else {
+        await finalizeStagedActivityMaterial(document.id, {
+          databaseFactory: () => firestore, storageFactory: () => storage,
+        });
+      }
+    }
+    const deleting = await firestore.collectionGroup('learning_materials')
+      .where('status', '==', 'deleting').limit(100).get();
+    const assignmentsToSync = new Map();
+    for (const material of deleting.docs) {
+      const path = material.get('storage_path');
+      if (typeof path === 'string' && path.startsWith('activity_learning_materials/')) {
+        await storage.bucket().file(path).delete({ignoreNotFound: true});
+      }
+      const assignmentRef = material.ref.parent.parent;
+      if (assignmentRef) assignmentsToSync.set(assignmentRef.id, assignmentRef);
+      await material.ref.delete();
+    }
+    for (const assignmentRef of assignmentsToSync.values()) {
+      await deleteMaterialAccessForAssignment(firestore, assignmentRef.id);
+      const assignment = await assignmentRef.get();
+      if (assignment.exists) await syncActivityMaterialAccess({
+        firestore, assignmentRef, assignmentData: assignment.data(),
+      });
+    }
+    // Rebuild every assignment with a ready material in this bounded pass.
+    // This repairs a process crash between metadata publication and projection
+    // sync, and also grants time-published scheduled Activities access without
+    // relying on a client timer or retry.
+    const ready = await firestore.collectionGroup('learning_materials')
+      .where('status', '==', 'ready').limit(100).get();
+    const readyAssignments = new Map();
+    for (const material of ready.docs) {
+      const assignmentRef = material.ref.parent.parent;
+      if (assignmentRef) readyAssignments.set(assignmentRef.id, assignmentRef);
+    }
+    for (const assignmentRef of readyAssignments.values()) {
+      const assignment = await assignmentRef.get();
+      if (assignment.exists) await syncActivityMaterialAccess({
+        firestore, assignmentRef, assignmentData: assignment.data(),
+      });
+    }
+  },
 );
 
 exports.syncTeacherActivityAttemptState = onDocumentWritten(
@@ -1659,6 +2371,20 @@ exports._test = {
   validRecipientProjection,
   assignmentJsonValue,
   validActivityAssessment,
+  ACTIVITY_MATERIAL_LIMITS,
+  materialMaximumBytes,
+  materialAccessId,
+  stagingPathFor,
+  finalMaterialPathFor,
+  detectActivityMaterialContent,
+  normalizeActivityMaterialLink,
+  materialStageMatchesObject,
+  beginActivityMaterialUploadHandler,
+  addActivityLearningMaterialLinkHandler,
+  removeActivityLearningMaterialHandler,
+  listActivityLearningMaterialsHandler,
+  finalizeStagedActivityMaterial,
+  syncActivityMaterialAccess,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,
   cascadeAssignment,

@@ -10,6 +10,54 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Learning-material reads intentionally use a bounded server-owned
+    // projection plus its generation gate. Do not replace this with assignment
+    // + membership + recipient checks: that chain exceeds the safe Storage-rule
+    // lookup budget for targeted Activities.
+    function materialAccessPath(assignmentId, materialId, userId) {
+      return /databases/(default)/documents/activity_material_access/$(assignmentId + '__' + materialId + '__' + userId);
+    }
+
+    function hasActivityMaterialAccess(assignmentId, materialId) {
+      let access = firestore.get(materialAccessPath(
+        assignmentId, materialId, request.auth.uid
+      )).data;
+      let state = firestore.get(
+        /databases/(default)/documents/activity_material_access_state/$(assignmentId)
+      ).data;
+      return isSignedIn()
+        && access.assignment_id == assignmentId
+        && access.material_id == materialId
+        && access.user_id == request.auth.uid
+        && access.projection_generation == state.generation
+        && state.assignment_id == assignmentId
+        && state.state == 'ready'
+        && state.schema_version == 1
+        && access.schema_version == 1;
+    }
+
+    function stagingUploadPath(teacherId, assignmentId, uploadId) {
+      return /databases/(default)/documents/activity_material_uploads/$(uploadId);
+    }
+
+    function canCreateActivityMaterialStaging(teacherId, assignmentId, uploadId) {
+      let stage = firestore.get(stagingUploadPath(teacherId, assignmentId, uploadId)).data;
+      return isOwner(teacherId)
+        && stage.schema_version == 1
+        && stage.state == 'staging'
+        && stage.upload_id == uploadId
+        && stage.assignment_id == assignmentId
+        && stage.owner_teacher_id == teacherId
+        && stage.staging_path == 'activity_material_staging/' + teacherId + '/' + assignmentId + '/' + uploadId
+        && stage.expires_at is timestamp
+        && request.time < stage.expires_at
+        && stage.declared_size_bytes is int
+        && stage.declared_size_bytes > 0
+        && request.resource.size == stage.declared_size_bytes
+        && request.resource.contentType == stage.declared_content_type
+        && (request.resource.metadata == null || request.resource.metadata.size() == 0);
+    }
+
     function sessionEvidenceEnabled(traineeId) {
       let user = /databases/(default)/documents/users/$(traineeId);
       return firestore.exists(user)
@@ -354,6 +402,26 @@ service firebase.storage {
           teacherId, groupId, assignmentId, traineeId,
           attemptIdFromCanonicalFileName(fileName)
         );
+    }
+
+    // Quarantine is write-only to the one short-lived, server-created object.
+    // There are no client reads, rewrites, or deletes from this namespace.
+    match /activity_material_staging/{teacherId}/{assignmentId}/{uploadId} {
+      allow create: if teacherId.matches('^[A-Za-z0-9_-]+$')
+        && assignmentId.matches('^[A-Za-z0-9_-]+$')
+        && uploadId.matches('^[A-Za-z0-9-]+$')
+        && canCreateActivityMaterialStaging(teacherId, assignmentId, uploadId);
+      allow read, update, delete: if false;
+    }
+
+    // Published objects are written only by Admin SDK validation code. A
+    // bounded access projection grants exactly the owner or eligible audience,
+    // including only targeted Trainees for selected Activities.
+    match /activity_learning_materials/{assignmentId}/{materialId} {
+      allow read: if assignmentId.matches('^[A-Za-z0-9_-]+$')
+        && materialId.matches('^[A-Za-z0-9-]+$')
+        && hasActivityMaterialAccess(assignmentId, materialId);
+      allow write: if false;
     }
 
     // Private reusable Activity demonstrations. Teachers own the bytes; only
