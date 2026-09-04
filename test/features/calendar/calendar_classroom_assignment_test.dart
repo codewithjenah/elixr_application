@@ -3,6 +3,7 @@ import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/features/calendar/calendar_screen.dart';
 import 'package:elixr_application/features/calendar/models/calendar_classroom_assignment.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -67,6 +68,53 @@ void main() {
     );
     expect(item(noDeadline: true).dueAt, isNull);
   });
+
+  test(
+    'counts only outstanding overdue work due in the visible Manila month',
+    () {
+      final now = DateTime.utc(2026, 10, 20, 12);
+      final visibleMonth = DateTime(2026, 10);
+      final visibleOverdue = item(
+        deadline: DateTime.utc(2026, 9, 30, 18), // October 1 in Manila.
+        now: now,
+      );
+      final otherMonthOverdue = item(
+        deadline: DateTime.utc(2026, 9, 15, 12),
+        now: now,
+      );
+      final checked = item(
+        deadline: DateTime.utc(2026, 10, 5, 12),
+        now: now,
+        submission: _attempt(
+          AssignmentAttemptStatus.checked,
+          DateTime.utc(2026, 10, 5, 11),
+        ),
+      );
+      final items = [visibleOverdue, otherMonthOverdue, checked];
+
+      expect(classroomDueInMonth(visibleOverdue, visibleMonth), isTrue);
+      expect(classroomDueInMonth(otherMonthOverdue, visibleMonth), isFalse);
+      expect(checked.isOutstanding, isFalse);
+      expect(
+        items
+            .where(
+              (item) =>
+                  classroomDueInMonth(item, visibleMonth) && item.isOutstanding,
+            )
+            .length,
+        1,
+      );
+      expect(
+        items
+            .where(
+              (item) =>
+                  classroomDueInMonth(item, visibleMonth) && item.isOverdue,
+            )
+            .length,
+        1,
+      );
+    },
+  );
 }
 
 GroupAssignment _assignment(DateTime? dueAt) => GroupAssignment(

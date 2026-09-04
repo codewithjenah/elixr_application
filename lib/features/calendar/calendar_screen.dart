@@ -36,6 +36,18 @@ typedef CalendarPlanSaver = Future<void> Function(TrainingPlan plan);
 typedef CalendarPlanRemover =
     Future<void> Function({required String userId, required String dayKey});
 
+bool classroomDueInMonth(
+  CalendarClassroomAssignment item,
+  DateTime visibleMonth,
+) {
+  final dueAt = item.dueAt;
+  if (dueAt == null) return false;
+  final date = ManilaDay.civilDateFromDayKey(
+    ManilaDay.dayKeyFor(dueAt.toUtc()),
+  );
+  return date.year == visibleMonth.year && date.month == visibleMonth.month;
+}
+
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({
     super.key,
@@ -442,15 +454,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
               item.dueAt != null && _classroomCivilDate(item) == _selectedDate,
         )
         .toList(growable: false);
-    final classroomDueThisMonth = classroomItems.where((item) {
-      if (item.dueAt == null) return false;
-      final date = _classroomCivilDate(item);
-      return date.year == _visibleMonth.year &&
-          date.month == _visibleMonth.month &&
-          item.isOutstanding;
-    }).length;
+    final classroomDueThisMonth = classroomItems
+        .where(
+          (item) =>
+              classroomDueInMonth(item, _visibleMonth) && item.isOutstanding,
+        )
+        .length;
     final classroomOverdue = classroomItems
-        .where((item) => item.isOverdue)
+        .where(
+          (item) => classroomDueInMonth(item, _visibleMonth) && item.isOverdue,
+        )
         .length;
 
     final content = _loading
