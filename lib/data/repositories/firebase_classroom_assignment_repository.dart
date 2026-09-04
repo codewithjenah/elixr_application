@@ -1352,14 +1352,21 @@ class FirebaseClassroomAssignmentRepository
           .bind(response)
           .join()
           .timeout(requestTimeout);
-      if (response.statusCode == HttpStatus.unauthorized ||
-          response.statusCode == HttpStatus.forbidden) {
-        throw const ClassroomException(ClassroomError.forbidden);
+      Object? decoded;
+      try {
+        decoded = body.isEmpty ? <String, dynamic>{} : jsonDecode(body);
+      } on FormatException {
+        // A successful response must still contain the assignment envelope;
+        // retain the parsing failure below. Error responses may be HTML from
+        // an intermediary, which must remain a safe generic failure.
+        if (response.statusCode == HttpStatus.ok) rethrow;
       }
       if (response.statusCode != HttpStatus.ok) {
-        throw const ClassroomException(ClassroomError.invalidState);
+        throw classroomFunctionFailure(
+          statusCode: response.statusCode,
+          responseBody: decoded,
+        );
       }
-      final decoded = jsonDecode(body);
       final map = decoded is Map<String, dynamic>
           ? decoded['assignment']
           : null;
@@ -1561,6 +1568,9 @@ ClassroomException classroomFunctionFailure({
     'conflict' => ClassroomError.conflict,
     'attempt_limit_conflict' => ClassroomError.attemptLimitConflict,
     'invalid_recipient' => ClassroomError.invalidRecipient,
+    'invalid_movement' => ClassroomError.identityMismatch,
+    'invalid_instructions' => ClassroomError.malformed,
+    'invalid_identity' => ClassroomError.invalidState,
     'invalid_payload' ||
     'invalid_due_at' ||
     'invalid_audience' ||
@@ -1572,8 +1582,29 @@ ClassroomException classroomFunctionFailure({
       ClassroomError.forbidden,
     _ => ClassroomError.invalidState,
   };
+  final message = switch (serverCode) {
+    'unauthenticated' => 'Your sign-in has expired. Sign in again and retry.',
+    'forbidden' =>
+      'You no longer have permission to create an assignment for this classroom.',
+    'invalid_recipient' =>
+      'One or more selected trainees are no longer approved members of this classroom.',
+    'invalid_movement' =>
+      'This movement changed or is no longer available. Refresh it and try again.',
+    'invalid_instructions' =>
+      'Instructions must be between 1 and 2,000 characters.',
+    'invalid_identity' =>
+      'Your Teacher profile or classroom is missing required identity details.',
+    'invalid_payload' =>
+      'Some assignment details are invalid. Review the form and try again.',
+    'invalid_due_at' => 'Choose a valid due date and time.',
+    'invalid_audience' => 'Choose a valid assignment audience.',
+    'invalid_topic' => 'Topic must be between 1 and 80 characters.',
+    'method_not_allowed' => 'Assignment creation is temporarily unavailable.',
+    _ => null,
+  };
   return ClassroomException.fromFunction(
     error,
+    message: message,
     httpStatus: statusCode,
     serverCode: serverCode,
   );

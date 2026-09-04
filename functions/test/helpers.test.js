@@ -174,13 +174,14 @@ function fakeAssignmentDatabase({memberships, assignments, recipients = []}) {
   };
 }
 
-function fakeCreationDatabase({recipientIds}) {
+function fakeCreationDatabase({recipientIds, documents = []}) {
   const writes = [];
   const values = new Map([
     ['users/teacher', {
       full_name: 'Grace Hopper', role: 'Teacher', lifecycle_state: 'active',
     }],
     ['groups/g1', {teacher_id: 'teacher', name: 'BSHM 4A', status: 'active'}],
+    ...documents,
     ...recipientIds.map((id) => [
       `group_memberships/g1_${id}`,
       {
@@ -537,6 +538,51 @@ test('assignment creation accepts an uncapped targeted subset atomically', async
       write.path.includes('/assignment_recipients/')).length,
     recipientIds.length,
   );
+});
+
+test('assignment creation accepts a current Teacher Activity revision for the entire class', async () => {
+  const database = fakeCreationDatabase({
+    recipientIds: [],
+    documents: [
+      ['teacher_movements/movement-1', {
+        teacher_id: 'teacher', status: 'active', current_revision_id: 'revision-1',
+        title: 'Tin Balance',
+      }],
+      ['teacher_movements/movement-1/revisions/revision-1', {
+        teacher_id: 'teacher', movement_id: 'movement-1',
+        assessment_mode: 'teacher_reviewed',
+        spec: {
+          capability: 'teacher_review_only',
+          instructions: 'Balance the bottle upright.', required_prop: 'bottle',
+        },
+      }],
+    ],
+  });
+  const response = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1', audience_type: 'entire_class', recipient_ids: [],
+        origin: 'teacher_created', movement_id: 'movement-1', revision_id: 'revision-1',
+        max_score: 50, attempt_policy: {type: 'unlimited'},
+      },
+      get: () => '',
+    },
+    response,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true}),
+      databaseFactory: () => database,
+    },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body.recipient_ids, []);
+  const assignmentWrite = database.writes.find((write) =>
+    write.path === 'group_assignments/assignment-created');
+  assert.equal(assignmentWrite.data.origin, 'teacher_created');
+  assert.equal(assignmentWrite.data.revision_id, 'revision-1');
+  assert.equal(assignmentWrite.data.display_instructions, 'Balance the bottle upright.');
 });
 
 test('assignment JSON timestamps are converted recursively', () => {

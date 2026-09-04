@@ -44,4 +44,30 @@ void main() {
     expect(failure.httpStatus, 503);
     expect(failure.serverCode, 'unavailable');
   });
+
+  test(
+    'assignment creation Function failures retain safe actionable detail',
+    () {
+      final recipient = classroomFunctionFailure(
+        statusCode: 400,
+        responseBody: {'error': 'invalid_recipient'},
+      );
+      expect(recipient.code, ClassroomError.invalidRecipient);
+      expect(recipient.message, contains('approved members'));
+
+      final movement = classroomFunctionFailure(
+        statusCode: 400,
+        responseBody: {'error': 'invalid_movement'},
+      );
+      expect(movement.code, ClassroomError.identityMismatch);
+      expect(movement.message, contains('no longer available'));
+
+      final instructions = classroomFunctionFailure(
+        statusCode: 400,
+        responseBody: {'error': 'invalid_instructions'},
+      );
+      expect(instructions.code, ClassroomError.malformed);
+      expect(instructions.message, contains('2,000'));
+    },
+  );
 }
