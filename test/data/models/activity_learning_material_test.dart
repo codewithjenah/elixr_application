@@ -54,4 +54,79 @@ void main() {
     );
     expect(ActivityMaterialUpload.tryFromMap(const {}), isNull);
   });
+
+  test('parses every authoritative upload lifecycle state', () {
+    for (final state in [
+      'staging',
+      'validating',
+      'deleting',
+    ]) {
+      final status = ActivityMaterialUploadStatus.tryFromMap({
+        'upload_id': 'upload-1',
+        'material_id': 'material-1',
+        'state': state,
+      });
+      expect(status, isNotNull);
+      expect(status!.state.wireValue, state);
+    }
+    final rejected = ActivityMaterialUploadStatus.tryFromMap({
+      'upload_id': 'upload-1',
+      'material_id': 'material-1',
+      'state': 'rejected',
+      'rejection_reason': 'internal_error_message',
+    });
+    expect(
+      rejected!.rejectionReason,
+      ActivityMaterialUploadRejectionReason.uploadFailed,
+    );
+  });
+
+  test('requires a canonical material only for ready upload state', () {
+    expect(
+      ActivityMaterialUploadStatus.tryFromMap({
+        'upload_id': 'upload-1',
+        'material_id': 'material-1',
+        'state': 'ready',
+      }),
+      isNull,
+    );
+    final ready = ActivityMaterialUploadStatus.tryFromMap({
+      'upload_id': 'upload-1',
+      'material_id': 'material-1',
+      'state': 'ready',
+      'material': {
+        'material_id': 'material-1',
+        'assignment_id': 'assignment-1',
+        'type': 'pdf',
+        'display_name': 'Safety notes',
+        'storage_path': 'activity_learning_materials/assignment-1/material-1',
+      },
+    });
+    expect(ready, isNotNull);
+    expect(ready!.material!.id, 'material-1');
+    expect(
+      ActivityMaterialUploadStatus.tryFromMap({
+        'upload_id': 'upload-1',
+        'material_id': 'material-1',
+        'state': 'ready',
+        'material': {
+          'material_id': 'material-1',
+          'assignment_id': 'assignment-1',
+          'type': 'pdf',
+          'display_name': 'Safety notes',
+          'storage_path': 'activity_learning_materials/assignment-1/material-1',
+          'size_bytes': 'not-an-int',
+        },
+      }),
+      isNull,
+    );
+    expect(
+      ActivityMaterialUploadStatus.tryFromMap({
+        'upload_id': 'upload-1',
+        'material_id': 'material-1',
+        'state': 'unknown_future_state',
+      }),
+      isNull,
+    );
+  });
 }

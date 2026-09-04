@@ -48,6 +48,12 @@ beforeEach(async () => {
       assignment_id: ASSIGNMENT_ID, generation: 1, state: 'ready',
       schema_version: 1, updated_at: Timestamp.now(),
     });
+    await setDoc(doc(db, 'group_assignments', ASSIGNMENT_ID,
+      'learning_materials', MATERIAL_ID), {
+      material_id: MATERIAL_ID, assignment_id: ASSIGNMENT_ID,
+      owner_teacher_id: 'teacher', type: 'pdf', status: 'ready',
+      storage_path: FINAL_PATH, schema_version: 1,
+    });
     for (const userId of ['teacher', 'targeted']) {
       await setDoc(doc(db, 'activity_material_access',
         `${ASSIGNMENT_ID}__${MATERIAL_ID}__${userId}`), {
@@ -103,6 +109,14 @@ describe('Learning Material Storage quarantine and access projection', () => {
     await assertFails(getBytes(ref(storage('approvedButNotTargeted'), FINAL_PATH)));
     await assertFails(uploadBytes(ref(storage('teacher'), FINAL_PATH),
       new Uint8Array([9]), {contentType: 'application/pdf'}));
+  });
+
+  test('deleting canonical metadata fails closed even if a stale access record exists', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'group_assignments', ASSIGNMENT_ID,
+        'learning_materials', MATERIAL_ID), {status: 'deleting'}, {merge: true});
+    });
+    await assertFails(getBytes(ref(storage('targeted'), FINAL_PATH)));
   });
 });
 

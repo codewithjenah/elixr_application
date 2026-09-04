@@ -18,6 +18,12 @@ abstract class ActivityLearningMaterialRepository {
     required File file,
   });
 
+  /// Reads the server-owned lifecycle state once. Polling cadence belongs to a
+  /// future Teacher UI, not this repository.
+  Future<ActivityMaterialUploadStatus> getUploadStatus({
+    required String uploadId,
+  });
+
   Future<ActivityLearningMaterial> addLink({
     required String assignmentId,
     required String displayName,

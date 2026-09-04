@@ -23,6 +23,7 @@ const {
   normalizeActivityMaterialLink,
   stagingPathFor,
   beginActivityMaterialUploadHandler,
+  getActivityMaterialUploadStatusHandler,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,
   normalizeSearchText,
@@ -252,6 +253,95 @@ test('Learning Material upload initialization reserves opaque server IDs and exa
   assert.equal(database.writes.length, 2);
   assert.equal(database.writes.find((write) => write.kind === 'material').data.status, 'staging');
   assert.equal(database.writes.find((write) => write.kind === 'stage').data.state, 'staging');
+});
+
+function fakeUploadStatusDatabase({
+  stage = null,
+  user = {role: 'Teacher'},
+  material = null,
+} = {}) {
+  const snapshot = (data, id = 'upload') => ({
+    exists: data != null,
+    id,
+    data: () => data,
+    get: (field) => data?.[field],
+  });
+  return {
+    collection(name) {
+      return {
+        doc(id) {
+          if (name === 'activity_material_uploads') return {get: async () => snapshot(stage, id)};
+          if (name === 'users') return {get: async () => snapshot(user, id)};
+          if (name === 'group_assignments') {
+            return {collection: (child) => {
+              assert.equal(child, 'learning_materials');
+              return {doc: (materialId) => ({get: async () => snapshot(material, materialId)})};
+            }};
+          }
+          throw new Error(`unexpected collection ${name}`);
+        },
+      };
+    },
+  };
+}
+
+test('Learning Material upload status is owner-only and exposes only safe state', async () => {
+  const stage = {
+    owner_teacher_id: 'teacher', assignment_id: 'assignment', material_id: 'material',
+    state: 'rejected', rejection_reason: 'storage failed at internal/path',
+  };
+  const unauthenticated = fakeResponse();
+  await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'upload'}},
+    unauthenticated, {authenticate: async () => null});
+  assert.equal(unauthenticated.statusCode, 401);
+
+  const trainee = fakeResponse();
+  await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'upload'}},
+    trainee, {authenticate: async () => 'trainee', databaseFactory: () => fakeUploadStatusDatabase({
+      stage, user: {role: 'Trainee'},
+    })});
+  assert.equal(trainee.statusCode, 403);
+
+  const otherTeacher = fakeResponse();
+  await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'upload'}},
+    otherTeacher, {authenticate: async () => 'other', databaseFactory: () => fakeUploadStatusDatabase({stage})});
+  assert.equal(otherTeacher.statusCode, 403);
+
+  const owner = fakeResponse();
+  await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'upload'}},
+    owner, {authenticate: async () => 'teacher', databaseFactory: () => fakeUploadStatusDatabase({stage})});
+  assert.equal(owner.statusCode, 200);
+  assert.deepEqual(owner.body, {
+    upload_id: 'upload', material_id: 'material', state: 'rejected', rejection_reason: 'upload_failed',
+  });
+});
+
+test('Learning Material upload status returns each owner lifecycle and requires ready metadata', async () => {
+  for (const state of ['staging', 'validating', 'deleting']) {
+    const response = fakeResponse();
+    await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'upload'}}, response,
+      {authenticate: async () => 'teacher', databaseFactory: () => fakeUploadStatusDatabase({stage: {
+        owner_teacher_id: 'teacher', assignment_id: 'assignment', material_id: 'material', state,
+      }})});
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.state, state);
+  }
+  const ready = fakeResponse();
+  await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'upload'}}, ready,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeUploadStatusDatabase({
+      stage: {owner_teacher_id: 'teacher', assignment_id: 'assignment', material_id: 'material', state: 'ready'},
+      material: {
+        owner_teacher_id: 'teacher', material_id: 'material', assignment_id: 'assignment',
+        type: 'pdf', display_name: 'Sheet', status: 'ready', storage_path: 'activity_learning_materials/assignment/material',
+      },
+    })});
+  assert.equal(ready.statusCode, 200);
+  assert.equal(ready.body.material.material_id, 'material');
+
+  const missing = fakeResponse();
+  await getActivityMaterialUploadStatusHandler({method: 'POST', body: {upload_id: 'missing'}}, missing,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeUploadStatusDatabase()});
+  assert.equal(missing.statusCode, 404);
 });
 
 function fakeAssignmentDatabase({memberships, assignments, recipients = [], overrides = []}) {

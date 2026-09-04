@@ -23,6 +23,8 @@ const ACTIVITY_MATERIAL_LIMITS = Object.freeze({
   maxPerAssignment: 10,
   stagingLifetimeMs: 15 * 60 * 1000,
   validationLeaseMs: 5 * 60 * 1000,
+  terminalUploadRetentionMs: 7 * 24 * 60 * 60 * 1000,
+  reconciliationBatchSize: 100,
   pdfBytes: 20 * 1024 * 1024,
   imageBytes: 10 * 1024 * 1024,
   videoBytes: 100 * 1024 * 1024,
@@ -1221,6 +1223,14 @@ function materialAccessId(assignmentId, materialId, userId) {
   return `${assignmentId}__${materialId}__${userId}`;
 }
 
+const ACTIVITY_MATERIAL_SAFE_REJECTIONS = new Set([
+  'invalid_size', 'invalid_content', 'expired', 'material_unavailable', 'upload_failed',
+]);
+
+function safeActivityMaterialRejectionReason(value) {
+  return ACTIVITY_MATERIAL_SAFE_REJECTIONS.has(value) ? value : 'upload_failed';
+}
+
 function stagingPathFor(teacherId, assignmentId, uploadId) {
   return `activity_material_staging/${teacherId}/${assignmentId}/${uploadId}`;
 }
@@ -1295,6 +1305,33 @@ async function deleteMaterialAccessForAssignment(firestore, assignmentId) {
   );
 }
 
+// Removal must not invalidate the complete assignment projection. In
+// particular, access to material B must remain usable while material A is
+// being deleted or retried.
+async function deleteMaterialAccessForMaterial(firestore, assignmentId, materialId) {
+  return deleteQueryDocuments(
+    firestore,
+    firestore.collection('activity_material_access')
+      .where('assignment_id', '==', assignmentId)
+      .where('material_id', '==', materialId),
+  );
+}
+
+async function synchronizeRemainingMaterialAccess(firestore, assignmentRef) {
+  const [materials, access] = await Promise.all([
+    assignmentRef.collection('learning_materials').where('status', '==', 'ready').get(),
+    firestore.collection('activity_material_access').where('assignment_id', '==', assignmentRef.id).get(),
+  ]);
+  const readyIds = new Set(materials.docs.map((document) => document.id));
+  await Promise.all(access.docs
+    .filter((document) => !readyIds.has(document.get('material_id')))
+    .map((document) => document.ref.delete()));
+}
+
+function materialReconciliationStateRef(firestore) {
+  return firestore.collection('activity_material_reconciliation_state').doc('v1');
+}
+
 function materialAccessStateRef(firestore, assignmentId) {
   return firestore.collection('activity_material_access_state').doc(assignmentId);
 }
@@ -1322,6 +1359,11 @@ async function rejectStagedMaterialRecord(firestore, stage, reason) {
       });
     }
   });
+}
+
+async function markMaterialProjectionSynchronized(materialRef) {
+  await materialRef.set({projection_sync_state: 'ready', projection_synced_at: Timestamp.now()},
+    {merge: true});
 }
 
 // Rebuild rather than incrementally mutate the access projection. A short
@@ -1486,12 +1528,13 @@ async function finalizeStagedActivityMaterial(uploadId, {
           currentStage.get('expires_at').toMillis() <= Date.now()) return null;
       transaction.update(materialRef, {
         detected_content_type: detected.contentType, size_bytes: buffer.length,
-        storage_path: finalPath, status: 'ready', updated_at: Timestamp.now(),
+        storage_path: finalPath, status: 'ready', projection_sync_state: 'pending',
+        updated_at: Timestamp.now(),
       });
       transaction.set(stageRef, {
         state: 'ready', final_storage_path: finalPath,
         detected_content_type: detected.contentType, validated_size_bytes: buffer.length,
-        published_at: Timestamp.now(),
+        published_at: Timestamp.now(), terminal_at: Timestamp.now(),
       }, {merge: true});
       return assignment.data();
     });
@@ -1499,17 +1542,29 @@ async function finalizeStagedActivityMaterial(uploadId, {
       await bucket.file(finalPath).delete({ignoreNotFound: true});
       throw Object.assign(new Error('material_unavailable'), {code: 'material_unavailable'});
     }
-    await syncActivityMaterialAccess({
-      firestore, assignmentRef, assignmentData: published,
-    });
-    await stagedFile.delete({ignoreNotFound: true});
+    try {
+      await syncActivityMaterialAccess({
+        firestore, assignmentRef, assignmentData: published,
+      });
+      await markMaterialProjectionSynchronized(materialRef);
+    } catch (error) {
+      // Publication already committed. Keep the terminal upload state intact
+      // and let the dedicated pending-projection pass repair only this
+      // material, rather than attempting a duplicate finalization.
+      console.error('Activity material access projection sync failed', error);
+      return {processed: true, materialId: stage.material_id, projectionPending: true};
+    }
+    // Cleanup is non-authoritative once publication committed. Retrying a
+    // delete must never regress the already-ready stage back to staging.
+    await stagedFile.delete({ignoreNotFound: true}).catch(() => undefined);
     return {processed: true, materialId: stage.material_id};
   } catch (error) {
     const rejection = ['invalid_size', 'invalid_content', 'material_unavailable'].includes(error.code);
     if (rejection) {
       await stagedFile.delete({ignoreNotFound: true}).catch(() => undefined);
       await stageRef.set({
-        state: 'rejected', rejection_reason: error.code, rejected_at: Timestamp.now(),
+        state: 'rejected', rejection_reason: safeActivityMaterialRejectionReason(error.code),
+        rejected_at: Timestamp.now(), terminal_at: Timestamp.now(),
       }, {merge: true}).catch(() => undefined);
       await rejectStagedMaterialRecord(firestore, stage, error.code).catch(() => undefined);
     } else {
@@ -1642,11 +1697,15 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
       transaction.create(assignmentRef.collection('learning_materials').doc(materialId), {
         material_id: materialId, assignment_id: body.assignment_id, owner_teacher_id: uid,
         type: 'link', display_name: displayName, external_url: url, status: 'ready',
-        schema_version: 1, created_at: Timestamp.now(), updated_at: Timestamp.now(),
+        projection_sync_state: 'pending', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
       });
       return assignmentSnapshot.data();
     });
     await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment});
+    await markMaterialProjectionSynchronized(
+      assignmentRef.collection('learning_materials').doc(materialId),
+    );
     return response.status(200).json({
       material_id: materialId, assignment_id: body.assignment_id, type: 'link',
       display_name: displayName, external_url: url,
@@ -1685,34 +1744,82 @@ async function removeActivityLearningMaterialHandler(request, response, {
       if (!assignment.exists || !user.exists || user.get('role') !== 'Teacher' ||
           assignment.get('teacher_id') !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
       if (!existing.exists) return null;
-      transaction.set(materialRef, {status: 'deleting', deletion_requested_at: Timestamp.now()}, {merge: true});
+      if (existing.get('status') !== 'deleting') {
+        transaction.set(materialRef, {status: 'deleting', deletion_requested_at: Timestamp.now()}, {merge: true});
+      }
       return existing.data();
     });
     if (!material) return response.status(200).json({removed: true, already_removed: true});
+    // This is deliberately before any Storage operation. Storage rules consult
+    // these records, so a failed object deletion remains fail-closed.
+    await deleteMaterialAccessForMaterial(firestore, body.assignment_id, body.material_id);
     const stages = await firestore.collection('activity_material_uploads')
       .where('material_id', '==', body.material_id).get();
     for (const stage of stages.docs) {
+      if (stage.get('state') !== 'deleting') {
+        await stage.ref.set({
+          state: 'deleting', deletion_requested_at: Timestamp.now(), terminal_at: Timestamp.now(),
+        }, {merge: true});
+      }
       const path = stage.get('staging_path');
       if (typeof path === 'string' && path.startsWith('activity_material_staging/')) {
-        await storageFactory().bucket().file(path).delete({ignoreNotFound: true});
+        await storageFactory().bucket().file(path).delete({ignoreNotFound: true}).catch(() => undefined);
       }
-      await stage.ref.set({
-        state: 'rejected', rejection_reason: 'material_deleted', rejected_at: Timestamp.now(),
-      }, {merge: true});
     }
     if (typeof material.storage_path === 'string' && material.storage_path.startsWith('activity_learning_materials/')) {
       await storageFactory().bucket().file(material.storage_path).delete({ignoreNotFound: true});
     }
-    await deleteMaterialAccessForAssignment(firestore, body.assignment_id);
     await materialRef.delete();
-    const assignment = await assignmentRef.get();
-    if (assignment.exists) await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment.data()});
+    // Do not rebuild the assignment generation here: its other materials have
+    // unchanged authoritative recipients and must not have a user-visible
+    // access gap while this one material is removed.
+    await synchronizeRemainingMaterialAccess(firestore, assignmentRef);
     return response.status(200).json({removed: true});
   } catch (error) {
     if (error.code === 'forbidden') return response.status(403).json({error: 'forbidden'});
     console.error('Activity material removal failed', error);
-    return response.status(503).json({error: 'remove_failed'});
+    return response.status(503).json({error: 'remove_pending'});
   }
+}
+
+async function getActivityMaterialUploadStatusHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  if (!validId(body.upload_id)) return response.status(400).json({error: 'invalid_payload'});
+  const firestore = databaseFactory();
+  const stageSnapshot = await firestore.collection('activity_material_uploads').doc(body.upload_id).get();
+  if (!stageSnapshot.exists) return response.status(404).json({error: 'not_found'});
+  const stage = stageSnapshot.data();
+  const user = await firestore.collection('users').doc(uid).get();
+  if (!user.exists || user.get('role') !== 'Teacher' || stage.owner_teacher_id !== uid) {
+    return response.status(403).json({error: 'forbidden'});
+  }
+  if (!validId(stage.material_id) || !validId(stage.assignment_id) ||
+      !['staging', 'validating', 'ready', 'rejected', 'deleting'].includes(stage.state)) {
+    return response.status(404).json({error: 'not_found'});
+  }
+  const output = {upload_id: body.upload_id, material_id: stage.material_id, state: stage.state};
+  if (stage.state === 'rejected') {
+    output.rejection_reason = safeActivityMaterialRejectionReason(stage.rejection_reason);
+  } else if (stage.state === 'ready') {
+    const material = await firestore.collection('group_assignments').doc(stage.assignment_id)
+      .collection('learning_materials').doc(stage.material_id).get();
+    if (!material.exists || material.get('status') !== 'ready' ||
+        material.get('owner_teacher_id') !== uid) {
+      output.state = 'rejected';
+      output.rejection_reason = 'material_unavailable';
+    } else {
+      output.material = {material_id: material.id, ...assignmentJsonValue(material.data())};
+    }
+  }
+  return response.status(200).json(output);
 }
 
 async function listActivityLearningMaterialsHandler(request, response, {
@@ -1969,6 +2076,11 @@ exports.removeActivityLearningMaterial = onRequest(
   removeActivityLearningMaterialHandler,
 );
 
+exports.getActivityMaterialUploadStatus = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  getActivityMaterialUploadStatusHandler,
+);
+
 exports.listActivityLearningMaterials = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 30},
   listActivityLearningMaterialsHandler,
@@ -2028,24 +2140,52 @@ exports.syncActivityMaterialAccessForMembership = onDocumentWritten(
   },
 );
 
-exports.reconcileActivityLearningMaterials = onSchedule(
-  {region: REGION, schedule: 'every 10 minutes', timeoutSeconds: 540, memory: '512MiB'},
-  async () => {
-    const firestore = getFirestore();
-    const storage = getStorage();
-    const now = Timestamp.now();
-    const stages = await firestore.collection('activity_material_uploads').limit(100).get();
-    for (const document of stages.docs) {
-      const stage = document.data();
-      if (typeof stage.staging_path !== 'string') continue;
-      if (stage.state === 'ready' || stage.state === 'rejected') {
-        await storage.bucket().file(stage.staging_path).delete({ignoreNotFound: true});
-        continue;
+async function runActivityMaterialReconciliation({
+  firestore = getFirestore(), storage = getStorage(), now = Timestamp.now(),
+} = {}) {
+  const stateRef = materialReconciliationStateRef(firestore);
+  const stateSnapshot = await stateRef.get();
+  const cursors = stateSnapshot.exists ? stateSnapshot.get('cursors') || {} : {};
+  const batchSize = ACTIVITY_MATERIAL_LIMITS.reconciliationBatchSize;
+
+  // Cursors advance even when an individual retry fails. A bad historical
+  // record therefore cannot pin the first page and starve later uploads.
+  async function processCursorBatch(cursorKey, buildQuery, processDocument, orderField = 'created_at') {
+    const cursor = cursors[cursorKey];
+    let query = buildQuery();
+    if (cursor?.[orderField] && typeof cursor.document_id === 'string') {
+      query = query.startAfter(cursor[orderField], cursor.document_id);
+    }
+    const snapshot = await query.limit(batchSize).get();
+    for (const document of snapshot.docs) {
+      try {
+        await processDocument(document);
+      } catch (error) {
+        console.error(`Activity material reconciliation ${cursorKey} failed`, error);
       }
+    }
+    if (snapshot.empty || snapshot.size < batchSize) {
+      await stateRef.set({cursors: {[cursorKey]: FieldValue.delete()}}, {merge: true});
+    } else {
+      const last = snapshot.docs.at(-1);
+      await stateRef.set({cursors: {[cursorKey]: {
+        [orderField]: last.get(orderField), document_id: last.id,
+      }}}, {merge: true});
+    }
+  }
+
+  for (const lifecycle of ['staging', 'validating']) {
+    await processCursorBatch(`stage_${lifecycle}`, () => firestore
+      .collection('activity_material_uploads').where('state', '==', lifecycle)
+      .orderBy('created_at').orderBy(FieldPath.documentId()), async (document) => {
+      const stage = document.data();
       if (stage.expires_at && stage.expires_at.toMillis() <= now.toMillis()) {
-        await storage.bucket().file(stage.staging_path).delete({ignoreNotFound: true});
+        const path = stage.staging_path;
+        if (typeof path === 'string' && path.startsWith('activity_material_staging/')) {
+          await storage.bucket().file(path).delete({ignoreNotFound: true});
+        }
         await document.ref.set({
-          state: 'rejected', rejection_reason: 'expired', rejected_at: now,
+          state: 'rejected', rejection_reason: 'expired', rejected_at: now, terminal_at: now,
         }, {merge: true});
         await rejectStagedMaterialRecord(firestore, stage, 'expired');
       } else {
@@ -2053,44 +2193,69 @@ exports.reconcileActivityLearningMaterials = onSchedule(
           databaseFactory: () => firestore, storageFactory: () => storage,
         });
       }
-    }
-    const deleting = await firestore.collectionGroup('learning_materials')
-      .where('status', '==', 'deleting').limit(100).get();
-    const assignmentsToSync = new Map();
-    for (const material of deleting.docs) {
-      const path = material.get('storage_path');
-      if (typeof path === 'string' && path.startsWith('activity_learning_materials/')) {
+    });
+  }
+
+  // Terminal records remain long enough for a Teacher to observe status, then
+  // are removed in deterministic bounded passes.
+  const retentionCutoff = Timestamp.fromMillis(now.toMillis() -
+    ACTIVITY_MATERIAL_LIMITS.terminalUploadRetentionMs);
+  for (const lifecycle of ['ready', 'rejected', 'deleting']) {
+    await processCursorBatch(`terminal_${lifecycle}`, () => firestore
+      .collection('activity_material_uploads').where('state', '==', lifecycle)
+      .where('terminal_at', '<=', retentionCutoff)
+      .orderBy('terminal_at').orderBy(FieldPath.documentId()), async (document) => {
+      const path = document.get('staging_path');
+      if (typeof path === 'string' && path.startsWith('activity_material_staging/')) {
         await storage.bucket().file(path).delete({ignoreNotFound: true});
       }
-      const assignmentRef = material.ref.parent.parent;
-      if (assignmentRef) assignmentsToSync.set(assignmentRef.id, assignmentRef);
-      await material.ref.delete();
+      await document.ref.delete();
+    }, 'terminal_at');
+    // Pre-status-endpoint records did not carry terminal_at. They are already
+    // older than retention and can be safely cleared without preserving an
+    // obsolete status forever.
+    await processCursorBatch(`legacy_terminal_${lifecycle}`, () => firestore
+      .collection('activity_material_uploads').where('state', '==', lifecycle)
+      .where('created_at', '<=', retentionCutoff)
+      .orderBy('created_at').orderBy(FieldPath.documentId()), async (document) => {
+      if (document.get('terminal_at')) return;
+      const path = document.get('staging_path');
+      if (typeof path === 'string' && path.startsWith('activity_material_staging/')) {
+        await storage.bucket().file(path).delete({ignoreNotFound: true});
+      }
+      await document.ref.delete();
+    });
+  }
+
+  await processCursorBatch('deleting_material', () => firestore.collectionGroup('learning_materials')
+    .where('status', '==', 'deleting').orderBy('deletion_requested_at')
+    .orderBy(FieldPath.documentId()), async (material) => {
+    const assignmentRef = material.ref.parent.parent;
+    if (!assignmentRef) return;
+    await deleteMaterialAccessForMaterial(firestore, assignmentRef.id, material.id);
+    const path = material.get('storage_path');
+    if (typeof path === 'string' && path.startsWith('activity_learning_materials/')) {
+      await storage.bucket().file(path).delete({ignoreNotFound: true});
     }
-    for (const assignmentRef of assignmentsToSync.values()) {
-      await deleteMaterialAccessForAssignment(firestore, assignmentRef.id);
-      const assignment = await assignmentRef.get();
-      if (assignment.exists) await syncActivityMaterialAccess({
-        firestore, assignmentRef, assignmentData: assignment.data(),
-      });
-    }
-    // Rebuild every assignment with a ready material in this bounded pass.
-    // This repairs a process crash between metadata publication and projection
-    // sync, and also grants time-published scheduled Activities access without
-    // relying on a client timer or retry.
-    const ready = await firestore.collectionGroup('learning_materials')
-      .where('status', '==', 'ready').limit(100).get();
-    const readyAssignments = new Map();
-    for (const material of ready.docs) {
-      const assignmentRef = material.ref.parent.parent;
-      if (assignmentRef) readyAssignments.set(assignmentRef.id, assignmentRef);
-    }
-    for (const assignmentRef of readyAssignments.values()) {
-      const assignment = await assignmentRef.get();
-      if (assignment.exists) await syncActivityMaterialAccess({
-        firestore, assignmentRef, assignmentData: assignment.data(),
-      });
-    }
-  },
+    await material.ref.delete();
+    await synchronizeRemainingMaterialAccess(firestore, assignmentRef);
+  }, 'deletion_requested_at');
+
+  // This replaces the old first-100 scan of every ready material. Only a
+  // publication that could not complete its immediate projection sync is work.
+  await processCursorBatch('pending_projection', () => firestore.collectionGroup('learning_materials')
+    .where('status', '==', 'ready').where('projection_sync_state', '==', 'pending')
+    .orderBy('created_at').orderBy(FieldPath.documentId()), async (material) => {
+    const assignmentRef = material.ref.parent.parent;
+    if (!assignmentRef) return;
+    await syncActivityMaterialAccess({firestore, assignmentRef});
+    await markMaterialProjectionSynchronized(material.ref);
+  });
+}
+
+exports.reconcileActivityLearningMaterials = onSchedule(
+  {region: REGION, schedule: 'every 10 minutes', timeoutSeconds: 540, memory: '512MiB'},
+  async () => runActivityMaterialReconciliation(),
 );
 
 exports.syncTeacherActivityAttemptState = onDocumentWritten(
@@ -2372,6 +2537,7 @@ exports._test = {
   assignmentJsonValue,
   validActivityAssessment,
   ACTIVITY_MATERIAL_LIMITS,
+  safeActivityMaterialRejectionReason,
   materialMaximumBytes,
   materialAccessId,
   stagingPathFor,
@@ -2382,8 +2548,10 @@ exports._test = {
   beginActivityMaterialUploadHandler,
   addActivityLearningMaterialLinkHandler,
   removeActivityLearningMaterialHandler,
+  getActivityMaterialUploadStatusHandler,
   listActivityLearningMaterialsHandler,
   finalizeStagedActivityMaterial,
+  runActivityMaterialReconciliation,
   syncActivityMaterialAccess,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,

@@ -76,6 +76,20 @@ class FirebaseActivityLearningMaterialRepository
   }
 
   @override
+  Future<ActivityMaterialUploadStatus> getUploadStatus({
+    required String uploadId,
+  }) async {
+    final decoded = await _post('getActivityMaterialUploadStatus', {
+      'upload_id': uploadId,
+    });
+    final status = ActivityMaterialUploadStatus.tryFromMap(decoded);
+    if (status == null || status.uploadId != uploadId) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    return status;
+  }
+
+  @override
   Future<ActivityLearningMaterial> addLink({
     required String assignmentId,
     required String displayName,
