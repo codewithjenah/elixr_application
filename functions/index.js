@@ -2450,29 +2450,90 @@ exports.deleteAssignmentRecipients = onDocumentDeleted(
   },
 );
 
-// Firestore rules require a queryable, server-maintained publication marker;
-// request.time alone cannot make a collection query excluding future documents
-// provably safe. This also backfills legacy immediate announcements.
-exports.publishScheduledAnnouncements = onSchedule(
-  {region: REGION, schedule: 'every 1 minutes'},
-  async () => {
-    const firestore = getFirestore();
-    const now = Timestamp.now();
-    const groups = await firestore.collection('groups').get();
-    const writes = [];
-    for (const group of groups.docs) {
-      const announcements = await group.ref.collection('announcements').get();
-      for (const announcement of announcements.docs) {
-        const data = announcement.data();
-        const visible = !data.publish_at ||
-          (data.publish_at instanceof Timestamp && data.publish_at.toMillis() <= now.toMillis());
-        if (data.trainee_visible !== visible) {
-          writes.push(announcement.ref.update({trainee_visible: visible}));
-        }
+const SCHEDULED_ANNOUNCEMENT_PUBLICATION_BATCH_SIZE = 100;
+const SCHEDULED_ANNOUNCEMENT_PUBLICATION_MAX_PAGES = 3;
+
+function timestampMillis(value) {
+  return value instanceof Timestamp ? value.toMillis() : null;
+}
+
+/**
+ * Publishes one bounded, oldest-first page of due announcements. The
+ * collection-group query deliberately cannot repair legacy documents that lack
+ * `trainee_visible`: missing markers are repaired by the explicit, one-time
+ * migrate:announcement-visibility script rather than a permanent full-database
+ * scheduler scan.
+ */
+async function runScheduledAnnouncementPublication({
+  firestore,
+  now = Timestamp.now(),
+  batchSize = SCHEDULED_ANNOUNCEMENT_PUBLICATION_BATCH_SIZE,
+  maxPages = SCHEDULED_ANNOUNCEMENT_PUBLICATION_MAX_PAGES,
+}) {
+  const nowMillis = timestampMillis(now);
+  if (nowMillis == null) throw new TypeError('now must be a Firestore Timestamp.');
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) {
+    throw new RangeError('batchSize must be an integer from 1 through 500.');
+  }
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 10) {
+    throw new RangeError('maxPages must be an integer from 1 through 10.');
+  }
+
+  const announcements = firestore.collectionGroup('announcements');
+  const results = {candidates: 0, published: 0, skipped: 0, failed: 0};
+  let cursor = null;
+
+  // A fixed number of pages gives later due documents a chance even when the
+  // oldest page contains repeated transaction failures, without open-ended
+  // scheduler work. The next invocation resumes any remaining due work.
+  for (let page = 0; page < maxPages; page += 1) {
+    let query = announcements
+      .where('trainee_visible', '==', false)
+      .where('publish_at', '<=', now)
+      .orderBy('publish_at', 'asc');
+    if (cursor) query = query.startAfter(cursor);
+    const due = await query.limit(batchSize).get();
+    results.candidates += due.size;
+
+    // Isolate a malformed/deleted document or a transient transaction failure
+    // so it cannot block other due announcements.
+    for (const candidate of due.docs) {
+      try {
+        const published = await firestore.runTransaction(async (transaction) => {
+          const current = await transaction.get(candidate.ref);
+          if (!current.exists) return false;
+          const data = current.data();
+          const publishAtMillis = timestampMillis(data.publish_at);
+          if (data.trainee_visible !== false ||
+              publishAtMillis == null || publishAtMillis > nowMillis) {
+            return false;
+          }
+          transaction.update(candidate.ref, {trainee_visible: true});
+          return true;
+        });
+        if (published) results.published += 1;
+        else results.skipped += 1;
+      } catch (error) {
+        results.failed += 1;
+        console.error('Scheduled announcement publication failed', {
+          path: candidate.ref.path,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
-    await Promise.all(writes);
-  },
+    if (due.size < batchSize) break;
+    cursor = due.docs[due.docs.length - 1];
+  }
+  return results;
+}
+
+// Firestore rules require a queryable, server-maintained publication marker;
+// request.time alone cannot make a collection query excluding future documents
+// provably safe. A transaction rechecks canonical state to prevent a stale
+// scheduler candidate from defeating a Teacher reschedule or deletion.
+exports.publishScheduledAnnouncements = onSchedule(
+  {region: REGION, schedule: 'every 1 minutes'},
+  () => runScheduledAnnouncementPublication({firestore: getFirestore()}),
 );
 
 exports.listTraineeAssignments = onRequest(
@@ -2678,4 +2739,7 @@ exports._test = {
   sanitizedAssignment,
   listTraineeAssignmentsHandler,
   createClassroomAssignmentHandler,
+  SCHEDULED_ANNOUNCEMENT_PUBLICATION_BATCH_SIZE,
+  SCHEDULED_ANNOUNCEMENT_PUBLICATION_MAX_PAGES,
+  runScheduledAnnouncementPublication,
 };

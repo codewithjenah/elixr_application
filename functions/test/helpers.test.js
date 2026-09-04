@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const {Timestamp} = require('firebase-admin/firestore');
 
 const {
   archivedConversationId,
@@ -33,7 +34,144 @@ const {
   sanitizeDirectoryDocuments,
   sanitizedResult,
   validateSearchQuery,
+  runScheduledAnnouncementPublication,
 } = require('../index')._test;
+
+function scheduledAnnouncementDatabase(records, {failIds = []} = {}) {
+  const calls = [];
+  let limitValue = records.length;
+  let startAfterId = null;
+  let queryReads = 0;
+  const docs = records.map((record) => ({
+    ref: {
+      id: record.id,
+      path: `groups/${record.groupId || 'group-1'}/announcements/${record.id}`,
+    },
+    data: () => record.data,
+  }));
+  const matchesDueQuery = (record) => {
+    if (queryReads > 0 && record.exists === false) return false;
+    const data = queryReads === 0 ? (record.queryData || record.data) : record.data;
+    const visible = data.trainee_visible === false;
+    const publishAt = data.publish_at;
+    return visible && publishAt instanceof Timestamp && publishAt.toMillis() <= 1000;
+  };
+  const query = {
+    where(field, operator, value) {
+      calls.push({method: 'where', field, operator, value});
+      return this;
+    },
+    orderBy(field, direction) {
+      calls.push({method: 'orderBy', field, direction});
+      return this;
+    },
+    startAfter(document) {
+      startAfterId = document.ref.id;
+      calls.push({method: 'startAfter', id: startAfterId});
+      return this;
+    },
+    limit(value) {
+      limitValue = value;
+      calls.push({method: 'limit', value});
+      return this;
+    },
+    async get() {
+      const candidates = docs
+        .filter((document) => matchesDueQuery(records.find((item) => item.id === document.ref.id)))
+        .filter((document) => startAfterId == null || document.ref.id > startAfterId)
+        .slice(0, limitValue);
+      queryReads += 1;
+      return {docs: candidates, size: candidates.length};
+    },
+  };
+  return {
+    calls,
+    collection() {
+      throw new Error('scheduled publication must not scan top-level collections');
+    },
+    collectionGroup(name) {
+      calls.push({method: 'collectionGroup', name});
+      return query;
+    },
+    async runTransaction(callback) {
+      const transaction = {
+        get: async (ref) => {
+          const record = records.find((item) => item.id === ref.id);
+          return {exists: Boolean(record?.exists !== false), data: () => record?.data};
+        },
+        update: (ref, patch) => {
+          if (failIds.includes(ref.id)) throw new Error('write failed');
+          Object.assign(records.find((item) => item.id === ref.id).data, patch);
+        },
+      };
+      return callback(transaction);
+    },
+  };
+}
+
+test('scheduled announcement publication queries only due unpublished candidates', async () => {
+  const now = Timestamp.fromMillis(1000);
+  const future = {id: 'future',
+    data: {trainee_visible: false, publish_at: Timestamp.fromMillis(1001)}};
+  const due = {id: 'due', data: {trainee_visible: false, publish_at: Timestamp.fromMillis(1000)}};
+  const database = scheduledAnnouncementDatabase([future, due]);
+  const result = await runScheduledAnnouncementPublication({firestore: database, now, batchSize: 2});
+
+  assert.deepEqual(result, {candidates: 1, published: 1, skipped: 0, failed: 0});
+  assert.equal(future.data.trainee_visible, false);
+  assert.equal(due.data.trainee_visible, true);
+  assert.deepEqual(database.calls.map((call) => call.method),
+    ['collectionGroup', 'where', 'where', 'orderBy', 'limit']);
+  assert.deepEqual(database.calls.slice(1, 3).map(({field, operator}) => ({field, operator})), [
+    {field: 'trainee_visible', operator: '=='},
+    {field: 'publish_at', operator: '<='},
+  ]);
+});
+
+test('scheduled announcement publication handles stale, deleted, malformed, and repeated candidates safely', async () => {
+  const now = Timestamp.fromMillis(1000);
+  const records = [
+    {id: 'past', data: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)}},
+    {id: 'future-after-reschedule', queryData: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)},
+      data: {trainee_visible: false, publish_at: Timestamp.fromMillis(1001)}},
+    {id: 'deleted', exists: false, data: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)}},
+    {id: 'malformed', queryData: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)},
+      data: {trainee_visible: false, publish_at: 'not-a-timestamp'}},
+    {id: 'visible', queryData: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)},
+      data: {trainee_visible: true, publish_at: Timestamp.fromMillis(999)}},
+  ];
+  const database = scheduledAnnouncementDatabase(records);
+  const first = await runScheduledAnnouncementPublication({firestore: database, now, batchSize: 10});
+  const second = await runScheduledAnnouncementPublication({firestore: database, now, batchSize: 10});
+
+  assert.deepEqual(first, {candidates: 5, published: 1, skipped: 4, failed: 0});
+  assert.equal(records[0].data.trainee_visible, true);
+  assert.equal(records[1].data.trainee_visible, false);
+  assert.deepEqual(second, {candidates: 0, published: 0, skipped: 0, failed: 0});
+});
+
+test('scheduled announcement publication isolates failures and processes bounded pages', async () => {
+  const now = Timestamp.fromMillis(1000);
+  const records = [
+    {id: 'fails-a', data: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)}},
+    {id: 'fails-b', data: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)}},
+    {id: 'succeeds', data: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)}},
+  ];
+  const database = scheduledAnnouncementDatabase(records, {failIds: ['fails-a', 'fails-b']});
+  const result = await runScheduledAnnouncementPublication({firestore: database, now, batchSize: 2});
+
+  assert.deepEqual(result, {candidates: 3, published: 1, skipped: 0, failed: 2});
+  assert.equal(records[2].data.trainee_visible, true);
+  assert.ok(database.calls.some((call) => call.method === 'startAfter'));
+  const bounded = scheduledAnnouncementDatabase(records.map((record) => ({
+    ...record, data: {trainee_visible: false, publish_at: Timestamp.fromMillis(999)},
+  })));
+  const boundedResult = await runScheduledAnnouncementPublication({
+    firestore: bounded, now, batchSize: 1, maxPages: 1,
+  });
+  assert.equal(boundedResult.candidates, 1);
+  assert.equal(bounded.calls.at(-1).value, 1);
+});
 
 test('Learning Material byte classification accepts only the narrow supported signatures', () => {
   assert.deepEqual(

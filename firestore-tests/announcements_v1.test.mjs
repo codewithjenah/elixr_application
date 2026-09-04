@@ -100,6 +100,7 @@ function announcementPayload() {
     body: 'Review Hand Stall before Friday.',
     created_at: serverTimestamp(),
     edited_at: null,
+    trainee_visible: true,
     schema_version: 1,
   };
 }
@@ -139,6 +140,43 @@ describe('Classroom announcements', () => {
     });
     await assertFails(getDoc(announcementRef(trainee)));
     await assertFails(getDocs(query(announcements, orderBy('created_at', 'desc'))));
+  });
+
+  test('future scheduled announcements stay hidden until the server publishes them', async () => {
+    await seedClass({approved: true});
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(announcementRef(admin.firestore()), {
+        ...announcementPayload(),
+        publish_at: new Date('2026-09-05T01:00:00.000Z'),
+        trainee_visible: false,
+      });
+    });
+
+    const teacher = context('teacher').firestore();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(getDoc(announcementRef(teacher)));
+    await assertFails(getDoc(announcementRef(trainee)));
+
+    // This is the only state transition made by the scheduled Admin Function.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(announcementRef(admin.firestore()), {trainee_visible: true});
+    });
+    await assertSucceeds(getDoc(announcementRef(trainee)));
+    await assertFails(getDoc(announcementRef(context('other').firestore())));
+  });
+
+  test('trainees cannot forge scheduled publication fields', async () => {
+    await seedClass({approved: true});
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(announcementRef(admin.firestore()), {
+        ...announcementPayload(),
+        publish_at: new Date('2026-09-05T01:00:00.000Z'),
+        trainee_visible: false,
+      });
+    });
+    const traineeRef = announcementRef(context('trainee').firestore());
+    await assertFails(updateDoc(traineeRef, {trainee_visible: true}));
+    await assertFails(updateDoc(traineeRef, {publish_at: deleteField()}));
   });
 
   test('students and unrelated or unverified Teachers cannot write', async () => {

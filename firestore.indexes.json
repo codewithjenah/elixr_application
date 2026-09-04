@@ -2,6 +2,14 @@
   "indexes": [
     {
       "collectionGroup": "announcements",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "trainee_visible", "order": "ASCENDING" },
+        { "fieldPath": "publish_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "announcements",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "trainee_visible", "order": "ASCENDING" },

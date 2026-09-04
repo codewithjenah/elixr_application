@@ -123,4 +123,71 @@ void main() {
     page = await repository.watchAnnouncements(groupId: 'group-1').first;
     expect(page.items.where((item) => item.isPinned), isEmpty);
   });
+
+  test(
+    'scheduled announcements remain teacher-only until rescheduled to now',
+    () async {
+      var instant = DateTime.utc(2026, 9, 4, 12);
+      final repository = InMemoryClassroomAnnouncementRepository(
+        now: () => instant,
+      );
+      addTearDown(repository.dispose);
+      final announcement = await repository.createAnnouncement(
+        groupId: 'group-1',
+        teacherId: 'teacher-1',
+        title: 'Scheduled',
+        body: 'Practice later.',
+        publishAt: instant.add(const Duration(hours: 1)),
+      );
+
+      expect(
+        (await repository.watchAnnouncements(groupId: 'group-1').first).items,
+        isEmpty,
+      );
+      expect(
+        (await repository
+                .watchAnnouncements(
+                  groupId: 'group-1',
+                  includeUnpublished: true,
+                )
+                .first)
+            .items,
+        hasLength(1),
+      );
+      await expectLater(
+        repository.setPinnedAnnouncement(
+          groupId: 'group-1',
+          teacherId: 'teacher-1',
+          announcementId: announcement.id,
+        ),
+        throwsStateError,
+      );
+
+      await repository.updateAnnouncement(
+        groupId: 'group-1',
+        announcementId: announcement.id,
+        teacherId: 'teacher-1',
+        title: 'Published now',
+        body: 'Practice now.',
+        publishAt: null,
+      );
+      final published = await repository
+          .watchAnnouncements(groupId: 'group-1')
+          .first;
+      expect(published.items.single.publishAt, isNull);
+      await repository.setPinnedAnnouncement(
+        groupId: 'group-1',
+        teacherId: 'teacher-1',
+        announcementId: announcement.id,
+      );
+      expect(
+        (await repository.watchAnnouncements(groupId: 'group-1').first)
+            .items
+            .single
+            .isPinned,
+        isTrue,
+      );
+      instant = instant.add(const Duration(minutes: 1));
+    },
+  );
 }
