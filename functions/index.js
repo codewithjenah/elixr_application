@@ -1,6 +1,7 @@
 const {createHash} = require('node:crypto');
 const {onRequest} = require('firebase-functions/v2/https');
 const {onDocumentWritten, onDocumentDeleted} = require('firebase-functions/v2/firestore');
+const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {initializeApp, getApps} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require('firebase-admin/firestore');
@@ -503,6 +504,23 @@ function attemptStateId(assignmentId, traineeId) {
   return `${assignmentId}__${traineeId}`;
 }
 
+// Overrides are private, assignment-scoped projections.  Never trust a
+// client-supplied deadline or an override whose immutable identity disagrees
+// with the parent assignment.
+async function effectiveAssignmentDueAt(transaction, assignmentRef, assignment, traineeId) {
+  const base = assignment.due_at || null;
+  const override = await transaction.get(
+    assignmentRef.collection('assignment_deadline_overrides').doc(traineeId),
+  );
+  if (!override.exists) return base;
+  const data = override.data();
+  if (!data || data.assignment_id !== assignmentRef.id ||
+      data.group_id !== assignment.group_id || data.teacher_id !== assignment.teacher_id ||
+      data.trainee_id !== traineeId || !(data.due_at instanceof Timestamp) ||
+      (base && data.due_at.toMillis() <= base.toMillis())) return base;
+  return data.due_at;
+}
+
 async function reserveTeacherActivityAttemptHandler(request, response, {
   authenticate = authenticatedUid,
   databaseFactory = getFirestore,
@@ -551,7 +569,10 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
         }
       }
       const now = Timestamp.now();
-      if (assignment.due_at && now.toMillis() > assignment.due_at.toMillis()) {
+      const effectiveDueAt = await effectiveAssignmentDueAt(
+        transaction, assignmentRef, assignment, uid,
+      );
+      if (effectiveDueAt && now.toMillis() > effectiveDueAt.toMillis()) {
         const error = new Error('deadline_passed'); error.code = 'deadline_passed'; throw error;
       }
       const state = stateSnapshot.exists ? stateSnapshot.data() : {};
@@ -643,7 +664,10 @@ async function consumeTeacherActivityAttemptHandler(request, response, {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
       const now = Timestamp.now();
-      if (assignment.due_at && now.toMillis() > assignment.due_at.toMillis()) {
+      const effectiveDueAt = await effectiveAssignmentDueAt(
+        transaction, assignmentRef, assignment, uid,
+      );
+      if (effectiveDueAt && now.toMillis() > effectiveDueAt.toMillis()) {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
       const membership = await transaction.get(
@@ -1104,17 +1128,31 @@ async function listTraineeAssignmentsHandler(
       targetedIds.add(assignmentDocument.id);
     }
     const uniqueDocuments = [...new Map(documents.map((document) => [document.id, document])).values()];
-    const assignments = uniqueDocuments
+    const assignments = await Promise.all(uniqueDocuments
       .filter((document) => {
         const data = document.data();
         return teacherByGroupId.get(data.group_id) === data.teacher_id &&
-          (data.status === 'active' ||
+          (!data.status || data.status === 'active' ||
             (data.status === 'scheduled' && data.publish_at &&
               Timestamp.now().toMillis() >= data.publish_at.toMillis())) &&
           (assignmentAudienceAllows(data, uid, null, document.id) ||
             targetedIds.has(document.id));
       })
-      .map(sanitizedAssignment);
+      .map(async (document) => {
+        const assignment = document.data();
+        const value = sanitizedAssignment(document);
+        const override = await document.ref
+          .collection('assignment_deadline_overrides').doc(uid).get();
+        const deadline = override.exists ? override.data() : null;
+        if (deadline && deadline.assignment_id === document.id &&
+            deadline.group_id === assignment.group_id &&
+            deadline.teacher_id === assignment.teacher_id &&
+            deadline.trainee_id === uid && deadline.due_at instanceof Timestamp &&
+            (!assignment.due_at || deadline.due_at.toMillis() > assignment.due_at.toMillis())) {
+          value.due_at = deadline.due_at;
+        }
+        return value;
+      }));
     response.status(200).json({assignments});
   } catch (_) {
     response.status(503).json({error: 'unavailable'});
@@ -1419,6 +1457,31 @@ exports.deleteAssignmentRecipients = onDocumentDeleted(
       snapshot.docs.forEach((document) => batch.delete(document.ref));
       await batch.commit();
     }
+  },
+);
+
+// Firestore rules require a queryable, server-maintained publication marker;
+// request.time alone cannot make a collection query excluding future documents
+// provably safe. This also backfills legacy immediate announcements.
+exports.publishScheduledAnnouncements = onSchedule(
+  {region: REGION, schedule: 'every 1 minutes'},
+  async () => {
+    const firestore = getFirestore();
+    const now = Timestamp.now();
+    const groups = await firestore.collection('groups').get();
+    const writes = [];
+    for (const group of groups.docs) {
+      const announcements = await group.ref.collection('announcements').get();
+      for (const announcement of announcements.docs) {
+        const data = announcement.data();
+        const visible = !data.publish_at ||
+          (data.publish_at instanceof Timestamp && data.publish_at.toMillis() <= now.toMillis());
+        if (data.trainee_visible !== visible) {
+          writes.push(announcement.ref.update({trainee_visible: visible}));
+        }
+      }
+    }
+    await Promise.all(writes);
   },
 );
 

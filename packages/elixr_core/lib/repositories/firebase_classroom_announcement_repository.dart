@@ -29,7 +29,11 @@ class FirebaseClassroomAnnouncementRepository
     bool includeUnpublished = false,
   }) {
     _validatePageSize(pageSize);
-    final query = _announcements(groupId)
+    Query<Map<String, dynamic>> query = _announcements(groupId);
+    if (!includeUnpublished) {
+      query = query.where('trainee_visible', isEqualTo: true);
+    }
+    query = query
         .orderBy('created_at', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(pageSize);
@@ -53,13 +57,17 @@ class FirebaseClassroomAnnouncementRepository
           if (item != null) byId[item.id] = item;
         }
         if (pinnedId != null && !byId.containsKey(pinnedId)) {
-          final pinnedSnapshot = await _announcements(
-            groupId,
-          ).doc(pinnedId).get();
-          final pinned = pinnedSnapshot.data() == null
+          DocumentSnapshot<Map<String, dynamic>>? pinnedSnapshot;
+          try {
+            pinnedSnapshot = await _announcements(groupId).doc(pinnedId).get();
+          } on FirebaseException {
+            // A stale pointer can target a future scheduled announcement.
+            // That document is intentionally unreadable by trainees.
+          }
+          final pinned = pinnedSnapshot?.data() == null
               ? null
               : ClassroomAnnouncement.tryFromMap(
-                  pinnedSnapshot.data()!,
+                  pinnedSnapshot!.data()!,
                   id: pinnedSnapshot.id,
                 );
           if (pinned != null) byId[pinned.id] = pinned;
@@ -113,7 +121,11 @@ class FirebaseClassroomAnnouncementRepository
     if (startAfter is! _FirestoreAnnouncementCursor) {
       throw ArgumentError('Cursor belongs to another repository.');
     }
-    final snapshot = await _announcements(groupId)
+    Query<Map<String, dynamic>> query = _announcements(groupId);
+    if (!includeUnpublished) {
+      query = query.where('trainee_visible', isEqualTo: true);
+    }
+    final snapshot = await query
         .orderBy('created_at', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .startAfterDocument(startAfter.document)
@@ -167,6 +179,7 @@ class FirebaseClassroomAnnouncementRepository
       'created_at': FieldValue.serverTimestamp(),
       'edited_at': null,
       if (publication != null) 'publish_at': Timestamp.fromDate(publication),
+      'trainee_visible': publication == null,
       'schema_version': ClassroomAnnouncement.currentSchemaVersion,
     });
     return ClassroomAnnouncement(
@@ -199,6 +212,7 @@ class FirebaseClassroomAnnouncementRepository
       'publish_at': publication == null
           ? FieldValue.delete()
           : Timestamp.fromDate(publication),
+      'trainee_visible': publication == null,
     });
   }
 

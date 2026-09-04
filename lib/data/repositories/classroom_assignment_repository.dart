@@ -161,6 +161,24 @@ abstract class ClassroomAssignmentRepository {
 
   Future<GroupAssignment?> getAssignment({required String assignmentId});
 
+  Future<AssignmentDeadlineOverride?> getDeadlineOverride({
+    required String assignmentId,
+    required String traineeId,
+  });
+
+  Future<void> setDeadlineOverride({
+    required String teacherId,
+    required GroupAssignment assignment,
+    required String traineeId,
+    required DateTime dueAt,
+  });
+
+  Future<void> clearDeadlineOverride({
+    required String teacherId,
+    required GroupAssignment assignment,
+    required String traineeId,
+  });
+
   Future<bool> hasTeacherAssignmentForMovement({
     required String teacherId,
     required String movementId,
@@ -1005,10 +1023,14 @@ bool isReusableCanonicalTeacherReviewSubmission({
 
 bool isTeacherAssignmentSubmissionOpen({
   required GroupAssignment assignment,
+  DateTime? traineeOverride,
   DateTime? now,
 }) {
   if (!assignment.isActive) return false;
-  final dueAt = assignment.dueAt;
+  final dueAt = effectiveAssignmentDueAt(
+    assignment,
+    traineeOverride: traineeOverride,
+  );
   return dueAt == null ||
       !(now ?? DateTime.now().toUtc()).toUtc().isAfter(dueAt.toUtc());
 }

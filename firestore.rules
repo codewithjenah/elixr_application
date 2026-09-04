@@ -2808,7 +2808,7 @@ service cloud.firestore {
     function announcementKeys() {
       return [
         'group_id', 'teacher_id', 'title', 'body', 'created_at', 'edited_at',
-        'schema_version', 'publish_at'
+        'schema_version', 'publish_at', 'trainee_visible'
       ];
     }
 
@@ -2850,6 +2850,7 @@ service cloud.firestore {
         && validAnnouncementText(data.body, 2000)
         && data.created_at == request.time
         && data.edited_at == null
+        && data.trainee_visible == !data.keys().hasAny(['publish_at'])
         && (!data.keys().hasAny(['publish_at'])
           || (data.publish_at is timestamp && data.publish_at > request.time))
         && data.schema_version == 1;
@@ -2862,7 +2863,7 @@ service cloud.firestore {
         && get(groupPath(groupId)).data.status == 'active'
         && after.keys().hasOnly(announcementKeys())
         && after.diff(before).affectedKeys().hasOnly([
-          'title', 'body', 'edited_at', 'publish_at'
+          'title', 'body', 'edited_at', 'publish_at', 'trainee_visible'
         ])
         && after.group_id == before.group_id
         && after.teacher_id == before.teacher_id
@@ -2872,6 +2873,7 @@ service cloud.firestore {
         && validAnnouncementText(after.title, 120)
         && validAnnouncementText(after.body, 2000)
         && after.edited_at == request.time
+        && after.trainee_visible == !after.keys().hasAny(['publish_at'])
         && (
           !after.diff(before).affectedKeys().hasAny(['publish_at'])
           || !after.keys().hasAny(['publish_at'])
@@ -2898,8 +2900,7 @@ service cloud.firestore {
         && (
           isAnnouncementOwner(groupId)
           || (isApprovedAnnouncementMember(groupId)
-            && (!resource.data.keys().hasAny(['publish_at'])
-              || request.time >= resource.data.publish_at))
+            && resource.data.get('trainee_visible', false) == true)
         );
       allow create: if validAnnouncementCreate(request.resource.data, groupId);
       allow update: if validAnnouncementUpdate(groupId);
@@ -2945,6 +2946,9 @@ service cloud.firestore {
     }
     function assignmentRecipientPath(assignmentId, traineeId) {
       return /databases/$(database)/documents/group_assignments/$(assignmentId)/assignment_recipients/$(traineeId);
+    }
+    function assignmentDeadlineOverridePath(assignmentId, traineeId) {
+      return /databases/$(database)/documents/group_assignments/$(assignmentId)/assignment_deadline_overrides/$(traineeId);
     }
     function assignmentAttemptPath(attemptId) {
       return /databases/$(database)/documents/assignment_attempts/$(attemptId);
@@ -3677,6 +3681,68 @@ service cloud.firestore {
           );
         allow create, update: if false;
       }
+
+      // One private deadline projection per recipient.  This is intentionally
+      // a direct-read-only subcollection for Trainees: listing it would leak
+      // classmate identities and deadlines.
+      match /assignment_deadline_overrides/{traineeId} {
+        function validDeadlineOverride(data) {
+          return data.keys().hasOnly([
+              'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
+              'due_at', 'schema_version', 'created_at', 'updated_at'
+            ])
+            && data.assignment_id == assignmentId
+            && data.trainee_id == traineeId
+            && data.group_id is string && data.teacher_id is string
+            && data.due_at is timestamp && data.schema_version == 1
+            && data.created_at is timestamp && data.updated_at is timestamp;
+        }
+        function teacherCanWriteDeadlineOverride(data) {
+          let assignment = get(assignmentPath(assignmentId)).data;
+          return isVerifiedTeacher()
+            && assignment.teacher_id == request.auth.uid
+            && data.teacher_id == assignment.teacher_id
+            && data.group_id == assignment.group_id
+            && assignment.keys().hasAny(['due_at'])
+            && assignment.due_at is timestamp
+            && data.due_at > assignment.due_at
+            && hasApprovedTraineeMembership(assignment.group_id, traineeId)
+            && assignmentAllowsTrainee(assignment, assignmentId, traineeId);
+        }
+        allow get: if isSignedIn() && (
+          (resource.data.teacher_id == request.auth.uid
+            && validDeadlineOverride(resource.data))
+          || (traineeId == request.auth.uid
+            && validDeadlineOverride(resource.data)
+            && exists(assignmentPath(assignmentId))
+            && traineeCanAccessAssignment(
+              get(assignmentPath(assignmentId)).data, assignmentId, traineeId
+            ))
+        );
+        allow list: if false;
+        allow create: if validDeadlineOverride(request.resource.data)
+          && teacherCanWriteDeadlineOverride(request.resource.data)
+          && request.resource.data.created_at == request.time
+          && request.resource.data.updated_at == request.time;
+        allow update: if validDeadlineOverride(request.resource.data)
+          && teacherCanWriteDeadlineOverride(request.resource.data)
+          && request.resource.data.assignment_id == resource.data.assignment_id
+          && request.resource.data.group_id == resource.data.group_id
+          && request.resource.data.teacher_id == resource.data.teacher_id
+          && request.resource.data.trainee_id == resource.data.trainee_id
+          && request.resource.data.schema_version == resource.data.schema_version
+          && request.resource.data.created_at == resource.data.created_at
+          && request.resource.data.updated_at == request.time;
+        allow delete: if isVerifiedTeacher()
+          && resource.data.teacher_id == request.auth.uid
+          && exists(assignmentPath(assignmentId))
+          && get(assignmentPath(assignmentId)).data.teacher_id == request.auth.uid
+          && resource.data.group_id == get(assignmentPath(assignmentId)).data.group_id
+          && hasApprovedTraineeMembership(resource.data.group_id, traineeId)
+          && assignmentAllowsTrainee(
+            get(assignmentPath(assignmentId)).data, assignmentId, traineeId
+          );
+      }
     }
 
     // Collection-group queries need a recursive match because their parent
@@ -3798,6 +3864,16 @@ service cloud.firestore {
     }
     function assignmentSubmissionIsOpen(data) {
       let assignment = get(assignmentPath(data.assignment_id)).data;
+      let overridePath = assignmentDeadlineOverridePath(data.assignment_id, data.trainee_id);
+      let hasOverride = exists(overridePath)
+        && get(overridePath).data.assignment_id == data.assignment_id
+        && get(overridePath).data.group_id == assignment.group_id
+        && get(overridePath).data.teacher_id == assignment.teacher_id
+        && get(overridePath).data.trainee_id == data.trainee_id
+        && get(overridePath).data.due_at is timestamp
+        && (!assignment.keys().hasAny(['due_at'])
+          || get(overridePath).data.due_at > assignment.due_at);
+      let dueAt = hasOverride ? get(overridePath).data.due_at : assignment.get('due_at', null);
       return assignmentIsPublished(assignment)
         && assignment.get('deletion_state', 'active') != 'deleting'
         && (
@@ -3805,11 +3881,11 @@ service cloud.firestore {
           || data.get('recording_started_at', null) is timestamp
         )
         && (
-          !assignment.keys().hasAny(['due_at'])
-          || request.time <= assignment.due_at
+          dueAt == null
+          || request.time <= dueAt
           || (
             data.get('recording_started_at', null) is timestamp
-            && data.recording_started_at <= assignment.due_at
+            && data.recording_started_at <= dueAt
           )
         );
     }

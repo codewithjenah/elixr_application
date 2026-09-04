@@ -49,6 +49,24 @@ enum AssignmentAudienceType {
   }
 }
 
+/// Private, per-recipient deadline projection stored below an assignment.
+/// It is deliberately not embedded in the trainee-readable assignment document.
+class AssignmentDeadlineOverride {
+  const AssignmentDeadlineOverride({
+    required this.assignmentId,
+    required this.groupId,
+    required this.teacherId,
+    required this.traineeId,
+    required this.dueAt,
+  });
+
+  final String assignmentId;
+  final String groupId;
+  final String teacherId;
+  final String traineeId;
+  final DateTime dueAt;
+}
+
 class AssignmentAudience {
   const AssignmentAudience.entireClass()
     : type = AssignmentAudienceType.entireClass,

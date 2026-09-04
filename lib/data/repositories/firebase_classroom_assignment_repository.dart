@@ -55,6 +55,14 @@ class FirebaseClassroomAssignmentRepository
   CollectionReference<Map<String, dynamic>> get _memberships =>
       _firestore.collection(FirestoreCollections.groupMemberships);
 
+  DocumentReference<Map<String, dynamic>> _deadlineOverride(
+    String assignmentId,
+    String traineeId,
+  ) => _assignments
+      .doc(assignmentId)
+      .collection('assignment_deadline_overrides')
+      .doc(traineeId);
+
   @override
   Future<GroupAssignment> createOfficialAssignment({
     required String teacherId,
@@ -448,6 +456,90 @@ class FirebaseClassroomAssignmentRepository
             audience: assignment.audience.withRecipientIds([uid]),
           )
         : null;
+  }
+
+  @override
+  Future<AssignmentDeadlineOverride?> getDeadlineOverride({
+    required String assignmentId,
+    required String traineeId,
+  }) async {
+    final snapshot = await _deadlineOverride(assignmentId, traineeId).get();
+    final data = snapshot.data();
+    if (!snapshot.exists || data == null) return null;
+    final dueAt = TeacherRosterInvite.readDateTime(data['due_at']);
+    if (dueAt == null ||
+        data['assignment_id'] != assignmentId ||
+        data['trainee_id'] != traineeId ||
+        data['group_id'] is! String ||
+        data['teacher_id'] is! String) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    return AssignmentDeadlineOverride(
+      assignmentId: assignmentId,
+      groupId: data['group_id'] as String,
+      teacherId: data['teacher_id'] as String,
+      traineeId: traineeId,
+      dueAt: dueAt,
+    );
+  }
+
+  Future<GroupAssignment?> _getAssignmentForTrainee({
+    required String assignmentId,
+    required String traineeId,
+  }) async {
+    final assignment = await getAssignment(assignmentId: assignmentId);
+    if (assignment == null) return null;
+    final override = await getDeadlineOverride(
+      assignmentId: assignmentId,
+      traineeId: traineeId,
+    );
+    final dueAt = effectiveAssignmentDueAt(
+      assignment,
+      traineeOverride: override?.dueAt,
+    );
+    return dueAt == assignment.dueAt
+        ? assignment
+        : assignment.copyWith(dueAt: dueAt);
+  }
+
+  @override
+  Future<void> setDeadlineOverride({
+    required String teacherId,
+    required GroupAssignment assignment,
+    required String traineeId,
+    required DateTime dueAt,
+  }) async {
+    final base = assignment.dueAt;
+    if (assignment.teacherId != teacherId ||
+        base == null ||
+        !assignment.isAvailableToTrainee(traineeId) ||
+        !dueAt.isAfter(base)) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final ref = _deadlineOverride(assignment.id, traineeId);
+    final existing = await ref.get();
+    await ref.set({
+      'assignment_id': assignment.id,
+      'group_id': assignment.groupId,
+      'teacher_id': teacherId,
+      'trainee_id': traineeId,
+      'due_at': Timestamp.fromDate(dueAt.toUtc()),
+      'schema_version': 1,
+      if (!existing.exists) 'created_at': FieldValue.serverTimestamp(),
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> clearDeadlineOverride({
+    required String teacherId,
+    required GroupAssignment assignment,
+    required String traineeId,
+  }) async {
+    if (assignment.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _deadlineOverride(assignment.id, traineeId).delete();
   }
 
   @override
@@ -882,7 +974,10 @@ class FirebaseClassroomAssignmentRepository
       submittedAt: submittedAt,
       videoExpiresAt: videoExpiresAt,
     );
-    final assignment = await getAssignment(assignmentId: attempt.assignmentId);
+    final assignment = await _getAssignmentForTrainee(
+      assignmentId: attempt.assignmentId,
+      traineeId: traineeId,
+    );
     if (assignment == null ||
         !isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
       throw const ClassroomException(ClassroomError.deadlinePassed);
@@ -973,7 +1068,10 @@ class FirebaseClassroomAssignmentRepository
     if (attempt.traineeId != traineeId || !attempt.hasAttachedDraftClip) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
-    final assignment = await getAssignment(assignmentId: attempt.assignmentId);
+    final assignment = await _getAssignmentForTrainee(
+      assignmentId: attempt.assignmentId,
+      traineeId: traineeId,
+    );
     if (assignment == null ||
         !isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
       throw const ClassroomException(ClassroomError.deadlinePassed);
@@ -1045,7 +1143,10 @@ class FirebaseClassroomAssignmentRepository
       throw const ClassroomException(ClassroomError.invalidState);
     }
     if (current.status == AssignmentAttemptStatus.unsubmitting) return current;
-    final assignment = await getAssignment(assignmentId: current.assignmentId);
+    final assignment = await _getAssignmentForTrainee(
+      assignmentId: current.assignmentId,
+      traineeId: traineeId,
+    );
     if (assignment == null ||
         !isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
       throw const ClassroomException(ClassroomError.deadlinePassed);

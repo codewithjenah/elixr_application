@@ -106,17 +106,17 @@ function fakeResponse() {
   };
 }
 
-function fakeAssignmentDatabase({memberships, assignments, recipients = []}) {
+function fakeAssignmentDatabase({memberships, assignments, recipients = [], overrides = []}) {
   const assignmentQueries = [];
   const docs = (values) => values.map((value) => ({
     id: value.id,
     data: () => value.data,
     ref: {
       collection(name) {
-        assert.equal(name, 'assignment_recipients');
+        assert.ok(['assignment_recipients', 'assignment_deadline_overrides'].includes(name));
         return {
           doc(traineeId) {
-            const recipient = recipients.find((item) =>
+            const recipient = (name === 'assignment_recipients' ? recipients : overrides).find((item) =>
               item.assignmentId === value.id && item.traineeId === traineeId,
             );
             return {

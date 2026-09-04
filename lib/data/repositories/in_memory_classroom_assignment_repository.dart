@@ -32,6 +32,7 @@ class InMemoryClassroomAssignmentRepository
 
   final Map<String, GroupAssignment> assignments = {};
   final Map<String, AssignmentAttempt> attempts = {};
+  final Map<String, AssignmentDeadlineOverride> deadlineOverrides = {};
   final Set<String> consumedTeacherActivityAttemptIds = {};
   bool failNextSubmitTransition = false;
 
@@ -485,6 +486,53 @@ class InMemoryClassroomAssignmentRepository
     return assignments[assignmentId];
   }
 
+  String _deadlineOverrideKey(String assignmentId, String traineeId) =>
+      '$assignmentId|$traineeId';
+
+  @override
+  Future<AssignmentDeadlineOverride?> getDeadlineOverride({
+    required String assignmentId,
+    required String traineeId,
+  }) async => deadlineOverrides[_deadlineOverrideKey(assignmentId, traineeId)];
+
+  @override
+  Future<void> setDeadlineOverride({
+    required String teacherId,
+    required GroupAssignment assignment,
+    required String traineeId,
+    required DateTime dueAt,
+  }) async {
+    final base = assignment.dueAt;
+    if (assignment.teacherId != teacherId ||
+        base == null ||
+        !assignment.isAvailableToTrainee(traineeId) ||
+        !dueAt.isAfter(base)) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    deadlineOverrides[_deadlineOverrideKey(
+      assignment.id,
+      traineeId,
+    )] = AssignmentDeadlineOverride(
+      assignmentId: assignment.id,
+      groupId: assignment.groupId,
+      teacherId: teacherId,
+      traineeId: traineeId,
+      dueAt: dueAt.toUtc(),
+    );
+  }
+
+  @override
+  Future<void> clearDeadlineOverride({
+    required String teacherId,
+    required GroupAssignment assignment,
+    required String traineeId,
+  }) async {
+    if (assignment.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    deadlineOverrides.remove(_deadlineOverrideKey(assignment.id, traineeId));
+  }
+
   @override
   Future<bool> hasTeacherAssignmentForMovement({
     required String teacherId,
@@ -567,7 +615,20 @@ class InMemoryClassroomAssignmentRepository
       ];
     }
     _sortAssignments(items);
-    return items;
+    return [
+      for (final assignment in items)
+        assignment.copyWith(
+          dueAt: effectiveAssignmentDueAt(
+            assignment,
+            traineeOverride:
+                deadlineOverrides[_deadlineOverrideKey(
+                      assignment.id,
+                      traineeId,
+                    )]
+                    ?.dueAt,
+          ),
+        ),
+    ];
   }
 
   @override
