@@ -836,7 +836,6 @@ void main() {
     final customMovement = await createTeacherMovement();
     await pumpComposer(tester, creationService: service());
 
-    expect(find.text('Build a practice brief'), findsOneWidget);
     expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
 
@@ -1027,19 +1026,87 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Assignment Studio reflows without overflow on a narrow window', (
+  testWidgets(
+    'Assignment Studio uses a sticky action footer on a narrow window',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+        size: const Size(760, 900),
+      );
+
+      expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
+      expect(find.byKey(const Key('teacher_assignment_summary')), findsNothing);
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_now')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_save_draft')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_schedule')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('wide editor scroll keeps the summary actions reachable', (
     tester,
   ) async {
     await pumpComposer(
       tester,
       creationService: service(),
       officialMovement: movementCatalog.first,
-      size: const Size(760, 900),
+      size: const Size(1280, 720),
     );
 
-    expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
     expect(find.byKey(const Key('teacher_assignment_summary')), findsOneWidget);
-    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    final editor = find.byKey(const Key('teacher_assignment_editor_scroll'));
+    await tester.drag(editor, const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('teacher_assignment_publish_now')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_assignment_save_draft')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_assignment_schedule')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('narrow editor scroll leaves its sticky actions unobscured', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+      size: const Size(760, 720),
+    );
+
+    final editor = find.byKey(const Key('teacher_assignment_editor_scroll'));
+    await tester.drag(editor, const Offset(0, -1000));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('teacher_assignment_publish_now')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_assignment_schedule')).hitTestable(),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

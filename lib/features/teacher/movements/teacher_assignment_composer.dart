@@ -35,7 +35,7 @@ import '../../../data/repositories/teacher_movement_repository.dart';
 import 'teacher_movement_builder_dialog.dart';
 import '../../activity_learning_materials/activity_learning_materials_panel.dart';
 
-const _teacherAssignmentContentMaxWidth = 1120.0;
+const _teacherAssignmentContentMaxWidth = 1280.0;
 const _teacherAssignmentWideBreakpoint = 900.0;
 
 /// The one write path used by both movement-first and classroom-first
@@ -373,6 +373,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   late final TextEditingController _safetyGuidanceController;
   late final TextEditingController _topicController;
   late final TextEditingController _rosterSearchController;
+  final _editorScrollController = ScrollController();
   late ElixrGroup? _selectedGroup;
   late Movement? _selectedOfficialMovement;
   late TeacherMovement? _selectedTeacherCreatedMovement;
@@ -853,6 +854,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
     _topicController.dispose();
     _rosterSearchController.dispose();
+    _editorScrollController.dispose();
     super.dispose();
   }
 
@@ -874,7 +876,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         heading: title,
         eyebrow: 'ASSIGNMENT STUDIO',
         subtitle: subtitle,
-        variant: ElixEditorialHeaderVariant.standard,
+        variant: ElixEditorialHeaderVariant.compact,
         commandBar: CommandBar(
           mainAxisAlignment: MainAxisAlignment.end,
           primaryItems: [
@@ -887,14 +889,19 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ],
         ),
       ),
+      scrollable: false,
+      contentPadding: EdgeInsets.zero,
       content: LayoutBuilder(
         builder: (context, constraints) {
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: _teacherAssignmentContentMaxWidth,
+          return Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: _teacherAssignmentContentMaxWidth,
+                ),
+                child: _pageContent(context, constraints.maxWidth),
               ),
-              child: _pageContent(context, constraints.maxWidth),
             ),
           );
         },
@@ -929,28 +936,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       );
     }
 
-    final form = _ComposerSurface(
-      key: const Key('teacher_assignment_form'),
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      child: _content(context),
-    );
-    final summary = _AssignmentSummaryCard(
-      key: const Key('teacher_assignment_summary'),
-      group: _selectedGroup,
-      movementTitle: _movementTitle,
-      movementModeLabel: _movementModeLabel,
-      isTeacherCreated: _isTeacherCreated,
-      dueAt: _dueAt,
+    final actions = _AssignmentActionFooter(
+      validationError: _validationError,
+      onDismissValidation: () => setState(() => _validationError = null),
       canSubmit: _canSubmit,
       isSubmitting: _submitting,
-      maximumScore: int.tryParse(_maxScoreController.text.trim()),
-      audienceLabel: _audienceSummaryLabel,
-      readinessLabel: _isTeacherCreated ? _readinessSummaryLabel : null,
-      attemptsLabel: _attemptPolicy.displayLabel,
-      recordingDurationSeconds: _isTeacherCreated
-          ? _recordingDurationSeconds
-          : null,
-      rubricLabel: _isTeacherCreated ? _rubricTemplate.displayLabel : null,
       isEditing: _isEditing,
       onSaveDraft: _canSubmit && !_isEditing
           ? () => _submit(context, _PublicationAction.draft)
@@ -964,55 +954,60 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ? () => _submit(context, _PublicationAction.schedule)
           : null,
     );
+    final summary = _AssignmentSummaryCard(
+      key: const Key('teacher_assignment_summary'),
+      group: _selectedGroup,
+      movementTitle: _movementTitle,
+      movementModeLabel: _movementModeLabel,
+      isTeacherCreated: _isTeacherCreated,
+      dueAt: _dueAt,
+      canSubmit: _canSubmit,
+      maximumScore: int.tryParse(_maxScoreController.text.trim()),
+      audienceLabel: _audienceSummaryLabel,
+      readinessLabel: _isTeacherCreated ? _readinessSummaryLabel : null,
+      attemptsLabel: _attemptPolicy.displayLabel,
+      recordingDurationSeconds: _isTeacherCreated
+          ? _recordingDurationSeconds
+          : null,
+      rubricLabel: _isTeacherCreated ? _rubricTemplate.displayLabel : null,
+      actions: actions,
+    );
     final wide = availableWidth >= _teacherAssignmentWideBreakpoint;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ComposerHeroCard(
-          eyebrow: _isEditing
-              ? 'ASSIGNMENT SETTINGS'
-              : _classroomScoped
-              ? 'NEW ASSIGNMENT'
-              : 'MOVEMENT READY',
-          title: _isEditing
-              ? _movementTitle
-              : _classroomScoped
-              ? 'Build a practice brief'
-              : 'Publish $_movementTitle',
-          description: _isEditing
-              ? 'The classroom and movement stay fixed. Update the settings that are safe to change.'
-              : _classroomScoped
-              ? 'Give your class a clear target and a deadline they can act on.'
-              : 'One last check before this movement appears in the selected class.',
-          icon: _classroomScoped ? FluentIcons.task_list : FluentIcons.send,
-          accent: context.elixColors.brandPrimary,
+        Expanded(
+          child: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _buildEditorPane()),
+                    const SizedBox(width: AppSpacing.lg),
+                    SizedBox(width: 330, child: summary),
+                  ],
+                )
+              : _buildEditorPane(),
         ),
-        const SizedBox(height: AppSpacing.lg),
-        if (wide)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: form),
-              const SizedBox(width: AppSpacing.lg),
-              SizedBox(width: 330, child: summary),
-            ],
-          )
-        else ...[
-          form,
-          const SizedBox(height: AppSpacing.lg),
-          summary,
-        ],
-        const SizedBox(height: AppSpacing.md),
-        Text(
-          _isEditing
-              ? 'Saving updates this existing assignment without changing its identity or submissions.'
-              : 'Publishing sends this existing movement to the selected classroom. '
-                    'Movement content stays reusable in your library.',
-          textAlign: TextAlign.center,
-          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-        ),
+        if (!wide) ...[const SizedBox(height: AppSpacing.md), actions],
       ],
+    );
+  }
+
+  Widget _buildEditorPane() {
+    return _ComposerSurface(
+      key: const Key('teacher_assignment_form'),
+      padding: EdgeInsets.zero,
+      child: Scrollbar(
+        controller: _editorScrollController,
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          key: const Key('teacher_assignment_editor_scroll'),
+          controller: _editorScrollController,
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: _content(context),
+        ),
+      ),
     );
   }
 
@@ -1318,20 +1313,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           Text(
             _movementLoadError!,
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-        ],
-        if (_validationError != null) ...[
-          const SizedBox(height: AppSpacing.lg),
-          InfoBar(
-            key: const Key('teacher_assignment_error'),
-            title: Text(
-              _isEditing
-                  ? 'Could not save assignment'
-                  : 'Could not create assignment',
-            ),
-            content: Text(_validationError!),
-            severity: InfoBarSeverity.error,
-            onClose: () => setState(() => _validationError = null),
           ),
         ],
       ],
@@ -3901,17 +3882,13 @@ class _AssignmentSummaryCard extends StatelessWidget {
     required this.isTeacherCreated,
     required this.dueAt,
     required this.canSubmit,
-    required this.isSubmitting,
     required this.maximumScore,
     required this.audienceLabel,
-    required this.isEditing,
     this.readinessLabel,
     this.attemptsLabel,
     this.recordingDurationSeconds,
     this.rubricLabel,
-    required this.onSaveDraft,
-    required this.onPublish,
-    required this.onSchedule,
+    required this.actions,
   });
 
   final ElixrGroup? group;
@@ -3920,17 +3897,13 @@ class _AssignmentSummaryCard extends StatelessWidget {
   final bool isTeacherCreated;
   final DateTime? dueAt;
   final bool canSubmit;
-  final bool isSubmitting;
   final int? maximumScore;
   final String audienceLabel;
-  final bool isEditing;
   final String? readinessLabel;
   final String? attemptsLabel;
   final int? recordingDurationSeconds;
   final String? rubricLabel;
-  final VoidCallback? onSaveDraft;
-  final VoidCallback? onPublish;
-  final VoidCallback? onSchedule;
+  final Widget actions;
 
   @override
   Widget build(BuildContext context) {
@@ -3977,10 +3950,11 @@ class _AssignmentSummaryCard extends StatelessWidget {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          Expanded(
+            child: ListView(
+              key: const Key('teacher_assignment_summary_scroll'),
+              primary: false,
+              padding: const EdgeInsets.all(AppSpacing.lg),
               children: [
                 _SummaryItem(
                   icon: FluentIcons.people,
@@ -4051,69 +4025,11 @@ class _AssignmentSummaryCard extends StatelessWidget {
                       : _formatSummaryDate(dueAt!),
                 ),
                 const SizedBox(height: AppSpacing.lg),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: highContrast
-                        ? context.elixCardSurface
-                        : context.elixColors.interactiveHover,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        canSubmit ? FluentIcons.check_mark : FluentIcons.info,
-                        size: 16,
-                        color: canSubmit
-                            ? context.elixColors.success
-                            : context.elixTextSecondary,
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          canSubmit
-                              ? 'Everything looks good. You can publish this assignment.'
-                              : 'Complete the assignment details to continue.',
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (!isEditing) ...[
-                  Button(
-                    key: const Key('teacher_assignment_save_draft'),
-                    onPressed: isSubmitting ? null : onSaveDraft,
-                    child: const Text('Save draft'),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                ],
-                ElixPrimaryButton(
-                  key: Key(
-                    isEditing
-                        ? 'teacher_assignment_save_changes'
-                        : 'teacher_assignment_publish_now',
-                  ),
-                  label: isEditing ? 'Save changes' : 'Publish now',
-                  icon: isEditing ? FluentIcons.save : FluentIcons.send,
-                  isLoading: isSubmitting,
-                  onPressed: onPublish,
-                ),
-                if (!isEditing) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Button(
-                    key: const Key('teacher_assignment_schedule'),
-                    onPressed: isSubmitting ? null : onSchedule,
-                    child: const Text('Schedule'),
-                  ),
-                ],
+                _SummaryReadinessMessage(canSubmit: canSubmit),
               ],
             ),
           ),
+          actions,
         ],
       ),
     );
@@ -4136,6 +4052,141 @@ class _AssignmentSummaryCard extends StatelessWidget {
     ];
     final manila = dueAt.toUtc().add(const Duration(hours: 8));
     return '${months[manila.month - 1]} ${manila.day}, ${manila.year}';
+  }
+}
+
+class _SummaryReadinessMessage extends StatelessWidget {
+  const _SummaryReadinessMessage({required this.canSubmit});
+
+  final bool canSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: highContrast
+            ? context.elixCardSurface
+            : context.elixColors.interactiveHover,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            canSubmit ? FluentIcons.check_mark : FluentIcons.info,
+            size: 16,
+            color: canSubmit
+                ? context.elixColors.success
+                : context.elixTextSecondary,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              canSubmit
+                  ? 'Everything looks good. You can publish this assignment.'
+                  : 'Complete the assignment details to continue.',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssignmentActionFooter extends StatelessWidget {
+  const _AssignmentActionFooter({
+    required this.validationError,
+    required this.onDismissValidation,
+    required this.canSubmit,
+    required this.isSubmitting,
+    required this.isEditing,
+    required this.onSaveDraft,
+    required this.onPublish,
+    required this.onSchedule,
+  });
+
+  final String? validationError;
+  final VoidCallback onDismissValidation;
+  final bool canSubmit;
+  final bool isSubmitting;
+  final bool isEditing;
+  final VoidCallback? onSaveDraft;
+  final VoidCallback? onPublish;
+  final VoidCallback? onSchedule;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: context.elixPanelSurface,
+        border: Border(
+          top: BorderSide(
+            color: context.elixColors.borderSubtle,
+            width: highContrast ? 2 : 1,
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (validationError != null) ...[
+            InfoBar(
+              key: const Key('teacher_assignment_error'),
+              title: Text(
+                isEditing
+                    ? 'Could not save assignment'
+                    : 'Could not create assignment',
+              ),
+              content: Text(validationError!),
+              severity: InfoBarSeverity.error,
+              onClose: onDismissValidation,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          ElixPrimaryButton(
+            key: Key(
+              isEditing
+                  ? 'teacher_assignment_save_changes'
+                  : 'teacher_assignment_publish_now',
+            ),
+            label: isEditing ? 'Save changes' : 'Publish now',
+            icon: isEditing ? FluentIcons.save : FluentIcons.send,
+            isLoading: isSubmitting,
+            onPressed: onPublish,
+          ),
+          if (!isEditing) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: Button(
+                    key: const Key('teacher_assignment_save_draft'),
+                    onPressed: isSubmitting ? null : onSaveDraft,
+                    child: const Text('Save draft'),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Button(
+                    key: const Key('teacher_assignment_schedule'),
+                    onPressed: isSubmitting ? null : onSchedule,
+                    child: const Text('Schedule'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 
