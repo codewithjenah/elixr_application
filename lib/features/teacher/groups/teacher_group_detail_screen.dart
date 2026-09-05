@@ -2187,56 +2187,104 @@ Future<void> _confirmPermanentlyDeleteAssignment(
 ) async {
   final confirmation = TextEditingController();
   var phraseMatches = false;
-  final accepted = await showDialog<bool>(
+  await showDialog<bool>(
     context: context,
+    dismissWithEsc: false,
     builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => ContentDialog(
-        title: const Text('Permanently delete assignment?'),
-        content: SizedBox(
-          width: 440,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'This permanently removes “${assignment.displayTitle}”, its '
-                'recipient records, submissions, and uploaded media. This '
-                'cannot be undone.',
+      builder: (context, setDialogState) => AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => PopScope(
+          canPop: !controller.busy,
+          child: Actions(
+            actions: {
+              DismissIntent: CallbackAction<DismissIntent>(
+                onInvoke: (_) {
+                  if (!controller.busy) Navigator.pop(dialogContext, false);
+                  return null;
+                },
               ),
-              const SizedBox(height: AppSpacing.md),
-              const Text('Type DELETE ASSIGNMENT to continue.'),
-              const SizedBox(height: AppSpacing.xs),
-              TextBox(
-                key: const Key('teacher_assignment_delete_confirmation'),
-                controller: confirmation,
-                autofocus: true,
-                onChanged: (value) => setDialogState(
-                  () => phraseMatches = value == 'DELETE ASSIGNMENT',
+            },
+            child: ContentDialog(
+              title: const Text('Permanently delete assignment?'),
+              content: SizedBox(
+                width: 440,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'This permanently removes “${assignment.displayTitle}”, its '
+                      'recipient records, submissions, and uploaded media. This '
+                      'cannot be undone.',
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    const Text('Type DELETE ASSIGNMENT to continue.'),
+                    const SizedBox(height: AppSpacing.xs),
+                    TextBox(
+                      key: const Key('teacher_assignment_delete_confirmation'),
+                      controller: confirmation,
+                      enabled: !controller.busy,
+                      autofocus: true,
+                      onChanged: (value) => setDialogState(
+                        () => phraseMatches = value == 'DELETE ASSIGNMENT',
+                      ),
+                    ),
+                    if (controller.errorMessage != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      InfoBar(
+                        title: Text(controller.errorMessage!),
+                        severity: InfoBarSeverity.error,
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            ],
+              actions: [
+                Button(
+                  onPressed: controller.busy
+                      ? null
+                      : () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  key: const Key('teacher_assignment_confirm_delete'),
+                  onPressed: phraseMatches && !controller.busy
+                      ? () async {
+                          // The controller sets busy synchronously before its first await.
+                          if (controller.busy) return;
+                          await controller.permanentlyDeleteAssignment(
+                            assignment,
+                          );
+                          if (!dialogContext.mounted) return;
+                          if (controller.errorMessage == null) {
+                            Navigator.pop(dialogContext, true);
+                          }
+                        }
+                      : null,
+                  child: controller.busy
+                      ? const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: ProgressRing(strokeWidth: 2),
+                            ),
+                            SizedBox(width: AppSpacing.sm),
+                            Flexible(child: Text('Deleting...')),
+                          ],
+                        )
+                      : const Text('Delete permanently'),
+                ),
+              ],
+            ),
           ),
         ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('teacher_assignment_confirm_delete'),
-            onPressed: phraseMatches
-                ? () => Navigator.pop(dialogContext, true)
-                : null,
-            child: const Text('Delete permanently'),
-          ),
-        ],
       ),
     ),
   );
   confirmation.dispose();
-  if (accepted == true) {
-    await controller.permanentlyDeleteAssignment(assignment);
-  }
 }
 
 Future<void> _showRenameDialog(
@@ -2347,53 +2395,104 @@ Future<void> _confirmPermanentlyDeleteClassroom(
   var phraseMatches = false;
   final accepted = await showDialog<bool>(
     context: context,
+    dismissWithEsc: false,
     builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => ContentDialog(
-        title: const Text('Permanently delete classroom?'),
-        content: SizedBox(
-          width: 460,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'This permanently removes “${group.name}”, its class code, '
-                'memberships, assignments, submissions, and uploaded media. '
-                'This cannot be undone.',
+      builder: (context, setDialogState) => AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => PopScope(
+          canPop: !controller.busy,
+          child: Actions(
+            actions: {
+              DismissIntent: CallbackAction<DismissIntent>(
+                onInvoke: (_) {
+                  if (!controller.busy) Navigator.pop(dialogContext, false);
+                  return null;
+                },
               ),
-              const SizedBox(height: AppSpacing.md),
-              const Text('Type DELETE CLASSROOM to continue.'),
-              const SizedBox(height: AppSpacing.xs),
-              TextBox(
-                key: const Key('teacher_group_delete_confirmation'),
-                controller: confirmation,
-                autofocus: true,
-                onChanged: (value) => setDialogState(
-                  () => phraseMatches = value == 'DELETE CLASSROOM',
+            },
+            child: ContentDialog(
+              title: const Text('Permanently delete classroom?'),
+              content: SizedBox(
+                width: 460,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'This permanently removes “${group.name}”, its class code, '
+                      'memberships, assignments, submissions, and uploaded media. '
+                      'This cannot be undone.',
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    const Text('Type DELETE CLASSROOM to continue.'),
+                    const SizedBox(height: AppSpacing.xs),
+                    TextBox(
+                      key: const Key('teacher_group_delete_confirmation'),
+                      controller: confirmation,
+                      enabled: !controller.busy,
+                      autofocus: true,
+                      onChanged: (value) => setDialogState(
+                        () => phraseMatches = value == 'DELETE CLASSROOM',
+                      ),
+                    ),
+                    if (controller.errorMessage != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      InfoBar(
+                        title: Text(controller.errorMessage!),
+                        severity: InfoBarSeverity.error,
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            ],
+              actions: [
+                Button(
+                  onPressed: controller.busy
+                      ? null
+                      : () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  key: const Key('teacher_group_confirm_delete'),
+                  onPressed: phraseMatches && !controller.busy
+                      ? () async {
+                          // The controller sets busy synchronously before its first await.
+                          if (controller.busy) return;
+                          await controller.permanentlyDeleteClassroom(
+                            group,
+                            showSuccess: false,
+                          );
+                          if (!dialogContext.mounted) return;
+                          if (controller.errorMessage == null) {
+                            Navigator.pop(dialogContext, true);
+                          }
+                        }
+                      : null,
+                  child: controller.busy
+                      ? const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: ProgressRing(strokeWidth: 2),
+                            ),
+                            SizedBox(width: AppSpacing.sm),
+                            Flexible(child: Text('Deleting...')),
+                          ],
+                        )
+                      : const Text('Delete permanently'),
+                ),
+              ],
+            ),
           ),
         ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('teacher_group_confirm_delete'),
-            onPressed: phraseMatches
-                ? () => Navigator.pop(dialogContext, true)
-                : null,
-            child: const Text('Delete permanently'),
-          ),
-        ],
       ),
     ),
   );
   confirmation.dispose();
   if (accepted != true) return;
-  await controller.permanentlyDeleteClassroom(group, showSuccess: false);
   if (controller.selectedGroup == null && context.mounted) {
     context.go(AppRoutePaths.teacherGroups);
   }
