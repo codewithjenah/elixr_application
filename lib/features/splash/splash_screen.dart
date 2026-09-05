@@ -8,6 +8,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_app_logo.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 
 /// The short branded hand-off shown while Firebase establishes the first
@@ -18,10 +19,14 @@ class SplashScreen extends StatefulWidget {
     super.key,
     required this.onFinished,
     required this.authReady,
+    this.startupError,
+    this.onRetry,
   });
 
   final VoidCallback onFinished;
   final bool authReady;
+  final String? startupError;
+  final VoidCallback? onRetry;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -167,13 +172,17 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void didUpdateWidget(SplashScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.authReady && widget.authReady) {
+    if ((!oldWidget.authReady && widget.authReady) ||
+        (oldWidget.startupError != null && widget.startupError == null)) {
       _tryFinish();
     }
   }
 
   void _tryFinish() {
-    if (_animationDone && widget.authReady && !_completionScheduled) {
+    if (_animationDone &&
+        widget.authReady &&
+        widget.startupError == null &&
+        !_completionScheduled) {
       _completionScheduled = true;
       Future.delayed(
         ElixMotion.duration(context, const Duration(milliseconds: 500)),
@@ -473,76 +482,132 @@ class _SplashScreenState extends State<SplashScreen>
         top: false,
         child: FadeTransition(
           opacity: _loaderOpacity,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: highContrast
-                          ? context.elixTextPrimary
-                          : AppColors.primary,
-                      boxShadow: highContrast
-                          ? const []
-                          : [
-                              BoxShadow(
-                                color: AppColors.primary.withValues(alpha: 0.7),
-                                blurRadius: 10,
-                              ),
-                            ],
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Text(
-                    widget.authReady
-                        ? 'READY TO TRAIN'
-                        : 'PREPARING YOUR SESSION',
-                    style: AppTheme.eyebrow(
-                      color: context.elixTextSecondary,
-                    ).copyWith(fontSize: 10, letterSpacing: 1.8),
-                  ),
-                ],
+          child: widget.startupError == null
+              ? _buildPreparingLoader(context, highContrast: highContrast)
+              : _buildFailureLoader(context, highContrast: highContrast),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreparingLoader(
+    BuildContext context, {
+    required bool highContrast,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: highContrast
+                    ? context.elixTextPrimary
+                    : AppColors.primary,
+                boxShadow: highContrast
+                    ? const []
+                    : [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.7),
+                          blurRadius: 10,
+                        ),
+                      ],
               ),
-              const SizedBox(height: AppSpacing.sm),
-              SizedBox(
-                width: 224,
-                height: 4,
-                child: AnimatedBuilder(
-                  animation: _shimmerController,
-                  builder: (context, _) => CustomPaint(
-                    painter: _SplashProgressPainter(
-                      progress: _shimmerController.value,
-                      trackColor: context.elixBorder.withValues(
-                        alpha: highContrast ? 1 : 0.55,
-                      ),
-                      primary: highContrast
-                          ? context.elixTextPrimary
-                          : AppColors.primary,
-                      secondary: highContrast
-                          ? context.elixTextPrimary
-                          : AppColors.primarySoft,
-                      highContrast: highContrast,
-                    ),
-                  ),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              widget.authReady ? 'READY TO TRAIN' : 'PREPARING YOUR SESSION',
+              style: AppTheme.eyebrow(
+                color: context.elixTextSecondary,
+              ).copyWith(fontSize: 10, letterSpacing: 1.8),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        SizedBox(
+          width: 224,
+          height: 4,
+          child: AnimatedBuilder(
+            animation: _shimmerController,
+            builder: (context, _) => CustomPaint(
+              painter: _SplashProgressPainter(
+                progress: _shimmerController.value,
+                trackColor: context.elixBorder.withValues(
+                  alpha: highContrast ? 1 : 0.55,
                 ),
+                primary: highContrast
+                    ? context.elixTextPrimary
+                    : AppColors.primary,
+                secondary: highContrast
+                    ? context.elixTextPrimary
+                    : AppColors.primarySoft,
+                highContrast: highContrast,
               ),
-              if (!widget.authReady) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Preparing your session…',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
         ),
+        if (!widget.authReady) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Preparing your session…',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFailureLoader(
+    BuildContext context, {
+    required bool highContrast,
+  }) {
+    final errorColor = context.elixColors.error;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                FluentIcons.status_circle_error_x,
+                color: highContrast ? context.elixTextPrimary : errorColor,
+                size: 15,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                'SESSION PREPARATION FAILED',
+                style: AppTheme.eyebrow(
+                  color: context.elixTextSecondary,
+                ).copyWith(fontSize: 10, letterSpacing: 1.8),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            widget.startupError!,
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          if (widget.onRetry != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            ElixPrimaryButton(
+              key: const Key('splash_retry_button'),
+              label: 'Retry',
+              icon: FluentIcons.refresh,
+              expanded: false,
+              dense: true,
+              onPressed: widget.onRetry,
+            ),
+          ],
+        ],
       ),
     );
   }

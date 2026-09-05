@@ -24,6 +24,26 @@ String accountDeletionConfirmationPhraseFor(String email) {
   return 'delete ${email.trim().toLowerCase()}';
 }
 
+enum AuthInitializationState { loading, ready, failed }
+
+enum AuthInitializationFailureKind {
+  authentication,
+  teacherAuthorization,
+  unknown,
+}
+
+/// Presentation-safe details for a failed initial auth restoration attempt.
+///
+/// The underlying exception is intentionally not retained here. Startup
+/// failures can contain Firebase, HTTP, or token details that must stay out of
+/// the production UI.
+class AuthInitializationFailure {
+  const AuthInitializationFailure({required this.kind, required this.message});
+
+  final AuthInitializationFailureKind kind;
+  final String message;
+}
+
 class _PendingEmailChangeState {
   _PendingEmailChangeState({
     required this.originalUid,
@@ -121,6 +141,10 @@ class AuthService extends ChangeNotifier {
   PendingGoogleProfile? _pendingGoogleProfile;
   Set<AuthProviderKind> _providerKinds = const {};
   bool _isLoading = true;
+  AuthInitializationState _initializationState =
+      AuthInitializationState.loading;
+  AuthInitializationFailure? _initializationFailure;
+  Future<void>? _initializationInFlight;
   bool? _emailVerified;
   bool _disposed = false;
   bool _checkingPendingEmail = false;
@@ -151,6 +175,9 @@ class AuthService extends ChangeNotifier {
   bool get isGoogleOnly =>
       _providerKinds.contains(AuthProviderKind.google) && !hasPasswordProvider;
   bool get isLoading => _isLoading;
+  AuthInitializationState get initializationState => _initializationState;
+  AuthInitializationFailure? get initializationFailure =>
+      _initializationFailure;
   bool get needsEmailVerification =>
       _currentUser != null &&
       _hasSupportedProductRole(_currentUser!) &&
@@ -206,50 +233,164 @@ class AuthService extends ChangeNotifier {
     _currentUser = user;
     _providerKinds = const {AuthProviderKind.password};
     _isLoading = false;
+    _initializationState = AuthInitializationState.ready;
+    _initializationFailure = null;
   }
 
-  Future<void> initialize() async {
-    _isLoading = true;
-    notifyListeners();
-    final awaitInitialAuthState = _awaitInitialAuthState;
-    if (awaitInitialAuthState != null) {
-      await awaitInitialAuthState();
-    } else {
-      await fb.FirebaseAuth.instance.authStateChanges().first;
-    }
-    final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
-    if (restoredGoogle is PendingGoogleSignIn) {
-      // The access code is deliberately not durable. A restored incomplete
-      // flow must make the user choose a role again and re-enter the code for
-      // Teacher completion.
-      _pendingGoogleProfile = restoredGoogle.profile.copyWith(
-        intent: GoogleOnboardingIntent.unspecified,
-        clearTeacherAccessCode: true,
+  /// Restores Firebase-backed auth state and always reaches a terminal state.
+  ///
+  /// The in-flight future is installed before the first notification so a
+  /// listener-triggered retry cannot start a second restoration attempt.
+  Future<void> initialize() {
+    if (_disposed) return Future<void>.value();
+    final inFlight = _initializationInFlight;
+    if (inFlight != null) return inFlight;
+
+    final completer = Completer<void>();
+    _initializationInFlight = completer.future;
+    unawaited(_runInitialization(completer));
+    return completer.future;
+  }
+
+  Future<void> _runInitialization(Completer<void> completer) async {
+    try {
+      _beginInitialization();
+      final awaitInitialAuthState = _awaitInitialAuthState;
+      if (awaitInitialAuthState != null) {
+        await awaitInitialAuthState();
+      } else {
+        await fb.FirebaseAuth.instance.authStateChanges().first;
+      }
+
+      final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
+      if (restoredGoogle is PendingGoogleSignIn) {
+        // The access code is deliberately not durable. A restored incomplete
+        // flow must make the user choose a role again and re-enter the code for
+        // Teacher completion.
+        _completeInitialization(
+          currentUser: null,
+          pendingGoogleProfile: restoredGoogle.profile.copyWith(
+            intent: GoogleOnboardingIntent.unspecified,
+            clearTeacherAccessCode: true,
+          ),
+          providerKinds: const {AuthProviderKind.google},
+          emailVerified: null,
+        );
+        return;
+      }
+
+      final loadedUser = restoredGoogle is ExistingGoogleProfile
+          ? restoredGoogle.user
+          : await _repository.loadPersistedUser();
+      if (loadedUser != null && !_hasSupportedProductRole(loadedUser)) {
+        // Preserve the existing fail-closed unsupported-role behavior without
+        // publishing the malformed profile or emitting an intermediate ready
+        // state while the persisted Firebase session is being cleared.
+        await _repository.clearCurrentUser();
+        _completeInitialization(
+          currentUser: null,
+          providerKinds: const {},
+          emailVerified: null,
+        );
+        return;
+      }
+
+      // Teacher claim finalization remains mandatory. Nothing is published to
+      // currentUser until this and the remaining restoration reads succeed.
+      if (loadedUser != null) await _ensureTeacherRoleClaim(loadedUser);
+      final providerKinds = await _loadProviderKinds(loadedUser);
+      final emailVerified = await _loadEmailVerificationState(loadedUser);
+      _completeInitialization(
+        currentUser: loadedUser,
+        providerKinds: providerKinds,
+        emailVerified: emailVerified,
       );
-      _currentUser = null;
-      _providerKinds = const {AuthProviderKind.google};
-      _isLoading = false;
-      notifyListeners();
-      return;
+    } catch (error, stackTrace) {
+      _failInitialization(error, stackTrace);
+    } finally {
+      if (identical(_initializationInFlight, completer.future)) {
+        _initializationInFlight = null;
+      }
+      if (!completer.isCompleted) completer.complete();
     }
-    final loadedUser = restoredGoogle is ExistingGoogleProfile
-        ? restoredGoogle.user
-        : await _repository.loadPersistedUser();
-    if (loadedUser != null && !_hasSupportedProductRole(loadedUser)) {
-      await logout();
-      _isLoading = false;
-      notifyListeners();
-      return;
-    }
-    if (loadedUser != null) {
-      await _ensureTeacherRoleClaim(loadedUser);
-    }
-    _currentUser = loadedUser;
-    await _refreshProviderKinds();
-    await _refreshEmailVerificationState();
+  }
+
+  void _beginInitialization() {
+    _currentUser = null;
+    _pendingGoogleProfile = null;
+    _providerKinds = const {};
+    _emailVerified = null;
+    _clearTeacherAuthMessages();
+    _initializationFailure = null;
+    _initializationState = AuthInitializationState.loading;
+    _isLoading = true;
+    if (!_disposed) notifyListeners();
+  }
+
+  void _completeInitialization({
+    required User? currentUser,
+    PendingGoogleProfile? pendingGoogleProfile,
+    required Set<AuthProviderKind> providerKinds,
+    required bool? emailVerified,
+  }) {
+    if (_disposed) return;
+    _currentUser = currentUser;
+    _pendingGoogleProfile = pendingGoogleProfile;
+    _providerKinds = Set.unmodifiable(providerKinds);
+    _emailVerified = emailVerified;
+    _initializationFailure = null;
+    _initializationState = AuthInitializationState.ready;
     _isLoading = false;
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
+  }
+
+  void _failInitialization(Object error, StackTrace stackTrace) {
+    if (_disposed) return;
+    _currentUser = null;
+    _pendingGoogleProfile = null;
+    _providerKinds = const {};
+    _emailVerified = null;
+    _initializationFailure = _initializationFailureFor(error);
+    _initializationState = AuthInitializationState.failed;
+    _isLoading = false;
+    if (kDebugMode) {
+      debugPrint('Auth initialization failed: $error');
+      debugPrint('$stackTrace');
+    }
+    notifyListeners();
+  }
+
+  AuthInitializationFailure _initializationFailureFor(Object error) {
+    if (error is TeacherRoleClaimException) {
+      final String message;
+      switch (error.kind) {
+        case TeacherRoleClaimFailureKind.invalidEvidence:
+          message =
+              'ELIXR could not verify your Teacher access. Check your account setup and try again.';
+        case TeacherRoleClaimFailureKind.unavailable:
+          message =
+              'ELIXR could not refresh your Teacher authorization. Check your connection and try again.';
+        case TeacherRoleClaimFailureKind.missingClaim:
+          message =
+              'ELIXR could not finish verifying your Teacher access. Please try again.';
+      }
+      return AuthInitializationFailure(
+        kind: AuthInitializationFailureKind.teacherAuthorization,
+        message: message,
+      );
+    }
+    if (error is AuthFailure && error.kind == AuthFailureKind.missingProfile) {
+      return const AuthInitializationFailure(
+        kind: AuthInitializationFailureKind.authentication,
+        message: TeacherAuthMessages.missingProfile,
+      );
+    }
+    return const AuthInitializationFailure(
+      kind: AuthInitializationFailureKind.unknown,
+      message:
+          "ELIXR couldn't finish preparing your session. Check your connection and try again.",
+    );
   }
 
   Future<void> register({
@@ -587,12 +728,12 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> _refreshProviderKinds() async {
-    if (_currentUser == null) {
-      _providerKinds = const {};
-      return;
-    }
-    _providerKinds =
-        await _googleRepository?.currentProviderKinds() ??
+    _providerKinds = await _loadProviderKinds(_currentUser);
+  }
+
+  Future<Set<AuthProviderKind>> _loadProviderKinds(User? user) async {
+    if (user == null) return const {};
+    return await _googleRepository?.currentProviderKinds() ??
         const {AuthProviderKind.password};
   }
 
@@ -807,15 +948,15 @@ class AuthService extends ChangeNotifier {
   void clearTeacherAuthMessages() => _clearTeacherAuthMessages();
 
   Future<void> _refreshEmailVerificationState() async {
-    final user = _currentUser;
-    if (user == null || !_hasSupportedProductRole(user)) {
-      _emailVerified = null;
-      return;
-    }
+    _emailVerified = await _loadEmailVerificationState(_currentUser);
+  }
+
+  Future<bool?> _loadEmailVerificationState(User? user) async {
+    if (user == null || !_hasSupportedProductRole(user)) return null;
     try {
-      _emailVerified = await _repository.isCurrentEmailVerified();
+      return await _repository.isCurrentEmailVerified();
     } catch (_) {
-      _emailVerified = false;
+      return false;
     }
   }
 

@@ -261,9 +261,18 @@ class _ElixrAppState extends State<ElixrApp> {
                 ).copyWith(textScaler: TextScaler.linear(settings.textScale)),
                 child: Consumer<AuthService>(
                   builder: (context, auth, _) {
-                    if (!_splashFinished || auth.isLoading) {
+                    final startupFailed =
+                        auth.initializationState ==
+                        AuthInitializationState.failed;
+                    if (!_splashFinished || auth.isLoading || startupFailed) {
                       return SplashScreen(
-                        authReady: !auth.isLoading,
+                        authReady:
+                            auth.initializationState ==
+                            AuthInitializationState.ready,
+                        startupError: auth.initializationFailure?.message,
+                        onRetry: startupFailed
+                            ? () => unawaited(auth.initialize())
+                            : null,
                         onFinished: () {
                           if (mounted) setState(() => _splashFinished = true);
                         },

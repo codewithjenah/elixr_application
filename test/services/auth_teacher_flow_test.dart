@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/services/auth_email_callback_server.dart';
@@ -300,6 +302,120 @@ void main() {
     expect(auth.isAuthenticated, isTrue);
     expect(auth.currentUser?.isTrainee, isTrue);
     expect(auth.needsEmailVerification, isTrue);
+    expect(auth.isLoading, isFalse);
+    expect(auth.initializationState, AuthInitializationState.ready);
+    expect(auth.initializationFailure, isNull);
+  });
+
+  test(
+    'initialize resolves loading and exposes a safe dependency failure',
+    () async {
+      final loadingStates = <bool>[];
+      final auth = AuthService(
+        repository: _TeacherFlowRepository(),
+        awaitInitialAuthState: () async {
+          throw StateError('Bearer token and internal endpoint details');
+        },
+      );
+      addTearDown(auth.dispose);
+      auth.addListener(() => loadingStates.add(auth.isLoading));
+
+      await auth.initialize();
+
+      expect(loadingStates, <bool>[true, false]);
+      expect(auth.isLoading, isFalse);
+      expect(auth.initializationState, AuthInitializationState.failed);
+      expect(auth.initializationFailure, isNotNull);
+      expect(
+        auth.initializationFailure!.message,
+        "ELIXR couldn't finish preparing your session. Check your connection and try again.",
+      );
+      expect(auth.initializationFailure!.message, isNot(contains('Bearer')));
+      expect(auth.currentUser, isNull);
+    },
+  );
+
+  test(
+    'initialize fails closed when restored Teacher claim finalization throws',
+    () async {
+      final repository =
+          _TeacherFlowRepository(
+              persistedUser: const User(
+                id: 'legacy-teacher',
+                firstName: 'Legacy',
+                lastName: 'Teacher',
+                email: 'legacy@school.edu',
+                role: User.roleTeacher,
+              ),
+            )
+            ..ensureTeacherRoleClaimThrows = const TeacherRoleClaimException(
+              TeacherRoleClaimFailureKind.missingClaim,
+              'internal claim response and token details',
+            );
+      final auth = AuthService(
+        repository: repository,
+        awaitInitialAuthState: () async {},
+      );
+      addTearDown(auth.dispose);
+
+      await auth.initialize();
+
+      expect(auth.isLoading, isFalse);
+      expect(auth.initializationState, AuthInitializationState.failed);
+      expect(
+        auth.initializationFailure?.kind,
+        AuthInitializationFailureKind.teacherAuthorization,
+      );
+      expect(auth.initializationFailure?.message, isNot(contains('internal')));
+      expect(auth.currentUser, isNull);
+      expect(auth.isAuthenticated, isFalse);
+      expect(repository.ensureTeacherRoleClaimCalls, 1);
+    },
+  );
+
+  test('initialize retry is serialized and clears the prior failure', () async {
+    final firstAttemptGate = Completer<void>();
+    var attempts = 0;
+    var activeAttempts = 0;
+    var maximumActiveAttempts = 0;
+    final auth = AuthService(
+      repository: _TeacherFlowRepository(),
+      awaitInitialAuthState: () async {
+        attempts++;
+        activeAttempts++;
+        if (activeAttempts > maximumActiveAttempts) {
+          maximumActiveAttempts = activeAttempts;
+        }
+        try {
+          if (attempts == 1) {
+            await firstAttemptGate.future;
+            throw StateError('transient startup failure');
+          }
+        } finally {
+          activeAttempts--;
+        }
+      },
+    );
+    addTearDown(auth.dispose);
+
+    final firstAttempt = auth.initialize();
+    final duplicateFirstAttempt = auth.initialize();
+    expect(identical(firstAttempt, duplicateFirstAttempt), isTrue);
+
+    firstAttemptGate.complete();
+    await firstAttempt;
+    expect(auth.initializationState, AuthInitializationState.failed);
+
+    final retry = auth.initialize();
+    final duplicateRetry = auth.initialize();
+    expect(identical(retry, duplicateRetry), isTrue);
+    await retry;
+
+    expect(attempts, 2);
+    expect(maximumActiveAttempts, 1);
+    expect(auth.isLoading, isFalse);
+    expect(auth.initializationState, AuthInitializationState.ready);
+    expect(auth.initializationFailure, isNull);
   });
 
   test('resend and check email verification work for trainees', () async {
