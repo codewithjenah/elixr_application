@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_groups_controller.dart';
@@ -7,6 +10,7 @@ import 'package:elixr_application/features/teacher/groups/teacher_groups_screen.
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -207,6 +211,95 @@ void main() {
     expect(find.text('Unarchived BSIT-4A.'), findsOneWidget);
   });
 
+  testWidgets(
+    'permanent deletion stays pending, handles failure, and retries once',
+    (tester) async {
+      final pendingAssignments = _PendingClassroomDeleteRepository(repository);
+      addTearDown(pendingAssignments.dispose);
+      final group = await repository.createGroup(
+        teacherId: 'teacher',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSIT-4A',
+      );
+      final controller = TeacherGroupsController(
+        repository: repository,
+        teacherId: 'teacher',
+        teacherDisplayName: 'Grace Hopper',
+        ensureTeacherAuthorization: () async => true,
+        assignmentRepository: pendingAssignments,
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      await pumpGroups(tester, controller: controller);
+
+      await tester.tap(find.byKey(Key('class_card_more_${group.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete permanently'));
+      await tester.pumpAndSettle();
+      expect(find.text('Permanently delete classroom?'), findsOneWidget);
+
+      final field = find.byKey(const Key('teacher_groups_delete_confirmation'));
+      final confirm = find.byKey(const Key('teacher_groups_confirm_delete'));
+      await tester.enterText(field, 'DELETE CLASSROOM');
+      await tester.pump();
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+
+      final submit = tester.widget<FilledButton>(confirm).onPressed!;
+      submit();
+      submit(); // Exercise a stale callback before the disabled button rebuilds.
+      await tester.pump();
+      expect(pendingAssignments.deleteCalls, 1);
+      expect(find.text('Deleting...'), findsOneWidget);
+      expect(
+        find.descendant(of: confirm, matching: find.byType(ProgressRing)),
+        findsOneWidget,
+      );
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+      final cancel = find.widgetWithText(Button, 'Cancel');
+      expect(tester.widget<Button>(cancel).onPressed, isNull);
+      expect(tester.widget<TextBox>(field).enabled, isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.binding.handlePopRoute();
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pump();
+      expect(find.text('Deleting...'), findsOneWidget);
+
+      pendingAssignments.pending.completeError(
+        const ClassroomException(ClassroomError.forbidden, 'Deletion denied.'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Deleting...'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(ContentDialog),
+          matching: find.text('Deletion denied.'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+      expect(tester.widget<Button>(cancel).onPressed, isNotNull);
+      expect(tester.widget<TextBox>(field).enabled, isTrue);
+
+      pendingAssignments.pending = Completer<void>();
+      await tester.tap(confirm);
+      await tester.pump();
+      expect(pendingAssignments.deleteCalls, 2);
+      expect(find.text('Deleting...'), findsOneWidget);
+      pendingAssignments.pending.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ContentDialog), findsNothing);
+      expect(find.byKey(Key('teacher_group_card_${group.id}')), findsNothing);
+      expect(find.byKey(const Key('elix_toast')), findsOneWidget);
+      expect(
+        find.text('Deleted BSIT-4A and its classroom data.'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('creating a group opens the new class page', (tester) async {
     final controller = TeacherGroupsController(
       repository: repository,
@@ -231,4 +324,31 @@ void main() {
     expect(find.text('detail:group-0'), findsOneWidget);
     expect(controller.selectedGroup, isNull);
   });
+}
+
+class _PendingClassroomDeleteRepository
+    extends InMemoryClassroomAssignmentRepository {
+  _PendingClassroomDeleteRepository(this.groupRepository);
+
+  final InMemoryGroupRepository groupRepository;
+  Completer<void> pending = Completer<void>();
+  int deleteCalls = 0;
+
+  @override
+  Future<void> permanentlyDeleteClassroom({
+    required String teacherId,
+    required String groupId,
+    required String confirmation,
+  }) async {
+    deleteCalls++;
+    await pending.future;
+    await super.permanentlyDeleteClassroom(
+      teacherId: teacherId,
+      groupId: groupId,
+      confirmation: confirmation,
+    );
+    // Simulate the production cascade removing the classroom from the active
+    // stream after all assignment data has been deleted.
+    await groupRepository.archiveGroup(groupId: groupId, teacherId: teacherId);
+  }
 }
