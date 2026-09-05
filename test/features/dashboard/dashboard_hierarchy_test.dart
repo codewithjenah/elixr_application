@@ -23,7 +23,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-class _SilentAuthRepository implements AuthRepositoryBase {
+class _SilentAuthRepository
+    implements AuthRepositoryBase, TeacherAuthorizationRepositoryBase {
   _SilentAuthRepository([this.user]);
   final User? user;
   @override
@@ -68,6 +69,10 @@ class _SilentAuthRepository implements AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
   @override
   Future<User?> refreshAuthenticatedUser() async => null;
+
+  @override
+  Future<void> ensureTeacherRoleClaim() async {}
+
   @override
   Future<User> updateProfileDetails({
     required String userId,

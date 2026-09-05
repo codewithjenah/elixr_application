@@ -119,7 +119,10 @@ void main() {
       );
       await tester.pump();
       await tester.tap(find.text('Open'));
-      await tester.pump();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      for (var frame = 0; frame < 8; frame++) {
+        await tester.pump(const Duration(milliseconds: 101));
+      }
 
       expect(materials.openCalls, [material]);
       expect(controller.attempts, isEmpty);
@@ -129,6 +132,7 @@ void main() {
         ),
         findsOneWidget,
       );
+      await tester.pump(const Duration(seconds: 4));
     },
   );
 

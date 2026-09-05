@@ -24,6 +24,7 @@ class _MaterialsRepository implements ActivityLearningMaterialRepository {
   Future<void>? stagedFuture;
   Future<void>? removeFuture;
   Future<File>? openFuture;
+  Object? openFailure;
   Object? listFailure;
   Object? removeFailure;
   Object? linkFailure;
@@ -89,9 +90,13 @@ class _MaterialsRepository implements ActivityLearningMaterialRepository {
   }
 
   @override
-  Future<File> openFile(ActivityLearningMaterial material) {
+  Future<File> openFile(ActivityLearningMaterial material) async {
     openCalls.add(material);
-    return openFuture ?? Future<File>.error(StateError('No test file'));
+    final failure = openFailure;
+    if (failure != null) throw failure;
+    final future = openFuture;
+    if (future != null) return future;
+    throw StateError('No test file');
   }
 
   @override
@@ -350,8 +355,12 @@ void main() {
     await flush(tester);
     await tester.tap(find.text('Check status'));
     await tester.pump();
-    expect(tester.widget<Button>(find.text('Check status')).onPressed, isNull);
-    await tester.tap(find.text('Check status'));
+    final checkStatus = find.ancestor(
+      of: find.text('Check status'),
+      matching: find.byType(Button),
+    );
+    expect(tester.widget<Button>(checkStatus).onPressed, isNull);
+    await tester.tap(checkStatus);
     await tester.pump();
     expect(repository.statusCalls, hasLength(2));
     pendingCheck.complete(
@@ -376,7 +385,7 @@ void main() {
       ),
     );
     await choosePdf(tester);
-    await tester.pump();
+    await flush(tester, frames: 1);
     await tester.tap(find.byIcon(FluentIcons.cancel));
     await tester.pump();
     expect(repository.removeCalls, isEmpty);
@@ -401,7 +410,7 @@ void main() {
       ),
     );
     await choosePdf(tester);
-    await tester.pump();
+    await flush(tester, frames: 1);
     await tester.tap(find.byIcon(FluentIcons.cancel));
     await tester.pump();
     expect(repository.removeCalls.single.materialId, _pdf.id);
@@ -464,7 +473,7 @@ void main() {
       ..removeFailure = StateError('network');
     await pump(tester, teacherPanel(repository));
     await tester.tap(find.byIcon(FluentIcons.delete));
-    await tester.pump();
+    await flush(tester);
     expect(find.text('Safety Guidelines.pdf'), findsOneWidget);
     expect(
       find.text('The material could not be removed. Please try again.'),
@@ -474,6 +483,7 @@ void main() {
       tester.widget<IconButton>(find.byType(IconButton)).onPressed,
       isNotNull,
     );
+    await tester.pump(const Duration(seconds: 4));
   });
 
   testWidgets('link composer rejects unsafe URLs and accepts HTTP(S)', (
@@ -495,7 +505,7 @@ void main() {
       await tester.pump();
       await tester.enterText(find.byType(TextBox).at(0), 'Reference');
       await tester.enterText(find.byType(TextBox).at(1), value);
-      await tester.tap(find.text('Add link'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Add link'));
       await tester.pump();
       expect(
         find.text('Enter a name and an HTTP or HTTPS URL.'),
@@ -514,7 +524,7 @@ void main() {
       await tester.pump();
       await tester.enterText(find.byType(TextBox).at(0), 'Reference');
       await tester.enterText(find.byType(TextBox).at(1), value);
-      await tester.tap(find.text('Add link'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Add link'));
       await flush(tester);
     }
     expect(repository.linkCalls.map((call) => call.url.scheme), [
@@ -604,7 +614,7 @@ void main() {
     'trainee open failures stay controlled and only use material repository',
     (tester) async {
       final repository = _MaterialsRepository(materials: [_pdf])
-        ..openFuture = Future<File>.error(StateError('missing'));
+        ..openFailure = StateError('missing');
       await pump(
         tester,
         ActivityLearningMaterialsTraineeSection(
@@ -613,7 +623,7 @@ void main() {
         ),
       );
       await tester.tap(find.text('Open'));
-      await tester.pump();
+      await flush(tester);
       expect(repository.openCalls, [_pdf]);
       expect(
         find.text(
@@ -621,6 +631,7 @@ void main() {
         ),
         findsOneWidget,
       );
+      await tester.pump(const Duration(seconds: 4));
     },
   );
 }

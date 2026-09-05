@@ -340,7 +340,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('Hand Stall'), findsWidgets);
-    expect(find.text('Grace Hopper · BSHM 4A'), findsOneWidget);
+    expect(find.text('Grace Hopper'), findsOneWidget);
+    expect(find.text('BSHM 4A'), findsOneWidget);
     final heading = tester.widget<Text>(find.text('Hand Stall').first);
     expect(heading.style!.fontSize, 24);
   });

@@ -517,6 +517,22 @@ class _ActivityLearningMaterialsTraineeSectionState
   List<ActivityLearningMaterial>? _materials;
   String? _error;
   String? _opening;
+  int _loadGeneration = 0;
+
+  @override
+  void didUpdateWidget(
+    covariant ActivityLearningMaterialsTraineeSection oldWidget,
+  ) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.assignmentId != widget.assignmentId ||
+        !identical(oldWidget.repository, widget.repository)) {
+      _materials = null;
+      _error = null;
+      _opening = null;
+      unawaited(_load());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -524,18 +540,19 @@ class _ActivityLearningMaterialsTraineeSectionState
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    final repository = widget.repository;
+    final assignmentId = widget.assignmentId;
     try {
-      final values = await widget.repository.list(
-        assignmentId: widget.assignmentId,
-      );
-      if (mounted) {
+      final values = await repository.list(assignmentId: assignmentId);
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           _materials = values;
           _error = null;
         });
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() => _error = 'Learning materials could not be loaded.');
       }
     }
@@ -543,6 +560,7 @@ class _ActivityLearningMaterialsTraineeSectionState
 
   Future<void> _open(ActivityLearningMaterial material) async {
     if (_opening != null) return;
+    final generation = _loadGeneration;
     setState(() => _opening = material.id);
     try {
       if (material.type == ActivityLearningMaterialType.link) {
@@ -585,7 +603,7 @@ class _ActivityLearningMaterialsTraineeSectionState
         }
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         displayInfoBar(
           context,
           builder: (_, _) => const InfoBar(
@@ -598,7 +616,9 @@ class _ActivityLearningMaterialsTraineeSectionState
         );
       }
     } finally {
-      if (mounted) setState(() => _opening = null);
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _opening = null);
+      }
     }
   }
 

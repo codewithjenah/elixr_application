@@ -1234,6 +1234,7 @@ async function listTraineeAssignmentsHandler(
         const data = document.data();
         return teacherByGroupId.get(data.group_id) === data.teacher_id &&
           (!data.status || data.status === 'active' ||
+            data.status === 'archived' ||
             (data.status === 'scheduled' && data.publish_at &&
               Timestamp.now().toMillis() >= data.publish_at.toMillis())) &&
           (assignmentAudienceAllows(data, uid, null, document.id) ||

@@ -1223,6 +1223,15 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
         },
       },
       {
+        id: 'archived',
+        data: {
+          group_id: 'g1',
+          teacher_id: 'teacher-a',
+          audience_type: 'entire_class',
+          status: 'archived',
+        },
+      },
+      {
         id: 'wrong-owner',
         data: {group_id: 'g1', teacher_id: 'teacher-b'},
       },
@@ -1258,6 +1267,7 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
   assert.deepEqual(response.body.assignments.map((item) => item.id), [
     'legacy',
     'selected',
+    'archived',
   ]);
   assert.equal(
     response.body.assignments[0].created_at,

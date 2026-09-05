@@ -576,7 +576,8 @@ class InMemoryClassroomAssignmentRepository
         .where(
           (assignment) =>
               assignment.isAvailableToTrainee(traineeId) &&
-              assignment.isPublishedAt(now) &&
+              (assignment.isPublishedAt(now) ||
+                  assignment.status == GroupAssignmentStatus.archived) &&
               (groupId == null || assignment.groupId == groupId),
         )
         .toList();
@@ -617,8 +618,8 @@ class InMemoryClassroomAssignmentRepository
     _sortAssignments(items);
     return [
       for (final assignment in items)
-        assignment.copyWith(
-          dueAt: effectiveAssignmentDueAt(
+        () {
+          final dueAt = effectiveAssignmentDueAt(
             assignment,
             traineeOverride:
                 deadlineOverrides[_deadlineOverrideKey(
@@ -626,8 +627,11 @@ class InMemoryClassroomAssignmentRepository
                       traineeId,
                     )]
                     ?.dueAt,
-          ),
-        ),
+          );
+          return dueAt == assignment.dueAt
+              ? assignment
+              : assignment.copyWith(dueAt: dueAt);
+        }(),
     ];
   }
 

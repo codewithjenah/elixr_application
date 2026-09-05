@@ -1146,107 +1146,126 @@ Future<void> _showEditAssignmentDialog(
         title: Text('Edit ${assignment.displayTitle}'),
         content: SizedBox(
           width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Update the deadline${assignment.isTeacherCreated ? ' and maximum score' : ''}.',
-                style: AppTheme.bodySecondary.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Checkbox(
-                key: const Key('teacher_assignment_edit_due_date_toggle'),
-                checked: hasDueDate,
-                content: const Text('Set a due date'),
-                onChanged: saving
-                    ? null
-                    : (value) {
-                        setDialogState(() {
-                          hasDueDate = value ?? false;
-                          dueAt ??= DateTime.now().add(const Duration(days: 7));
-                        });
-                      },
-              ),
-              if (hasDueDate) ...[
-                const SizedBox(height: AppSpacing.sm),
-                DatePicker(
-                  key: const Key('teacher_assignment_edit_due_date'),
-                  selected: dueAt ?? DateTime.now(),
-                  onChanged: saving
-                      ? null
-                      : (value) => setDialogState(() => dueAt = value),
-                ),
-              ],
-              if (assignment.isTeacherCreated) ...[
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Maximum score (1–100)',
-                  style: AppTheme.body.copyWith(
-                    color: context.elixTextPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                TextBox(
-                  key: const Key('teacher_assignment_edit_max_score'),
-                  controller: scoreController,
-                  enabled: !assignment.gradingLocked,
-                  keyboardType: TextInputType.number,
-                ),
-                if (assignment.gradingLocked) ...[
-                  const SizedBox(height: AppSpacing.xs),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.65,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    'The score is locked because this assignment already has a checked submission.',
-                    style: AppTheme.caption.copyWith(
+                    'Update the deadline${assignment.isTeacherCreated ? ' and maximum score' : ''}.',
+                    style: AppTheme.bodySecondary.copyWith(
                       color: context.elixTextSecondary,
                     ),
                   ),
-                ],
-              ],
-              const SizedBox(height: AppSpacing.lg),
-              ElixPanelCard(
-                child: Row(
-                  children: [
-                    const Icon(FluentIcons.education),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Learning materials', style: AppTheme.body),
-                          Text(
-                            'Optional supporting files or links for Trainees.',
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Button(
-                      onPressed: saving
+                  const SizedBox(height: AppSpacing.lg),
+                  Checkbox(
+                    key: const Key('teacher_assignment_edit_due_date_toggle'),
+                    checked: hasDueDate,
+                    content: const Text('Set a due date'),
+                    onChanged: saving
+                        ? null
+                        : (value) {
+                            setDialogState(() {
+                              hasDueDate = value ?? false;
+                              dueAt ??= DateTime.now().add(
+                                const Duration(days: 7),
+                              );
+                            });
+                          },
+                  ),
+                  if (hasDueDate) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    DatePicker(
+                      key: const Key('teacher_assignment_edit_due_date'),
+                      selected: dueAt ?? DateTime.now(),
+                      onChanged: saving
                           ? null
-                          : () => _showLearningMaterialsDialog(
-                              context,
-                              assignment.id,
-                            ),
-                      child: const Text('Manage materials'),
+                          : (value) => setDialogState(() => dueAt = value),
                     ),
                   ],
-                ),
+                  if (assignment.isTeacherCreated) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Maximum score (1–100)',
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    TextBox(
+                      key: const Key('teacher_assignment_edit_max_score'),
+                      controller: scoreController,
+                      enabled: !assignment.gradingLocked,
+                      keyboardType: TextInputType.number,
+                    ),
+                    if (assignment.gradingLocked) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'The score is locked because this assignment already has a checked submission.',
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: AppSpacing.lg),
+                  ElixPanelCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(FluentIcons.education),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Learning materials',
+                                    style: AppTheme.body,
+                                  ),
+                                  Text(
+                                    'Optional supporting files or links for Trainees.',
+                                    style: AppTheme.caption.copyWith(
+                                      color: context.elixTextSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Button(
+                          onPressed: saving
+                              ? null
+                              : () => _showLearningMaterialsDialog(
+                                  context,
+                                  assignment.id,
+                                ),
+                          child: const Text('Manage materials'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (validationMessage != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      validationMessage!,
+                      key: const Key('teacher_assignment_edit_validation'),
+                      style: AppTheme.caption.copyWith(color: AppColors.error),
+                    ),
+                  ],
+                ],
               ),
-              if (validationMessage != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  validationMessage!,
-                  key: const Key('teacher_assignment_edit_validation'),
-                  style: AppTheme.caption.copyWith(color: AppColors.error),
-                ),
-              ],
-            ],
+            ),
           ),
         ),
         actions: [

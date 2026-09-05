@@ -456,8 +456,10 @@ void main() {
   testWidgets('active group shows only its streamed assignments', (
     tester,
   ) async {
+    var assignmentId = 0;
     final assignments = InMemoryClassroomAssignmentRepository(
       now: () => DateTime.utc(2026, 8, 26),
+      generateId: () => 'active-assignment-${assignmentId++}',
     );
     addTearDown(assignments.dispose);
     final group = await repository.createGroup(
@@ -965,7 +967,7 @@ void main() {
     expect(
       tester
           .widget<ElixPrimaryButton>(
-            find.byKey(const Key('teacher_assignment_create')),
+            find.byKey(const Key('teacher_assignment_publish_now')),
           )
           .onPressed,
       isNotNull,
@@ -1000,9 +1002,9 @@ void main() {
     await tester.tap(find.byKey(const Key('teacher_group_create_assignment')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_create')),
+      find.byKey(const Key('teacher_assignment_publish_now')),
     );
-    await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+    await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
     await tester.pumpAndSettle();
 
     expect(assignments.assignments, hasLength(1));
@@ -1059,9 +1061,9 @@ void main() {
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_create')),
+      find.byKey(const Key('teacher_assignment_publish_now')),
     );
-    await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+    await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
     await tester.pumpAndSettle();
 
     expect(assignments.assignments, hasLength(1));
