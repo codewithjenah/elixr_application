@@ -202,9 +202,12 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+
     return AuthScaffold(
-      noScrollForm: true,
+      noScrollForm: viewportHeight >= 680,
       formOnLeft: true,
+      compactBrandHero: true,
       title: 'Teach with ELIXR',
       subtitle:
           'Teacher accounts require an access code from an administrator or an existing Teacher.',

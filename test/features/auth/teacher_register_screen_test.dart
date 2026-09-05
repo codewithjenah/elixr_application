@@ -1,3 +1,5 @@
+import 'package:elixr_application/core/widgets/auth_scaffold.dart';
+import 'package:elixr_application/core/widgets/elix_app_logo.dart';
 import 'package:elixr_application/features/auth/teacher_register_screen.dart';
 import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -188,6 +190,39 @@ void main() {
     expect(find.text('Continue with Google'), findsOneWidget);
     expect(find.text('Use email and password'), findsOneWidget);
     expect(find.text('Email address'), findsNothing);
+  });
+
+  testWidgets(
+    'keeps the teacher access layout usable in a short desktop window',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await pumpTeacherRegistration(tester);
+
+      expect(find.text('Teach with ELIXR'), findsOneWidget);
+      expect(find.text('Teacher access code'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('aligns the compact teacher hero with the access card', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await pumpTeacherRegistration(tester);
+
+    final card = tester.getRect(find.byType(AuthFormCard));
+    final logo = tester.getRect(find.byType(ElixAppLogo));
+    final lastFeature = tester.getRect(
+      find.text('Master flair bartending skills'),
+    );
+    final heroCenter = (logo.top + lastFeature.bottom) / 2;
+
+    expect(heroCenter, closeTo(card.center.dy, 12));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('defers valid-format code validation until registration', (

@@ -22,6 +22,7 @@ class AuthScaffold extends StatefulWidget {
     this.formVerticalCompact = false,
     this.formVerticalTight = false,
     this.noScrollForm = false,
+    this.compactBrandHero = false,
   });
 
   final Widget child;
@@ -33,6 +34,9 @@ class AuthScaffold extends StatefulWidget {
   final bool formVerticalCompact;
   final bool formVerticalTight;
   final bool noScrollForm;
+
+  /// Keeps a split-screen hero visually paired with a compact auth card.
+  final bool compactBrandHero;
 
   @override
   State<AuthScaffold> createState() => _AuthScaffoldState();
@@ -108,6 +112,7 @@ class _AuthScaffoldState extends State<AuthScaffold>
                 orbController: _orbController,
                 title: widget.title,
                 subtitle: widget.subtitle,
+                compactHero: widget.compactBrandHero,
               ),
             );
             final divider = Container(
@@ -167,6 +172,7 @@ class _BrandPanel extends StatelessWidget {
     this.subtitle,
     this.overlay,
     this.overlayOnly = false,
+    this.compactHero = false,
   });
 
   final AnimationController orbController;
@@ -174,6 +180,7 @@ class _BrandPanel extends StatelessWidget {
   final String? subtitle;
   final Widget? overlay;
   final bool overlayOnly;
+  final bool compactHero;
 
   @override
   Widget build(BuildContext context) {
@@ -216,7 +223,11 @@ class _BrandPanel extends StatelessWidget {
               Center(
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.xxl),
-                  child: _BrandContent(title: title, subtitle: subtitle),
+                  child: _BrandContent(
+                    title: title,
+                    subtitle: subtitle,
+                    compactHero: compactHero,
+                  ),
                 ),
               )
             else if (overlayOnly)
@@ -517,39 +528,55 @@ class _AuthFooterLinkState extends State<AuthFooterLink> {
 }
 
 class _BrandContent extends StatelessWidget {
-  const _BrandContent({this.title, this.subtitle, this.compact = false});
+  const _BrandContent({
+    this.title,
+    this.subtitle,
+    this.compact = false,
+    this.compactHero = false,
+  });
 
   final String? title;
   final String? subtitle;
   final bool compact;
+  final bool compactHero;
 
   @override
   Widget build(BuildContext context) {
     final brandColor = context.elixColors.brandPrimary;
     final parts = title == null ? null : _brandTitleParts(title!);
-    return Column(
+    final heroIsCompact = compact || compactHero;
+    final content = Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: compactHero
+          ? CrossAxisAlignment.stretch
+          : CrossAxisAlignment.center,
       children: [
-        ElixAppLogo(size: compact ? 72 : 112),
-        SizedBox(height: compact ? AppSpacing.sm : AppSpacing.md),
-        Text(
-          AppConstants.appName,
-          style: AppTheme.brandTitle(
-            fontSize: compact ? 32 : 42,
-            color: brandColor,
-          ).copyWith(letterSpacing: compact ? 4 : 6),
+        Align(
+          alignment: Alignment.center,
+          child: ElixAppLogo(size: heroIsCompact ? 72 : 112),
+        ),
+        SizedBox(height: heroIsCompact ? AppSpacing.sm : AppSpacing.md),
+        Align(
+          alignment: Alignment.center,
+          child: Text(
+            AppConstants.appName,
+            style: AppTheme.brandTitle(
+              fontSize: heroIsCompact ? 32 : 42,
+              color: brandColor,
+            ).copyWith(letterSpacing: heroIsCompact ? 4 : 6),
+          ),
         ),
         const SizedBox(height: AppSpacing.sm),
         Text(
           AppConstants.appTagline,
           style: AppTheme.supporting(color: context.elixTextSecondary).copyWith(
-            fontSize: compact ? 11 : 13,
-            letterSpacing: compact ? 0.3 : 0.5,
+            fontSize: heroIsCompact ? 11 : 13,
+            letterSpacing: heroIsCompact ? 0.3 : 0.5,
           ),
           textAlign: TextAlign.center,
         ),
         if (title != null && !compact) ...[
-          const SizedBox(height: AppSpacing.lg),
+          SizedBox(height: compactHero ? AppSpacing.md : AppSpacing.lg),
           ElixEditorialHeader(
             heading: parts!.heading,
             accentHeading: parts.accentHeading,
@@ -565,23 +592,29 @@ class _BrandContent extends StatelessWidget {
           ),
         ],
         if (!compact) ...[
-          const SizedBox(height: AppSpacing.xxl),
+          SizedBox(height: compactHero ? AppSpacing.lg : AppSpacing.xxl),
           _FeatureRow(
             icon: FluentIcons.video_solid,
             label: 'Real-time movement feedback',
           ),
-          const SizedBox(height: AppSpacing.md),
+          SizedBox(height: compactHero ? AppSpacing.sm : AppSpacing.md),
           _FeatureRow(
             icon: FluentIcons.chart,
             label: 'Track your progress over time',
           ),
-          const SizedBox(height: AppSpacing.md),
+          SizedBox(height: compactHero ? AppSpacing.sm : AppSpacing.md),
           _FeatureRow(
             icon: FluentIcons.trophy,
             label: 'Master flair bartending skills',
           ),
         ],
       ],
+    );
+
+    if (!compactHero) return content;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 400),
+      child: content,
     );
   }
 }
