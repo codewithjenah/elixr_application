@@ -1422,6 +1422,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             ],
           ),
         ),
+        actions: [
+          Button(
+            key: const Key('teacher_assignment_cancel_add_material'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
     if (!mounted || type == null) return;
