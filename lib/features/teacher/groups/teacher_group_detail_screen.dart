@@ -507,6 +507,7 @@ class _GroupDetailBody extends StatelessWidget {
         _GroupDetailTabBar(
           key: const Key('teacher_group_detail_tabs'),
           selectedTab: controller.tab,
+          pendingMembershipCount: controller.pendingMemberships.length,
           onChanged: controller.setTab,
         ),
         const SizedBox(height: AppSpacing.md),
@@ -604,10 +605,12 @@ class _GroupDetailTabBar extends StatelessWidget {
   const _GroupDetailTabBar({
     super.key,
     required this.selectedTab,
+    required this.pendingMembershipCount,
     required this.onChanged,
   });
 
   final TeacherGroupDetailTab selectedTab;
+  final int pendingMembershipCount;
   final ValueChanged<TeacherGroupDetailTab> onChanged;
 
   @override
@@ -642,6 +645,7 @@ class _GroupDetailTabBar extends StatelessWidget {
           label: 'People',
           icon: FluentIcons.people,
           selected: selectedTab == TeacherGroupDetailTab.students,
+          badgeCount: pendingMembershipCount,
           onPressed: () => onChanged(TeacherGroupDetailTab.students),
         ),
       ],
@@ -656,12 +660,14 @@ class _GroupDetailTab extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.onPressed,
+    this.badgeCount = 0,
   });
 
   final String label;
   final IconData icon;
   final bool selected;
   final VoidCallback onPressed;
+  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -726,10 +732,73 @@ class _GroupDetailTab extends StatelessWidget {
                     color: foreground,
                   ),
                 ),
+                if (badgeCount > 0) ...[
+                  const SizedBox(width: 6),
+                  _PendingJoinBadge(
+                    key: const Key('teacher_group_pending_join_badge'),
+                    count: badgeCount,
+                    selected: selected,
+                  ),
+                ],
               ],
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _PendingJoinBadge extends StatelessWidget {
+  const _PendingJoinBadge({
+    super.key,
+    required this.count,
+    required this.selected,
+  });
+
+  final int count;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final label = count > 99 ? '99+' : '$count';
+    return Semantics(
+      label: '$count pending ${count == 1 ? 'join request' : 'join requests'}',
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 18),
+        height: 18,
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: highContrast
+              ? context.elixCardSurface
+              : selected
+              ? Colors.white.withValues(alpha: 0.22)
+              : context.elixColors.brandPrimary,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(
+            color: highContrast
+                ? context.elixBorder
+                : selected
+                ? Colors.white.withValues(alpha: 0.72)
+                : context.elixColors.onBrand,
+            width: highContrast ? 2 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: highContrast
+                ? context.elixTextPrimary
+                : selected
+                ? Colors.white
+                : context.elixColors.onBrand,
+            fontSize: 9,
+            height: 1,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     );
   }

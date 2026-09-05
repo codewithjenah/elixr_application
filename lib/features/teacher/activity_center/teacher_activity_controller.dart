@@ -141,6 +141,18 @@ class TeacherActivityController extends ChangeNotifier {
   List<TeacherActivity> get activities => _activities;
   List<TeacherPendingReview> get pendingReviews => _pendingReviews;
   int get pendingReviewCount => _pendingReviews.length;
+  int get pendingJoinCount {
+    final teacherId = _teacherId;
+    if (teacherId == null) return 0;
+    return _memberships
+        .where(
+          (membership) =>
+              membership.teacherId == teacherId &&
+              membership.status == GroupMembershipStatus.pending,
+        )
+        .length;
+  }
+
   int get unreadCount =>
       _activities.where((activity) => !activity.isRead).length;
   bool get hasStreamError =>

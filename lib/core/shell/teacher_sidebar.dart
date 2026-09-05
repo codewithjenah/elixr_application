@@ -123,10 +123,10 @@ class TeacherSidebar extends StatelessWidget {
     final user = context.watch<AuthService>().currentUser;
     final unreadCount =
         context.watch<MessageUnreadService?>()?.unreadCount ?? 0;
-    final activityUnreadCount =
-        context.watch<TeacherActivityController?>()?.unreadCount ?? 0;
-    final pendingReviewCount =
-        context.watch<TeacherActivityController?>()?.pendingReviewCount ?? 0;
+    final activity = context.watch<TeacherActivityController?>();
+    final activityUnreadCount = activity?.unreadCount ?? 0;
+    final pendingReviewCount = activity?.pendingReviewCount ?? 0;
+    final pendingJoinCount = activity?.pendingJoinCount ?? 0;
     final initials = (user?.fullName.isNotEmpty == true)
         ? userInitials(user!.fullName)
         : '?';
@@ -171,6 +171,7 @@ class TeacherSidebar extends StatelessWidget {
                           unreadCount,
                           activityUnreadCount,
                           pendingReviewCount,
+                          pendingJoinCount,
                         ),
                       ),
                     ),
@@ -197,6 +198,7 @@ class TeacherSidebar extends StatelessWidget {
     int unreadCount,
     int activityUnreadCount,
     int pendingReviewCount,
+    int pendingJoinCount,
   ) {
     final children = <Widget>[];
 
@@ -219,6 +221,7 @@ class TeacherSidebar extends StatelessWidget {
               AppRoutePaths.teacherMessages => unreadCount,
               AppRoutePaths.teacherActivityCenter => activityUnreadCount,
               AppRoutePaths.teacherToReview => pendingReviewCount,
+              AppRoutePaths.teacherGroups => pendingJoinCount,
               _ => 0,
             },
             onTap: () => context.go(item.route),

@@ -203,6 +203,75 @@ void main() {
     },
   );
 
+  test(
+    'counts only the teacher pending join requests and updates live',
+    () async {
+      final firstPending = _membership(status: GroupMembershipStatus.pending);
+      groups.seedMembership(firstPending);
+      groups.seedMembership(
+        _membership(
+          groupId: 'group-2',
+          traineeId: 'student-2',
+          name: 'Katherine Johnson',
+          status: GroupMembershipStatus.pending,
+        ),
+      );
+      for (final status in [
+        GroupMembershipStatus.approved,
+        GroupMembershipStatus.rejected,
+        GroupMembershipStatus.removed,
+        GroupMembershipStatus.cancelled,
+      ]) {
+        groups.seedMembership(
+          _membership(
+            groupId: 'non-pending-${status.name}',
+            traineeId: status.name,
+            status: status,
+          ),
+        );
+      }
+      groups.seedMembership(
+        GroupMembership(
+          id: 'other-group_other-student',
+          groupId: 'other-group',
+          teacherId: 'other-teacher',
+          traineeId: 'other-student',
+          traineeDisplayName: 'Other Student',
+          teacherDisplayName: 'Other Teacher',
+          status: GroupMembershipStatus.pending,
+        ),
+      );
+
+      final controller = createController()..setTeacher(teacherId);
+      addTearDown(controller.dispose);
+      await _settle();
+
+      expect(controller.pendingJoinCount, 2);
+
+      groups.seedMembership(
+        firstPending.copyWith(status: GroupMembershipStatus.approved),
+      );
+      await _settle();
+
+      expect(controller.pendingJoinCount, 1);
+    },
+  );
+
+  test('pendingJoinCount starts at zero and reflects a single pending request', (
+    ) async {
+      final controller = createController()..setTeacher(teacherId);
+      addTearDown(controller.dispose);
+      await _settle();
+
+      expect(controller.pendingJoinCount, 0);
+
+      groups.seedMembership(_membership(status: GroupMembershipStatus.pending));
+      await _settle();
+
+      expect(controller.pendingJoinCount, 1);
+    },
+  );
+
   test('To Review aggregates authorized targeted work oldest first', () async {
     groups.seedMembership(_membership(status: GroupMembershipStatus.approved));
     groups.seedMembership(

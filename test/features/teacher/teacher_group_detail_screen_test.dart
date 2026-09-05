@@ -280,6 +280,11 @@ void main() {
     await pumpDetail(tester, controller: controller, groupId: group.id);
 
     expect(find.text('BSIT-4A'), findsWidgets);
+    expect(
+      find.byKey(const Key('teacher_group_pending_join_badge')),
+      findsOneWidget,
+    );
+    expect(find.text('1'), findsOneWidget);
     await tester.tap(find.byKey(const Key('teacher_group_tab_announcements')));
     await tester.pumpAndSettle();
     expect(find.text('Active'), findsWidgets);
@@ -348,6 +353,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('teacher_group_tab_grades')), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_group_pending_join_badge')),
+      findsNothing,
+    );
     expect(find.text('Waiting to join'), findsNothing);
 
     await tester.tap(find.byKey(const Key('teacher_group_tab_grades')));
@@ -371,6 +380,48 @@ void main() {
     expect(
       find.byKey(const Key('teacher_group_members_section')),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('People tab pending badge follows membership stream updates', (
+    tester,
+  ) async {
+    final group = await repository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT-4A',
+    );
+    final controller = await controllerFor('teacher-1');
+    addTearDown(controller.dispose);
+    await controller.startForGroup(group.id);
+    await pumpDetail(tester, controller: controller, groupId: group.id);
+
+    expect(
+      find.byKey(const Key('teacher_group_pending_join_badge')),
+      findsNothing,
+    );
+
+    final invite = await repository.getActiveGroupInvite(groupId: group.id);
+    final membership = await repository.requestGroupJoin(
+      traineeId: 'trainee-pending',
+      traineeDisplayName: 'Alan Turing',
+      code: invite!.normalizedCode,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('teacher_group_pending_join_badge')),
+      findsOneWidget,
+    );
+    expect(find.text('1'), findsOneWidget);
+
+    await repository.rejectMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('teacher_group_pending_join_badge')),
+      findsNothing,
     );
   });
 
