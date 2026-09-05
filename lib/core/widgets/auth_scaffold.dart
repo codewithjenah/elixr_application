@@ -222,7 +222,9 @@ class _BrandPanel extends StatelessWidget {
             if (overlay == null)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.xxl),
+                  padding: EdgeInsets.all(
+                    compactHero ? AppSpacing.xl : AppSpacing.xxl,
+                  ),
                   child: _BrandContent(
                     title: title,
                     subtitle: subtitle,
@@ -547,9 +549,7 @@ class _BrandContent extends StatelessWidget {
     final heroIsCompact = compact || compactHero;
     final content = Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: compactHero
-          ? CrossAxisAlignment.stretch
-          : CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Align(
           alignment: Alignment.center,
@@ -582,6 +582,7 @@ class _BrandContent extends StatelessWidget {
             accentHeading: parts.accentHeading,
             subtitle: subtitle,
             variant: ElixEditorialHeaderVariant.hero,
+            textAlign: compactHero ? TextAlign.center : TextAlign.start,
           ),
         ] else if (subtitle != null && !compact) ...[
           const SizedBox(height: AppSpacing.sm),
@@ -613,7 +614,7 @@ class _BrandContent extends StatelessWidget {
 
     if (!compactHero) return content;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 400),
+      constraints: const BoxConstraints(maxWidth: 640),
       child: content,
     );
   }

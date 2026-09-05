@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_app_logo.dart';
 import 'package:elixr_application/features/auth/teacher_register_screen.dart';
@@ -209,19 +211,41 @@ void main() {
   testWidgets('aligns the compact teacher hero with the access card', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    await tester.binding.setSurfaceSize(const Size(1648, 928));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await pumpTeacherRegistration(tester);
 
     final card = tester.getRect(find.byType(AuthFormCard));
     final logo = tester.getRect(find.byType(ElixAppLogo));
+    final heading = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          widget.textSpan?.toPlainText() == 'Teach with ELIXR',
+    );
+    final headingRect = tester.getRect(heading);
+    final description = tester.getRect(
+      find.text(
+        'Teacher accounts require an access code from an administrator or an existing Teacher.',
+      ),
+    );
+    final featureLabels = [
+      tester.getRect(find.text('Real-time movement feedback')),
+      tester.getRect(find.text('Track your progress over time')),
+      tester.getRect(find.text('Master flair bartending skills')),
+    ];
+    final featureLeft = featureLabels.map((rect) => rect.left).reduce(min);
+    final featureRight = featureLabels.map((rect) => rect.right).reduce(max);
     final lastFeature = tester.getRect(
       find.text('Master flair bartending skills'),
     );
     final heroCenter = (logo.top + lastFeature.bottom) / 2;
 
     expect(heroCenter, closeTo(card.center.dy, 12));
+    expect(headingRect.height, lessThanOrEqualTo(56));
+    expect(headingRect.center.dx, closeTo(logo.center.dx, 1));
+    expect(description.center.dx, closeTo(logo.center.dx, 1));
+    expect((featureLeft + featureRight) / 2, closeTo(logo.center.dx, 16));
     expect(tester.takeException(), isNull);
   });
 

@@ -56,6 +56,7 @@ class ElixEditorialHeader extends StatelessWidget {
     this.headingColor,
     this.headingTextStyle,
     this.headingMaxLines,
+    this.textAlign = TextAlign.start,
     this.leading,
     this.actions = const [],
   });
@@ -68,6 +69,7 @@ class ElixEditorialHeader extends StatelessWidget {
   final Color? headingColor;
   final TextStyle? headingTextStyle;
   final int? headingMaxLines;
+  final TextAlign textAlign;
   final Widget? leading;
   final List<Widget> actions;
 
@@ -80,6 +82,7 @@ class ElixEditorialHeader extends StatelessWidget {
       subtitle: subtitle,
       headingStyle: headingTextStyle ?? _headingStyle(context),
       headingMaxLines: headingMaxLines ?? _headingMaxLines(context),
+      textAlign: textAlign,
       leading: leading,
     );
     if (actions.isEmpty) return copy;
@@ -216,6 +219,7 @@ class _HeaderCopy extends StatelessWidget {
     required this.subtitle,
     required this.headingStyle,
     required this.headingMaxLines,
+    required this.textAlign,
     required this.leading,
   });
 
@@ -225,12 +229,15 @@ class _HeaderCopy extends StatelessWidget {
   final String? subtitle;
   final TextStyle headingStyle;
   final int headingMaxLines;
+  final TextAlign textAlign;
   final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
     final text = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: textAlign == TextAlign.center
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
       children: [
         if (eyebrow != null) ...[
           ElixEyebrow(label: eyebrow!),
@@ -244,6 +251,7 @@ class _HeaderCopy extends StatelessWidget {
                 ? Text(
                     heading,
                     style: headingStyle,
+                    textAlign: textAlign,
                     maxLines: headingMaxLines,
                     overflow: TextOverflow.ellipsis,
                   )
@@ -260,6 +268,7 @@ class _HeaderCopy extends StatelessWidget {
                         ),
                       ],
                     ),
+                    textAlign: textAlign,
                     maxLines: headingMaxLines,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -270,6 +279,7 @@ class _HeaderCopy extends StatelessWidget {
           Text(
             subtitle!,
             style: AppTheme.supporting(color: context.elixTextSecondary),
+            textAlign: textAlign,
           ),
         ],
       ],
