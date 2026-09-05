@@ -15,6 +15,7 @@ const {
 if (getApps().length === 0) initializeApp();
 
 const REGION = 'asia-southeast1';
+const STORAGE_REGION = 'us-east1';
 const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || 'elixr-app-2026.firebasestorage.app';
 const SUPPORTED_ROLES = new Set(['Teacher', 'Trainee']);
 const SEARCH_LIMIT = 20;
@@ -2263,7 +2264,7 @@ exports.listActivityLearningMaterials = onRequest(
 );
 
 exports.validateStagedActivityLearningMaterial = onObjectFinalized(
-  {region: REGION, bucket: STORAGE_BUCKET, timeoutSeconds: 120, memory: '512MiB'},
+  {region: STORAGE_REGION, bucket: STORAGE_BUCKET, timeoutSeconds: 120, memory: '512MiB'},
   async (event) => {
     const objectName = event.data.name || '';
     const match = objectName.match(
