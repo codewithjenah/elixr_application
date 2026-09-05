@@ -1189,11 +1189,9 @@ service cloud.firestore {
         && validQuestPeriodUpdate();
     }
 
-    // Teacher self-registration requires redeeming teacher_access_codes/{code}
-    // in the same write. users.role remains a client-writable field.
-    // TODO: Move Teacher role trust to a Firebase Auth custom claim set by a
-    // Cloud Function after code redemption. This rules check is an interim
-    // control, not the final authorization architecture.
+    // Teacher self-registration is the sole pre-claim bootstrap. The profile
+    // and one-time code consumption must commit together; privileged access
+    // after that point is authorized by the server-issued Auth claim.
     function teacherAccessCodePath(code) {
       return /databases/$(database)/documents/teacher_access_codes/$(code);
     }
@@ -1274,6 +1272,9 @@ service cloud.firestore {
           'session_evidence_policy_version', 'session_evidence_decision_at',
           'teacher_roster_invite_code', 'teacher_invite_code'
         ])
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.get('teacher_access_code', '')
+          == resource.data.get('teacher_access_code', '')
         && (!affected.hasAny(['email'])
           || request.resource.data.email == request.auth.token.email)
         && (!affected.hasAny([
@@ -1903,6 +1904,11 @@ service cloud.firestore {
         && request.auth.token.email_verified == true;
     }
 
+    function isTeacherClaim() {
+      return isSignedIn()
+        && request.auth.token.get('role', '') == 'Teacher';
+    }
+
     function isNormalizedCoachCode(code) {
       return code is string
         && code.matches('^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$');
@@ -1937,7 +1943,7 @@ service cloud.firestore {
     }
 
     function validInviteCreate(data, inviteId) {
-      return hasVerifiedEmail()
+      return isVerifiedTeacher()
         && isNormalizedCoachCode(inviteId)
         && !exists(groupInvitePath(inviteId))
         && data.keys().hasOnly(inviteKeys())
@@ -1945,7 +1951,6 @@ service cloud.firestore {
         && isParticipantId(data.teacher_id)
         && isDisplayName(data.teacher_display_name)
         && exists(userPath(request.auth.uid))
-        && get(userPath(request.auth.uid)).data.get('role', '') == 'Teacher'
         && data.teacher_display_name == userFullName(request.auth.uid)
         && getAfter(userPath(request.auth.uid)).data.teacher_roster_invite_code
           == inviteId
@@ -2026,7 +2031,7 @@ service cloud.firestore {
     }
 
     function hasApprovedProgressAccess(traineeId) {
-      return isSignedIn()
+      return isTeacherClaim()
         && exists(teacherStudentLinkPath(request.auth.uid, traineeId))
         && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.teacher_id
           == request.auth.uid
@@ -2047,7 +2052,7 @@ service cloud.firestore {
     // hasClassroomAuthorization().
     function hasApprovedClassroomProgressAccess(traineeId) {
       let contextRef = classroomTeacherAccessPath(request.auth.uid, traineeId);
-      return isSignedIn()
+      return isTeacherClaim()
         && exists(contextRef)
         && get(contextRef).data.get('teacher_id', '') == request.auth.uid
         && get(contextRef).data.get('trainee_id', '') == traineeId
@@ -2062,7 +2067,7 @@ service cloud.firestore {
     function isLinkParticipant() {
       return isSignedIn()
         && (
-          resource.data.teacher_id == request.auth.uid
+          (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           || resource.data.trainee_id == request.auth.uid
         );
     }
@@ -2204,7 +2209,8 @@ service cloud.firestore {
       allow update: if false;
       allow delete: if isSignedIn()
         && (resource == null
-          || resource.data.get('teacher_id', '') == request.auth.uid
+          || (resource.data.get('teacher_id', '') == request.auth.uid
+            && isTeacherClaim())
           || resource.data.get('trainee_id', '') == request.auth.uid);
     }
 
@@ -2258,6 +2264,7 @@ service cloud.firestore {
     match /teacher_access_codes/{code} {
       allow get: if isSignedIn() && isTeacherAccessCodeFormat(code);
       allow list: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.get('created_by', '') == request.auth.uid;
       allow list: if isSignedIn()
         && resource.data.get('consumed_by', '') == request.auth.uid;
@@ -2265,6 +2272,7 @@ service cloud.firestore {
       allow update: if validTeacherAccessCodeConsume(code)
         || validTeacherAccessCodeAnonymization();
       allow delete: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.consumed == false
         && resource.data.created_by == request.auth.uid;
     }
@@ -2273,7 +2281,8 @@ service cloud.firestore {
       allow get: if isLinkParticipant();
       // Split OR into separate allows so queries constrained to teacher_id or
       // trainee_id can be proven by the rules engine.
-      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isTeacherClaim()
+        && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
 
       allow create: if validPendingLinkCreate(request.resource.data, linkId);
@@ -2337,9 +2346,10 @@ service cloud.firestore {
 
     match /classroom_teacher_access/{contextId} {
       allow get: if isSignedIn()
-        && (resource.data.teacher_id == request.auth.uid
+        && ((resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           || resource.data.trainee_id == request.auth.uid);
       allow list: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn()
         && resource.data.trainee_id == request.auth.uid;
@@ -2352,7 +2362,7 @@ service cloud.firestore {
         contextId
       );
       allow delete: if isSignedIn()
-        && (resource.data.teacher_id == request.auth.uid
+        && ((resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           || resource.data.trainee_id == request.auth.uid);
     }
 
@@ -2395,8 +2405,7 @@ service cloud.firestore {
 
     function isVerifiedTeacher() {
       return hasVerifiedEmail()
-        && exists(userPath(request.auth.uid))
-        && get(userPath(request.auth.uid)).data.get('role', '') == 'Teacher';
+        && isTeacherClaim();
     }
 
     // Trainees may observe only the lifecycle status of classrooms where they
@@ -2646,7 +2655,7 @@ service cloud.firestore {
     function isMembershipParticipant() {
       return isSignedIn()
         && (
-          resource.data.teacher_id == request.auth.uid
+          (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           || resource.data.trainee_id == request.auth.uid
         );
     }
@@ -2672,7 +2681,7 @@ service cloud.firestore {
 
     // Binds authorization to the authenticated Teacher viewer (Phase 3+).
     function hasClassroomAuthorization(groupId, traineeId) {
-      return isSignedIn()
+      return isTeacherClaim()
         && exists(groupPath(groupId))
         && request.auth.uid == get(groupPath(groupId)).data.teacher_id
         && exists(groupMembershipPath(groupId, traineeId))
@@ -2785,14 +2794,16 @@ service cloud.firestore {
     match /groups/{groupId} {
       allow get: if isSignedIn()
         && (resource.data.status == 'active'
-          || resource.data.teacher_id == request.auth.uid);
-      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+          || (resource.data.teacher_id == request.auth.uid && isTeacherClaim()));
+      allow list: if isTeacherClaim()
+        && resource.data.teacher_id == request.auth.uid;
 
       allow create: if validGroupCreate(request.resource.data);
 
       allow update: if validGroupTeacherUpdate(groupId);
 
       allow delete: if isSignedIn()
+        && isTeacherClaim()
         && resource != null
         && resource.data.teacher_id == request.auth.uid
         && (
@@ -2916,13 +2927,15 @@ service cloud.firestore {
       allow create: if validGroupInviteCreate(request.resource.data, inviteId);
       allow update: if false;
       allow delete: if isSignedIn()
+        && isTeacherClaim()
         && resource != null
         && resource.data.teacher_id == request.auth.uid;
     }
 
     match /group_memberships/{membershipId} {
       allow get: if isMembershipParticipant();
-      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isTeacherClaim()
+        && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
       allow list: if hasApprovedMembershipInSameGroup();
 
@@ -3262,10 +3275,12 @@ service cloud.firestore {
         && afterRoot.current_revision_id == revisionId;
     }
     match /teacher_movements/{movementId} {
-      allow get, list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow get, list: if isTeacherClaim()
+        && resource.data.teacher_id == request.auth.uid;
       allow create: if validTeacherMovementCreate(request.resource.data, movementId);
       allow update: if validTeacherMovementUpdate(movementId);
       allow delete: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid
         && (
           (get(teacherMovementRevisionPath(
@@ -3276,12 +3291,14 @@ service cloud.firestore {
         );
 
       match /revisions/{revisionId} {
-        allow get, list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+        allow get, list: if isTeacherClaim()
+          && resource.data.teacher_id == request.auth.uid;
         allow create: if validTeacherMovementRevisionCreate(
           request.resource.data, movementId, revisionId
         );
         allow update: if false;
         allow delete: if isSignedIn()
+          && isTeacherClaim()
           && resource.data.teacher_id == request.auth.uid
           && (
             (resource.data.assessment_mode != 'template_scored'
@@ -3629,10 +3646,11 @@ service cloud.firestore {
     match /group_assignments/{assignmentId} {
       allow get: if isSignedIn()
         && (
-          resource.data.teacher_id == request.auth.uid
+          (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           || traineeCanAccessAssignment(resource.data, assignmentId, request.auth.uid)
         );
-      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isTeacherClaim()
+        && resource.data.teacher_id == request.auth.uid;
       allow create: if request.resource.data.origin == 'teacher_created'
         && request.resource.data.keys().hasAny([
           'activity_assessment', 'configuration_revision'
@@ -3641,6 +3659,7 @@ service cloud.firestore {
       allow create: if validGroupAssignmentCreate(request.resource.data);
       allow update: if validGroupAssignmentUpdate();
       allow delete: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid
         && (
           !exists(userPath(request.auth.uid))
@@ -3652,12 +3671,14 @@ service cloud.firestore {
         // A Teacher query is constrained by teacher_id and does not perform a
         // parent get per row. The client revalidates every row before use.
         allow get: if isSignedIn()
+          && isTeacherClaim()
           && resource.data.teacher_id == request.auth.uid
           && validAssignmentRecipient(resource.data, assignmentId, traineeId);
         // Collection-group queries must be provable from their query
         // constraint alone. The teacher query is constrained by teacher_id;
         // the client validates the immutable row shape and parent identity.
         allow list: if isSignedIn()
+          && isTeacherClaim()
           && resource.data.teacher_id == request.auth.uid;
         // A Trainee can direct-read only their own relationship; querying or
         // enumerating projections is denied so classmates' UIDs stay private.
@@ -3677,7 +3698,7 @@ service cloud.firestore {
           && !exists(userPath(request.auth.uid))
           && (
             (traineeId == request.auth.uid && resource.data.trainee_id == request.auth.uid)
-            || resource.data.teacher_id == request.auth.uid
+            || (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           );
         allow create, update: if false;
       }
@@ -3711,6 +3732,7 @@ service cloud.firestore {
         }
         allow get: if isSignedIn() && (
           (resource.data.teacher_id == request.auth.uid
+            && isTeacherClaim()
             && validDeadlineOverride(resource.data))
           || (traineeId == request.auth.uid
             && validDeadlineOverride(resource.data)
@@ -3773,6 +3795,7 @@ service cloud.firestore {
     // above.
     match /{anyPath=**}/assignment_recipients/{traineeId} {
       allow list: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn()
         && !exists(userPath(request.auth.uid))
@@ -4202,7 +4225,8 @@ service cloud.firestore {
       let assignment = get(assignmentPath(resource.data.assignment_id)).data;
       let maxScore = assignment.get('max_score', 100);
       let previousMax = resource.get('grade_max_score', maxScore);
-      return resource.data.teacher_id == request.auth.uid
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
         && resource.data.status in ['submitted', 'checked', 'approved', 'needs_retry']
         && after.status == 'checked'
@@ -4247,7 +4271,8 @@ service cloud.firestore {
     }
     function validTeacherReviewResultSent() {
       let after = request.resource.data;
-      return resource.data.teacher_id == request.auth.uid
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
         && resource.data.status == 'checked'
         && after.status == 'checked'
@@ -4271,7 +4296,8 @@ service cloud.firestore {
     }
     function validTeacherReviewSubmissionTeacherReview(attemptId) {
       let after = request.resource.data;
-      return resource.data.teacher_id == request.auth.uid
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
         && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
           + resource.data.trainee_id
@@ -4291,7 +4317,7 @@ service cloud.firestore {
     function validTeacherReviewSubmissionCleanup(attemptId) {
       let after = request.resource.data;
       return (
-          resource.data.teacher_id == request.auth.uid
+          (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           || (
             resource.data.trainee_id == request.auth.uid
             && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
@@ -4301,7 +4327,7 @@ service cloud.firestore {
         && resource.data.attempt_kind == 'teacher_review_submission'
         && resource.data.status in ['submitted', 'approved', 'needs_retry', 'checked']
         && (resource.data.status != 'checked'
-          || resource.data.teacher_id == request.auth.uid)
+          || (resource.data.teacher_id == request.auth.uid && isTeacherClaim()))
         && assignmentAttemptIdentityUnchanged()
         && assignmentAttemptReviewUnchanged()
         && assignmentAttemptReviewableMetadataUnchanged()
@@ -4381,7 +4407,7 @@ service cloud.firestore {
       let after = request.resource.data;
       return (
           resource.data.trainee_id == request.auth.uid
-          || resource.data.teacher_id == request.auth.uid
+          || (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
         )
         && resource.data.attempt_kind == 'teacher_review_submission'
         && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
@@ -4422,9 +4448,10 @@ service cloud.firestore {
       allow get: if isSignedIn()
         && (
           resource.data.trainee_id == request.auth.uid
-          || resource.data.teacher_id == request.auth.uid
+          || (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
         );
-      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isTeacherClaim()
+        && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
       allow create: if validAssignmentAttemptCreate(request.resource.data, attemptId);
       allow update: if isSignedIn()
@@ -4465,7 +4492,7 @@ service cloud.firestore {
         && !exists(userPath(request.auth.uid))
         && (
           resource.data.trainee_id == request.auth.uid
-          || resource.data.teacher_id == request.auth.uid
+          || (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
         );
     }
 
@@ -4860,11 +4887,13 @@ service cloud.firestore {
         && get(teacherStudentLinkPath(teacherId, traineeId)).data.status == 'approved';
     }
     function isErasingOwnCoaching(data) {
-      return isSignedIn() && (data.teacher_id == request.auth.uid || data.trainee_id == request.auth.uid)
+      return isSignedIn()
+        && ((data.teacher_id == request.auth.uid && isTeacherClaim())
+          || data.trainee_id == request.auth.uid)
         && !exists(userPath(request.auth.uid));
     }
     function isCoachingAuthor(data) {
-      return isSignedIn() && data.teacher_id == request.auth.uid
+      return isTeacherClaim() && data.teacher_id == request.auth.uid
         && (
           (isGroupBackedCoachingNote(data) && approvedClassroomCoaching(data))
           || (!data.keys().hasAny(['group_id'])
@@ -4880,11 +4909,13 @@ service cloud.firestore {
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
       // Group-backed Teacher history: teacher_id + trainee_id + group_id.
       allow list: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid
         && isGroupBackedCoachingNote(resource.data)
         && approvedClassroomCoaching(resource.data);
       // Legacy-link Teacher history: teacher_id + trainee_id + authorization_source.
       allow list: if isSignedIn()
+        && isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid
         && isLegacyLinkCoachingSource(resource.data)
         && approvedCoachingLink(resource.data.teacher_id, resource.data.trainee_id);

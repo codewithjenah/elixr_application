@@ -50,10 +50,13 @@ after(async () => {
   await testEnv.cleanup();
 });
 
-function context(uid) {
+function context(uid, {
+  teacherClaim = uid === 'teacher' || uid === 'other-teacher',
+} = {}) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`,
     email_verified: true,
+    ...(teacherClaim ? { role: 'Teacher' } : {}),
   });
 }
 

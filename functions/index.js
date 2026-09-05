@@ -7,6 +7,10 @@ const {initializeApp, getApps} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require('firebase-admin/firestore');
 const {getStorage} = require('firebase-admin/storage');
+const {
+  TEACHER_ROLE,
+  ensureTeacherRoleClaimForUid,
+} = require('./lib/teacher_role_claim');
 
 if (getApps().length === 0) initializeApp();
 
@@ -209,6 +213,59 @@ async function authenticatedUid(request) {
     return (await getAuth().verifyIdToken(token, true)).uid;
   } catch (_) {
     return null;
+  }
+}
+
+async function authenticatedTeacherUid(request) {
+  const token = firebaseBearerToken(request);
+  if (!token) return null;
+  try {
+    const decoded = await getAuth().verifyIdToken(token, true);
+    return decoded.role === TEACHER_ROLE ? decoded.uid : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function ensureTeacherRoleClaimHandler(request, response, {
+  verifyToken = async (request) => {
+    const token = firebaseBearerToken(request);
+    return token ? getAuth().verifyIdToken(token, true) : null;
+  },
+  databaseFactory = getFirestore,
+  authFactory = getAuth,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') {
+    return response.status(405).json({error: 'method_not_allowed'});
+  }
+  let token;
+  try {
+    token = await verifyToken(request);
+  } catch (_) {
+    token = null;
+  }
+  if (!token || !validId(token.uid)) {
+    return response.status(401).json({error: 'unauthenticated'});
+  }
+  const body = request.body == null ? {} : request.body;
+  if (typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 0) {
+    return response.status(400).json({error: 'invalid_request'});
+  }
+  try {
+    const result = await ensureTeacherRoleClaimForUid({
+      firestore: databaseFactory(),
+      auth: authFactory(),
+      uid: token.uid,
+    });
+    if (!result.granted) {
+      return response.status(403).json({error: 'teacher_evidence_invalid'});
+    }
+    return response.status(200).json({teacher_role_claim: true});
+  } catch (error) {
+    console.error('Teacher role claim finalization failed', error);
+    return response.status(503).json({error: 'unavailable'});
   }
 }
 
@@ -415,7 +472,7 @@ async function cascadeAssignment({firestore, storage, assignmentRef, assignmentD
 }
 
 async function permanentDeleteAssignmentHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
   storageFactory = getStorage,
 } = {}) {
@@ -436,7 +493,7 @@ async function permanentDeleteAssignmentHandler(request, response, {
     ]);
     if (!snapshot.exists) return response.status(200).json({deleted: true, already_deleted: true});
     const data = snapshot.data();
-    if (!actor.exists || actor.get('role') !== 'Teacher' || data.teacher_id !== uid) {
+    if (!actor.exists || actor.get('lifecycle_state') === 'deleting' || data.teacher_id !== uid) {
       return response.status(403).json({error: 'forbidden'});
     }
     await assignmentRef.set({
@@ -452,7 +509,7 @@ async function permanentDeleteAssignmentHandler(request, response, {
 }
 
 async function permanentDeleteClassroomHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
   storageFactory = getStorage,
 } = {}) {
@@ -473,7 +530,7 @@ async function permanentDeleteClassroomHandler(request, response, {
     ]);
     if (!groupSnapshot.exists) return response.status(200).json({deleted: true, already_deleted: true});
     const group = groupSnapshot.data();
-    if (!actor.exists || actor.get('role') !== 'Teacher' || group.teacher_id !== uid) {
+    if (!actor.exists || actor.get('lifecycle_state') === 'deleting' || group.teacher_id !== uid) {
       return response.status(403).json({error: 'forbidden'});
     }
     await groupRef.set({
@@ -792,7 +849,7 @@ async function abandonTeacherActivityAttemptHandler(request, response, {
 }
 
 async function updateTeacherActivityAssignmentHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
 } = {}) {
   setCors(response);
@@ -920,7 +977,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
 }
 
 async function gradeTeacherActivityAttemptHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
 } = {}) {
   setCors(response);
@@ -1669,7 +1726,7 @@ async function finalizeStagedActivityMaterial(uploadId, {
 }
 
 async function beginActivityMaterialUploadHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
 } = {}) {
   setCors(response);
@@ -1701,7 +1758,7 @@ async function beginActivityMaterialUploadHandler(request, response, {
       ]);
       if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
       const assignment = assignmentSnapshot.data();
-      if (!userSnapshot.exists || userSnapshot.get('role') !== 'Teacher' ||
+      if (!userSnapshot.exists || userSnapshot.get('lifecycle_state') === 'deleting' ||
           assignment.teacher_id !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
       if (!['draft', 'scheduled', 'active'].includes(assignment.status) ||
           assignment.deletion_state === 'deleting') {
@@ -1748,7 +1805,7 @@ async function beginActivityMaterialUploadHandler(request, response, {
 }
 
 async function addActivityLearningMaterialLinkHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
 } = {}) {
   setCors(response);
@@ -1772,7 +1829,7 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
         transaction.get(assignmentRef.collection('learning_materials')),
       ]);
       if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
-      if (!userSnapshot.exists || userSnapshot.get('role') !== 'Teacher' ||
+      if (!userSnapshot.exists || userSnapshot.get('lifecycle_state') === 'deleting' ||
           assignmentSnapshot.get('teacher_id') !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
       if (!['draft', 'scheduled', 'active'].includes(assignmentSnapshot.get('status')) ||
           assignmentSnapshot.get('deletion_state') === 'deleting') {
@@ -1810,7 +1867,7 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
 }
 
 async function removeActivityLearningMaterialHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
   storageFactory = getStorage,
 } = {}) {
@@ -1833,7 +1890,7 @@ async function removeActivityLearningMaterialHandler(request, response, {
         transaction.get(assignmentRef), transaction.get(firestore.collection('users').doc(uid)),
         transaction.get(materialRef), transaction.get(stateRef),
       ]);
-      if (!assignment.exists || !user.exists || user.get('role') !== 'Teacher' ||
+      if (!assignment.exists || !user.exists || user.get('lifecycle_state') === 'deleting' ||
           assignment.get('teacher_id') !== uid) { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; }
       if (!existing.exists) return null;
       if (existing.get('status') !== 'deleting') {
@@ -1889,7 +1946,7 @@ async function removeActivityLearningMaterialHandler(request, response, {
 }
 
 async function getActivityMaterialUploadStatusHandler(request, response, {
-  authenticate = authenticatedUid,
+  authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
 } = {}) {
   setCors(response);
@@ -1904,7 +1961,7 @@ async function getActivityMaterialUploadStatusHandler(request, response, {
   if (!stageSnapshot.exists) return response.status(404).json({error: 'not_found'});
   const stage = stageSnapshot.data();
   const user = await firestore.collection('users').doc(uid).get();
-  if (!user.exists || user.get('role') !== 'Teacher' || stage.owner_teacher_id !== uid) {
+  if (!user.exists || user.get('lifecycle_state') === 'deleting' || stage.owner_teacher_id !== uid) {
     return response.status(403).json({error: 'forbidden'});
   }
   if (!validId(stage.material_id) || !validId(stage.assignment_id) ||
@@ -1935,6 +1992,7 @@ async function getActivityMaterialUploadStatusHandler(request, response, {
 
 async function listActivityLearningMaterialsHandler(request, response, {
   authenticate = authenticatedUid,
+  authenticateTeacher = authenticatedTeacherUid,
   databaseFactory = getFirestore,
 } = {}) {
   setCors(response);
@@ -1949,7 +2007,8 @@ async function listActivityLearningMaterialsHandler(request, response, {
   const assignment = await assignmentRef.get();
   if (!assignment.exists) return response.status(404).json({error: 'not_found'});
   const materials = await assignmentRef.collection('learning_materials').where('status', '==', 'ready').get();
-  const allowed = assignment.get('teacher_id') === uid;
+  const allowed = assignment.get('teacher_id') === uid &&
+    await authenticateTeacher(request) === uid;
   const output = [];
   for (const material of materials.docs) {
     const access = allowed || await hasReadyActivityMaterialAccess(
@@ -1971,7 +2030,8 @@ async function createClassroomAssignmentHandler(request, response, {
   if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
   let token;
   try { token = await verifyToken(request); } catch (_) { token = null; }
-  if (!token || !validId(token.uid) || token.email_verified !== true) {
+  if (!token || !validId(token.uid) || token.email_verified !== true ||
+      token.role !== TEACHER_ROLE) {
     return response.status(401).json({error: 'unauthenticated'});
   }
   const body = request.body && typeof request.body === 'object' ? request.body : {};
@@ -2013,7 +2073,7 @@ async function createClassroomAssignmentHandler(request, response, {
       const userRef = firestore.collection('users').doc(token.uid);
       const groupRef = firestore.collection('groups').doc(body.group_id);
       const [user, group] = await Promise.all([transaction.get(userRef), transaction.get(groupRef)]);
-      if (!user.exists || user.get('role') !== 'Teacher' || user.get('lifecycle_state') === 'deleting' ||
+      if (!user.exists || user.get('lifecycle_state') === 'deleting' ||
           !group.exists || group.get('teacher_id') !== token.uid || group.get('status') !== 'active') {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
@@ -2135,6 +2195,10 @@ async function createClassroomAssignmentHandler(request, response, {
 
 exports.createClassroomAssignment = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 30}, createClassroomAssignmentHandler,
+);
+
+exports.ensureTeacherRoleClaim = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30}, ensureTeacherRoleClaimHandler,
 );
 
 exports.permanentDeleteAssignment = onRequest(
@@ -2706,6 +2770,8 @@ exports._test = {
   archivedConversationId,
   buildArchivedConversationData,
   authenticatedUid,
+  authenticatedTeacherUid,
+  ensureTeacherRoleClaimHandler,
   assignmentAudienceAllows,
   validRecipientProjection,
   assignmentJsonValue,

@@ -4,10 +4,8 @@ import 'teacher_roster_invite.dart';
 /// One-time Teacher registration grant stored at
 /// `teacher_access_codes/{normalizedCode}`.
 ///
-/// TODO: Role trust should move to a Firebase Auth custom claim set by a
-/// Cloud Function after code redemption. This document plus Firestore rules
-/// is an interim control; a client can still write `users.role` if rules
-/// are misconfigured.
+/// Redemption evidence is verified by trusted server code before the
+/// canonical Firebase Auth `role: "Teacher"` claim is granted.
 class TeacherAccessCode {
   const TeacherAccessCode({
     required this.normalizedCode,

@@ -8,13 +8,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 class _TeacherRegisterRepository
-    implements AuthRepositoryBase, TeacherRegistrationRepositoryBase {
+    implements
+        AuthRepositoryBase,
+        TeacherRegistrationRepositoryBase,
+        TeacherAuthorizationRepositoryBase {
   String? lastDefaultRole;
   String? lastTeacherAccessCode;
   String? prevalidatedAccessCode;
   String? accessCodeError;
   int accessCodeChecks = 0;
   bool verificationRequested = false;
+  int ensureTeacherRoleClaimCalls = 0;
+
+  @override
+  Future<void> ensureTeacherRoleClaim() async {
+    ensureTeacherRoleClaimCalls++;
+  }
 
   @override
   Future<void> assertTeacherAccessCodeRedeemable(String code) async {
@@ -282,6 +291,7 @@ void main() {
     expect(repository.lastDefaultRole, User.roleTeacher);
     expect(repository.lastTeacherAccessCode, '7KPMXR4DQ2WT');
     expect(repository.accessCodeChecks, 0);
+    expect(repository.ensureTeacherRoleClaimCalls, 1);
     expect(repository.verificationRequested, isTrue);
     expect(auth.currentUser?.isTeacher, isTrue);
   });

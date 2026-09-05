@@ -10,6 +10,11 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isTeacherClaim() {
+      return isSignedIn()
+        && request.auth.token.get('role', '') == 'Teacher';
+    }
+
     // Learning-material reads intentionally use a bounded server-owned
     // projection plus its generation gate. Do not replace this with assignment
     // + membership + recipient checks: that chain exceeds the safe Storage-rule
@@ -34,6 +39,7 @@ service firebase.storage {
         && access.assignment_id == assignmentId
         && access.material_id == materialId
         && access.user_id == request.auth.uid
+        && (access.owner_teacher_id != request.auth.uid || isTeacherClaim())
         && access.projection_generation == state.generation
         && state.assignment_id == assignmentId
         && state.state == 'ready'
@@ -49,7 +55,8 @@ service firebase.storage {
 
     function canCreateActivityMaterialStaging(teacherId, assignmentId, uploadId) {
       let stage = firestore.get(stagingUploadPath(teacherId, assignmentId, uploadId)).data;
-      return isOwner(teacherId)
+      return isTeacherClaim()
+        && isOwner(teacherId)
         && stage.schema_version == 1
         && stage.state == 'staging'
         && stage.upload_id == uploadId
@@ -73,7 +80,7 @@ service firebase.storage {
 
     function hasTeacherEvidenceGrant(traineeId) {
       let link = /databases/(default)/documents/teacher_student_links/$(request.auth.uid + '_' + traineeId);
-      return isSignedIn()
+      return isTeacherClaim()
         && firestore.exists(link)
         && firestore.get(link).data.teacher_id == request.auth.uid
         && firestore.get(link).data.trainee_id == traineeId
@@ -89,7 +96,7 @@ service firebase.storage {
 
     function hasTeacherClassroomEvidenceGrant(traineeId) {
       let contextRef = /databases/(default)/documents/classroom_teacher_access/$(request.auth.uid + '_' + traineeId);
-      return isSignedIn()
+      return isTeacherClaim()
         && firestore.exists(contextRef)
         && firestore.get(contextRef).data.get('teacher_id', '') == request.auth.uid
         && firestore.get(contextRef).data.get('trainee_id', '') == traineeId
@@ -336,6 +343,7 @@ service firebase.storage {
           )
           || (
             request.auth.uid == teacherId
+            && isTeacherClaim()
             && isReviewableSubmissionStatus(attempt.status)
           )
         );
@@ -367,6 +375,7 @@ service firebase.storage {
           )
           || (
             request.auth.uid == teacherId
+            && isTeacherClaim()
             && (
               isReviewableSubmissionStatus(attempt.status)
               || isAbandonedTeacherReviewAnchor(attempt)
@@ -436,8 +445,10 @@ service firebase.storage {
     // persist an immutable storage path in their configuration snapshot.
     match /teacher_activity_demos/{teacherId}/{fileName} {
       allow read: if fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
-        && (isOwner(teacherId) || isCurrentTraineeOfTeacher(teacherId));
+        && ((isOwner(teacherId) && isTeacherClaim())
+          || isCurrentTraineeOfTeacher(teacherId));
       allow create: if isOwner(teacherId)
+        && isTeacherClaim()
         && fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
         && request.resource.contentType == 'video/mp4'
         && request.resource.size > 0
@@ -454,8 +465,10 @@ service firebase.storage {
     // the authenticated server cascade can remove them with the Assignment.
     match /teacher_activity_demos/{teacherId}/assignments/{assignmentId}/{fileName} {
       allow read: if fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
-        && (isOwner(teacherId) || isCurrentTraineeOfTeacher(teacherId));
+        && ((isOwner(teacherId) && isTeacherClaim())
+          || isCurrentTraineeOfTeacher(teacherId));
       allow create: if isOwner(teacherId)
+        && isTeacherClaim()
         && assignmentId.matches('^[A-Za-z0-9_-]+$')
         && fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
         && request.resource.contentType == 'video/mp4'

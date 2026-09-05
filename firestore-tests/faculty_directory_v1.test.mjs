@@ -76,14 +76,25 @@ function directoryRow({display_name, role}) {
   };
 }
 
-function db(uid, {emailVerified = true} = {}) {
+function db(uid, {
+  emailVerified = true,
+  teacherClaim = uid === 'teacher' || uid === 'other-teacher',
+} = {}) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.test`,
     email_verified: emailVerified,
+    ...(teacherClaim ? {role: 'Teacher'} : {}),
   }).firestore();
 }
 
 describe('chat_user_directory faculty list', () => {
+  test('Teacher profile without the canonical claim cannot query faculty', async () => {
+    await assertFails(getDocs(query(
+      collection(db('teacher', {teacherClaim: false}), 'chat_user_directory'),
+      where('role', '==', 'Teacher'),
+    )));
+  });
+
   test('verified Teacher can query Teacher rows', async () => {
     const snapshot = await assertSucceeds(getDocs(query(
       collection(db('teacher'), 'chat_user_directory'),

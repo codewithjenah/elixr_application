@@ -97,6 +97,10 @@ class AuthService extends ChangeNotifier {
       _repository is TeacherGoogleAuthRepositoryBase
       ? _repository as TeacherGoogleAuthRepositoryBase
       : null;
+  TeacherAuthorizationRepositoryBase? get _teacherAuthorizationRepository =>
+      _repository is TeacherAuthorizationRepositoryBase
+      ? _repository as TeacherAuthorizationRepositoryBase
+      : null;
   final LeaderboardRepository? _leaderboardRepository;
   final PublicProfileRepository? _publicProfileRepository;
   final Duration _pendingEmailPollInterval;
@@ -237,6 +241,9 @@ class AuthService extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    if (loadedUser != null) {
+      await _ensureTeacherRoleClaim(loadedUser);
+    }
     _currentUser = loadedUser;
     await _refreshProviderKinds();
     await _refreshEmailVerificationState();
@@ -327,6 +334,7 @@ class AuthService extends ChangeNotifier {
       await logout();
       throw Exception(TeacherAuthMessages.notATeacher);
     }
+    await _ensureTeacherRoleClaim(user);
     _currentUser = user;
     try {
       await _repository.requestCurrentEmailVerification();
@@ -360,6 +368,7 @@ class AuthService extends ChangeNotifier {
       await _repository.clearCurrentUser();
       throw Exception(TeacherAuthMessages.unsupportedRole);
     }
+    await _ensureTeacherRoleClaim(user);
     _currentUser = user;
     _pendingGoogleProfile = null;
     await _refreshProviderKinds();
@@ -454,6 +463,7 @@ class AuthService extends ChangeNotifier {
       _providerKinds = const {};
       throw Exception(TeacherAuthMessages.unsupportedRole);
     }
+    await _ensureTeacherRoleClaim(user);
     _pendingGoogleProfile = null;
     _currentUser = user;
     await _refreshProviderKinds();
@@ -541,6 +551,7 @@ class AuthService extends ChangeNotifier {
       _pendingGoogleProfile = null;
       throw Exception(TeacherAuthMessages.unsupportedRole);
     }
+    await _ensureTeacherRoleClaim(user);
     _pendingGoogleProfile = null;
     _currentUser = user;
     await _refreshProviderKinds();
@@ -714,6 +725,7 @@ class AuthService extends ChangeNotifier {
     final expectTeacher = user.isTeacher;
     _clearTeacherAuthMessages();
     try {
+      await _ensureTeacherRoleClaim(user);
       final verified = await _repository.isCurrentEmailVerified();
       if (!verified) {
         _teacherAuthErrorMessage = TeacherAuthMessages.emailNotVerifiedYet;
@@ -744,8 +756,8 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Ensures a Teacher session has a fresh `email_verified` ID-token claim
-  /// before privileged Firestore writes.
+  /// Ensures a Teacher session has fresh canonical `role` and
+  /// `email_verified` ID-token claims before privileged Firestore writes.
   ///
   /// Reuses [AuthRepositoryBase.isCurrentEmailVerified], which reloads the
   /// Firebase User and force-refreshes a stale cached token. Does not mint a
@@ -759,6 +771,7 @@ class AuthService extends ChangeNotifier {
     }
 
     try {
+      await _ensureTeacherRoleClaim(user);
       final verified = await _repository.isCurrentEmailVerified();
       if (!verified) {
         final changed = _emailVerified != false;
@@ -812,6 +825,18 @@ class AuthService extends ChangeNotifier {
   }
 
   bool _hasSupportedProductRole(User user) => user.isTrainee || user.isTeacher;
+
+  Future<void> _ensureTeacherRoleClaim(User user) async {
+    if (!user.isTeacher) return;
+    final repository = _teacherAuthorizationRepository;
+    if (repository == null) {
+      throw const TeacherRoleClaimException(
+        TeacherRoleClaimFailureKind.unavailable,
+        'Teacher authorization is unavailable. Please try again.',
+      );
+    }
+    await repository.ensureTeacherRoleClaim();
+  }
 
   String _sanitizeTeacherAuthError(Object error) {
     if (error is MissingUserProfileException) {

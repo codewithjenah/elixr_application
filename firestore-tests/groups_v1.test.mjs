@@ -53,10 +53,14 @@ after(async () => {
   await testEnv.cleanup();
 });
 
-function context(uid, { emailVerified = true } = {}) {
+function context(uid, {
+  emailVerified = true,
+  teacherClaim = uid === 'teacher' || uid === 'other' || uid === 'other-teacher',
+} = {}) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`,
     email_verified: emailVerified,
+    ...(teacherClaim ? { role: 'Teacher' } : {}),
   });
 }
 
@@ -292,6 +296,18 @@ describe('Phase 2 groups', () => {
     await createOwnedGroup();
     await provisionGroupInvite();
     await setGroupStatus('archived');
+  });
+
+  test('Teacher profile without the canonical claim cannot create a group', async () => {
+    await seedUsers();
+    const noClaim = context('teacher', {teacherClaim: false}).firestore();
+    const batch = writeBatch(noClaim);
+    batch.set(doc(noClaim, 'groups', GROUP_ID), activeGroupPayload());
+    batch.set(doc(noClaim, 'groups', GROUP_ID, 'lifecycle', 'status'), {
+      status: 'active',
+      updated_at: serverTimestamp(),
+    });
+    await assertFails(batch.commit());
   });
 
   test('owning Teacher can unarchive a group without changing invite pointer', async () => {

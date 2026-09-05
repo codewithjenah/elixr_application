@@ -506,6 +506,8 @@ function aliceDb() {
 function bobDb() {
   return testEnv.authenticatedContext('bob', {
     email: 'bob@example.com',
+    email_verified: true,
+    role: 'Teacher',
   }).firestore();
 }
 

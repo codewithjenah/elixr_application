@@ -42,7 +42,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'activity_material_uploads', UPLOAD_ID), {
       upload_id: UPLOAD_ID, material_id: MATERIAL_ID, assignment_id: ASSIGNMENT_ID,
       owner_teacher_id: 'teacher', type: 'pdf', display_name: 'Safety sheet',
-      declared_content_type: 'application/pdf', declared_size_bytes: 1024,
+      declared_content_type: 'application/pdf', declared_size_bytes: 3,
       staging_path: STAGING_PATH, state: 'staging', schema_version: 1,
       created_at: Timestamp.now(), expires_at: expires,
     });
@@ -75,12 +75,14 @@ after(async () => testEnv.cleanup());
 function storage(uid) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`, email_verified: true,
+    ...(uid === 'teacher' || uid === 'otherTeacher' ? {role: 'Teacher'} : {}),
   }).storage();
 }
 
 function firestore(uid) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`, email_verified: true,
+    ...(uid === 'teacher' || uid === 'otherTeacher' ? {role: 'Teacher'} : {}),
   }).firestore();
 }
 

@@ -321,6 +321,12 @@ abstract class TeacherRegistrationRepositoryBase {
   Future<void> assertTeacherAccessCodeRedeemable(String code);
 }
 
+/// Server-authoritative Teacher authorization exposed separately so callers
+/// can refresh a stale claim without changing Trainee repository contracts.
+abstract class TeacherAuthorizationRepositoryBase {
+  Future<void> ensureTeacherRoleClaim();
+}
+
 /// Optional extension of [GoogleAuthRepositoryBase] for the explicit Teacher
 /// registration flow. Keeping this separate preserves source compatibility
 /// for repositories that only support Trainee Google sign-in.
@@ -782,11 +788,65 @@ class AuthFailure implements Exception {
   String toString() => message;
 }
 
+enum TeacherRoleClaimFailureKind { invalidEvidence, unavailable, missingClaim }
+
+class TeacherRoleClaimException implements Exception {
+  const TeacherRoleClaimException(this.kind, this.message);
+
+  final TeacherRoleClaimFailureKind kind;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// Finalizes a missing Teacher claim and proves that a forced post-grant token
+/// contains the canonical value. Existing claims avoid an unnecessary write.
+@visibleForTesting
+Future<void> finalizeTeacherRoleClaim({
+  required Future<Map<Object?, Object?>?> Function() readCurrentClaims,
+  required Future<String?> Function() readBearerToken,
+  required Future<int> Function(String token) invokeFinalizer,
+  required Future<Map<Object?, Object?>?> Function() forceRefreshClaims,
+}) async {
+  final currentClaims = await readCurrentClaims();
+  if (currentClaims?['role'] == User.roleTeacher) return;
+
+  final token = await readBearerToken();
+  if (token == null || token.isEmpty) {
+    throw const TeacherRoleClaimException(
+      TeacherRoleClaimFailureKind.unavailable,
+      'Teacher authorization could not be refreshed. Check your connection and try again.',
+    );
+  }
+  final status = await invokeFinalizer(token);
+  if (status == HttpStatus.forbidden) {
+    throw const TeacherRoleClaimException(
+      TeacherRoleClaimFailureKind.invalidEvidence,
+      'ELIXR could not verify this account as a Teacher. Contact support if this account should have Teacher access.',
+    );
+  }
+  if (status != HttpStatus.ok) {
+    throw const TeacherRoleClaimException(
+      TeacherRoleClaimFailureKind.unavailable,
+      'Teacher authorization could not be refreshed. Check your connection and try again.',
+    );
+  }
+  final refreshedClaims = await forceRefreshClaims();
+  if (refreshedClaims?['role'] != User.roleTeacher) {
+    throw const TeacherRoleClaimException(
+      TeacherRoleClaimFailureKind.missingClaim,
+      'Teacher authorization is not ready yet. Please try again.',
+    );
+  }
+}
+
 class AuthRepository
     implements
         AuthRepositoryBase,
         GoogleAuthRepositoryBase,
         TeacherRegistrationRepositoryBase,
+        TeacherAuthorizationRepositoryBase,
         TeacherGoogleAuthRepositoryBase {
   AuthRepository({
     fb.FirebaseAuth? auth,
@@ -798,6 +858,7 @@ class AuthRepository
     Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
     GoogleOAuthFlow? googleOAuthFlow,
     Future<void> Function(String userId)? archiveChatForAccountErasure,
+    Future<void> Function(fb.User user)? teacherRoleClaimFinalizer,
     this.createMissingProfile = true,
   }) : _auth = auth ?? fb.FirebaseAuth.instance,
        _firestore = firestore ?? FirebaseFirestore.instance,
@@ -815,7 +876,8 @@ class AuthRepository
            ),
        _listProfileStorageObjectPaths = listProfileStorageObjectPaths,
        _googleOAuthFlow = googleOAuthFlow,
-       _archiveChatForAccountErasureOverride = archiveChatForAccountErasure;
+       _archiveChatForAccountErasureOverride = archiveChatForAccountErasure,
+       _teacherRoleClaimFinalizerOverride = teacherRoleClaimFinalizer;
 
   static const _authOperationTimeout = Duration(seconds: 30);
   static const _batchLimit = 500;
@@ -837,6 +899,7 @@ class AuthRepository
   final GoogleOAuthFlow? _googleOAuthFlow;
   final Future<void> Function(String userId)?
   _archiveChatForAccountErasureOverride;
+  final Future<void> Function(fb.User user)? _teacherRoleClaimFinalizerOverride;
 
   /// When false, a Firebase session without a Firestore profile is signed out
   /// instead of synthesizing a Trainee document. Teacher clients pass false
@@ -897,13 +960,12 @@ class AuthRepository
             : null,
       );
       if (isTeacher) {
-        // TODO: After redemption, a Cloud Function should set a Teacher
-        // custom claim so role is not trusted from the Firestore user doc.
         await _teacherAccessCodes.consumeAndCreateTeacherProfile(
           code: teacherAccessCode!,
           user: user,
           legalConsent: legalConsent,
         );
+        await _ensureTeacherProfileAuthorized(user);
       } else {
         await _db.upsertUserProfile(user, legalConsent: legalConsent);
       }
@@ -916,7 +978,10 @@ class AuthRepository
         expectedRole: defaultRole,
         teacherAccessCode: teacherAccessCode,
       );
-      if (reconciled != null) return reconciled;
+      if (reconciled != null) {
+        await _ensureTeacherProfileAuthorized(reconciled);
+        return reconciled;
+      }
       throw AuthFailure(
         AuthFailureKind.provisioning,
         e.message ?? e.toString(),
@@ -927,7 +992,10 @@ class AuthRepository
         expectedRole: defaultRole,
         teacherAccessCode: teacherAccessCode,
       );
-      if (reconciled != null) return reconciled;
+      if (reconciled != null) {
+        await _ensureTeacherProfileAuthorized(reconciled);
+        return reconciled;
+      }
       if (error is AuthFailure) rethrow;
       throw const AuthFailure(
         AuthFailureKind.provisioning,
@@ -1016,6 +1084,88 @@ class AuthRepository
   @override
   Future<void> assertTeacherAccessCodeRedeemable(String code) {
     return _teacherAccessCodes.assertRedeemable(code);
+  }
+
+  @override
+  Future<void> ensureTeacherRoleClaim() async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) {
+      throw const TeacherRoleClaimException(
+        TeacherRoleClaimFailureKind.unavailable,
+        'Teacher authorization could not be refreshed. Sign in and try again.',
+      );
+    }
+    await _finalizeTeacherRoleClaim(firebaseUser);
+  }
+
+  Future<void> _ensureTeacherProfileAuthorized(User profile) async {
+    if (!profile.isTeacher) return;
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null || firebaseUser.uid != profile.id) {
+      throw const TeacherRoleClaimException(
+        TeacherRoleClaimFailureKind.invalidEvidence,
+        'ELIXR could not verify this account as a Teacher. Sign in again.',
+      );
+    }
+    await _finalizeTeacherRoleClaim(firebaseUser);
+  }
+
+  Future<void> _finalizeTeacherRoleClaim(fb.User firebaseUser) async {
+    final override = _teacherRoleClaimFinalizerOverride;
+    if (override != null) return override(firebaseUser);
+    try {
+      await finalizeTeacherRoleClaim(
+        readCurrentClaims: () async =>
+            (await firebaseUser.getIdTokenResult().timeout(
+              _authOperationTimeout,
+            )).claims,
+        readBearerToken: () =>
+            firebaseUser.getIdToken().timeout(_authOperationTimeout),
+        invokeFinalizer: _invokeTeacherRoleClaimFinalizer,
+        forceRefreshClaims: () async =>
+            (await firebaseUser
+                    .getIdTokenResult(true)
+                    .timeout(_authOperationTimeout))
+                .claims,
+      );
+    } on TeacherRoleClaimException {
+      rethrow;
+    } on fb.FirebaseAuthException catch (error) {
+      throw TeacherRoleClaimException(
+        TeacherRoleClaimFailureKind.unavailable,
+        _messageForAuthError(error),
+      );
+    } on TimeoutException {
+      throw const TeacherRoleClaimException(
+        TeacherRoleClaimFailureKind.unavailable,
+        'Teacher authorization timed out. Check your connection and try again.',
+      );
+    } on SocketException {
+      throw const TeacherRoleClaimException(
+        TeacherRoleClaimFailureKind.unavailable,
+        'Teacher authorization could not reach the server. Check your connection and try again.',
+      );
+    }
+  }
+
+  Future<int> _invokeTeacherRoleClaimFinalizer(String token) async {
+    final endpoint = Uri.parse(
+      _chatApiBaseUrl,
+    ).resolve('ensureTeacherRoleClaim');
+    final client = HttpClient();
+    try {
+      final request = await client
+          .postUrl(endpoint)
+          .timeout(_authOperationTimeout);
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.write('{}');
+      final response = await request.close().timeout(_authOperationTimeout);
+      await response.drain<void>();
+      return response.statusCode;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   @override
@@ -1231,6 +1381,7 @@ class AuthRepository
       await _db.updateUserProfileField(firebaseUser.uid, {'email': authEmail});
       profile = profile.copyWith(email: authEmail);
     }
+    if (profile != null) await _ensureTeacherProfileAuthorized(profile);
     return profile;
   }
 
@@ -1420,7 +1571,10 @@ class AuthRepository
           'ELIXR could not confirm whether your Teacher profile was created. Check your connection and sign in again.',
         );
       }
-      if (reconciled != null) return reconciled;
+      if (reconciled != null) {
+        await _ensureTeacherProfileAuthorized(reconciled);
+        return reconciled;
+      }
       if (error is TeacherAccessCodeException) {
         throw Exception(error.message ?? error.toString());
       }
@@ -1435,6 +1589,7 @@ class AuthRepository
       }
       rethrow;
     }
+    await _ensureTeacherProfileAuthorized(user);
     return user;
   }
 
@@ -2432,6 +2587,7 @@ class AuthRepository
       profile = profile.copyWith(email: trimmedAuthEmail);
     }
 
+    await _ensureTeacherProfileAuthorized(profile);
     return profile;
   }
 

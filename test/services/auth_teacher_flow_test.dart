@@ -22,7 +22,8 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
   }
 }
 
-class _TeacherFlowRepository implements AuthRepositoryBase {
+class _TeacherFlowRepository
+    implements AuthRepositoryBase, TeacherAuthorizationRepositoryBase {
   _TeacherFlowRepository({
     this.loginUser,
     this.loginThrows,
@@ -43,6 +44,16 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   int refreshAuthenticatedUserCalls = 0;
   Object? isCurrentEmailVerifiedThrows;
   Object? refreshAuthenticatedUserThrows;
+  Object? ensureTeacherRoleClaimThrows;
+  int ensureTeacherRoleClaimCalls = 0;
+
+  @override
+  Future<void> ensureTeacherRoleClaim() async {
+    ensureTeacherRoleClaimCalls++;
+    if (ensureTeacherRoleClaimThrows != null) {
+      throw ensureTeacherRoleClaimThrows!;
+    }
+  }
 
   @override
   Future<User> register({
@@ -190,6 +201,7 @@ void main() {
 
       expect(repository.registerCallCount, 1);
       expect(repository.lastDefaultRole, User.roleTeacher);
+      expect(repository.ensureTeacherRoleClaimCalls, 1);
       expect(repository.verificationRequested, isTrue);
       expect(auth.currentUser?.isTeacher, isTrue);
       expect(auth.needsEmailVerification, isTrue);
@@ -218,6 +230,7 @@ void main() {
 
       expect(repository.registerCallCount, 1);
       expect(repository.lastDefaultRole, User.roleTrainee);
+      expect(repository.ensureTeacherRoleClaimCalls, 0);
       expect(auth.currentUser?.isTrainee, isTrue);
       expect(repository.verificationRequested, isTrue);
       expect(auth.needsEmailVerification, isTrue);
@@ -490,6 +503,43 @@ void main() {
 
     expect(auth.currentUser?.isTeacher, isTrue);
     expect(auth.needsEmailVerification, isFalse);
+    expect(repository.ensureTeacherRoleClaimCalls, 1);
+  });
+
+  test('Teacher login fails closed when claim evidence is invalid', () async {
+    final repository =
+        _TeacherFlowRepository(
+            loginUser: const User(
+              id: 'legacy-teacher',
+              firstName: 'Legacy',
+              lastName: 'Teacher',
+              email: 'legacy@school.edu',
+              role: User.roleTeacher,
+            ),
+          )
+          ..ensureTeacherRoleClaimThrows = const TeacherRoleClaimException(
+            TeacherRoleClaimFailureKind.invalidEvidence,
+            'Teacher authorization evidence is invalid.',
+          );
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
+
+    await expectLater(
+      auth.login(email: 'legacy@school.edu', password: 'secret1'),
+      throwsA(
+        isA<TeacherRoleClaimException>().having(
+          (error) => error.kind,
+          'kind',
+          TeacherRoleClaimFailureKind.invalidEvidence,
+        ),
+      ),
+    );
+
+    expect(auth.currentUser, isNull);
+    expect(repository.ensureTeacherRoleClaimCalls, 1);
   });
 
   group('ensureTeacherAuthorizationFresh', () {

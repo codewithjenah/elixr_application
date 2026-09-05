@@ -41,10 +41,14 @@ before(async () => {
 beforeEach(async () => testEnv.clearFirestore());
 after(async () => testEnv.cleanup());
 
-function context(uid, {emailVerified = true} = {}) {
+function context(uid, {
+  emailVerified = true,
+  teacherClaim = uid === 'teacher' || uid === 'other',
+} = {}) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`,
     email_verified: emailVerified,
+    ...(teacherClaim ? {role: 'Teacher'} : {}),
   });
 }
 

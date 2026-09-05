@@ -43,10 +43,14 @@ after(async () => {
   await testEnv.cleanup();
 });
 
-function context(uid, { emailVerified = true } = {}) {
+function context(uid, {
+  emailVerified = true,
+  teacherClaim = uid === 'teacher' || uid === 'other' || uid === 'other-teacher',
+} = {}) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`,
     email_verified: emailVerified,
+    ...(teacherClaim ? { role: 'Teacher' } : {}),
   });
 }
 
@@ -183,6 +187,17 @@ describe('Teacher Activity demonstration storage', () => {
     );
     await assertSucceeds(
       getBytes(ref(context('trainee').storage(), assignmentDemoPath)),
+    );
+  });
+
+  test('Teacher profile without the canonical claim cannot write a demo', async () => {
+    await seedTeacherActivityDemoAccess();
+    await assertFails(
+      uploadBytes(
+        ref(context('teacher', {teacherClaim: false}).storage(), demoPath),
+        new Uint8Array([1, 2, 3]),
+        demoMetadata,
+      ),
     );
   });
 

@@ -8,6 +8,7 @@ const {
   assignmentJsonValue,
   createClassroomAssignmentHandler,
   authenticatedUid,
+  ensureTeacherRoleClaimHandler,
   buildArchivedConversationData,
   buildSearchPrefixes,
   conversationIdFor,
@@ -308,6 +309,105 @@ function fakeResponse() {
     },
   };
 }
+
+function claimSnapshot(data) {
+  return {
+    exists: data != null,
+    get: (field) => data?.[field],
+    data: () => data,
+  };
+}
+
+function fakeTeacherClaimServices({
+  profile = {role: 'Teacher', teacher_access_code: 'ABCDEFGHJKM2'},
+  code = {consumed: true, consumed_by: 'teacher'},
+  customClaims = {billingPlan: 'faculty'},
+} = {}) {
+  const setCalls = [];
+  const firestore = {
+    collection(name) {
+      return {
+        doc(id) {
+          return {
+            get: async () => claimSnapshot(
+              name === 'users' && id === 'teacher' ? profile :
+                name === 'teacher_access_codes' && id === 'ABCDEFGHJKM2' ? code : null,
+            ),
+          };
+        },
+      };
+    },
+  };
+  const auth = {
+    getUser: async (uid) => ({uid, customClaims}),
+    setCustomUserClaims: async (uid, claims) => setCalls.push({uid, claims}),
+  };
+  return {firestore, auth, setCalls};
+}
+
+async function callTeacherClaimHandler({
+  token = {uid: 'teacher'},
+  body = {},
+  services = fakeTeacherClaimServices(),
+  method = 'POST',
+} = {}) {
+  const response = fakeResponse();
+  await ensureTeacherRoleClaimHandler(
+    {method, body, get: () => ''},
+    response,
+    {
+      verifyToken: async () => token,
+      databaseFactory: () => services.firestore,
+      authFactory: () => services.auth,
+    },
+  );
+  return {response, services};
+}
+
+test('Teacher claim finalization requires authentication and an empty request body', async () => {
+  const unauthenticated = await callTeacherClaimHandler({token: null});
+  assert.equal(unauthenticated.response.statusCode, 401);
+
+  for (const body of [{uid: 'victim'}, {role: 'Teacher'}, {role: 'Admin'}]) {
+    const rejected = await callTeacherClaimHandler({body});
+    assert.equal(rejected.response.statusCode, 400);
+    assert.equal(rejected.services.setCalls.length, 0);
+  }
+});
+
+test('Teacher claim finalization rejects incomplete or inconsistent evidence', async () => {
+  const cases = [
+    {profile: null},
+    {profile: {role: 'Trainee', teacher_access_code: 'ABCDEFGHJKM2'}},
+    {profile: {role: 'Teacher'}},
+    {code: null},
+    {code: {consumed: false, consumed_by: 'teacher'}},
+    {code: {consumed: true, consumed_by: 'another-user'}},
+  ];
+  for (const values of cases) {
+    const services = fakeTeacherClaimServices(values);
+    const {response} = await callTeacherClaimHandler({services});
+    assert.equal(response.statusCode, 403);
+    assert.equal(services.setCalls.length, 0);
+  }
+});
+
+test('Teacher claim finalization preserves unrelated claims and is idempotent', async () => {
+  const services = fakeTeacherClaimServices();
+  const granted = await callTeacherClaimHandler({services});
+  assert.equal(granted.response.statusCode, 200);
+  assert.deepEqual(services.setCalls, [{
+    uid: 'teacher',
+    claims: {billingPlan: 'faculty', role: 'Teacher'},
+  }]);
+
+  const alreadyCorrect = fakeTeacherClaimServices({
+    customClaims: {billingPlan: 'faculty', role: 'Teacher'},
+  });
+  const repeated = await callTeacherClaimHandler({services: alreadyCorrect});
+  assert.equal(repeated.response.statusCode, 200);
+  assert.equal(alreadyCorrect.setCalls.length, 0);
+});
 
 function fakeMaterialBeginDatabase({
   assignment = {teacher_id: 'teacher', status: 'draft'},
@@ -912,7 +1012,7 @@ test('assignment creation accepts an uncapped targeted subset atomically', async
     },
     response,
     {
-      verifyToken: async () => ({uid: 'teacher', email_verified: true}),
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
       databaseFactory: () => database,
     },
   );
@@ -964,7 +1064,7 @@ test('assignment creation accepts a current Teacher Activity revision for the en
     },
     response,
     {
-      verifyToken: async () => ({uid: 'teacher', email_verified: true}),
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
       databaseFactory: () => database,
     },
   );
@@ -1012,7 +1112,7 @@ async function createTeacherActivityAssignment({documents, body} = {}) {
     {method: 'POST', body: body || teacherActivityCreationBody(), get: () => ''},
     response,
     {
-      verifyToken: async () => ({uid: 'teacher', email_verified: true}),
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
       databaseFactory: () => fakeCreationDatabase({
         recipientIds: [], documents: documents || teacherActivityDocuments(),
       }),

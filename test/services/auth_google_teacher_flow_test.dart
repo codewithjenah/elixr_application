@@ -11,7 +11,8 @@ class _TeacherGoogleRepository extends Fake
         AuthRepositoryBase,
         GoogleAuthRepositoryBase,
         TeacherRegistrationRepositoryBase,
-        TeacherGoogleAuthRepositoryBase {
+        TeacherGoogleAuthRepositoryBase,
+        TeacherAuthorizationRepositoryBase {
   GoogleSignInResult teacherResult = const PendingGoogleSignIn(
     PendingGoogleProfile(
       uid: 'google-teacher',
@@ -30,6 +31,12 @@ class _TeacherGoogleRepository extends Fake
   String? assertedCode;
   String? completedCode;
   GoogleSignInResult? restoreResult;
+  int ensureTeacherRoleClaimCalls = 0;
+
+  @override
+  Future<void> ensureTeacherRoleClaim() async {
+    ensureTeacherRoleClaimCalls++;
+  }
 
   @override
   Future<void> assertTeacherAccessCodeRedeemable(String code) async {
@@ -149,6 +156,7 @@ void main() {
 
       expect(repository.assertCodeCalls, 0);
       expect(repository.teacherSignInCalls, 1);
+      expect(repository.ensureTeacherRoleClaimCalls, 0);
       expect(auth.pendingGoogleProfile?.intent, GoogleOnboardingIntent.teacher);
       expect(auth.pendingGoogleProfile?.teacherAccessCode, _code);
     },
@@ -166,6 +174,7 @@ void main() {
 
     expect(repository.teacherCompletionCalls, 1);
     expect(repository.completedCode, _code);
+    expect(repository.ensureTeacherRoleClaimCalls, 1);
     expect(auth.currentUser?.isTeacher, isTrue);
     expect(auth.hasPendingGoogleProfile, isFalse);
     expect(profiles.seedCalls, 1);
