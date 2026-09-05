@@ -152,6 +152,7 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
 
 class _MaterialRepository implements ActivityLearningMaterialRepository {
   final List<String> listedAssignmentIds = [];
+  final List<String> linkedAssignmentIds = [];
   bool failList = false;
 
   @override
@@ -159,7 +160,18 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     required String assignmentId,
     required String displayName,
     required Uri url,
-  }) => throw UnimplementedError();
+  }) {
+    linkedAssignmentIds.add(assignmentId);
+    return Future.value(
+      ActivityLearningMaterial(
+        id: 'link-${linkedAssignmentIds.length}',
+        assignmentId: assignmentId,
+        type: ActivityLearningMaterialType.link,
+        displayName: displayName,
+        externalUrl: url,
+      ),
+    );
+  }
 
   @override
   Future<ActivityMaterialUpload> beginUpload({
@@ -495,61 +507,48 @@ void main() {
     expect(assignments.teacherCreatedCalls, 0);
   });
 
-  testWidgets('pre-save learning materials are informational, not actionable', (
+  testWidgets('pre-save learning materials can queue and save a link', (
     tester,
   ) async {
+    final materials = _MaterialRepository();
     await pumpComposer(
       tester,
       creationService: service(),
       officialMovement: movementCatalog.first,
+      materialRepository: materials,
     );
 
-    await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_materials_post_save_hint')),
+    final add = find.byKey(const Key('teacher_assignment_add_material'));
+    await tester.ensureVisible(add);
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Link').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('teacher_assignment_material_link_name')),
+      'Grip guide',
     );
-    expect(
-      find.text('Materials can be added after this Activity is saved.'),
-      findsOneWidget,
+    await tester.enterText(
+      find.byKey(const Key('teacher_assignment_material_link_url')),
+      'https://example.com/grip',
     );
-    expect(
-      find.byKey(const Key('teacher_assignment_add_material')),
-      findsNothing,
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_confirm_material_link')),
     );
-    expect(find.text('Add material'), findsNothing);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Grip guide'), findsOneWidget);
+    expect(materials.linkedAssignmentIds, isEmpty);
+    final publish = find.byKey(const Key('teacher_assignment_publish_now'));
+    await tester.ensureVisible(publish);
+    await tester.tap(publish);
+    await tester.pumpAndSettle();
+
+    expect(assignments.officialCalls, 1);
+    expect(materials.linkedAssignmentIds, [
+      assignments.assignments.values.single.id,
+    ]);
   });
-
-  testWidgets(
-    'created Activity opens the manager with its authoritative ID and survives material errors',
-    (tester) async {
-      final materials = _MaterialRepository()..failList = true;
-      await pumpComposer(
-        tester,
-        creationService: service(),
-        officialMovement: movementCatalog.first,
-        materialRepository: materials,
-      );
-
-      await tester.ensureVisible(
-        find.byKey(const Key('teacher_assignment_publish_now')),
-      );
-      await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
-      await tester.pump();
-      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-      await tester.pump();
-
-      expect(assignments.assignments, hasLength(1));
-      expect(materials.listedAssignmentIds, [
-        assignments.assignments.values.single.id,
-      ]);
-      expect(
-        find.text('Learning materials could not be loaded.'),
-        findsOneWidget,
-      );
-      await tester.tap(find.text('Done'));
-      await tester.pumpAndSettle();
-      expect(assignments.assignments, hasLength(1));
-    },
-  );
 
   testWidgets(
     'Teacher Activity defaults prefill and assignment overrides publish a v2 snapshot',

@@ -41,11 +41,9 @@ import '../classwork/teacher_gradebook_pane.dart';
 import '../classwork/teacher_classwork_pane.dart';
 import '../movements/teacher_assignment_composer.dart';
 import '../movements/teacher_demo_recording_dialog.dart';
-import '../movements/teacher_movement_builder_dialog.dart';
 import '../../teacher_access/trainee_class_card.dart';
 import '../../classroom_announcements/classroom_announcements_controller.dart';
 import '../../classroom_announcements/classroom_announcements_pane.dart';
-import '../../activity_learning_materials/activity_learning_materials_panel.dart';
 import 'teacher_groups_controller.dart';
 
 class TeacherGroupDetailScreen extends StatefulWidget {
@@ -304,8 +302,9 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                     },
                     onEditAssignment:
                         group?.isActive == true && assignment.isActive
-                        ? (selectedAssignment) => _showEditAssignmentDialog(
+                        ? (selectedAssignment) => _showGroupAssignmentEditor(
                             context,
+                            controller,
                             classwork,
                             selectedAssignment,
                           )
@@ -528,8 +527,9 @@ class _GroupDetailBody extends StatelessWidget {
                   )
                 : null,
             onEdit: group.isActive && !classworkController.busy
-                ? (assignment) => _showEditAssignmentDialog(
+                ? (assignment) => _showGroupAssignmentEditor(
                     context,
+                    controller,
                     classworkController,
                     assignment,
                   )
@@ -1116,8 +1116,9 @@ Future<void> _showGroupAssignmentComposer(
   );
 }
 
-Future<void> _showEditAssignmentDialog(
+Future<void> _showGroupAssignmentEditor(
   BuildContext context,
+  TeacherGroupsController groupsController,
   TeacherClassworkController controller,
   GroupAssignment assignment,
 ) async {
@@ -1128,293 +1129,21 @@ Future<void> _showEditAssignmentDialog(
       assignment;
   if (!context.mounted) return;
   assignment = currentAssignment;
-  if (assignment.isTeacherCreated) {
-    await _showTeacherActivityAssignmentEditor(context, controller, assignment);
+  final group = groupsController.selectedGroup;
+  if (group == null || group.id != assignment.groupId || !group.isActive) {
     return;
   }
-  final initialScore = assignment.maxScore?.toString() ?? '';
-  final scoreController = TextEditingController(text: initialScore);
-  var dueAt = assignment.dueAt;
-  var hasDueDate = dueAt != null;
-  String? validationMessage;
-
-  var saving = false;
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => ContentDialog(
-        title: Text('Edit ${assignment.displayTitle}'),
-        content: SizedBox(
-          width: 420,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.65,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Update the deadline${assignment.isTeacherCreated ? ' and maximum score' : ''}.',
-                    style: AppTheme.bodySecondary.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  Checkbox(
-                    key: const Key('teacher_assignment_edit_due_date_toggle'),
-                    checked: hasDueDate,
-                    content: const Text('Set a due date'),
-                    onChanged: saving
-                        ? null
-                        : (value) {
-                            setDialogState(() {
-                              hasDueDate = value ?? false;
-                              dueAt ??= DateTime.now().add(
-                                const Duration(days: 7),
-                              );
-                            });
-                          },
-                  ),
-                  if (hasDueDate) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    DatePicker(
-                      key: const Key('teacher_assignment_edit_due_date'),
-                      selected: dueAt ?? DateTime.now(),
-                      onChanged: saving
-                          ? null
-                          : (value) => setDialogState(() => dueAt = value),
-                    ),
-                  ],
-                  if (assignment.isTeacherCreated) ...[
-                    const SizedBox(height: AppSpacing.lg),
-                    Text(
-                      'Maximum score (1–100)',
-                      style: AppTheme.body.copyWith(
-                        color: context.elixTextPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    TextBox(
-                      key: const Key('teacher_assignment_edit_max_score'),
-                      controller: scoreController,
-                      enabled: !assignment.gradingLocked,
-                      keyboardType: TextInputType.number,
-                    ),
-                    if (assignment.gradingLocked) ...[
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        'The score is locked because this assignment already has a checked submission.',
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: AppSpacing.lg),
-                  ElixPanelCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(FluentIcons.education),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Learning materials',
-                                    style: AppTheme.body,
-                                  ),
-                                  Text(
-                                    'Optional supporting files or links for Trainees.',
-                                    style: AppTheme.caption.copyWith(
-                                      color: context.elixTextSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        Button(
-                          onPressed: saving
-                              ? null
-                              : () => _showLearningMaterialsDialog(
-                                  context,
-                                  assignment.id,
-                                ),
-                          child: const Text('Manage materials'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (validationMessage != null) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    Text(
-                      validationMessage!,
-                      key: const Key('teacher_assignment_edit_validation'),
-                      style: AppTheme.caption.copyWith(color: AppColors.error),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          Button(
-            onPressed: saving ? null : () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('teacher_assignment_save_changes'),
-            onPressed: saving
-                ? null
-                : () async {
-                    final maxScore =
-                        assignment.isTeacherCreated && !assignment.gradingLocked
-                        ? int.tryParse(scoreController.text.trim())
-                        : null;
-                    if (assignment.isTeacherCreated &&
-                        !assignment.gradingLocked &&
-                        (maxScore == null || maxScore < 1 || maxScore > 100)) {
-                      setDialogState(() {
-                        validationMessage =
-                            'Enter a maximum score from 1 to 100.';
-                      });
-                      return;
-                    }
-                    setDialogState(() {
-                      saving = true;
-                      validationMessage = null;
-                    });
-                    final saved = await controller.updateAssignmentSettings(
-                      assignment,
-                      dueAt: hasDueDate ? dueAt : null,
-                      maxScore: maxScore,
-                    );
-                    if (!dialogContext.mounted) return;
-                    if (!saved) {
-                      setDialogState(() {
-                        saving = false;
-                        validationMessage =
-                            controller.errorMessage ??
-                            'This assignment could not be saved.';
-                      });
-                      return;
-                    }
-                    Navigator.pop(dialogContext);
-                  },
-            child: Text(saving ? 'Saving...' : 'Save changes'),
-          ),
-        ],
-      ),
-    ),
-  );
-  scoreController.dispose();
-}
-
-Future<void> _showTeacherActivityAssignmentEditor(
-  BuildContext context,
-  TeacherClassworkController controller,
-  GroupAssignment assignment,
-) async {
-  final movementRepository = _tryReadTeacherMovementRepository(context);
-  await Navigator.of(context).push<void>(
-    PageRouteBuilder<void>(
-      pageBuilder: (_, _, _) => TeacherMovementBuilderDialog(
-        assignment: assignment,
-        approvedMemberships: controller.approvedMemberships,
-        onCreateTeacherReviewed:
-            ({
-              required title,
-              required instructions,
-              required requiredProp,
-              safetyGuidance,
-            }) async {
-              throw StateError('Classroom Activities cannot be created here.');
-            },
-        onEditAssignment:
-            ({
-              required title,
-              required instructions,
-              required requiredProp,
-              required assessment,
-              required attemptPolicy,
-              required audience,
-              dueAt,
-              safetyGuidance,
-              topic,
-            }) async {
-              final saved = await controller.updateTeacherActivityAssignment(
-                assignment: assignment,
-                displayTitle: title,
-                instructions: instructions,
-                safetyGuidance: safetyGuidance,
-                topic: topic,
-                dueAt: dueAt,
-                audience: audience,
-                activityAssessment: assessment,
-                attemptPolicy: attemptPolicy,
-                requiredProp: requiredProp,
-              );
-              if (!saved) {
-                throw StateError(
-                  controller.errorMessage ??
-                      'This Classroom Activity could not be saved.',
-                );
-              }
-            },
-        onUploadDemonstration: movementRepository == null
-            ? null
-            : ({required localFile, required duration, required source}) =>
-                  movementRepository.uploadActivityDemonstration(
-                    teacherId: controller.teacherId,
-                    localFile: localFile,
-                    duration: duration,
-                    source: source,
-                    assignmentId: assignment.id,
-                  ),
-        onManageLearningMaterials: () =>
-            _showLearningMaterialsDialog(context, assignment.id),
-      ),
-    ),
-  );
-}
-
-Future<void> _showLearningMaterialsDialog(
-  BuildContext context,
-  String assignmentId,
-) async {
-  final repository = _tryRead<ActivityLearningMaterialRepository>(context);
-  if (repository == null) return;
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => ContentDialog(
-      title: const Text('Learning materials'),
-      content: SizedBox(
-        width: 620,
-        child: SingleChildScrollView(
-          child: ActivityLearningMaterialsPanel(
-            assignmentId: assignmentId,
-            repository: repository,
-          ),
-        ),
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Done'),
-        ),
-      ],
-    ),
+  await showTeacherAssignmentComposer(
+    context,
+    teacherId: controller.teacherId,
+    teacherDisplayName: controller.teacherDisplayName,
+    groups: [group],
+    movementRepository: _tryReadTeacherMovementRepository(context),
+    assignmentRepository: controller.assignmentRepository,
+    groupRepository: groupsController.repository,
+    lockedGroup: group,
+    existingAssignment: assignment,
+    materialRepository: _tryRead<ActivityLearningMaterialRepository>(context),
   );
 }
 

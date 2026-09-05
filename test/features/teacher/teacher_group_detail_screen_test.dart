@@ -619,10 +619,12 @@ void main() {
     await tester.tap(edit);
     await tester.pumpAndSettle();
 
-    expect(find.text('Edit Normal Grip'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const Key('teacher_assignment_edit_due_date_toggle')),
+    expect(find.text('Edit assignment'), findsOneWidget);
+    final dueDateToggle = find.byKey(
+      const Key('teacher_assignment_due_date_toggle'),
     );
+    await tester.ensureVisible(dueDateToggle);
+    await tester.tap(dueDateToggle);
     await tester.pump();
     final save = find.byKey(const Key('teacher_assignment_save_changes'));
     await tester.ensureVisible(save);
@@ -687,14 +689,13 @@ void main() {
     await tester.ensureVisible(edit);
     await tester.tap(edit);
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('teacher_assignment_save_changes')));
+    final save = find.byKey(const Key('teacher_assignment_save_changes'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
     await tester.pumpAndSettle();
 
-    expect(find.text('Edit Normal Grip'), findsOneWidget);
-    expect(
-      find.byKey(const Key('teacher_assignment_edit_validation')),
-      findsOneWidget,
-    );
+    expect(find.text('Edit assignment'), findsOneWidget);
+    expect(find.byKey(const Key('teacher_assignment_error')), findsOneWidget);
     expect(
       find.byKey(const Key('teacher_assignment_save_changes')),
       findsOneWidget,
@@ -742,46 +743,29 @@ void main() {
     await tester.ensureVisible(editAssignment);
     await tester.tap(editAssignment);
     await tester.pumpAndSettle();
-    expect(find.text('Edit Classroom Activity'), findsOneWidget);
-    expect(find.text('Assignment settings'), findsOneWidget);
+    expect(find.text('Edit assignment'), findsOneWidget);
     await tester.enterText(
-      find.byKey(const ValueKey('builder-instructions')),
-      'Keep the bottle in view and submit a recording.',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('builder-topic')),
+      find.byKey(const Key('teacher_assignment_topic')),
       'Bottle control',
     );
-    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+    final save = find.byKey(const Key('teacher_assignment_save_changes'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
     await tester.pumpAndSettle();
     final updated = await assignments.getAssignment(assignmentId: assignmentId);
-    expect(updated?.activityAssessment, isNotNull);
     expect(updated?.maxScore, 100);
-    expect(updated?.allowedProp, TrainingProp.bottle);
     expect(updated?.topic, 'Bottle control');
-    expect(updated?.configurationRevision, 2);
 
     await tester.ensureVisible(editAssignment);
     await tester.tap(editAssignment);
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TextBox>(find.byKey(const ValueKey('builder-topic')))
+          .widget<TextBox>(find.byKey(const Key('teacher_assignment_topic')))
           .controller
           ?.text,
       'Bottle control',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('builder-title')),
-      'Advanced Tin',
-    );
-    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
-    await tester.pumpAndSettle();
-    final editedAgain = await assignments.getAssignment(
-      assignmentId: assignmentId,
-    );
-    expect(editedAgain?.displayTitle, 'Advanced Tin');
-    expect(editedAgain?.configurationRevision, 3);
   });
 
   testWidgets(

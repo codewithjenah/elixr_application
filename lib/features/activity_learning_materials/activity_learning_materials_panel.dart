@@ -165,7 +165,7 @@ class _ActivityLearningMaterialsPanelState
   }
 
   Future<void> _pickFile(ActivityLearningMaterialType type) async {
-    final config = _fileConfig(type);
+    final config = activityLearningMaterialFileConfig(type);
     final selected = await widget.filePicker(
       acceptedTypeGroups: [config.group],
     );
@@ -898,8 +898,11 @@ class _PendingUpload {
   bool checking = false;
 }
 
-class _FileConfig {
-  const _FileConfig(
+/// Shared picker configuration for the material types accepted by ELIXR.
+/// This remains friendly client-side feedback; the Functions lifecycle is the
+/// authoritative validation step.
+class ActivityLearningMaterialFileConfig {
+  const ActivityLearningMaterialFileConfig(
     this.group,
     this.extensions,
     this.contentType,
@@ -911,25 +914,29 @@ class _FileConfig {
   final int maximumBytes;
 }
 
-_FileConfig _fileConfig(ActivityLearningMaterialType type) => switch (type) {
-  ActivityLearningMaterialType.pdf => const _FileConfig(
+ActivityLearningMaterialFileConfig activityLearningMaterialFileConfig(
+  ActivityLearningMaterialType type,
+) => switch (type) {
+  ActivityLearningMaterialType.pdf => const ActivityLearningMaterialFileConfig(
     XTypeGroup(label: 'PDF', extensions: ['pdf']),
     ['pdf'],
     'application/pdf',
     ActivityLearningMaterialLimits.pdfBytes,
   ),
-  ActivityLearningMaterialType.image => const _FileConfig(
-    XTypeGroup(label: 'Images', extensions: ['jpg', 'jpeg', 'png']),
-    ['jpg', 'jpeg', 'png'],
-    'image/jpeg',
-    ActivityLearningMaterialLimits.imageBytes,
-  ),
-  ActivityLearningMaterialType.video => const _FileConfig(
-    XTypeGroup(label: 'MP4 video', extensions: ['mp4']),
-    ['mp4'],
-    'video/mp4',
-    ActivityLearningMaterialLimits.videoBytes,
-  ),
+  ActivityLearningMaterialType.image =>
+    const ActivityLearningMaterialFileConfig(
+      XTypeGroup(label: 'Images', extensions: ['jpg', 'jpeg', 'png']),
+      ['jpg', 'jpeg', 'png'],
+      'image/jpeg',
+      ActivityLearningMaterialLimits.imageBytes,
+    ),
+  ActivityLearningMaterialType.video =>
+    const ActivityLearningMaterialFileConfig(
+      XTypeGroup(label: 'MP4 video', extensions: ['mp4']),
+      ['mp4'],
+      'video/mp4',
+      ActivityLearningMaterialLimits.videoBytes,
+    ),
   ActivityLearningMaterialType.link => throw ArgumentError.value(type),
 };
 String _rejectionMessage(ActivityMaterialUploadRejectionReason? reason) =>

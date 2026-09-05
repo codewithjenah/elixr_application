@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/auth/teacher_auth_messages.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
 import '../../../core/shell/teacher_shell.dart';
@@ -16,6 +19,7 @@ import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/assessment_mode.dart';
+import '../../../data/models/activity_learning_material.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
@@ -257,6 +261,7 @@ Future<bool?> showTeacherAssignmentComposer(
   ElixrGroup? lockedGroup,
   Movement? officialMovement,
   TeacherMovement? teacherCreatedMovement,
+  GroupAssignment? existingAssignment,
   Future<bool> Function()? ensureTeacherAuthorization,
   ActivityLearningMaterialRepository? materialRepository,
 }) {
@@ -290,6 +295,7 @@ Future<bool?> showTeacherAssignmentComposer(
             lockedGroup: lockedGroup,
             officialMovement: officialMovement,
             teacherCreatedMovement: teacherCreatedMovement,
+            existingAssignment: existingAssignment,
             materialRepository: materialRepository,
           ),
       transitionsBuilder: (_, animation, secondaryAnimation, child) {
@@ -325,7 +331,9 @@ class TeacherAssignmentComposer extends StatefulWidget {
     this.lockedGroup,
     this.officialMovement,
     this.teacherCreatedMovement,
+    this.existingAssignment,
     this.materialRepository,
+    this.materialFilePicker = openFile,
   });
 
   final String teacherId;
@@ -337,7 +345,12 @@ class TeacherAssignmentComposer extends StatefulWidget {
   final ElixrGroup? lockedGroup;
   final Movement? officialMovement;
   final TeacherMovement? teacherCreatedMovement;
+
+  /// A real assignment switches this workspace into edit mode. Identity is
+  /// displayed but never changed or recreated from this screen.
+  final GroupAssignment? existingAssignment;
   final ActivityLearningMaterialRepository? materialRepository;
+  final ActivityLearningMaterialFilePicker materialFilePicker;
 
   @override
   State<TeacherAssignmentComposer> createState() =>
@@ -398,9 +411,23 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       TeacherActivityAssessmentContract.defaultRecordingDurationSeconds;
   TeacherActivityVideoMetadata? _demonstrationVideo;
   List<_CustomCriterionDraft> _customCriteria = [];
+  final List<_QueuedMaterialDraft> _queuedMaterials = [];
+  GroupAssignment? _createdAssignment;
+
+  bool get _isEditing => widget.existingAssignment != null;
+  GroupAssignment? get _editingAssignment => widget.existingAssignment;
+  bool get _canEditTeacherActivity =>
+      _isEditing &&
+      _editingAssignment!.isTeacherCreated &&
+      _editingAssignment!.activityAssessment != null &&
+      !_editingAssignment!.gradingLocked;
+  String? get _persistedAssignmentId =>
+      _editingAssignment?.id ?? _createdAssignment?.id;
 
   bool get _hasMovementOverride =>
-      widget.officialMovement != null || widget.teacherCreatedMovement != null;
+      _isEditing ||
+      widget.officialMovement != null ||
+      widget.teacherCreatedMovement != null;
 
   List<ElixrGroup> get _activeGroups {
     final groups = [
@@ -416,8 +443,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return groups;
   }
 
-  bool get _isTeacherCreated =>
-      _origin == _AssignmentOriginSelection.teacherCreated;
+  bool get _isTeacherCreated => _isEditing
+      ? _editingAssignment!.isTeacherCreated
+      : _origin == _AssignmentOriginSelection.teacherCreated;
 
   TeacherReviewedMovementSpec? get _selectedActivitySpec {
     final movement = _selectedTeacherCreatedMovement;
@@ -430,6 +458,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   bool get _hasValidMaxScore {
     if (!_isTeacherCreated) return true;
+    if (_isEditing && !_customizeActivity) {
+      final value = int.tryParse(_maxScoreController.text.trim());
+      return value != null && value >= 1 && value <= 100;
+    }
     if (!_customizeActivity) return _selectedActivitySpec != null;
     if (_rubricTemplate == TeacherActivityRubricTemplate.custom) return true;
     final value = int.tryParse(_maxScoreController.text.trim());
@@ -497,7 +529,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   bool get _hasValidActivityAssessment =>
-      !_isTeacherCreated || _activityAssessment != null;
+      !_isTeacherCreated ||
+      (_isEditing && !_customizeActivity) ||
+      _activityAssessment != null;
 
   String? get _activityDetailsValidation {
     if (!_isTeacherCreated) return null;
@@ -524,6 +558,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   bool get _hasValidTeacherMovement {
+    if (_isEditing && _isTeacherCreated) return true;
     final movement = _selectedTeacherCreatedMovement;
     if (movement == null || !movement.isActive) return false;
     if (!_classroomScoped) return true;
@@ -565,19 +600,45 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     _maxScoreController = TextEditingController(
       text: '${TeacherActivityAssessmentContract.defaultMaximumScore}',
     );
+    final existing = _editingAssignment;
     _assignmentTitleController = TextEditingController(
-      text: widget.teacherCreatedMovement?.title ?? '',
+      text:
+          existing?.displayTitle ?? widget.teacherCreatedMovement?.title ?? '',
     );
-    _instructionsController = TextEditingController();
-    _safetyGuidanceController = TextEditingController();
-    _topicController = TextEditingController();
+    _instructionsController = TextEditingController(
+      text: existing?.displayInstructions ?? '',
+    );
+    _safetyGuidanceController = TextEditingController(
+      text: existing?.displaySafetyGuidance ?? '',
+    );
+    _topicController = TextEditingController(text: existing?.topic ?? '');
     _rosterSearchController = TextEditingController();
-    _selectedGroup = widget.lockedGroup ?? _firstActiveGroup();
-    _selectedOfficialMovement = widget.officialMovement;
+    _selectedGroup = existing == null
+        ? widget.lockedGroup ?? _firstActiveGroup()
+        : _groupFor(existing) ?? widget.lockedGroup ?? _firstActiveGroup();
+    _selectedOfficialMovement = existing?.isOfficial == true
+        ? _enabledOfficialMovements
+              .where(
+                (movement) => movement.name == existing!.officialMovementName,
+              )
+              .firstOrNull
+        : widget.officialMovement;
     _selectedTeacherCreatedMovement = widget.teacherCreatedMovement;
-    _origin = widget.teacherCreatedMovement != null
+    _origin =
+        (existing?.isTeacherCreated == true ||
+            widget.teacherCreatedMovement != null)
         ? _AssignmentOriginSelection.teacherCreated
         : _AssignmentOriginSelection.official;
+    if (existing != null) {
+      _dueAt = existing.dueAt;
+      _attemptPolicy = existing.attemptPolicy;
+      _audienceType = existing.audience.type;
+      _targetTraineeIds = existing.audience.targetTraineeIds.toSet();
+      _maxScoreController.text = '${existing.maxScore ?? 100}';
+      _initializeEditAssessment(existing);
+      if (_audienceType.isTargeted) unawaited(_watchRosterForSelectedGroup());
+      return;
+    }
     if (_classroomScoped) {
       _selectedOfficialMovement = _enabledOfficialMovements.firstOrNull;
       _startWatchingTeacherMovements();
@@ -586,17 +647,46 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
   }
 
+  ElixrGroup? _groupFor(GroupAssignment assignment) {
+    for (final group in _activeGroups) {
+      if (group.id == assignment.groupId) return group;
+    }
+    return null;
+  }
+
+  void _initializeEditAssessment(GroupAssignment assignment) {
+    final assessment = assignment.activityAssessment;
+    if (!assignment.isTeacherCreated ||
+        assignment.gradingLocked ||
+        assessment == null) {
+      return;
+    }
+    _customizeActivity = true;
+    _readinessHands = assessment.readiness.hands;
+    _readinessBody = assessment.readiness.body;
+    _rubricTemplate = assessment.rubric.template;
+    _recordingDurationSeconds = assessment.recordingDurationSeconds;
+    _demonstrationVideo = assessment.demonstrationVideo;
+    if (_rubricTemplate == TeacherActivityRubricTemplate.custom) {
+      _customCriteria = [
+        for (final criterion in assessment.rubric.criteria)
+          _CustomCriterionDraft.fromCriterion(criterion),
+      ];
+    }
+  }
+
   Future<void> _watchRosterForSelectedGroup() async {
     final token = ++_rosterLoadToken;
     await _rosterSubscription?.cancel();
     _rosterSubscription = null;
     final group = _selectedGroup;
+    final retainedTargetIds = _isEditing ? _targetTraineeIds : const <String>{};
     if (!mounted || token != _rosterLoadToken) return;
     setState(() {
       _loadingRoster = group != null;
       _rosterLoadError = null;
       _eligibleTrainees = const [];
-      _targetTraineeIds = const {};
+      _targetTraineeIds = retainedTargetIds;
       _rosterSearchController.clear();
     });
     if (group == null) return;
@@ -768,8 +858,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final title = _classroomScoped ? 'Create assignment' : 'Assign to class';
-    final subtitle = _classroomScoped
+    final title = _isEditing
+        ? 'Edit assignment'
+        : _classroomScoped
+        ? 'Create assignment'
+        : 'Assign to class';
+    final subtitle = _isEditing
+        ? 'Update the settings and learning materials for this assignment.'
+        : _classroomScoped
         ? 'Choose a movement, set expectations, and send it to your class.'
         : 'Choose a class and set the deadline before you publish it.';
 
@@ -855,13 +951,16 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ? _recordingDurationSeconds
           : null,
       rubricLabel: _isTeacherCreated ? _rubricTemplate.displayLabel : null,
-      onSaveDraft: _canSubmit
+      isEditing: _isEditing,
+      onSaveDraft: _canSubmit && !_isEditing
           ? () => _submit(context, _PublicationAction.draft)
           : null,
       onPublish: _canSubmit
-          ? () => _submit(context, _PublicationAction.publish)
+          ? () => _isEditing
+                ? _submitEdit(context)
+                : _submit(context, _PublicationAction.publish)
           : null,
-      onSchedule: _canSubmit
+      onSchedule: _canSubmit && !_isEditing
           ? () => _submit(context, _PublicationAction.schedule)
           : null,
     );
@@ -871,11 +970,19 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _ComposerHeroCard(
-          eyebrow: _classroomScoped ? 'NEW ASSIGNMENT' : 'MOVEMENT READY',
-          title: _classroomScoped
+          eyebrow: _isEditing
+              ? 'ASSIGNMENT SETTINGS'
+              : _classroomScoped
+              ? 'NEW ASSIGNMENT'
+              : 'MOVEMENT READY',
+          title: _isEditing
+              ? _movementTitle
+              : _classroomScoped
               ? 'Build a practice brief'
               : 'Publish $_movementTitle',
-          description: _classroomScoped
+          description: _isEditing
+              ? 'The classroom and movement stay fixed. Update the settings that are safe to change.'
+              : _classroomScoped
               ? 'Give your class a clear target and a deadline they can act on.'
               : 'One last check before this movement appears in the selected class.',
           icon: _classroomScoped ? FluentIcons.task_list : FluentIcons.send,
@@ -898,8 +1005,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         ],
         const SizedBox(height: AppSpacing.md),
         Text(
-          'Publishing sends this existing movement to the selected classroom. '
-          'Movement content stays reusable in your library.',
+          _isEditing
+              ? 'Saving updates this existing assignment without changing its identity or submissions.'
+              : 'Publishing sends this existing movement to the selected classroom. '
+                    'Movement content stays reusable in your library.',
           textAlign: TextAlign.center,
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
@@ -920,12 +1029,17 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               : 'Choose the class that should receive this movement.',
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (_classroomScoped)
+        if (_classroomScoped || _isEditing)
           _ComposerReadOnlyField(
             key: const Key('teacher_assignment_locked_group'),
             label: 'Classroom',
-            value: widget.lockedGroup?.name ?? 'Classroom',
-            hint: 'The class is fixed from the group workspace.',
+            value:
+                _selectedGroup?.name ??
+                _editingAssignment?.groupName ??
+                'Classroom',
+            hint: _isEditing
+                ? 'The classroom is fixed for this existing assignment.'
+                : 'The class is fixed from the group workspace.',
             icon: FluentIcons.lock,
           )
         else
@@ -948,19 +1062,24 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             ),
           ),
         const SizedBox(height: AppSpacing.xl),
-        _ComposerSectionHeading(
-          icon: FluentIcons.contact,
-          eyebrow: 'AUDIENCE',
-          title: 'Who should receive it?',
-          description: 'Choose the whole class, a small group, or one trainee.',
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _AssignmentAudienceSelector(
-          selected: _audienceType,
-          enabled: !_submitting,
-          onChanged: _onAudienceTypeChanged,
-        ),
-        if (_audienceType.isTargeted) ...[
+        if (!_isEditing || _canEditTeacherActivity)
+          _ComposerSectionHeading(
+            icon: FluentIcons.contact,
+            eyebrow: 'AUDIENCE',
+            title: 'Who should receive it?',
+            description:
+                'Choose the whole class, a small group, or one trainee.',
+          ),
+        if (!_isEditing || _canEditTeacherActivity)
+          const SizedBox(height: AppSpacing.lg),
+        if (!_isEditing || _canEditTeacherActivity)
+          _AssignmentAudienceSelector(
+            selected: _audienceType,
+            enabled: !_submitting,
+            onChanged: _onAudienceTypeChanged,
+          ),
+        if ((!_isEditing || _canEditTeacherActivity) &&
+            _audienceType.isTargeted) ...[
           const SizedBox(height: AppSpacing.md),
           _buildRosterPicker(context),
         ],
@@ -993,8 +1112,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const SizedBox(height: AppSpacing.md),
           const _AutomaticScoringCard(),
         ],
-        if ((_isTeacherCreated && _hasValidTeacherMovement) ||
-            _selectedOfficialMovement != null) ...[
+        if (!_isEditing &&
+            ((_isTeacherCreated && _hasValidTeacherMovement) ||
+                _selectedOfficialMovement != null)) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
             icon: FluentIcons.clock,
@@ -1011,21 +1131,22 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           _ComposerSectionHeading(
             icon: FluentIcons.completed,
             eyebrow: 'SELECTED ACTIVITY',
-            title: _selectedTeacherCreatedMovement!.title,
+            title: _movementTitle,
             description: _activityInheritanceSummary,
           ),
           const SizedBox(height: AppSpacing.md),
-          ToggleSwitch(
-            key: const Key('teacher_assignment_customize_activity'),
-            checked: _customizeActivity,
-            content: const Text('Customize for this assignment'),
-            onChanged: _submitting
-                ? null
-                : (value) => setState(() {
-                    _customizeActivity = value;
-                    if (value) _initializeCustomizationFromActivity();
-                  }),
-          ),
+          if (!_isEditing)
+            ToggleSwitch(
+              key: const Key('teacher_assignment_customize_activity'),
+              checked: _customizeActivity,
+              content: const Text('Customize for this assignment'),
+              onChanged: _submitting
+                  ? null
+                  : (value) => setState(() {
+                      _customizeActivity = value;
+                      if (value) _initializeCustomizationFromActivity();
+                    }),
+            ),
           if (_customizeActivity) ...[
             const SizedBox(height: AppSpacing.xl),
             _ComposerSectionHeading(
@@ -1085,6 +1206,30 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             _activityAssessmentFields(context),
           ],
         ],
+        if (_isEditing && _isTeacherCreated && !_canEditTeacherActivity) ...[
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.calculator,
+            eyebrow: 'SCORING',
+            title: 'Maximum score',
+            description: _editingAssignment!.gradingLocked
+                ? 'This score is locked because a submission has already been checked.'
+                : 'Set the maximum score for this Teacher Activity.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _ComposerField(
+            label: 'Maximum score',
+            hint: 'Enter a value from 1 to 100.',
+            child: TextBox(
+              key: const Key('teacher_assignment_max_score'),
+              controller: _maxScoreController,
+              enabled: !_submitting && !_editingAssignment!.gradingLocked,
+              keyboardType: TextInputType.number,
+              maxLength: 3,
+              onChanged: (_) => setState(() => _validationError = null),
+            ),
+          ),
+        ],
         if (!_isTeacherCreated || _hasValidTeacherMovement) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
@@ -1097,27 +1242,17 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           _ComposerField(
             label: 'Attachments',
             hint: 'Supporting PDFs, images, videos, or secure web links.',
-            child: Row(
-              key: const Key('teacher_assignment_materials_post_save_hint'),
-              children: [
-                const Icon(FluentIcons.lock, size: 16),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    'Materials can be added after this Activity is saved.',
-                    style: AppTheme.bodySecondary,
-                  ),
-                ),
-              ],
+            child: _buildLearningMaterials(context),
+          ),
+          if (!_isEditing) const SizedBox(height: AppSpacing.xl),
+          if (!_isEditing)
+            _ComposerSectionHeading(
+              icon: FluentIcons.tag,
+              eyebrow: 'ORGANIZATION',
+              title: 'Add a topic',
+              description:
+                  'Optional. Topics organize Classwork for this class.',
             ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          _ComposerSectionHeading(
-            icon: FluentIcons.tag,
-            eyebrow: 'ORGANIZATION',
-            title: 'Add a topic',
-            description: 'Optional. Topics organize Classwork for this class.',
-          ),
           const SizedBox(height: AppSpacing.lg),
           _ComposerField(
             label: 'Topic',
@@ -1163,17 +1298,20 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             description:
                 'Save a private draft, publish now, or set a Manila date and time.',
           ),
-          const SizedBox(height: AppSpacing.lg),
-          _PublicationScheduleField(
-            date: _publicationDate,
-            hour: _publicationHour,
-            minute: _publicationMinute,
-            enabled: !_submitting,
-            onDateChanged: (value) => setState(() => _publicationDate = value),
-            onHourChanged: (value) => setState(() => _publicationHour = value),
-            onMinuteChanged: (value) =>
-                setState(() => _publicationMinute = value),
-          ),
+          if (!_isEditing) const SizedBox(height: AppSpacing.lg),
+          if (!_isEditing)
+            _PublicationScheduleField(
+              date: _publicationDate,
+              hour: _publicationHour,
+              minute: _publicationMinute,
+              enabled: !_submitting,
+              onDateChanged: (value) =>
+                  setState(() => _publicationDate = value),
+              onHourChanged: (value) =>
+                  setState(() => _publicationHour = value),
+              onMinuteChanged: (value) =>
+                  setState(() => _publicationMinute = value),
+            ),
         ],
         if (_movementLoadError != null && _classroomScoped) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -1186,7 +1324,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const SizedBox(height: AppSpacing.lg),
           InfoBar(
             key: const Key('teacher_assignment_error'),
-            title: const Text('Could not create assignment'),
+            title: Text(
+              _isEditing
+                  ? 'Could not save assignment'
+                  : 'Could not create assignment',
+            ),
             content: Text(_validationError!),
             severity: InfoBarSeverity.error,
             onClose: () => setState(() => _validationError = null),
@@ -1194,6 +1336,225 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         ],
       ],
     );
+  }
+
+  Widget _buildLearningMaterials(BuildContext context) {
+    final repository = widget.materialRepository;
+    final assignmentId = _persistedAssignmentId;
+    if (_isEditing && repository != null && assignmentId != null) {
+      return ActivityLearningMaterialsPanel(
+        key: const Key('teacher_assignment_persisted_materials'),
+        assignmentId: assignmentId,
+        repository: repository,
+        filePicker: widget.materialFilePicker,
+      );
+    }
+    if (repository == null) {
+      return Text(
+        'Learning materials are unavailable right now.',
+        style: AppTheme.bodySecondary.copyWith(
+          color: context.elixTextSecondary,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _createdAssignment == null
+              ? 'Add links or files now. They will be saved when this assignment is created.'
+              : 'This assignment was created. Resolve any remaining materials before leaving.',
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Button(
+          key: const Key('teacher_assignment_add_material'),
+          onPressed: _submitting ? null : _showAddQueuedMaterialMenu,
+          child: const Text('Add material'),
+        ),
+        if (_queuedMaterials.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          for (final material in _queuedMaterials)
+            _QueuedMaterialRow(
+              material: material,
+              canRemove: !_submitting && !material.isPersisted,
+              onRemove: () => setState(() => _queuedMaterials.remove(material)),
+            ),
+        ] else ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'No materials added yet.',
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _showAddQueuedMaterialMenu() async {
+    final type = await showDialog<ActivityLearningMaterialType>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: const Text('Add material'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Choose a supporting file or a safe web link.'),
+              const SizedBox(height: AppSpacing.sm),
+              for (final type in ActivityLearningMaterialType.values)
+                Button(
+                  onPressed: () => Navigator.pop(dialogContext, type),
+                  child: Row(
+                    children: [
+                      Icon(activityLearningMaterialIcon(type), size: 16),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(activityLearningMaterialTypeLabel(type)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || type == null) return;
+    if (type == ActivityLearningMaterialType.link) {
+      await _showQueueLinkDialog();
+    } else {
+      await _queueFile(type);
+    }
+  }
+
+  Future<void> _showQueueLinkDialog() async {
+    final name = TextEditingController();
+    final url = TextEditingController();
+    String? error;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => ContentDialog(
+          title: const Text('Add link'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                InfoLabel(
+                  label: 'Display name',
+                  child: TextBox(
+                    key: const Key('teacher_assignment_material_link_name'),
+                    controller: name,
+                    maxLength: 120,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                InfoLabel(
+                  label: 'URL',
+                  child: TextBox(
+                    key: const Key('teacher_assignment_material_link_url'),
+                    controller: url,
+                    placeholder: 'https://example.com',
+                  ),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    error!,
+                    style: AppTheme.caption.copyWith(color: AppColors.error),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('teacher_assignment_confirm_material_link'),
+              onPressed: () {
+                final parsed = Uri.tryParse(url.text.trim());
+                if (name.text.trim().isEmpty ||
+                    parsed == null ||
+                    !parsed.hasAuthority ||
+                    (parsed.scheme != 'http' && parsed.scheme != 'https') ||
+                    parsed.userInfo.isNotEmpty) {
+                  setDialogState(
+                    () => error = 'Enter a name and an HTTP or HTTPS URL.',
+                  );
+                  return;
+                }
+                setState(
+                  () => _queuedMaterials.add(
+                    _QueuedMaterialDraft.link(
+                      displayName: name.text.trim(),
+                      url: parsed,
+                    ),
+                  ),
+                );
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Add link'),
+            ),
+          ],
+        ),
+      ),
+    );
+    name.dispose();
+    url.dispose();
+  }
+
+  Future<void> _queueFile(ActivityLearningMaterialType type) async {
+    final config = activityLearningMaterialFileConfig(type);
+    final selected = await widget.materialFilePicker(
+      acceptedTypeGroups: [config.group],
+    );
+    if (!mounted || selected == null) return;
+    try {
+      final file = File(selected.path);
+      final stat = await file.stat();
+      final lowerName = selected.name.toLowerCase();
+      if (stat.type != FileSystemEntityType.file || stat.size < 1) {
+        throw const FormatException('Choose a non-empty file.');
+      }
+      if (!config.extensions.any(
+        (extension) => lowerName.endsWith('.$extension'),
+      )) {
+        throw const FormatException('Choose a supported file type.');
+      }
+      if (stat.size > config.maximumBytes) {
+        throw FormatException(
+          '${activityLearningMaterialTypeLabel(type)} files must be ${activityLearningMaterialSizeLabel(config.maximumBytes)} or smaller.',
+        );
+      }
+      setState(
+        () => _queuedMaterials.add(
+          _QueuedMaterialDraft.file(
+            type: type,
+            file: file,
+            displayName: selected.name,
+            sizeBytes: stat.size,
+            contentType:
+                type == ActivityLearningMaterialType.image &&
+                    lowerName.endsWith('.png')
+                ? 'image/png'
+                : config.contentType,
+          ),
+        ),
+      );
+    } on FormatException catch (error) {
+      setState(() => _validationError = error.message);
+    } on FileSystemException {
+      setState(() => _validationError = 'The selected file could not be read.');
+    }
   }
 
   Widget _activityAssessmentFields(BuildContext context) {
@@ -1459,6 +1820,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   );
 
   String get _movementTitle =>
+      _editingAssignment?.displayTitle ??
       _selectedOfficialMovement?.name ??
       (_isTeacherCreated && _assignmentTitleController.text.trim().isNotEmpty
           ? _assignmentTitleController.text.trim()
@@ -1477,6 +1839,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   String get _activityInheritanceSummary {
+    final existingAssessment = _editingAssignment?.activityAssessment;
+    if (existingAssessment != null) {
+      return '${existingAssessment.readiness.hands.displayLabel} · '
+          '${existingAssessment.readiness.body.displayLabel} · '
+          '${existingAssessment.rubric.template.displayLabel}, '
+          '${existingAssessment.rubric.maximumScore} points · '
+          '${existingAssessment.recordingDurationSeconds}s';
+    }
     final spec = _selectedActivitySpec;
     final assessment = spec?.effectiveAssessment;
     if (spec == null || assessment == null) return 'Loading Activity settings…';
@@ -1535,6 +1905,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   String get _movementModeLabel {
+    if (_isEditing && _editingAssignment!.isOfficial) {
+      return 'Official ELIXR guided assessment';
+    }
+    if (_isEditing && _editingAssignment!.isTeacherCreated) {
+      return 'Teacher reviewed · No automatic ELIXR score';
+    }
     final custom = _selectedTeacherCreatedMovement;
     if (_selectedOfficialMovement != null) {
       return 'Official ELIXR guided assessment';
@@ -2156,61 +2532,52 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _validationError = null;
     });
     try {
-      final created = await widget.creationService.create(
-        group: group,
-        audience: _audience,
-        officialMovement: _selectedOfficialMovement,
-        teacherCreatedMovement: _isTeacherCreated
-            ? _selectedTeacherCreatedMovement
-            : null,
-        maxScore:
-            _activityAssessment?.rubric.maximumScore ??
-            int.tryParse(_maxScoreController.text.trim()) ??
-            100,
-        activityAssessment: _activityAssessment,
-        attemptPolicy: _attemptPolicy,
-        displayTitle: _isTeacherCreated && _customizeActivity
-            ? _assignmentTitleController.text.trim()
-            : null,
-        displayInstructions: _isTeacherCreated && _customizeActivity
-            ? _instructionsController.text.trim()
-            : null,
-        displaySafetyGuidance: _isTeacherCreated && _customizeActivity
-            ? _safetyGuidanceController.text.trim()
-            : null,
-        dueAt: _dueAt,
-        status: switch (action) {
-          _PublicationAction.draft => GroupAssignmentStatus.draft,
-          _PublicationAction.publish => GroupAssignmentStatus.active,
-          _PublicationAction.schedule => GroupAssignmentStatus.scheduled,
-        },
-        publishAt: action == _PublicationAction.schedule
-            ? _scheduledPublishAt
-            : null,
-        topic: _topicController.text,
-      );
-      if (pageContext.mounted && widget.materialRepository != null) {
-        await showDialog<void>(
-          context: pageContext,
-          builder: (dialogContext) => ContentDialog(
-            title: const Text('Learning materials'),
-            content: SizedBox(
-              width: 620,
-              child: SingleChildScrollView(
-                child: ActivityLearningMaterialsPanel(
-                  assignmentId: created.id,
-                  repository: widget.materialRepository!,
-                ),
-              ),
-            ),
-            actions: [
-              Button(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Done'),
-              ),
-            ],
-          ),
+      var created = _createdAssignment;
+      if (created == null) {
+        created = await widget.creationService.create(
+          group: group,
+          audience: _audience,
+          officialMovement: _selectedOfficialMovement,
+          teacherCreatedMovement: _isTeacherCreated
+              ? _selectedTeacherCreatedMovement
+              : null,
+          maxScore:
+              _activityAssessment?.rubric.maximumScore ??
+              int.tryParse(_maxScoreController.text.trim()) ??
+              100,
+          activityAssessment: _activityAssessment,
+          attemptPolicy: _attemptPolicy,
+          displayTitle: _isTeacherCreated && _customizeActivity
+              ? _assignmentTitleController.text.trim()
+              : null,
+          displayInstructions: _isTeacherCreated && _customizeActivity
+              ? _instructionsController.text.trim()
+              : null,
+          displaySafetyGuidance: _isTeacherCreated && _customizeActivity
+              ? _safetyGuidanceController.text.trim()
+              : null,
+          dueAt: _dueAt,
+          status: switch (action) {
+            _PublicationAction.draft => GroupAssignmentStatus.draft,
+            _PublicationAction.publish => GroupAssignmentStatus.active,
+            _PublicationAction.schedule => GroupAssignmentStatus.scheduled,
+          },
+          publishAt: action == _PublicationAction.schedule
+              ? _scheduledPublishAt
+              : null,
+          topic: _topicController.text,
         );
+        _createdAssignment = created;
+      }
+      final materialsSaved = await _persistQueuedMaterials(created.id);
+      if (!materialsSaved) {
+        if (!mounted) return;
+        setState(() {
+          _submitting = false;
+          _validationError =
+              'The assignment was created, but some learning materials could not be saved. Retry to save only the remaining materials.';
+        });
+        return;
       }
       if (pageContext.mounted) Navigator.pop(pageContext, true);
     } on ClassroomException catch (error) {
@@ -2227,6 +2594,251 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _validationError = 'That assignment could not be created.';
       });
     }
+  }
+
+  Future<bool> _persistQueuedMaterials(String assignmentId) async {
+    final repository = widget.materialRepository;
+    final unresolved = _queuedMaterials
+        .where((item) => !item.isPersisted)
+        .toList();
+    if (unresolved.isEmpty) return true;
+    if (repository == null) {
+      for (final item in unresolved) {
+        item.fail('Learning materials are unavailable right now.');
+      }
+      return false;
+    }
+    var allSaved = true;
+    for (final item in unresolved) {
+      if (item.isSaving) {
+        allSaved = false;
+        continue;
+      }
+      item.beginSaving();
+      if (mounted) setState(() {});
+      try {
+        if (item.type == ActivityLearningMaterialType.link) {
+          await repository.addLink(
+            assignmentId: assignmentId,
+            displayName: item.displayName,
+            url: item.url!,
+          );
+        } else {
+          var upload = item.upload;
+          if (upload == null) {
+            upload = await repository.beginUpload(
+              assignmentId: assignmentId,
+              type: item.type,
+              displayName: item.displayName,
+              declaredContentType: item.contentType!,
+              sizeBytes: item.sizeBytes!,
+            );
+            item.upload = upload;
+          }
+          if (!item.fileUploaded) {
+            await repository.uploadStagedFile(upload: upload, file: item.file!);
+            item.fileUploaded = true;
+          }
+          await _waitForMaterialReady(repository, item, upload);
+        }
+        item.markPersisted();
+      } catch (_) {
+        item.fail('This material could not be saved. Please try again.');
+        allSaved = false;
+      }
+      if (mounted) setState(() {});
+    }
+    return allSaved && _queuedMaterials.every((item) => item.isPersisted);
+  }
+
+  Future<void> _waitForMaterialReady(
+    ActivityLearningMaterialRepository repository,
+    _QueuedMaterialDraft item,
+    ActivityMaterialUpload upload,
+  ) async {
+    for (var attempt = 0; attempt < 20; attempt++) {
+      final status = await repository.getUploadStatus(
+        uploadId: upload.uploadId,
+      );
+      if (status.state == ActivityMaterialUploadState.ready) return;
+      if (status.state == ActivityMaterialUploadState.rejected) {
+        throw StateError('The uploaded file was rejected.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    throw StateError('The uploaded file is still processing.');
+  }
+
+  Future<void> _submitEdit(BuildContext pageContext) async {
+    if (_submitting) return;
+    final validationError = _formValidationError();
+    if (validationError != null) {
+      setState(() => _validationError = validationError);
+      return;
+    }
+    final assignment = _editingAssignment;
+    if (assignment == null) return;
+    setState(() {
+      _submitting = true;
+      _validationError = null;
+    });
+    try {
+      if (assignment.isTeacherCreated && _customizeActivity) {
+        final assessment = _activityAssessment;
+        final requiredProp = assignment.allowedProp;
+        if (assessment == null || requiredProp == null) {
+          throw const ClassroomException(ClassroomError.invalidState);
+        }
+        await widget.creationService.assignmentRepository
+            .updateTeacherActivityAssignment(
+              teacherId: widget.teacherId,
+              assignmentId: assignment.id,
+              expectedConfigurationRevision: assignment.configurationRevision,
+              displayTitle: _assignmentTitleController.text.trim(),
+              instructions: _instructionsController.text.trim(),
+              safetyGuidance: _safetyGuidanceController.text.trim(),
+              topic: _topicController.text.trim(),
+              dueAt: _dueAt,
+              audience: _audience,
+              activityAssessment: assessment,
+              attemptPolicy: _attemptPolicy,
+              requiredProp: requiredProp,
+            );
+      } else {
+        await widget.creationService.assignmentRepository
+            .updateAssignmentSettings(
+              teacherId: widget.teacherId,
+              assignmentId: assignment.id,
+              dueAt: _dueAt,
+              maxScore: assignment.isTeacherCreated && !assignment.gradingLocked
+                  ? _maximumScore
+                  : null,
+              topic: _topicController.text.trim(),
+            );
+      }
+      if (pageContext.mounted) Navigator.pop(pageContext, true);
+    } on ClassroomException catch (error) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _validationError =
+              error.message ?? 'This assignment could not be saved.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _validationError = 'This assignment could not be saved.';
+        });
+      }
+    }
+  }
+}
+
+enum _QueuedMaterialStatus { queued, saving, persisted, failed }
+
+class _QueuedMaterialDraft {
+  _QueuedMaterialDraft.link({required this.displayName, required this.url})
+    : type = ActivityLearningMaterialType.link,
+      file = null,
+      sizeBytes = null,
+      contentType = null;
+
+  _QueuedMaterialDraft.file({
+    required this.type,
+    required this.file,
+    required this.displayName,
+    required this.sizeBytes,
+    required this.contentType,
+  }) : url = null;
+
+  final ActivityLearningMaterialType type;
+  final String displayName;
+  final Uri? url;
+  final File? file;
+  final int? sizeBytes;
+  final String? contentType;
+  ActivityMaterialUpload? upload;
+  bool fileUploaded = false;
+  _QueuedMaterialStatus status = _QueuedMaterialStatus.queued;
+  String? message;
+
+  bool get isPersisted => status == _QueuedMaterialStatus.persisted;
+  bool get isSaving => status == _QueuedMaterialStatus.saving;
+
+  void beginSaving() {
+    status = _QueuedMaterialStatus.saving;
+    message = null;
+  }
+
+  void markPersisted() {
+    status = _QueuedMaterialStatus.persisted;
+    message = null;
+  }
+
+  void fail(String value) {
+    status = _QueuedMaterialStatus.failed;
+    message = value;
+  }
+}
+
+class _QueuedMaterialRow extends StatelessWidget {
+  const _QueuedMaterialRow({
+    required this.material,
+    required this.canRemove,
+    required this.onRemove,
+  });
+
+  final _QueuedMaterialDraft material;
+  final bool canRemove;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = switch (material.status) {
+      _QueuedMaterialStatus.queued =>
+        'Queued — saves when the assignment is created',
+      _QueuedMaterialStatus.saving => 'Saving…',
+      _QueuedMaterialStatus.persisted => 'Saved',
+      _QueuedMaterialStatus.failed => material.message ?? 'Could not be saved.',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xs),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: context.elixCardSurface,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(activityLearningMaterialIcon(material.type), size: 16),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(material.displayName, overflow: TextOverflow.ellipsis),
+                  Text(
+                    detail,
+                    style: AppTheme.caption.copyWith(
+                      color: material.status == _QueuedMaterialStatus.failed
+                          ? AppColors.error
+                          : context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (material.isSaving)
+              const SizedBox(width: 16, height: 16, child: ProgressRing()),
+            if (canRemove)
+              Button(onPressed: onRemove, child: const Text('Remove')),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -3285,6 +3897,7 @@ class _AssignmentSummaryCard extends StatelessWidget {
     required this.isSubmitting,
     required this.maximumScore,
     required this.audienceLabel,
+    required this.isEditing,
     this.readinessLabel,
     this.attemptsLabel,
     this.recordingDurationSeconds,
@@ -3303,6 +3916,7 @@ class _AssignmentSummaryCard extends StatelessWidget {
   final bool isSubmitting;
   final int? maximumScore;
   final String audienceLabel;
+  final bool isEditing;
   final String? readinessLabel;
   final String? attemptsLabel;
   final int? recordingDurationSeconds;
@@ -3463,25 +4077,33 @@ class _AssignmentSummaryCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                Button(
-                  key: const Key('teacher_assignment_save_draft'),
-                  onPressed: isSubmitting ? null : onSaveDraft,
-                  child: const Text('Save draft'),
-                ),
-                const SizedBox(height: AppSpacing.sm),
+                if (!isEditing) ...[
+                  Button(
+                    key: const Key('teacher_assignment_save_draft'),
+                    onPressed: isSubmitting ? null : onSaveDraft,
+                    child: const Text('Save draft'),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
                 ElixPrimaryButton(
-                  key: const Key('teacher_assignment_publish_now'),
-                  label: 'Publish now',
-                  icon: FluentIcons.send,
+                  key: Key(
+                    isEditing
+                        ? 'teacher_assignment_save_changes'
+                        : 'teacher_assignment_publish_now',
+                  ),
+                  label: isEditing ? 'Save changes' : 'Publish now',
+                  icon: isEditing ? FluentIcons.save : FluentIcons.send,
                   isLoading: isSubmitting,
                   onPressed: onPublish,
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                Button(
-                  key: const Key('teacher_assignment_schedule'),
-                  onPressed: isSubmitting ? null : onSchedule,
-                  child: const Text('Schedule'),
-                ),
+                if (!isEditing) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Button(
+                    key: const Key('teacher_assignment_schedule'),
+                    onPressed: isSubmitting ? null : onSchedule,
+                    child: const Text('Schedule'),
+                  ),
+                ],
               ],
             ),
           ),
