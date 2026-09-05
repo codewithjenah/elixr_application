@@ -354,10 +354,7 @@ void main() {
     );
     expect(
       resolveAppRedirect(
-        _state(
-          user: _trainee(),
-          location: AppRoutePaths.teacherActivityCenter,
-        ),
+        _state(user: _trainee(), location: AppRoutePaths.teacherActivityCenter),
       ),
       AppRoutePaths.dashboard,
     );

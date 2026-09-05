@@ -410,7 +410,9 @@ TeacherMovementRepository? _tryMovementRepository(BuildContext context) {
   }
 }
 
-ActivityLearningMaterialRepository? _tryMaterialRepository(BuildContext context) {
+ActivityLearningMaterialRepository? _tryMaterialRepository(
+  BuildContext context,
+) {
   try {
     return context.read<ActivityLearningMaterialRepository>();
   } on ProviderNotFoundException {

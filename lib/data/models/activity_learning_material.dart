@@ -138,7 +138,13 @@ class ActivityMaterialUpload {
   }
 }
 
-enum ActivityMaterialUploadState { staging, validating, ready, rejected, deleting }
+enum ActivityMaterialUploadState {
+  staging,
+  validating,
+  ready,
+  rejected,
+  deleting,
+}
 
 extension ActivityMaterialUploadStateWire on ActivityMaterialUploadState {
   String get wireValue => name;
@@ -204,8 +210,11 @@ class ActivityMaterialUploadStatus {
     final uploadId = map['upload_id'];
     final materialId = map['material_id'];
     final state = ActivityMaterialUploadStateWire.tryParse(map['state']);
-    if (uploadId is! String || uploadId.isEmpty || materialId is! String ||
-        materialId.isEmpty || state == null) {
+    if (uploadId is! String ||
+        uploadId.isEmpty ||
+        materialId is! String ||
+        materialId.isEmpty ||
+        state == null) {
       return null;
     }
     if (state == ActivityMaterialUploadState.ready) {

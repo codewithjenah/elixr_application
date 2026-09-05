@@ -78,6 +78,58 @@ jobs:
       - name: Run elixr_core tests
         run: flutter test
 
+  functions:
+    name: Firebase Functions checks
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: functions
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install Functions dependencies
+        run: npm ci
+
+      - name: Run Functions tests
+        run: npm test
+
+  firebase_rules:
+    name: Firebase rules checks
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: firestore-tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: firestore-tests/package-lock.json
+
+      - name: Install security-rules dependencies
+        run: npm ci
+
+      - name: Run Firestore and Storage emulator rules tests
+        run: npm test
+
   legacy_coaching_provenance:
     name: legacy_coaching_provenance checks
     runs-on: windows-latest

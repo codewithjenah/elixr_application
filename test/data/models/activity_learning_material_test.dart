@@ -56,11 +56,7 @@ void main() {
   });
 
   test('parses every authoritative upload lifecycle state', () {
-    for (final state in [
-      'staging',
-      'validating',
-      'deleting',
-    ]) {
+    for (final state in ['staging', 'validating', 'deleting']) {
       final status = ActivityMaterialUploadStatus.tryFromMap({
         'upload_id': 'upload-1',
         'material_id': 'material-1',

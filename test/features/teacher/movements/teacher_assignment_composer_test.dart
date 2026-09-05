@@ -520,7 +520,7 @@ void main() {
 
       expect(assignments.assignments, hasLength(1));
       expect(materials.listedAssignmentIds, [
-        assignments.assignments.single.id,
+        assignments.assignments.values.single.id,
       ]);
       expect(
         find.text('Learning materials could not be loaded.'),

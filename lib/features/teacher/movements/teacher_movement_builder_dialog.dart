@@ -674,7 +674,9 @@ class _TeacherMovementBuilderDialogState
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Button(
-                          key: const ValueKey('teacher_activity_manage_materials'),
+                          key: const ValueKey(
+                            'teacher_activity_manage_materials',
+                          ),
                           onPressed: _saving
                               ? null
                               : () => widget.onManageLearningMaterials!(),

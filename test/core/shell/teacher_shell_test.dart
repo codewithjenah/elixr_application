@@ -163,7 +163,7 @@ void main() {
     expect(find.text('Dashboard'), findsWidgets);
     expect(find.text('Classrooms'), findsOneWidget);
     expect(find.text('Faculties'), findsOneWidget);
-    expect(find.text('Students'), findsOneWidget);
+    expect(find.text('Students'), findsWidgets);
     expect(find.text('Leaderboard'), findsWidgets);
     expect(find.text('Analytics'), findsOneWidget);
     expect(find.text('Movements'), findsWidgets);

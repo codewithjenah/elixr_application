@@ -262,7 +262,7 @@ void main() {
             rejectionReason:
                 ActivityMaterialUploadRejectionReason.invalidContent,
           ),
-      );
+        );
       final file = await testPdf();
       expect(await file.exists(), isTrue);
       await pump(

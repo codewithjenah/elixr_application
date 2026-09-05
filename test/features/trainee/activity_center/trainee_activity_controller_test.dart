@@ -529,6 +529,7 @@ class _GroupScopedAnnouncementRepository
   @override
   Stream<ClassroomAnnouncementPage> watchAnnouncements({
     required String groupId,
+    bool includeUnpublished = false,
     int pageSize = ClassroomAnnouncementRepository.defaultPageSize,
   }) => Stream.value(
     ClassroomAnnouncementPage(
@@ -541,6 +542,7 @@ class _GroupScopedAnnouncementRepository
   Future<ClassroomAnnouncementPage> fetchOlderAnnouncements({
     required String groupId,
     required ClassroomAnnouncementCursor startAfter,
+    bool includeUnpublished = false,
     int pageSize = ClassroomAnnouncementRepository.defaultPageSize,
   }) async => const ClassroomAnnouncementPage(items: [], hasMore: false);
 
@@ -550,6 +552,7 @@ class _GroupScopedAnnouncementRepository
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   }) => throw UnimplementedError();
 
   @override
@@ -559,6 +562,7 @@ class _GroupScopedAnnouncementRepository
     required String teacherId,
     required String title,
     required String body,
+    DateTime? publishAt,
   }) => throw UnimplementedError();
 
   @override
