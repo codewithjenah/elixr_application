@@ -392,20 +392,44 @@ test('Teacher claim finalization rejects incomplete or inconsistent evidence', a
   }
 });
 
-test('Teacher claim finalization preserves unrelated claims and is idempotent', async () => {
+test('a verified Teacher token completes without an Admin claim write', async () => {
+  const services = fakeTeacherClaimServices();
+  const {response} = await callTeacherClaimHandler({
+    token: {uid: 'teacher', role: 'Teacher'},
+    services,
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body, {
+    teacher_role_claim: true,
+    token_verified: true,
+  });
+  assert.equal(services.setCalls.length, 0);
+});
+
+test('a missing token claim requests refresh and preserves unrelated claims', async () => {
   const services = fakeTeacherClaimServices();
   const granted = await callTeacherClaimHandler({services});
-  assert.equal(granted.response.statusCode, 200);
+  assert.equal(granted.response.statusCode, 202);
+  assert.deepEqual(granted.response.body, {
+    teacher_role_claim: true,
+    refresh_required: true,
+  });
   assert.deepEqual(services.setCalls, [{
     uid: 'teacher',
     claims: {billingPlan: 'faculty', role: 'Teacher'},
   }]);
+});
 
+test('a stale token requests refresh even when the Auth claim is already present', async () => {
   const alreadyCorrect = fakeTeacherClaimServices({
     customClaims: {billingPlan: 'faculty', role: 'Teacher'},
   });
   const repeated = await callTeacherClaimHandler({services: alreadyCorrect});
-  assert.equal(repeated.response.statusCode, 200);
+  assert.equal(repeated.response.statusCode, 202);
+  assert.deepEqual(repeated.response.body, {
+    teacher_role_claim: true,
+    refresh_required: true,
+  });
   assert.equal(alreadyCorrect.setCalls.length, 0);
 });
 

@@ -254,6 +254,12 @@ async function ensureTeacherRoleClaimHandler(request, response, {
   if (typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 0) {
     return response.status(400).json({error: 'invalid_request'});
   }
+  if (token.role === TEACHER_ROLE) {
+    return response.status(200).json({
+      teacher_role_claim: true,
+      token_verified: true,
+    });
+  }
   try {
     const result = await ensureTeacherRoleClaimForUid({
       firestore: databaseFactory(),
@@ -263,7 +269,10 @@ async function ensureTeacherRoleClaimHandler(request, response, {
     if (!result.granted) {
       return response.status(403).json({error: 'teacher_evidence_invalid'});
     }
-    return response.status(200).json({teacher_role_claim: true});
+    return response.status(202).json({
+      teacher_role_claim: true,
+      refresh_required: true,
+    });
   } catch (error) {
     console.error('Teacher role claim finalization failed', error);
     return response.status(503).json({error: 'unavailable'});

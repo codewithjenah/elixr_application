@@ -800,18 +800,19 @@ class TeacherRoleClaimException implements Exception {
   String toString() => message;
 }
 
-/// Finalizes a missing Teacher claim and proves that a forced post-grant token
-/// contains the canonical value. Existing claims avoid an unnecessary write.
+/// Finalizes Teacher authorization with a server-verified token handshake.
+///
+/// The Windows Firebase Auth plugin can return a raw token while leaving the
+/// client-side [IdTokenResult.claims] map null. The server therefore decides
+/// whether the presented token carries the canonical Teacher claim. A 202
+/// response means the Admin claim is ready but this token must be refreshed;
+/// only a 200 response to the refreshed token completes authorization.
 @visibleForTesting
 Future<void> finalizeTeacherRoleClaim({
-  required Future<Map<Object?, Object?>?> Function() readCurrentClaims,
   required Future<String?> Function() readBearerToken,
   required Future<int> Function(String token) invokeFinalizer,
-  required Future<Map<Object?, Object?>?> Function() forceRefreshClaims,
+  required Future<String?> Function() forceRefreshBearerToken,
 }) async {
-  final currentClaims = await readCurrentClaims();
-  if (currentClaims?['role'] == User.roleTeacher) return;
-
   final token = await readBearerToken();
   if (token == null || token.isEmpty) {
     throw const TeacherRoleClaimException(
@@ -820,25 +821,45 @@ Future<void> finalizeTeacherRoleClaim({
     );
   }
   final status = await invokeFinalizer(token);
+  if (status == HttpStatus.ok) return;
   if (status == HttpStatus.forbidden) {
     throw const TeacherRoleClaimException(
       TeacherRoleClaimFailureKind.invalidEvidence,
       'ELIXR could not verify this account as a Teacher. Contact support if this account should have Teacher access.',
     );
   }
-  if (status != HttpStatus.ok) {
+  if (status != HttpStatus.accepted) {
     throw const TeacherRoleClaimException(
       TeacherRoleClaimFailureKind.unavailable,
       'Teacher authorization could not be refreshed. Check your connection and try again.',
     );
   }
-  final refreshedClaims = await forceRefreshClaims();
-  if (refreshedClaims?['role'] != User.roleTeacher) {
+  final refreshedToken = await forceRefreshBearerToken();
+  if (refreshedToken == null || refreshedToken.isEmpty) {
     throw const TeacherRoleClaimException(
       TeacherRoleClaimFailureKind.missingClaim,
       'Teacher authorization is not ready yet. Please try again.',
     );
   }
+
+  final refreshedStatus = await invokeFinalizer(refreshedToken);
+  if (refreshedStatus == HttpStatus.ok) return;
+  if (refreshedStatus == HttpStatus.forbidden) {
+    throw const TeacherRoleClaimException(
+      TeacherRoleClaimFailureKind.invalidEvidence,
+      'ELIXR could not verify this account as a Teacher. Contact support if this account should have Teacher access.',
+    );
+  }
+  if (refreshedStatus == HttpStatus.accepted) {
+    throw const TeacherRoleClaimException(
+      TeacherRoleClaimFailureKind.missingClaim,
+      'Teacher authorization is not ready yet. Please try again.',
+    );
+  }
+  throw const TeacherRoleClaimException(
+    TeacherRoleClaimFailureKind.unavailable,
+    'Teacher authorization could not be refreshed. Check your connection and try again.',
+  );
 }
 
 class AuthRepository
@@ -1115,18 +1136,11 @@ class AuthRepository
     if (override != null) return override(firebaseUser);
     try {
       await finalizeTeacherRoleClaim(
-        readCurrentClaims: () async =>
-            (await firebaseUser.getIdTokenResult().timeout(
-              _authOperationTimeout,
-            )).claims,
         readBearerToken: () =>
             firebaseUser.getIdToken().timeout(_authOperationTimeout),
         invokeFinalizer: _invokeTeacherRoleClaimFinalizer,
-        forceRefreshClaims: () async =>
-            (await firebaseUser
-                    .getIdTokenResult(true)
-                    .timeout(_authOperationTimeout))
-                .claims,
+        forceRefreshBearerToken: () =>
+            firebaseUser.getIdToken(true).timeout(_authOperationTimeout),
       );
     } on TeacherRoleClaimException {
       rethrow;
