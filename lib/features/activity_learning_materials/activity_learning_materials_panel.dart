@@ -574,7 +574,7 @@ class _ActivityLearningMaterialsTraineeSectionState
         await Process.start('explorer.exe', [url.toString()]);
       } else {
         final file = await widget.repository.openFile(material);
-        if (!mounted) return;
+        if (!mounted || generation != _loadGeneration) return;
         if (material.type == ActivityLearningMaterialType.image) {
           await showDialog<void>(
             context: context,

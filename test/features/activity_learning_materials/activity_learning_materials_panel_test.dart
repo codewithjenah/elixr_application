@@ -578,6 +578,71 @@ void main() {
   });
 
   testWidgets(
+    'trainee discards a file open result from a previous assignment',
+    (tester) async {
+      const imageA = ActivityLearningMaterial(
+        id: 'image-a',
+        assignmentId: 'assignment-a',
+        type: ActivityLearningMaterialType.image,
+        displayName: 'A demonstration.png',
+        storagePath: 'image-a',
+      );
+      const pdfB = ActivityLearningMaterial(
+        id: 'pdf-b',
+        assignmentId: 'assignment-b',
+        type: ActivityLearningMaterialType.pdf,
+        displayName: 'B safety guide.pdf',
+        storagePath: 'pdf-b',
+      );
+      final openAGate = Completer<File>();
+      final openBGate = Completer<File>();
+      final repositoryA = _MaterialsRepository(materials: [imageA])
+        ..openFuture = openAGate.future;
+      final repositoryB = _MaterialsRepository(materials: [pdfB])
+        ..openFuture = openBGate.future;
+
+      await pump(
+        tester,
+        ActivityLearningMaterialsTraineeSection(
+          assignmentId: 'assignment-a',
+          repository: repositoryA,
+        ),
+      );
+      await tester.tap(find.text('View'));
+      await tester.pump();
+      expect(repositoryA.openCalls, [imageA]);
+
+      await pump(
+        tester,
+        ActivityLearningMaterialsTraineeSection(
+          assignmentId: 'assignment-b',
+          repository: repositoryB,
+        ),
+      );
+      expect(find.text(pdfB.displayName), findsOneWidget);
+
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      expect(repositoryB.openCalls, [pdfB]);
+      expect(find.byType(ProgressRing), findsOneWidget);
+
+      openAGate.complete(File('stale-a.png'));
+      await tester.pump();
+      await flush(tester, frames: 1);
+
+      expect(find.text(imageA.displayName), findsNothing);
+      expect(
+        find.text(
+          'This material is no longer available or could not be opened.',
+        ),
+        findsNothing,
+      );
+      expect(find.text(pdfB.displayName), findsOneWidget);
+      expect(find.byType(ProgressRing), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'trainee hidden empty state and retry error state are controlled',
     (tester) async {
       final repository = _MaterialsRepository()
