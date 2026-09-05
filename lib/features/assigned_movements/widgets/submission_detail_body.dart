@@ -211,11 +211,14 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
     return attempt.videoExpired || attempt.videoDeletedAt != null;
   }
 
-  bool get _usesTeacherDesktopReview {
+  bool get _isTeacherDesktopWorkspace {
     return widget.presentation ==
             SubmissionDetailPresentation.teacherDesktopReview &&
-        widget.viewerRole == SubmissionDetailViewerRole.teacher &&
-        _isTeacherReviewedAttempt;
+        widget.viewerRole == SubmissionDetailViewerRole.teacher;
+  }
+
+  bool get _usesTeacherDesktopReview {
+    return _isTeacherDesktopWorkspace && _isTeacherReviewedAttempt;
   }
 
   @override
@@ -223,6 +226,11 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
     return ElixPanelCard(
       child: _usesTeacherDesktopReview
           ? _buildTeacherDesktopReview(context)
+          : _isTeacherDesktopWorkspace
+          ? SingleChildScrollView(
+              key: const Key('submission_desktop_standard_scroll'),
+              child: _buildStandardPresentation(context),
+            )
           : _buildStandardPresentation(context),
     );
   }
@@ -291,18 +299,26 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
             children: [
               Expanded(child: media),
               const SizedBox(width: AppSpacing.lg),
-              SizedBox(width: detailsWidth, child: details),
+              SizedBox(
+                width: detailsWidth,
+                child: SingleChildScrollView(
+                  key: const Key('submission_desktop_review_details_scroll'),
+                  child: details,
+                ),
+              ),
             ],
           );
         }
-        return Column(
+        return SingleChildScrollView(
           key: const Key('submission_desktop_stacked'),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            media,
-            const SizedBox(height: AppSpacing.md),
-            details,
-          ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              media,
+              const SizedBox(height: AppSpacing.md),
+              details,
+            ],
+          ),
         );
       },
     );

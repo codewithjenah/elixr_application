@@ -253,6 +253,72 @@ void main() {
     expect(find.textContaining('does not save a video clip'), findsOneWidget);
   });
 
+  testWidgets(
+    'official guided attempt scrolls inside the bounded teacher desktop workspace',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 520);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.light,
+          home: ScaffoldPage(
+            content: MediaQuery(
+              data: const MediaQueryData(textScaler: TextScaler.linear(1.25)),
+              child: Center(
+                child: SizedBox(
+                  width: 1182,
+                  height: 500,
+                  child: SubmissionDetailBody(
+                    assignment: _officialAssignment(),
+                    attempt: _officialPointer(),
+                    viewerRole: SubmissionDetailViewerRole.teacher,
+                    presentation:
+                        SubmissionDetailPresentation.teacherDesktopReview,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.byKey(const Key('submission_desktop_standard_scroll')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('submission_official_no_clip')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('submission_official_rubric')),
+        findsOneWidget,
+      );
+
+      final scrollable = find.byKey(
+        const Key('submission_desktop_standard_scroll'),
+      );
+      await tester.drag(scrollable, const Offset(0, -200));
+      await tester.pump();
+
+      final scrollPosition = tester
+          .state<ScrollableState>(
+            find.descendant(of: scrollable, matching: find.byType(Scrollable)),
+          )
+          .position;
+      expect(scrollPosition.pixels, greaterThan(0));
+      final completed = find.textContaining('Completed');
+      expect(completed, findsOneWidget);
+      expect(tester.getRect(completed).bottom, lessThanOrEqualTo(520));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('trainee sees saved scoring criteria for checked work', (
     tester,
   ) async {
@@ -411,6 +477,121 @@ void main() {
       expect(detailsSize.width, inInclusiveRange(360, 420));
     },
   );
+
+  testWidgets(
+    'teacher desktop review scrolls long details inside a bounded pane',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 520);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.light,
+          home: ScaffoldPage(
+            content: Center(
+              child: SizedBox(
+                width: 1182,
+                height: 500,
+                child: SubmissionDetailBody(
+                  assignment: _teacherAssignment(),
+                  attempt: _approvedExpired(feedback: 'Great control.'),
+                  viewerRole: SubmissionDetailViewerRole.teacher,
+                  presentation:
+                      SubmissionDetailPresentation.teacherDesktopReview,
+                  reviewPanel: const SizedBox(
+                    height: 500,
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Text('Save review controls'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      final detailsScroll = find.byKey(
+        const Key('submission_desktop_review_details_scroll'),
+      );
+      expect(detailsScroll, findsOneWidget);
+      await tester.drag(detailsScroll, const Offset(0, -400));
+      await tester.pump();
+
+      final scrollPosition = tester
+          .state<ScrollableState>(
+            find.descendant(
+              of: detailsScroll,
+              matching: find.byType(Scrollable),
+            ),
+          )
+          .position;
+      expect(scrollPosition.pixels, greaterThan(0));
+      final controls = find.text('Save review controls');
+      expect(controls, findsOneWidget);
+      expect(tester.getRect(controls).bottom, lessThanOrEqualTo(520));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('stacked teacher desktop review scrolls inside a short pane', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.light,
+        home: ScaffoldPage(
+          content: Center(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: SubmissionDetailBody(
+                assignment: _teacherAssignment(),
+                attempt: _approvedExpired(feedback: 'Great control.'),
+                viewerRole: SubmissionDetailViewerRole.teacher,
+                presentation: SubmissionDetailPresentation.teacherDesktopReview,
+                reviewPanel: const SizedBox(
+                  height: 500,
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Text('Stacked review controls'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    final stackedScroll = find.byKey(const Key('submission_desktop_stacked'));
+    expect(stackedScroll, findsOneWidget);
+    await tester.drag(stackedScroll, const Offset(0, -800));
+    await tester.pump();
+
+    final scrollPosition = tester
+        .state<ScrollableState>(
+          find.descendant(of: stackedScroll, matching: find.byType(Scrollable)),
+        )
+        .position;
+    expect(scrollPosition.pixels, greaterThan(0));
+    final controls = find.text('Stacked review controls');
+    expect(controls, findsOneWidget);
+    expect(tester.getRect(controls).bottom, lessThanOrEqualTo(520));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'teacher desktop review stacks safely below the wide breakpoint',
