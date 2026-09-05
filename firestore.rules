@@ -2405,7 +2405,7 @@ service cloud.firestore {
 
     function isVerifiedTeacher() {
       return hasVerifiedEmail()
-        && isTeacherClaim();
+        && request.auth.token.get('role', '') == 'Teacher';
     }
 
     // Trainees may observe only the lifecycle status of classrooms where they

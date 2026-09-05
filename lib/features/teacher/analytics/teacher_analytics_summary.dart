@@ -338,8 +338,9 @@ class _PracticeByClassroomChart extends StatelessWidget {
                 reservedSize: 36,
                 getTitlesWidget: (value, _) {
                   final index = value.toInt();
-                  if (index < 0 || index >= active.length)
+                  if (index < 0 || index >= active.length) {
                     return const SizedBox.shrink();
+                  }
                   return _AxisLabel(_shortLabel(active[index].group.name));
                 },
               ),
@@ -396,8 +397,9 @@ FlTitlesData _scoreTitles(
       interval: interval,
       getTitlesWidget: (value, _) {
         final index = value.toInt();
-        if (index < 0 || index >= buckets.length)
+        if (index < 0 || index >= buckets.length) {
           return const SizedBox.shrink();
+        }
         return _AxisLabel(_shortLabel(buckets[index].label));
       },
     ),

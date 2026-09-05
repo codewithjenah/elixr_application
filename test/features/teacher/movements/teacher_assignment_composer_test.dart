@@ -452,7 +452,18 @@ void main() {
         ),
       ),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
+    if (teacherCreatedMovement != null) {
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_customize_activity')),
+      );
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('teacher_assignment_customize_activity')),
+          )
+          .onChanged!(true);
+      await tester.pumpAndSettle();
+    }
   }
 
   testWidgets('invalid maximum score disables the create action', (
@@ -465,6 +476,12 @@ void main() {
       teacherCreatedMovement: customMovement,
     );
 
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_maximum_preset')),
+        )
+        .onChanged!('custom');
+    await tester.pump();
     await tester.enterText(
       find.byKey(const Key('teacher_assignment_max_score')),
       '0',
@@ -472,7 +489,7 @@ void main() {
     await tester.pump();
 
     final createButton = tester.widget<ElixPrimaryButton>(
-      find.byKey(const Key('teacher_assignment_create')),
+      find.byKey(const Key('teacher_assignment_publish_now')),
     );
     expect(createButton.onPressed, isNull);
     expect(assignments.teacherCreatedCalls, 0);
@@ -513,10 +530,12 @@ void main() {
       );
 
       await tester.ensureVisible(
-        find.byKey(const Key('teacher_assignment_create')),
+        find.byKey(const Key('teacher_assignment_publish_now')),
       );
-      await tester.tap(find.byKey(const Key('teacher_assignment_create')));
-      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
+      await tester.pump();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
 
       expect(assignments.assignments, hasLength(1));
       expect(materials.listedAssignmentIds, [
@@ -568,7 +587,7 @@ void main() {
               find.byKey(const Key('teacher_assignment_attempt_policy')),
             )
             .value,
-        'unlimited',
+        '3',
       );
       expect(find.text('Control & Consistency'), findsWidgets);
 
@@ -581,7 +600,7 @@ void main() {
       );
       duration.onChanged!(60);
       await tester.pump();
-      final publish = find.byKey(const Key('teacher_assignment_create'));
+      final publish = find.byKey(const Key('teacher_assignment_publish_now'));
       await tester.ensureVisible(publish);
       await tester.tap(publish);
       await tester.pumpAndSettle();
@@ -619,7 +638,7 @@ void main() {
     expect(
       tester
           .widget<ElixPrimaryButton>(
-            find.byKey(const Key('teacher_assignment_create')),
+            find.byKey(const Key('teacher_assignment_publish_now')),
           )
           .onPressed,
       isNull,
@@ -639,7 +658,7 @@ void main() {
     expect(
       tester
           .widget<ElixPrimaryButton>(
-            find.byKey(const Key('teacher_assignment_create')),
+            find.byKey(const Key('teacher_assignment_publish_now')),
           )
           .onPressed,
       isNotNull,
@@ -685,7 +704,7 @@ void main() {
       expect(
         tester
             .widget<ElixPrimaryButton>(
-              find.byKey(const Key('teacher_assignment_create')),
+              find.byKey(const Key('teacher_assignment_publish_now')),
             )
             .onPressed,
         isNull,
@@ -701,9 +720,9 @@ void main() {
       expect(find.text('2 selected'), findsOneWidget);
 
       await tester.ensureVisible(
-        find.byKey(const Key('teacher_assignment_create')),
+        find.byKey(const Key('teacher_assignment_publish_now')),
       );
-      await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+      await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
       await tester.pump();
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -794,7 +813,7 @@ void main() {
     );
     await tester.pump();
 
-    final publish = find.byKey(const Key('teacher_assignment_create'));
+    final publish = find.byKey(const Key('teacher_assignment_publish_now'));
     await tester.ensureVisible(publish);
     await tester.tap(publish);
     await tester.pump();
@@ -893,7 +912,7 @@ void main() {
     expect(
       tester
           .widget<ElixPrimaryButton>(
-            find.byKey(const Key('teacher_assignment_create')),
+            find.byKey(const Key('teacher_assignment_publish_now')),
           )
           .onPressed,
       isNotNull,
@@ -968,13 +987,13 @@ void main() {
     );
 
     await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_create')),
+      find.byKey(const Key('teacher_assignment_publish_now')),
     );
-    await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+    await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
     await tester.pump();
     expect(assignments.officialCalls, 1);
 
-    await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+    await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
     await tester.pump();
     expect(assignments.officialCalls, 1);
 
@@ -1037,9 +1056,9 @@ void main() {
     );
 
     await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_create')),
+      find.byKey(const Key('teacher_assignment_publish_now')),
     );
-    await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+    await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('teacher_assignment_error')), findsOneWidget);

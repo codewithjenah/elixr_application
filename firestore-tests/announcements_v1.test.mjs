@@ -19,6 +19,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 
 const PROJECT_ID = 'demo-elixr';
@@ -134,7 +135,12 @@ describe('Classroom announcements', () => {
 
     const trainee = context('trainee').firestore();
     const announcements = collection(trainee, 'groups', GROUP_ID, 'announcements');
-    const visible = await assertSucceeds(getDocs(query(announcements, orderBy('created_at', 'desc'))));
+    const visibleAnnouncements = query(
+      announcements,
+      where('trainee_visible', '==', true),
+      orderBy('created_at', 'desc'),
+    );
+    const visible = await assertSucceeds(getDocs(visibleAnnouncements));
     assert.equal(visible.size, 1);
 
     await testEnv.withSecurityRulesDisabled(async (admin) => {
@@ -143,7 +149,7 @@ describe('Classroom announcements', () => {
       });
     });
     await assertFails(getDoc(announcementRef(trainee)));
-    await assertFails(getDocs(query(announcements, orderBy('created_at', 'desc'))));
+    await assertFails(getDocs(visibleAnnouncements));
   });
 
   test('future scheduled announcements stay hidden until the server publishes them', async () => {

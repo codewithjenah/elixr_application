@@ -185,9 +185,19 @@ void main() {
   }
 
   Future<File> testPdf() async {
-    return File(
-      'test${Platform.pathSeparator}features${Platform.pathSeparator}activity_learning_materials${Platform.pathSeparator}activity_learning_materials_panel_test.dart',
-    ).absolute;
+    final directory = Directory.systemTemp.createTempSync(
+      'elixr-material-test-',
+    );
+    addTearDown(() {
+      if (directory.existsSync()) {
+        directory.deleteSync(recursive: true);
+      }
+    });
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}safety-guidelines.pdf',
+    );
+    file.writeAsBytesSync(const [0x25, 0x50, 0x44, 0x46]);
+    return file;
   }
 
   Future<void> choosePdf(WidgetTester tester) async {
@@ -200,7 +210,8 @@ void main() {
   Future<void> flush(WidgetTester tester, {int frames = 8}) async {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     for (var frame = 0; frame < frames; frame++) {
-      await tester.pump(const Duration(milliseconds: 1));
+      // Fluent UI buttons retain a 100 ms hover-exit timer after taps.
+      await tester.pump(const Duration(milliseconds: 101));
     }
   }
 
@@ -264,7 +275,7 @@ void main() {
           ),
         );
       final file = await testPdf();
-      expect(await file.exists(), isTrue);
+      expect(file.existsSync(), isTrue);
       await pump(
         tester,
         teacherPanel(

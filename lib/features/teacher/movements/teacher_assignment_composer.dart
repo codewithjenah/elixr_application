@@ -940,6 +940,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 for (final group in _activeGroups)
                   ComboBoxItem(value: group.id, child: Text(group.name)),
               ],
+              selectedItemBuilder: (context) => [
+                for (final group in _activeGroups)
+                  Text(group.name, overflow: TextOverflow.ellipsis),
+              ],
               onChanged: _submitting ? null : _onGroupChanged,
             ),
           ),
@@ -1213,12 +1217,20 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 ComboBoxItem(value: '100', child: Text('100 points')),
                 ComboBoxItem(value: 'custom', child: Text('Custom maximum')),
               ],
+              selectedItemBuilder: (context) => const [
+                Text('30 points', overflow: TextOverflow.ellipsis),
+                Text('50 points', overflow: TextOverflow.ellipsis),
+                Text('100 points', overflow: TextOverflow.ellipsis),
+                Text('Custom maximum', overflow: TextOverflow.ellipsis),
+              ],
               onChanged: _submitting
                   ? null
                   : (value) {
                       if (value == null) return;
                       setState(() {
-                        if (value != 'custom') _maxScoreController.text = value;
+                        _maxScoreController.text = value == 'custom'
+                            ? ''
+                            : value;
                         _validationError = null;
                       });
                     },
@@ -1279,6 +1291,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                       .supportedRecordingDurations)
                 ComboBoxItem(value: seconds, child: Text('$seconds seconds')),
             ],
+            selectedItemBuilder: (context) => [
+              for (final seconds
+                  in TeacherActivityAssessmentContract
+                      .supportedRecordingDurations)
+                Text('$seconds seconds', overflow: TextOverflow.ellipsis),
+            ],
             onChanged: _submitting
                 ? null
                 : (value) => setState(() => _recordingDurationSeconds = value!),
@@ -1298,6 +1316,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                   value: template,
                   child: Text(template.displayLabel),
                 ),
+            ],
+            selectedItemBuilder: (context) => [
+              for (final template in TeacherActivityRubricTemplate.values)
+                Text(template.displayLabel, overflow: TextOverflow.ellipsis),
             ],
             onChanged: _submitting
                 ? null
@@ -1337,6 +1359,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         ComboBoxItem(value: '3', child: Text('3 attempts')),
         ComboBoxItem(value: 'unlimited', child: Text('Unlimited attempts')),
       ],
+      selectedItemBuilder: (context) => const [
+        Text('1 attempt', overflow: TextOverflow.ellipsis),
+        Text('2 attempts', overflow: TextOverflow.ellipsis),
+        Text('3 attempts', overflow: TextOverflow.ellipsis),
+        Text('Unlimited attempts', overflow: TextOverflow.ellipsis),
+      ],
       onChanged: _submitting
           ? null
           : (value) {
@@ -1363,6 +1391,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     items: [
       for (final item in values)
         ComboBoxItem(value: item, child: Text(label(item))),
+    ],
+    selectedItemBuilder: (context) => [
+      for (final item in values)
+        Text(label(item), overflow: TextOverflow.ellipsis),
     ],
     onChanged: _submitting
         ? null
@@ -2044,6 +2076,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       return;
     }
     setState(() {
+      _teacherMovementRevisions = {
+        ..._teacherMovementRevisions,
+        movement.id: revision!,
+      };
       _customizeActivity = false;
       _attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault;
       _validationError = null;
@@ -3515,6 +3551,7 @@ class _PublicationScheduleField extends StatelessWidget {
             child: ComboBox<int>(
               key: const Key('teacher_assignment_publish_hour'),
               value: hour,
+              isExpanded: true,
               placeholder: const Text('Hour'),
               items: [
                 for (var value = 0; value < 24; value++)
@@ -3536,6 +3573,7 @@ class _PublicationScheduleField extends StatelessWidget {
             child: ComboBox<int>(
               key: const Key('teacher_assignment_publish_minute'),
               value: minute,
+              isExpanded: true,
               placeholder: const Text('Minute'),
               items: const [
                 ComboBoxItem(value: 0, child: Text('00')),
