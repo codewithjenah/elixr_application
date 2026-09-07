@@ -56,7 +56,7 @@ class _TraineeActivityCenterScreenState
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg,
-              AppSpacing.lg,
+              AppSpacing.md,
               AppSpacing.lg,
               0,
             ),

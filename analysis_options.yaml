@@ -15,6 +15,8 @@ analyzer:
     # Root flutter analyze must not load them under this app's dependencies.
     - packages/elixr_core/**
     - scripts/legacy_coaching_provenance/**
+    - build/**
+    - windows/**
 
 linter:
   # The lint rules applied to this project can be customized in the
