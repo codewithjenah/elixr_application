@@ -49,7 +49,6 @@ class _TraineeActivityCenterScreenState
           ],
         ),
       ),
-      padding: EdgeInsets.zero,
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
