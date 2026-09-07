@@ -14,7 +14,11 @@ import '../utils/user_name.dart';
 import '../widgets/elix_sidebar_chrome.dart';
 import '../widgets/profile_avatar.dart';
 
-enum TeacherSidebarGroup { classroom, insights }
+/// The primary list is ordered by the work a Teacher does every day. The
+/// legacy [classroom] and [insights] values remain for source compatibility
+/// with consumers that classify sidebar items, but are no longer used by the
+/// Teacher shell.
+enum TeacherSidebarGroup { primary, utility, classroom, insights }
 
 class TeacherSidebarItem {
   const TeacherSidebarItem({
@@ -35,73 +39,82 @@ const teacherSidebarItems = [
     label: 'Dashboard',
     icon: FluentIcons.view_dashboard,
     route: AppRoutePaths.teacherDashboard,
-    group: TeacherSidebarGroup.classroom,
-  ),
-  TeacherSidebarItem(
-    label: 'Calendar',
-    icon: FluentIcons.calendar,
-    route: AppRoutePaths.teacherCalendar,
-    group: TeacherSidebarGroup.classroom,
+    group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
     label: 'Classrooms',
     icon: FluentIcons.people,
     route: AppRoutePaths.teacherGroups,
-    group: TeacherSidebarGroup.classroom,
+    group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
-    label: 'Faculties',
-    icon: FluentIcons.education,
-    route: AppRoutePaths.teacherFaculties,
-    group: TeacherSidebarGroup.classroom,
+    label: 'Review Work',
+    icon: FluentIcons.review_request_solid,
+    route: AppRoutePaths.teacherToReview,
+    group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
     label: 'Students',
     icon: FluentIcons.contact,
     route: AppRoutePaths.teacherStudents,
-    group: TeacherSidebarGroup.classroom,
+    group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
-    label: 'Leaderboard',
-    icon: FluentIcons.trophy2_solid,
-    route: AppRoutePaths.teacherLeaderboard,
-    group: TeacherSidebarGroup.insights,
+    label: 'Calendar',
+    icon: FluentIcons.calendar,
+    route: AppRoutePaths.teacherCalendar,
+    group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
-    label: 'Analytics',
+    label: 'Progress',
     icon: FluentIcons.analytics_view,
-    route: AppRoutePaths.teacherAnalytics,
-    group: TeacherSidebarGroup.insights,
-  ),
-  TeacherSidebarItem(
-    label: 'Movements',
-    icon: FluentIcons.more_sports,
-    route: AppRoutePaths.teacherMovements,
-    group: TeacherSidebarGroup.classroom,
-  ),
-  TeacherSidebarItem(
-    label: 'To Review',
-    icon: FluentIcons.review_request_solid,
-    route: AppRoutePaths.teacherToReview,
-    group: TeacherSidebarGroup.classroom,
-  ),
-  TeacherSidebarItem(
-    label: 'Notifications',
-    icon: FluentIcons.activity_feed,
-    route: AppRoutePaths.teacherActivityCenter,
-    group: TeacherSidebarGroup.insights,
+    route: AppRoutePaths.teacherProgress,
+    group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
     label: 'Messages',
     icon: FluentIcons.chat,
     route: AppRoutePaths.teacherMessages,
-    group: TeacherSidebarGroup.insights,
+    group: TeacherSidebarGroup.primary,
+  ),
+];
+
+/// Destinations that remain one click away without competing with the
+/// Teacher's daily classroom workflow.
+const teacherSidebarUtilityItems = [
+  TeacherSidebarItem(
+    label: 'Notifications',
+    icon: FluentIcons.activity_feed,
+    route: AppRoutePaths.teacherActivityCenter,
+    group: TeacherSidebarGroup.utility,
+  ),
+  TeacherSidebarItem(
+    label: 'Teacher Access',
+    icon: FluentIcons.add_friend,
+    route: AppRoutePaths.teacherFaculties,
+    group: TeacherSidebarGroup.utility,
   ),
 ];
 
 @visibleForTesting
 bool isTeacherSidebarRouteActive(String currentPath, String itemRoute) {
   return currentPath == itemRoute || currentPath.startsWith('$itemRoute/');
+}
+
+@visibleForTesting
+bool isTeacherSidebarItemActive(String currentPath, TeacherSidebarItem item) {
+  if (isTeacherSidebarRouteActive(currentPath, item.route)) return true;
+  // Analytics and Rankings are one Progress destination in the primary
+  // hierarchy while their original routes remain valid deep links.
+  if (item.route != AppRoutePaths.teacherProgress) return false;
+  return isTeacherSidebarRouteActive(
+        currentPath,
+        AppRoutePaths.teacherAnalytics,
+      ) ||
+      isTeacherSidebarRouteActive(
+        currentPath,
+        AppRoutePaths.teacherLeaderboard,
+      );
 }
 
 class TeacherSidebar extends StatelessWidget {
@@ -202,8 +215,7 @@ class TeacherSidebar extends StatelessWidget {
   ) {
     final children = <Widget>[];
 
-    void addGroup(TeacherSidebarGroup group, String title) {
-      final items = teacherSidebarItems.where((i) => i.group == group).toList();
+    void addGroup(List<TeacherSidebarItem> items, String title) {
       if (items.isEmpty) return;
 
       children.add(
@@ -215,7 +227,7 @@ class TeacherSidebar extends StatelessWidget {
           ElixSidebarNavTile(
             label: item.label,
             icon: item.icon,
-            isActive: isTeacherSidebarRouteActive(currentRoute, item.route),
+            isActive: isTeacherSidebarItemActive(currentRoute, item),
             isCollapsed: showCollapsedLayout,
             unreadCount: switch (item.route) {
               AppRoutePaths.teacherMessages => unreadCount,
@@ -230,8 +242,8 @@ class TeacherSidebar extends StatelessWidget {
       }
     }
 
-    addGroup(TeacherSidebarGroup.classroom, 'Classroom');
-    addGroup(TeacherSidebarGroup.insights, 'Insights');
+    addGroup(teacherSidebarItems, 'Workspace');
+    addGroup(teacherSidebarUtilityItems, 'Utilities');
 
     return children;
   }

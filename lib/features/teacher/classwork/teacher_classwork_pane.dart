@@ -25,6 +25,7 @@ class TeacherClassworkAssignmentList extends StatefulWidget {
     required this.controller,
     required this.onOpen,
     this.onCreate,
+    this.onManageActivityLibrary,
     this.onEdit,
     this.onArchive,
     this.onDelete,
@@ -33,6 +34,7 @@ class TeacherClassworkAssignmentList extends StatefulWidget {
   final TeacherClassworkController controller;
   final ValueChanged<GroupAssignment> onOpen;
   final VoidCallback? onCreate;
+  final VoidCallback? onManageActivityLibrary;
   final ValueChanged<GroupAssignment>? onEdit;
   final ValueChanged<GroupAssignment>? onArchive;
   final ValueChanged<GroupAssignment>? onDelete;
@@ -94,9 +96,15 @@ class _TeacherClassworkAssignmentListState
                   ),
                 ],
               ),
+              if (widget.onManageActivityLibrary != null)
+                Button(
+                  key: const Key('teacher_manage_activity_library'),
+                  onPressed: widget.onManageActivityLibrary,
+                  child: const Text('Manage activity library'),
+                ),
               ElixPrimaryButton(
                 key: const Key('teacher_group_create_assignment'),
-                label: 'New assignment',
+                label: 'Create assignment',
                 icon: FluentIcons.add,
                 expanded: false,
                 dense: true,

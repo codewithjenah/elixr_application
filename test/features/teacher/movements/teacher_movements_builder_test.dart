@@ -547,7 +547,7 @@ void main() {
       await pumpScreen(tester);
 
       expect(find.text('Official ELIXR'), findsOneWidget);
-      expect(find.text('Teacher Activities'), findsAtLeastNWidgets(1));
+      expect(find.text('My activities'), findsAtLeastNWidgets(1));
       expect(find.text('Assignments'), findsNothing);
       expect(find.text('Reviews'), findsNothing);
       expect(find.byType(ToggleButton), findsNWidgets(2));
@@ -621,7 +621,7 @@ void main() {
       ),
     );
     await pumpScreen(tester);
-    await tester.tap(find.text('Teacher Activities').last);
+    await tester.tap(find.text('My activities').last);
     await tester.pumpAndSettle();
 
     await tester.tap(
@@ -683,7 +683,7 @@ void main() {
       ),
     );
     await pumpScreen(tester);
-    await tester.tap(find.text('Teacher Activities').last);
+    await tester.tap(find.text('My activities').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Tin Balance'), findsOneWidget);

@@ -105,7 +105,7 @@ void main() {
     );
     await pumpFaculties(tester);
     expect(find.byKey(const Key('teacher_faculties_empty')), findsOneWidget);
-    expect(find.text('No other faculty members yet.'), findsOneWidget);
+    expect(find.text('No other Teachers have access yet.'), findsOneWidget);
     expect(find.text('Grace Hopper'), findsNothing);
   });
 
@@ -197,10 +197,10 @@ void main() {
 
   testWidgets('invite mints a code and shows it in a dialog', (tester) async {
     await pumpFaculties(tester);
-    await tester.tap(find.text('Invite a faculty member'));
+    await tester.tap(find.text('Invite another Teacher'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('Faculty access code'), findsOneWidget);
+    expect(find.text('Teacher access code'), findsOneWidget);
     expect(find.text('7KPM-XR4D-Q2WT'), findsWidgets);
     await tester.tap(find.text('Done'));
     await tester.pump();

@@ -108,7 +108,9 @@ class _ShellTestAuthRepository implements AuthRepositoryBase {
 }
 
 void main() {
-  testWidgets('teacher shell renders ten destinations', (tester) async {
+  testWidgets('teacher shell renders the workflow destinations', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -162,17 +164,24 @@ void main() {
 
     expect(find.text('Dashboard'), findsWidgets);
     expect(find.text('Classrooms'), findsOneWidget);
-    expect(find.text('Faculties'), findsOneWidget);
+    expect(find.text('Teacher Access'), findsOneWidget);
     expect(find.text('Students'), findsWidgets);
-    expect(find.text('Leaderboard'), findsWidgets);
-    expect(find.text('Analytics'), findsOneWidget);
-    expect(find.text('Movements'), findsWidgets);
-    expect(find.text('To Review'), findsWidgets);
+    expect(find.text('Progress'), findsOneWidget);
+    expect(find.text('Analytics'), findsNothing);
+    expect(find.text('Activity Library'), findsNothing);
+    expect(find.text('Review Work'), findsWidgets);
     expect(find.text('Notifications'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);
-    expect(find.text('Your classroom is ready'), findsOneWidget);
+    expect(find.text('Create your first classroom'), findsOneWidget);
     expect(find.byType(TeacherShell), findsOneWidget);
     expect(find.byType(AppShell), findsNothing);
+
+    router.go(AppRoutePaths.teacherProgress);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Choose a progress view'), findsOneWidget);
+    expect(find.text('Class progress'), findsOneWidget);
+    expect(find.text('Student rankings'), findsOneWidget);
 
     router.go(AppRoutePaths.teacherLeaderboard);
     await tester.pump();

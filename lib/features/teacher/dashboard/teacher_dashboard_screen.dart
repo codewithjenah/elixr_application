@@ -18,6 +18,7 @@ import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
+import '../activity_center/teacher_activity_controller.dart';
 import '../analytics/teacher_analytics_controller.dart';
 import '../analytics/teacher_analytics_summary.dart';
 import '../students/teacher_student_models.dart';
@@ -66,6 +67,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final activityController = context.watch<TeacherActivityController?>();
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
@@ -104,6 +106,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
               : _DashboardBody(
                   controller: controller,
                   analyticsController: _analyticsController,
+                  activityController: activityController,
                   teacher: context.watch<AuthService>().currentUser,
                 ),
         );
@@ -116,10 +119,12 @@ class _DashboardBody extends StatelessWidget {
   const _DashboardBody({
     required this.controller,
     required this.teacher,
+    required this.activityController,
     this.analyticsController,
   });
 
   final TeacherDashboardController controller;
+  final TeacherActivityController? activityController;
   final TeacherAnalyticsController? analyticsController;
   final User? teacher;
 
@@ -130,6 +135,11 @@ class _DashboardBody extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 960;
+        final gettingStarted = _GettingStartedModel.from(
+          controller: controller,
+          analyticsController: analyticsController,
+          activityController: activityController,
+        );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -194,12 +204,11 @@ class _DashboardBody extends StatelessWidget {
                   ),
                 ],
               ),
-            if (!hasData) ...[
+            if (gettingStarted != null) ...[
               const SizedBox(height: AppSpacing.xl),
-              _EmptyDashboard(
-                onOpenGroups: () => context.go(AppRoutePaths.teacherGroups),
-              ),
-            ] else ...[
+              _GettingStartedCard(model: gettingStarted),
+            ],
+            if (hasData) ...[
               if (analyticsController != null) ...[
                 const SizedBox(height: AppSpacing.xl),
                 TeacherAnalyticsSummary(controller: analyticsController!),
@@ -280,7 +289,7 @@ class _TeacherCommandHeader extends StatelessWidget {
               Button(
                 key: const Key('teacher_dashboard_to_review'),
                 onPressed: () => context.go(AppRoutePaths.teacherToReview),
-                child: const Text('To Review'),
+                child: const Text('Review Work'),
               ),
             ],
           );
@@ -541,25 +550,203 @@ class _PendingRequestRow extends StatelessWidget {
   }
 }
 
-class _EmptyDashboard extends StatelessWidget {
-  const _EmptyDashboard({required this.onOpenGroups});
+enum _GettingStartedStep {
+  createClassroom,
+  inviteStudents,
+  approveStudent,
+  createAssignment,
+  reviewSubmission,
+  waitingForSubmission,
+}
 
-  final VoidCallback onOpenGroups;
+class _GettingStartedModel {
+  const _GettingStartedModel({
+    required this.step,
+    required this.title,
+    required this.message,
+    required this.actionLabel,
+    required this.route,
+    required this.icon,
+  });
+
+  final _GettingStartedStep step;
+  final String title;
+  final String message;
+  final String actionLabel;
+  final String route;
+  final IconData icon;
+
+  static _GettingStartedModel? from({
+    required TeacherDashboardController controller,
+    required TeacherAnalyticsController? analyticsController,
+    required TeacherActivityController? activityController,
+  }) {
+    final activeGroups = controller.groups.where((group) => group.isActive);
+    final activeGroupIds = activeGroups.map((group) => group.id).toSet();
+    if (activeGroupIds.isEmpty) {
+      return const _GettingStartedModel(
+        step: _GettingStartedStep.createClassroom,
+        title: 'Create your first classroom',
+        message:
+            'Start with one classroom so students, assignments, and progress stay organized.',
+        actionLabel: 'Create classroom',
+        route: AppRoutePaths.teacherGroups,
+        icon: FluentIcons.people,
+      );
+    }
+
+    final pending = controller.pendingQueue
+        .where((membership) => activeGroupIds.contains(membership.groupId))
+        .toList();
+    final firstGroupId = activeGroups.first.id;
+    final firstActionGroupId = pending.isNotEmpty
+        ? pending.first.groupId
+        : firstGroupId;
+    if (pending.isNotEmpty) {
+      return _GettingStartedModel(
+        step: _GettingStartedStep.approveStudent,
+        title: 'Approve your first student',
+        message:
+            'A student is waiting to join. Review the request before they enter the classroom.',
+        actionLabel: 'Review join request',
+        route: '${AppRoutePaths.teacherGroup(firstActionGroupId)}?tab=people',
+        icon: FluentIcons.people_add,
+      );
+    }
+
+    final hasApprovedStudent = controller.memberships.any(
+      (membership) =>
+          activeGroupIds.contains(membership.groupId) && membership.isApproved,
+    );
+    if (!hasApprovedStudent) {
+      return _GettingStartedModel(
+        step: _GettingStartedStep.inviteStudents,
+        title: 'Invite your students',
+        message:
+            'Share the classroom join code. Students will wait for your approval.',
+        actionLabel: 'View and copy class code',
+        route: '${AppRoutePaths.teacherGroup(firstGroupId)}?tab=overview',
+        icon: FluentIcons.share,
+      );
+    }
+
+    final analyticsReady =
+        analyticsController != null &&
+        !analyticsController.loading &&
+        !analyticsController.hasStreamError;
+    final assignments =
+        analyticsController?.assignments
+            .where(
+              (assignment) =>
+                  activeGroupIds.contains(assignment.groupId) &&
+                  assignment.isActive,
+            )
+            .toList() ??
+        const [];
+    if (!analyticsReady || assignments.isEmpty) {
+      return _GettingStartedModel(
+        step: _GettingStartedStep.createAssignment,
+        title: 'Create your first assignment',
+        message:
+            'Choose an ELIXR movement or your own activity, then set who should complete it.',
+        actionLabel: 'Create assignment',
+        route: '${AppRoutePaths.teacherGroup(firstGroupId)}?tab=classwork',
+        icon: FluentIcons.add,
+      );
+    }
+
+    if ((activityController?.pendingReviewCount ?? 0) > 0) {
+      final destination = activityController?.pendingReviews.isNotEmpty == true
+          ? activityController!.pendingReviews.first.destination
+          : AppRoutePaths.teacherToReview;
+      return _GettingStartedModel(
+        step: _GettingStartedStep.reviewSubmission,
+        title: 'Review your first submission',
+        message:
+            'A student has submitted work. Review the recording, score it, and leave feedback.',
+        actionLabel: 'Review submission',
+        route: destination,
+        icon: FluentIcons.review_request_solid,
+      );
+    }
+
+    final hasCheckedAttempt = analyticsController.attempts.any(
+      (attempt) =>
+          activeGroupIds.contains(attempt.groupId) && attempt.isChecked,
+    );
+    if (hasCheckedAttempt) return null;
+
+    return _GettingStartedModel(
+      step: _GettingStartedStep.waitingForSubmission,
+      title: 'Your first assignment is ready',
+      message:
+          'When a student submits work, it will appear in Review Work for scoring and feedback.',
+      actionLabel: 'Open Review Work',
+      route: AppRoutePaths.teacherToReview,
+      icon: FluentIcons.clock,
+    );
+  }
+}
+
+class _GettingStartedCard extends StatelessWidget {
+  const _GettingStartedCard({required this.model});
+
+  final _GettingStartedModel model;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: ElixStatusPanel(
-          icon: FluentIcons.people,
-          title: 'Your classroom is ready',
-          message:
-              'Create a class, then share the join code with your students. '
-              'Each class keeps its own student list.',
-          actionLabel: 'Open classrooms',
-          onAction: onOpenGroups,
-        ),
+    return ElixPanelCard(
+      key: const Key('teacher_getting_started'),
+      accent: context.elixColors.brandPrimary,
+      showAccentBar: true,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 700;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const ElixEyebrow(label: 'GETTING STARTED'),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                model.title,
+                style: AppTheme.sectionTitle(
+                  context,
+                  color: context.elixTextPrimary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                model.message,
+                style: AppTheme.supporting(color: context.elixTextSecondary),
+              ),
+            ],
+          );
+          final action = FilledButton(
+            key: const Key('teacher_getting_started_action'),
+            onPressed: () => context.go(model.route),
+            child: Text(model.actionLabel),
+          );
+          final content = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(model.icon, color: context.elixColors.brandPrimary),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: copy),
+              const SizedBox(width: AppSpacing.md),
+              action,
+            ],
+          );
+          return compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    copy,
+                    const SizedBox(height: AppSpacing.md),
+                    action,
+                  ],
+                )
+              : content;
+        },
       ),
     );
   }

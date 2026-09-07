@@ -336,8 +336,8 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
 TeacherGroupDetailTab _teacherTabFromQuery(String? value) {
   return switch (value?.trim().toLowerCase()) {
     'classwork' => TeacherGroupDetailTab.classwork,
-    'grades' => TeacherGroupDetailTab.grades,
-    'people' => TeacherGroupDetailTab.students,
+    'grades' || 'progress' => TeacherGroupDetailTab.grades,
+    'people' || 'students' => TeacherGroupDetailTab.students,
     _ => TeacherGroupDetailTab.announcements,
   };
 }
@@ -518,6 +518,8 @@ class _GroupDetailBody extends StatelessWidget {
             onOpen: (assignment) => context.push(
               AppRoutePaths.teacherGroupClasswork(group.id, assignment.id),
             ),
+            onManageActivityLibrary: () =>
+                context.go(AppRoutePaths.teacherMovements),
             onCreate: group.isActive
                 ? () => _showGroupAssignmentComposer(
                     context,
@@ -621,10 +623,18 @@ class _GroupDetailTabBar extends StatelessWidget {
       children: [
         _GroupDetailTab(
           key: const Key('teacher_group_tab_announcements'),
-          label: 'Stream',
+          label: 'Overview',
           icon: FluentIcons.megaphone,
           selected: selectedTab == TeacherGroupDetailTab.announcements,
           onPressed: () => onChanged(TeacherGroupDetailTab.announcements),
+        ),
+        _GroupDetailTab(
+          key: const Key('teacher_group_tab_students'),
+          label: 'Students',
+          icon: FluentIcons.people,
+          selected: selectedTab == TeacherGroupDetailTab.students,
+          badgeCount: pendingMembershipCount,
+          onPressed: () => onChanged(TeacherGroupDetailTab.students),
         ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_assignments'),
@@ -635,18 +645,10 @@ class _GroupDetailTabBar extends StatelessWidget {
         ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_grades'),
-          label: 'Grades',
+          label: 'Progress',
           icon: FluentIcons.assessment_group,
           selected: selectedTab == TeacherGroupDetailTab.grades,
           onPressed: () => onChanged(TeacherGroupDetailTab.grades),
-        ),
-        _GroupDetailTab(
-          key: const Key('teacher_group_tab_students'),
-          label: 'People',
-          icon: FluentIcons.people,
-          selected: selectedTab == TeacherGroupDetailTab.students,
-          badgeCount: pendingMembershipCount,
-          onPressed: () => onChanged(TeacherGroupDetailTab.students),
         ),
       ],
     );

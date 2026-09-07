@@ -2,10 +2,12 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_time_format.dart';
@@ -109,6 +111,12 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
+                CommandBarButton(
+                  key: const Key('teacher_progress_student_rankings'),
+                  icon: const Icon(FluentIcons.trophy2_solid),
+                  label: const Text('Student rankings'),
+                  onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
+                ),
                 CommandBarButton(
                   key: const Key('teacher_analytics_export'),
                   icon: const Icon(FluentIcons.download),

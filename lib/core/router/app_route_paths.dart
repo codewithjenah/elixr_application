@@ -45,6 +45,7 @@ abstract final class AppRoutePaths {
   static const teacherStudentDetailSegment = 'students';
   static const teacherLeaderboard = '/teacher/leaderboard';
   static const teacherAnalytics = '/teacher/analytics';
+  static const teacherProgress = '/teacher/progress';
   static const teacherMovements = '/teacher/movements';
   static const teacherToReview = '/teacher/to-review';
   static const teacherActivityCenter = '/teacher/activity-center';
@@ -71,6 +72,7 @@ abstract final class AppRoutePaths {
     teacherStudents,
     teacherLeaderboard,
     teacherAnalytics,
+    teacherProgress,
     teacherMovements,
     teacherToReview,
     teacherActivityCenter,

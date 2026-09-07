@@ -257,8 +257,9 @@ void main() {
     },
   );
 
-  test('pendingJoinCount starts at zero and reflects a single pending request', (
-    ) async {
+  test(
+    'pendingJoinCount starts at zero and reflects a single pending request',
+    () async {
       final controller = createController()..setTeacher(teacherId);
       addTearDown(controller.dispose);
       await _settle();
@@ -432,7 +433,7 @@ void main() {
 
     expect(find.byKey(const Key('teacher_to_review_empty')), findsOneWidget);
     expect(find.text('No submissions are waiting for review'), findsOneWidget);
-    expect(find.text('To Review'), findsOneWidget);
+    expect(find.text('Review Work'), findsOneWidget);
   });
 
   testWidgets('To Review shows actionable submission context', (tester) async {

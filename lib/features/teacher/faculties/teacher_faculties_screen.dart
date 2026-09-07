@@ -55,7 +55,7 @@ class _TeacherFacultiesScreenState extends State<TeacherFacultiesScreen> {
     if (controller == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
-          heading: 'Faculties',
+          heading: 'Teacher Access',
           eyebrow: 'TEACHER WORKSPACE',
         ),
         content: Center(child: ProgressRing()),
@@ -67,15 +67,15 @@ class _TeacherFacultiesScreenState extends State<TeacherFacultiesScreen> {
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
-            heading: 'Faculties',
+            heading: 'Teacher Access',
             eyebrow: 'TEACHER WORKSPACE',
-            subtitle: 'Coordinate access with fellow instructors.',
+            subtitle: 'Invite and manage other Teachers who need access.',
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
                 CommandBarButton(
                   icon: const Icon(FluentIcons.add_friend),
-                  label: const Text('Invite a faculty member'),
+                  label: const Text('Invite another Teacher'),
                   onPressed: controller.busy
                       ? null
                       : () => _inviteFaculty(context, controller),
@@ -133,7 +133,7 @@ Future<void> _inviteFaculty(
       }
       final display = minted.displayCode;
       return ContentDialog(
-        title: const Text('Faculty access code'),
+        title: const Text('Teacher access code'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -173,7 +173,7 @@ class _FacultyList extends StatelessWidget {
     if (controller.teachers.isEmpty) {
       return const ElixStatusPanel(
         key: Key('teacher_faculties_empty'),
-        message: 'No other faculty members yet.',
+        message: 'No other Teachers have access yet.',
       );
     }
 

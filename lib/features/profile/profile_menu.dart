@@ -175,6 +175,15 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     host.go(ProfileMenu.profilePathFor(user));
   }
 
+  void _openTeacherAccess() {
+    final host = widget.hostContext;
+    if (!host.mounted) return;
+    final user = host.read<AuthService>().currentUser;
+    if (user?.isTeacher != true) return;
+    widget.onDismiss();
+    if (host.mounted) host.go(AppRoutePaths.teacherFaculties);
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
@@ -233,6 +242,22 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
               onTap: _openSettings,
             ),
           ),
+          if (user?.isTeacher == true) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.sm,
+                0,
+                AppSpacing.sm,
+                AppSpacing.xs,
+              ),
+              child: _ProfileMenuItem(
+                icon: FluentIcons.add_friend,
+                label: 'Teacher Access',
+                description: 'Invite another Teacher',
+                onTap: _openTeacherAccess,
+              ),
+            ),
+          ],
           const _MenuDivider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(

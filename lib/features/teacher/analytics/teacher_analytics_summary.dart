@@ -465,8 +465,8 @@ class _SummaryFooter extends StatelessWidget {
         ),
         FilledButton(
           key: const Key('teacher_analytics_view_analytics'),
-          onPressed: () => context.go(AppRoutePaths.teacherAnalytics),
-          child: const Text('View Analytics'),
+          onPressed: () => context.go(AppRoutePaths.teacherProgress),
+          child: const Text('View progress'),
         ),
       ],
     );

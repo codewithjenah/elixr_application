@@ -19,31 +19,32 @@ import 'package:provider/provider.dart';
 import '../../features/teacher/teacher_phase3_test_support.dart';
 
 void main() {
-  test('teacher sidebar groups include the Calendar destination', () {
-    List<String> routesIn(TeacherSidebarGroup group) {
-      return teacherSidebarItems
-          .where((item) => item.group == group)
-          .map((item) => item.route)
-          .toList();
-    }
-
-    expect(teacherSidebarItems, hasLength(11));
-    expect(routesIn(TeacherSidebarGroup.classroom), [
-      AppRoutePaths.teacherDashboard,
-      AppRoutePaths.teacherCalendar,
-      AppRoutePaths.teacherGroups,
-      AppRoutePaths.teacherFaculties,
-      AppRoutePaths.teacherStudents,
-      AppRoutePaths.teacherMovements,
-      AppRoutePaths.teacherToReview,
+  test('teacher sidebar follows the daily Teacher workflow', () {
+    expect(teacherSidebarItems, hasLength(7));
+    expect(teacherSidebarItems.map((item) => item.label), [
+      'Dashboard',
+      'Classrooms',
+      'Review Work',
+      'Students',
+      'Calendar',
+      'Progress',
+      'Messages',
     ]);
-    expect(routesIn(TeacherSidebarGroup.insights), [
-      AppRoutePaths.teacherLeaderboard,
-      AppRoutePaths.teacherAnalytics,
-      AppRoutePaths.teacherActivityCenter,
+    expect(teacherSidebarItems.map((item) => item.route), [
+      AppRoutePaths.teacherDashboard,
+      AppRoutePaths.teacherGroups,
+      AppRoutePaths.teacherToReview,
+      AppRoutePaths.teacherStudents,
+      AppRoutePaths.teacherCalendar,
+      AppRoutePaths.teacherProgress,
       AppRoutePaths.teacherMessages,
     ]);
-    final notifications = teacherSidebarItems.singleWhere(
+    expect(teacherSidebarUtilityItems, hasLength(2));
+    expect(teacherSidebarUtilityItems.map((item) => item.label), [
+      'Notifications',
+      'Teacher Access',
+    ]);
+    final notifications = teacherSidebarUtilityItems.singleWhere(
       (item) => item.label == 'Notifications',
     );
     expect(notifications.route, AppRoutePaths.teacherActivityCenter);
@@ -81,6 +82,25 @@ void main() {
         AppRoutePaths.teacherGroups,
       ),
       isFalse,
+    );
+  });
+
+  test('Progress stays active for the retained Leaderboard deep link', () {
+    final progress = teacherSidebarItems.singleWhere(
+      (item) => item.label == 'Progress',
+    );
+
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherProgress, progress),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherAnalytics, progress),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, progress),
+      isTrue,
     );
   });
 
@@ -134,8 +154,8 @@ void main() {
     );
     expect(find.text(AppConstants.appName), findsAtLeastNWidgets(1));
     expect(find.text('Teacher'), findsWidgets);
-    expect(find.text('CLASSROOM'), findsOneWidget);
-    expect(find.text('INSIGHTS'), findsOneWidget);
+    expect(find.text('WORKSPACE'), findsOneWidget);
+    expect(find.text('UTILITIES'), findsOneWidget);
     expect(find.text('ACCOUNT'), findsNothing);
     expect(find.text('Settings'), findsNothing);
     expect(find.text('EXP'), findsNothing);
@@ -230,7 +250,7 @@ void main() {
       );
 
       expect(badgeFor('Classrooms'), findsOneWidget);
-      expect(badgeFor('To Review'), findsOneWidget);
+      expect(badgeFor('Review Work'), findsOneWidget);
       expect(badgeFor('Notifications'), findsOneWidget);
       expect(badgeFor('Messages'), findsOneWidget);
 
@@ -239,7 +259,7 @@ void main() {
       await tester.pump();
 
       expect(badgeFor('Classrooms'), findsNothing);
-      expect(badgeFor('To Review'), findsOneWidget);
+      expect(badgeFor('Review Work'), findsOneWidget);
       expect(badgeFor('Notifications'), findsOneWidget);
       expect(badgeFor('Messages'), findsOneWidget);
     },

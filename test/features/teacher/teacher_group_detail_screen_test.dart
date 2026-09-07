@@ -847,7 +847,7 @@ void main() {
         find.text('Create an assignment to give this class its next movement.'),
         findsOneWidget,
       );
-      expect(find.text('New assignment'), findsOneWidget);
+      expect(find.text('Create assignment'), findsOneWidget);
       final createButton = tester.widget<ElixPrimaryButton>(
         find.byKey(const Key('teacher_group_create_assignment')),
       );

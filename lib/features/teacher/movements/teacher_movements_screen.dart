@@ -70,7 +70,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
     if (controller == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
-          heading: 'Teacher Activities',
+          heading: 'Activity Library',
           eyebrow: 'TEACHER WORKSPACE',
         ),
         content: Center(child: ProgressRing()),
@@ -82,17 +82,17 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
-            heading: 'Teacher Activities',
+            heading: 'Activity Library',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle:
-                'Manage reusable Official ELIXR activities and your Teacher Activities.',
+                'Choose official ELIXR activities or manage activities you create.',
             commandBar: controller.tab == TeacherMovementsTab.mine
                 ? CommandBar(
                     mainAxisAlignment: MainAxisAlignment.end,
                     primaryItems: [
                       CommandBarButton(
                         icon: const Icon(FluentIcons.add),
-                        label: const Text('Create Teacher Activity'),
+                        label: const Text('Create activity'),
                         onPressed: controller.busy
                             ? null
                             : () => _showCreateOrEditMovement(
@@ -155,7 +155,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
   static String _tabLabel(TeacherMovementsTab tab) {
     return switch (tab) {
       TeacherMovementsTab.official => 'Official ELIXR',
-      TeacherMovementsTab.mine => 'Teacher Activities',
+      TeacherMovementsTab.mine => 'My activities',
     };
   }
 }
@@ -277,7 +277,7 @@ class _MyMovementsList extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
         child: ElixStatusPanel(
           message:
-              'No Teacher Activities yet. Create one to assign a teacher-reviewed exercise.',
+              'No activities yet. Create one to assign a teacher-reviewed exercise.',
         ),
       );
     }
