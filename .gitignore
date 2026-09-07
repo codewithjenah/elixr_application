@@ -42,6 +42,7 @@ baseline_flutter_test.txt
 .pub/
 /build/
 **/build/
+/build/pilot/
 /coverage/
 **/.venv/
 backend/.venv/

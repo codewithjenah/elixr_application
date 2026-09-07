@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+from runtime_paths import is_frozen, writable_data_root
 
 _CONFIGURED = False
 
 _DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 _DEFAULT_BACKUP_COUNT = 3
-_DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"
+_DEFAULT_LOG_DIR = (
+    writable_data_root() / "logs"
+    if is_frozen()
+    else Path(__file__).resolve().parent / "logs"
+)
 
 
 def reset_logging_for_tests() -> None:
@@ -43,8 +50,10 @@ def configure_logging(
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
+    console = None
+    if not (is_frozen() and sys.stderr is None):
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
 
     file_handler = RotatingFileHandler(
         log_file,
@@ -56,7 +65,8 @@ def configure_logging(
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
-    root.addHandler(console)
+    if console is not None:
+        root.addHandler(console)
     root.addHandler(file_handler)
 
     _CONFIGURED = True

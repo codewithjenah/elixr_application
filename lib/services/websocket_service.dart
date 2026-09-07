@@ -4,11 +4,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../core/constants/app_constants.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/training_prop.dart';
 import '../data/models/teacher_activity_assessment.dart';
 import '../data/models/ws_protocol.dart';
+import 'backend_service.dart';
 
 enum WebSocketConnectionState { disconnected, connecting, connected, error }
 
@@ -105,7 +105,7 @@ class WebSocketService extends ChangeNotifier {
     _errorMessage = null;
 
     try {
-      final channel = _channelFactory(Uri.parse(AppConstants.wsUrl));
+      final channel = _channelFactory(BackendRuntime.wsUri);
       _channel = channel;
       _outboundSink = channel.sink;
 
@@ -120,7 +120,9 @@ class WebSocketService extends ChangeNotifier {
 
       _setState(WebSocketConnectionState.connected);
     } catch (e) {
-      _errorMessage = 'Unable to connect to backend. Is it running?';
+      _errorMessage =
+          BackendRuntime.startupError ??
+          'Unable to connect to backend. Is it running?';
       _setState(WebSocketConnectionState.error);
       await _cleanupChannel();
     }

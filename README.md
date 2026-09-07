@@ -219,6 +219,20 @@ Expected response:
 { "status": "ok" }
 ```
 
+## Build a Windows pilot installer
+
+The reproducible pilot packaging workflow is documented in
+[`docs/windows-pilot-build.md`](docs/windows-pilot-build.md). From the
+repository root, run:
+
+```powershell
+.\scripts\build_pilot.ps1
+```
+
+The installer is written to `build\pilot\ELIXR_Setup.exe`. Developers can
+continue using the two-terminal workflow above; it remains the development
+fallback when no packaged backend sidecar is present.
+
 ### Terminal 2 — Flutter client
 
 ```powershell
@@ -854,7 +868,7 @@ Generated code is not considered complete merely because it compiles or looks pl
 - Windows is the primary supported client platform.
 - The vision backend is a separate local Python process.
 - The WebSocket endpoint is designed for loopback development and does not implement application-level authentication.
-- Release packaging and installer automation are not currently provided.
+- Windows pilot packaging is provided by `scripts/build_pilot.ps1`.
 - Custom model retraining is outside the application runtime.
 
 ## License

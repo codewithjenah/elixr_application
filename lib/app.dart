@@ -38,6 +38,7 @@ import 'features/teacher/activity_center/teacher_activity_controller.dart';
 import 'features/trainee/activity_center/trainee_activity_controller.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
+import 'services/backend_service.dart';
 import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
 import 'services/settings_service.dart';
@@ -49,6 +50,7 @@ import 'services/message_unread_service.dart';
 class ElixrApp extends StatefulWidget {
   ElixrApp({
     super.key,
+    this.backendService,
     TeacherAccessCodeRepository? teacherAccessCodeRepository,
     FacultyDirectoryRepository? facultyDirectoryRepository,
   }) : teacherAccessCodeRepository =
@@ -58,6 +60,7 @@ class ElixrApp extends StatefulWidget {
 
   final TeacherAccessCodeRepository teacherAccessCodeRepository;
   final FacultyDirectoryRepository facultyDirectoryRepository;
+  final BackendService? backendService;
 
   @override
   State<ElixrApp> createState() => _ElixrAppState();
@@ -65,6 +68,7 @@ class ElixrApp extends StatefulWidget {
 
 class _ElixrAppState extends State<ElixrApp> {
   late final AuthService _authService;
+  late final BackendService _backendService;
   late final SettingsService _settingsService;
   late final CameraDeviceService _cameraDeviceService;
   late final TutorialProgressService _tutorialProgressService;
@@ -82,6 +86,7 @@ class _ElixrAppState extends State<ElixrApp> {
   @override
   void initState() {
     super.initState();
+    _backendService = widget.backendService ?? BackendService();
     _publicProfileRepository = PublicProfileRepository();
     _leaderboardRepository = LeaderboardRepository();
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
@@ -111,6 +116,7 @@ class _ElixrAppState extends State<ElixrApp> {
 
   @override
   void dispose() {
+    _backendService.dispose();
     _cameraDeviceService.dispose();
     _joinLinkService.dispose();
     _router.dispose();

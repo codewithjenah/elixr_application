@@ -2,9 +2,11 @@ import logging
 from pathlib import Path
 from urllib.request import urlretrieve
 
+from runtime_paths import is_frozen, model_dir
+
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
+MODEL_DIR = model_dir()
 
 MODELS = {
     "hand_landmarker.task": (
@@ -22,6 +24,12 @@ def ensure_model(name: str) -> Path:
     path = MODEL_DIR / name
     if path.exists():
         return path
+
+    if is_frozen():
+        raise FileNotFoundError(
+            f"Bundled model asset is missing: {name}. "
+            "Rebuild the ELIXR pilot package."
+        )
 
     url = MODELS.get(name)
     if url is None:

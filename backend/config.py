@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
 
-_BACKEND_DIR = Path(__file__).resolve().parent
+from runtime_paths import resource_root
+
+_BACKEND_DIR = resource_root()
 _DEFAULT_YOLO_MODEL_PATH = _BACKEND_DIR / "models" / "best.pt"
 _DEFAULT_YOLO_ONNX_MODEL_PATH = _BACKEND_DIR / "models" / "best.onnx"
 

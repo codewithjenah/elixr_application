@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 
 import 'app.dart';
 import 'firebase_options.dart';
+import 'services/backend_service.dart';
 import 'services/error_log_service.dart';
 
 Future<void> main() async {
@@ -18,6 +19,9 @@ Future<void> main() async {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+
+      final backendService = BackendService();
+      await backendService.start();
 
       final errorLog = ErrorLogService();
 
@@ -39,7 +43,7 @@ Future<void> main() async {
         return true;
       };
 
-      runApp(ElixrApp());
+      runApp(ElixrApp(backendService: backendService));
     },
     (error, stack) {
       // Best-effort: ErrorLogService may not be ready if init failed early.

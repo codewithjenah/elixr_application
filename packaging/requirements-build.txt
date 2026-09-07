@@ -1,0 +1,2 @@
+# Keep the frozen backend layout and hook behavior reproducible.
+pyinstaller==6.22.2

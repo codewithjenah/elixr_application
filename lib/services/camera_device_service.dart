@@ -4,8 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../core/constants/app_constants.dart';
 import '../data/models/camera_device.dart';
+import 'backend_service.dart';
 
 enum CameraDiscoveryState { idle, loading, success, empty, error }
 
@@ -24,10 +24,12 @@ typedef CameraHttpGet = Future<String> Function(Uri uri);
 class CameraDeviceService extends ChangeNotifier {
   CameraDeviceService({CameraHttpGet? httpGet, Uri? endpoint})
     : _httpGet = httpGet ?? _defaultHttpGet,
-      _endpoint = endpoint ?? Uri.parse(AppConstants.backendHttpBaseUrl);
+      _configuredEndpoint = endpoint;
 
   final CameraHttpGet _httpGet;
-  final Uri _endpoint;
+  final Uri? _configuredEndpoint;
+
+  Uri get _endpoint => _configuredEndpoint ?? BackendRuntime.httpBaseUri;
 
   CameraDiscoveryState _state = CameraDiscoveryState.idle;
   List<CameraDevice> _cameras = const [];
@@ -103,7 +105,7 @@ class CameraDeviceService extends ChangeNotifier {
     } on SocketException {
       _setError(
         CameraDiscoveryErrorKind.backendUnreachable,
-        'Backend unavailable — start the Python server',
+        'Backend unavailable — start ELIXR or the Python server',
         preserveCameras: true,
       );
     } on TimeoutException {
@@ -117,7 +119,7 @@ class CameraDeviceService extends ChangeNotifier {
       } else {
         _setError(
           CameraDiscoveryErrorKind.backendUnreachable,
-          'Backend unavailable — start the Python server',
+          'Backend unavailable — start ELIXR or the Python server',
           preserveCameras: true,
         );
       }
