@@ -18,6 +18,7 @@ class TeacherSettingsScreen extends StatelessWidget {
     this.watchPlayer,
     this.watchUserCosmetics,
     this.equipBorder,
+    this.updateTeacherBorder,
     this.pickProfileImage,
     this.cropProfileImage,
     this.publicProfileRepository,
@@ -29,6 +30,7 @@ class TeacherSettingsScreen extends StatelessWidget {
   final AccountProfileWatchPlayer? watchPlayer;
   final AccountProfileWatchCosmetics? watchUserCosmetics;
   final AccountProfileEquipBorder? equipBorder;
+  final AccountProfileUpdateTeacherBorder? updateTeacherBorder;
   final AccountProfileImagePicker? pickProfileImage;
   final AccountProfileImageCropper? cropProfileImage;
   final PublicProfileRepository? publicProfileRepository;
@@ -54,6 +56,7 @@ class TeacherSettingsScreen extends StatelessWidget {
               watchPlayer: watchPlayer,
               watchUserCosmetics: watchUserCosmetics,
               equipBorder: equipBorder,
+              updateTeacherBorder: updateTeacherBorder,
               pickProfileImage: pickProfileImage,
               cropProfileImage: cropProfileImage,
               publicProfileRepository: profiles,

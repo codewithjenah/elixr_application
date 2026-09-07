@@ -42,5 +42,20 @@ void main() {
       expect(data.containsKey('terms_consent_at'), isFalse);
       expect(data.containsKey('terms_of_service_version'), isFalse);
     });
+
+    test('includes the optional Teacher profile border when selected', () {
+      const user = User(
+        id: 'teacher-1',
+        firstName: 'Grace',
+        lastName: 'Hopper',
+        email: 'grace@example.com',
+        role: User.roleTeacher,
+        profileBorderId: 'starter_glow',
+      );
+
+      final data = FirestoreHelper.userProfileWriteData(user);
+
+      expect(data['profile_border_id'], 'starter_glow');
+    });
   });
 }

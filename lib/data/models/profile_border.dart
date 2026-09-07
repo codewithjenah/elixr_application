@@ -1,4 +1,7 @@
-/// Cosmetic profile-border catalog for achievement rewards.
+/// Shared cosmetic profile-border catalog.
+///
+/// Trainee achievement rewards and Teacher profile preferences reuse these
+/// visual IDs; their persistence and entitlement rules remain separate.
 ///
 /// Pure Dart — uses fixed integer ARGB color values so unit tests and
 /// Firestorm rule helpers can share IDs without importing Flutter `Color`.

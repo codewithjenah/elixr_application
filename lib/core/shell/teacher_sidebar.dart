@@ -298,21 +298,25 @@ class _TeacherIdentityFooterState extends State<_TeacherIdentityFooter> {
               child: widget.isCollapsed
                   ? Center(
                       child: ProfileAvatarWidget(
+                        key: const Key('teacher_sidebar_avatar'),
                         networkImageUrl: widget.user?.profilePictureUrl,
                         legacyLocalPath: widget.user?.profilePicturePath,
                         initials: widget.initials,
                         radius: 18,
-                        animateBorder: false,
+                        equippedBorderId: widget.user?.profileBorderId,
+                        animateBorder: true,
                       ),
                     )
                   : Row(
                       children: [
                         ProfileAvatarWidget(
+                          key: const Key('teacher_sidebar_avatar'),
                           networkImageUrl: widget.user?.profilePictureUrl,
                           legacyLocalPath: widget.user?.profilePicturePath,
                           initials: widget.initials,
                           radius: 18,
-                          animateBorder: false,
+                          equippedBorderId: widget.user?.profileBorderId,
+                          animateBorder: true,
                         ),
                         const SizedBox(width: AppSpacing.sm),
                         Expanded(

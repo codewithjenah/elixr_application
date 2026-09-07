@@ -187,6 +187,18 @@ service cloud.firestore {
       return id in profileBorderIds();
     }
 
+    function validTeacherProfileBorderValue(data) {
+      return data.profile_border_id == null
+        || (data.profile_border_id is string
+          && (data.profile_border_id == ''
+            || isKnownProfileBorderId(data.profile_border_id)));
+    }
+
+    function validOptionalTeacherProfileBorder(data) {
+      return !data.keys().hasAny(['profile_border_id'])
+        || (data.role == 'Teacher' && validTeacherProfileBorderValue(data));
+    }
+
     function achievementClaimKeys() {
       return ['user_id', 'achievement_id', 'reward_border_id', 'claimed_at'];
     }
@@ -1249,7 +1261,7 @@ service cloud.firestore {
           'role', 'teacher_access_code', 'created_at', 'privacy_consent_at',
           'privacy_policy_version', 'terms_consent_at',
           'terms_of_service_version', 'profile_picture_url',
-          'profile_picture_storage_path'
+          'profile_picture_storage_path', 'profile_border_id'
         ])
         && validStructuredName(data)
         && data.email is string
@@ -1260,7 +1272,8 @@ service cloud.firestore {
         && data.privacy_consent_at == request.time
         && data.privacy_policy_version == 'v6'
         && data.terms_consent_at == request.time
-        && data.terms_of_service_version == 'v3';
+        && data.terms_of_service_version == 'v3'
+        && validOptionalTeacherProfileBorder(data);
     }
 
     function validUserProfileUpdate() {
@@ -1270,7 +1283,8 @@ service cloud.firestore {
           'profile_picture_path', 'profile_picture_url',
           'profile_picture_storage_path', 'session_evidence_enabled',
           'session_evidence_policy_version', 'session_evidence_decision_at',
-          'teacher_roster_invite_code', 'teacher_invite_code'
+          'teacher_roster_invite_code', 'teacher_invite_code',
+          'profile_border_id'
         ])
         && request.resource.data.role == resource.data.role
         && request.resource.data.get('teacher_access_code', '')
@@ -1287,7 +1301,11 @@ service cloud.firestore {
             request.resource.data.session_evidence_enabled is bool
             && request.resource.data.session_evidence_policy_version == 'v1'
             && request.resource.data.session_evidence_decision_at == request.time
-          ));
+          ))
+        && (!affected.hasAny(['profile_border_id'])
+          || (resource.data.role == 'Teacher'
+            && (!request.resource.data.keys().hasAny(['profile_border_id'])
+              || validTeacherProfileBorderValue(request.resource.data))));
     }
 
     match /users/{userId} {

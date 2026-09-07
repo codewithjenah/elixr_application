@@ -327,6 +327,16 @@ abstract class TeacherAuthorizationRepositoryBase {
   Future<void> ensureTeacherRoleClaim();
 }
 
+/// Optional authenticated profile operation for the Teacher-only border
+/// preference. Kept separate so existing AuthRepository test doubles and
+/// shared clients do not need to implement a Teacher-specific mutation.
+abstract class TeacherProfileBorderRepositoryBase {
+  Future<User> updateTeacherProfileBorder({
+    required String userId,
+    required String? profileBorderId,
+  });
+}
+
 /// Optional extension of [GoogleAuthRepositoryBase] for the explicit Teacher
 /// registration flow. Keeping this separate preserves source compatibility
 /// for repositories that only support Trainee Google sign-in.
@@ -868,7 +878,8 @@ class AuthRepository
         GoogleAuthRepositoryBase,
         TeacherRegistrationRepositoryBase,
         TeacherAuthorizationRepositoryBase,
-        TeacherGoogleAuthRepositoryBase {
+        TeacherGoogleAuthRepositoryBase,
+        TeacherProfileBorderRepositoryBase {
   AuthRepository({
     fb.FirebaseAuth? auth,
     UserProfileStore? db,
@@ -1786,6 +1797,38 @@ class AuthRepository
 
     final updated = await _db.getUserById(userId);
     if (updated == null) throw Exception('User profile not found');
+    return updated;
+  }
+
+  @override
+  Future<User> updateTeacherProfileBorder({
+    required String userId,
+    required String? profileBorderId,
+  }) async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) throw Exception('Not authenticated');
+    if (firebaseUser.uid != userId) {
+      throw Exception('Authenticated user does not match the profile.');
+    }
+
+    final existing = await _db.getUserById(userId);
+    if (existing == null) throw Exception('User profile not found');
+    if (!existing.isTeacher) {
+      throw Exception('Only Teachers can update an avatar frame.');
+    }
+
+    final normalized = profileBorderId?.trim() ?? '';
+    await _db.updateUserProfileField(userId, {
+      'profile_border_id': normalized.isEmpty
+          ? FieldValue.delete()
+          : normalized,
+    });
+
+    final updated = await _db.getUserById(userId);
+    if (updated == null) throw Exception('User profile not found');
+    if (!updated.isTeacher) {
+      throw Exception('Teacher role changed while updating the avatar frame.');
+    }
     return updated;
   }
 

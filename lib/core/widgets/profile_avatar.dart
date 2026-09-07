@@ -47,8 +47,9 @@ class ProfileAvatarWidget extends StatelessWidget {
   final String initials;
   final double radius;
 
-  /// Public equipped cosmetic border id (from leaderboard). Null/unknown
-  /// falls back to the neutral presentation.
+  /// Profile border id supplied by the owning surface. Trainee surfaces pass
+  /// the leaderboard cosmetic value; Teacher surfaces pass the canonical user
+  /// preference. Null/unknown falls back to the neutral presentation.
   final String? equippedBorderId;
   final bool showBorder;
 

@@ -32,6 +32,7 @@ class SettingsScreen extends StatefulWidget {
     this.watchPlayer,
     this.watchUserCosmetics,
     this.equipBorder,
+    this.updateTeacherBorder,
     this.pickProfileImage,
     this.cropProfileImage,
     this.publicProfileRepository,
@@ -61,6 +62,10 @@ class SettingsScreen extends StatefulWidget {
 
   /// Optional equip override forwarded to [AccountProfileSection].
   final AccountProfileEquipBorder? equipBorder;
+
+  /// Optional Teacher profile-border update override forwarded to
+  /// [AccountProfileSection].
+  final AccountProfileUpdateTeacherBorder? updateTeacherBorder;
 
   /// Optional gallery picker override forwarded to [AccountProfileSection].
   final AccountProfileImagePicker? pickProfileImage;
@@ -107,6 +112,7 @@ class SettingsScreen extends StatefulWidget {
         watchPlayer: accountHooks?.watchPlayer,
         watchUserCosmetics: accountHooks?.watchUserCosmetics,
         equipBorder: accountHooks?.equipBorder,
+        updateTeacherBorder: accountHooks?.updateTeacherBorder,
         embeddedFooter: isTeacher ? const SettingsLegalFooter() : null,
       ),
     );
@@ -642,9 +648,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           watchPlayer: widget.watchPlayer,
           watchUserCosmetics: widget.watchUserCosmetics,
           equipBorder: widget.equipBorder,
+          updateTeacherBorder: widget.updateTeacherBorder,
           pickProfileImage: widget.pickProfileImage,
           cropProfileImage: widget.cropProfileImage,
-          showAvatarFrames: widget.audience == SettingsAudience.trainee,
+          audience: widget.audience,
         );
       case SettingsSection.security:
         return SecuritySection(key: _securityKey);

@@ -342,8 +342,15 @@ void main() {
       expect(find.text('Teacher Access'), findsNothing);
       expect(find.text('TEACHER WORKSPACE'), findsOneWidget);
       expect(find.text('Save confirmed movement images'), findsNothing);
-      expect(find.byType(ProfileFrameSelector), findsNothing);
-      expect(find.text('Avatar Frame'), findsNothing);
+      expect(find.byType(ProfileFrameSelector), findsOneWidget);
+      expect(find.text('Avatar Frame'), findsOneWidget);
+      expect(find.text('Frames'), findsOneWidget);
+      expect(find.text('No Frame · Default'), findsOneWidget);
+      expect(find.text('Locked'), findsNothing);
+      expect(find.text('Unlocked'), findsNothing);
+      expect(find.textContaining('achievement'), findsNothing);
+      expect(find.textContaining('XP'), findsNothing);
+      expect(find.textContaining('leaderboard'), findsNothing);
       expect(find.textContaining('practice session'), findsNothing);
     },
   );

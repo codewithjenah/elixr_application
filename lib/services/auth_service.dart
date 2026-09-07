@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/auth/teacher_auth_messages.dart';
 import '../core/constants/app_constants.dart';
+import '../data/models/profile_border.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/profile_image_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
@@ -120,6 +121,10 @@ class AuthService extends ChangeNotifier {
   TeacherAuthorizationRepositoryBase? get _teacherAuthorizationRepository =>
       _repository is TeacherAuthorizationRepositoryBase
       ? _repository as TeacherAuthorizationRepositoryBase
+      : null;
+  TeacherProfileBorderRepositoryBase? get _teacherProfileBorderRepository =>
+      _repository is TeacherProfileBorderRepositoryBase
+      ? _repository as TeacherProfileBorderRepositoryBase
       : null;
   final LeaderboardRepository? _leaderboardRepository;
   final PublicProfileRepository? _publicProfileRepository;
@@ -1087,6 +1092,53 @@ class AuthService extends ChangeNotifier {
       previousUser: previousUser,
       pictureUpdate: pictureUpdate,
     );
+  }
+
+  /// Persists the authenticated Teacher's profile border independently from
+  /// trainee leaderboard and achievement cosmetics.
+  ///
+  /// A missing or blank value clears the preference. The catalog check here is
+  /// defense in depth; Firestore rules remain the authoritative boundary for
+  /// modified clients.
+  Future<void> updateTeacherProfileBorder({String? profileBorderId}) async {
+    final current = _currentUser;
+    final userId = current?.id?.trim();
+    if (current == null ||
+        !current.isTeacher ||
+        userId == null ||
+        userId.isEmpty) {
+      throw Exception(
+        'Only an authenticated Teacher can update an avatar frame.',
+      );
+    }
+
+    final trimmed = profileBorderId?.trim() ?? '';
+    final normalized = trimmed.isEmpty ? null : trimmed;
+    if (normalized != null && !isKnownProfileBorderId(normalized)) {
+      throw ArgumentError('Unknown avatar frame.');
+    }
+
+    final repository = _teacherProfileBorderRepository;
+    if (repository == null) {
+      throw Exception('Avatar frame updates are unavailable.');
+    }
+
+    final updated = await repository.updateTeacherProfileBorder(
+      userId: userId,
+      profileBorderId: normalized,
+    );
+    if (_currentUser?.id?.trim() != userId || _currentUser?.isTeacher != true) {
+      throw StateError(
+        'The active account changed while updating the avatar frame.',
+      );
+    }
+    if (updated.id != userId || !updated.isTeacher) {
+      throw StateError(
+        'The saved avatar frame belongs to a different account.',
+      );
+    }
+    _currentUser = updated;
+    notifyListeners();
   }
 
   /// Removes the current profile avatar without touching name or email edits.

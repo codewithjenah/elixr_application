@@ -25,6 +25,7 @@ import '../../../data/repositories/profile_image_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
 import '../models/pending_profile_crop.dart';
+import '../settings_section.dart';
 import '../widgets/profile_frame_selector.dart';
 import '../widgets/profile_image_crop_dialog.dart';
 import '../widgets/settings_components.dart';
@@ -54,17 +55,24 @@ typedef AccountProfileEquipBorder =
       required String borderId,
     });
 
+/// Persists the canonical profile-border preference for an authenticated
+/// Teacher. A null value clears the preference.
+typedef AccountProfileUpdateTeacherBorder =
+    Future<void> Function({required String userId, required String? borderId});
+
 /// Optional Account & Profile Firestore stand-ins for overlay Settings.
 class SettingsAccountHooks {
   const SettingsAccountHooks({
     this.watchPlayer,
     this.watchUserCosmetics,
     this.equipBorder,
+    this.updateTeacherBorder,
   });
 
   final AccountProfileWatchPlayer? watchPlayer;
   final AccountProfileWatchCosmetics? watchUserCosmetics;
   final AccountProfileEquipBorder? equipBorder;
+  final AccountProfileUpdateTeacherBorder? updateTeacherBorder;
 }
 
 /// Wider body so the avatar customization column and form can sit side by side.
@@ -78,14 +86,19 @@ enum _ProfilePictureOperation { idle, uploading, removing }
 class AccountProfileSection extends StatefulWidget {
   const AccountProfileSection({
     super.key,
+    this.audience = SettingsAudience.trainee,
     this.watchPlayer,
     this.watchUserCosmetics,
     this.equipBorder,
+    this.updateTeacherBorder,
     this.onDirtyChanged,
     this.pickProfileImage,
     this.cropProfileImage,
     this.showAvatarFrames = true,
   });
+
+  /// Selects the entitlement/persistence mode for the frame UI.
+  final SettingsAudience audience;
 
   /// Optional override for tests (avoids constructing Firestore).
   final AccountProfileWatchPlayer? watchPlayer;
@@ -96,6 +109,9 @@ class AccountProfileSection extends StatefulWidget {
   /// Optional equip/unequip override for tests.
   final AccountProfileEquipBorder? equipBorder;
 
+  /// Optional Teacher profile-border persistence override for tests.
+  final AccountProfileUpdateTeacherBorder? updateTeacherBorder;
+
   /// Notified whenever [AccountProfileSectionState.isDirty] changes.
   final ValueChanged<bool>? onDirtyChanged;
 
@@ -105,7 +121,9 @@ class AccountProfileSection extends StatefulWidget {
   /// Optional crop-dialog override (defaults to [ProfileImageCropDialog.show]).
   final AccountProfileImageCropper? cropProfileImage;
 
-  /// Trainee-only cosmetic frames. Teachers keep photo upload without XP frames.
+  /// Legacy opt-out retained for callers that intentionally hide frame UI.
+  /// Settings itself uses [audience] and leaves this enabled for both roles.
+  @Deprecated('Use audience to select the frame presentation mode.')
   final bool showAvatarFrames;
 
   @override
@@ -127,6 +145,8 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   String? _boundUserId;
   String? _equippedBorderId;
   Set<String> _unlockedBorderIds = const {};
+  String? _teacherProfileUserId;
+  String? _teacherProfileBorderId;
   bool _leaderboardMissing = false;
   String? _frameError;
   String? _busyBorderId;
@@ -146,12 +166,18 @@ class AccountProfileSectionState extends State<AccountProfileSection>
 
   AchievementRepository? _achievementRepo;
 
+  bool get _isTeacherMode => widget.audience == SettingsAudience.teacher;
+  bool get _framesEnabled => widget.showAvatarFrames;
+  String? get _selectedBorderId =>
+      _isTeacherMode ? _teacherProfileBorderId : _equippedBorderId;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _authService = context.read<AuthService>();
     final user = _authService.currentUser;
+    _syncTeacherProfileBorderFromAuth();
     _firstNameController = TextEditingController(text: user?.firstName ?? '');
     _middleNameController = TextEditingController(text: user?.middleName ?? '');
     _lastNameController = TextEditingController(text: user?.lastName ?? '');
@@ -170,13 +196,14 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!widget.showAvatarFrames) {
+    if (!_framesEnabled || _isTeacherMode) {
       if (_boundUserId != null ||
           _leaderboardSub != null ||
           _cosmeticsSub != null) {
         _boundUserId = null;
         _bindCosmeticStreams(null);
       }
+      _syncTeacherProfileBorderFromAuth();
       return;
     }
     final userId = _authService.currentUser?.id;
@@ -189,9 +216,11 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   @override
   void didUpdateWidget(AccountProfileSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.showAvatarFrames && !widget.showAvatarFrames) {
+    if (oldWidget.audience != widget.audience ||
+        oldWidget.showAvatarFrames != widget.showAvatarFrames) {
       _boundUserId = null;
       _bindCosmeticStreams(null);
+      _syncTeacherProfileBorderFromAuth();
     }
   }
 
@@ -217,6 +246,32 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       return context.read<SettingsAccountHooks>();
     } on ProviderNotFoundException {
       return null;
+    }
+  }
+
+  void _syncTeacherProfileBorderFromAuth() {
+    if (!_isTeacherMode) {
+      _teacherProfileUserId = null;
+      _teacherProfileBorderId = null;
+      return;
+    }
+
+    final user = _authService.currentUser;
+    final userId = user?.id;
+    if (userId != _teacherProfileUserId) {
+      _teacherProfileUserId = userId;
+      _teacherProfileBorderId = user?.isTeacher == true
+          ? user?.profileBorderId
+          : null;
+      return;
+    }
+
+    // Do not replace a still-pending local selection with an unrelated auth
+    // notification. The selection is committed only after its write returns.
+    if (_busyBorderId != null) return;
+    final next = user?.isTeacher == true ? user?.profileBorderId : null;
+    if (next != _teacherProfileBorderId) {
+      _teacherProfileBorderId = next;
     }
   }
 
@@ -267,7 +322,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   }
 
   Future<void> _equipOrClearBorder(String borderId) async {
-    if (!widget.showAvatarFrames) return;
+    if (!_framesEnabled || _isTeacherMode) return;
     final userId = _boundUserId;
     if (userId == null || _busyBorderId != null) return;
 
@@ -305,6 +360,61 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           'Complete a session to create your leaderboard profile first.',
       };
       setState(() => _frameError = error);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _frameError = 'Could not update avatar frame.');
+    } finally {
+      if (mounted) setState(() => _busyBorderId = null);
+    }
+  }
+
+  Future<void> _updateTeacherBorder(String? borderId) async {
+    if (!_framesEnabled || !_isTeacherMode || _busyBorderId != null) return;
+
+    final user = _authService.currentUser;
+    final userId = user?.id?.trim();
+    if (user == null || !user.isTeacher || userId == null || userId.isEmpty) {
+      return;
+    }
+
+    final trimmed = borderId?.trim() ?? '';
+    final normalized = trimmed.isEmpty ? null : trimmed;
+    if (normalized != null && !isKnownProfileBorderId(normalized)) {
+      setState(() => _frameError = 'Unknown avatar frame.');
+      return;
+    }
+
+    final current = _teacherProfileBorderId?.trim() ?? '';
+    if ((normalized ?? '') == current) return;
+
+    setState(() {
+      _busyBorderId = normalized ?? '';
+      _frameError = null;
+    });
+
+    try {
+      final update =
+          widget.updateTeacherBorder ??
+          _hooksFromContext()?.updateTeacherBorder ??
+          ({required String userId, required String? borderId}) {
+            return _authService.updateTeacherProfileBorder(
+              profileBorderId: borderId,
+            );
+          };
+      await update(userId: userId, borderId: normalized);
+      if (!mounted) return;
+
+      final activeUser = _authService.currentUser;
+      if (activeUser == null ||
+          activeUser.id?.trim() != userId ||
+          !activeUser.isTeacher) {
+        return;
+      }
+      setState(() {
+        _teacherProfileUserId = userId;
+        _teacherProfileBorderId = normalized;
+        _frameError = null;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _frameError = 'Could not update avatar frame.');
@@ -376,6 +486,13 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     if (!mounted) return;
 
     final authService = _authService;
+    final previousTeacherBorder = _teacherProfileBorderId;
+    final previousTeacherUserId = _teacherProfileUserId;
+    _syncTeacherProfileBorderFromAuth();
+    if (previousTeacherBorder != _teacherProfileBorderId ||
+        previousTeacherUserId != _teacherProfileUserId) {
+      setState(() {});
+    }
     final successMessage = authService.takePendingEmailChangeSuccessMessage();
     if (successMessage != null) {
       _acceptVerifiedEmailUpdate(successMessage: successMessage);
@@ -858,7 +975,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     final avatarDisabled = _savingProfile || avatarBusy;
     final hasPhoto = _hasProfilePicture(user);
     final avatarDiameter = _avatarPreviewRadius * 2;
-    final equippedBorderId = widget.showAvatarFrames ? _equippedBorderId : null;
+    final equippedBorderId = _framesEnabled ? _selectedBorderId : null;
     final ornament = ProfileBorderFrame.ornamentPaddingFor(equippedBorderId);
     final outer = avatarDiameter + ornament * 2;
 
@@ -897,7 +1014,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                       radius: _avatarPreviewRadius,
                       initials: userInitials(_composedDisplayName()),
                       equippedBorderId: equippedBorderId,
-                      animateBorder: widget.showAvatarFrames,
+                      animateBorder: _framesEnabled,
                     ),
                     if (avatarBusy)
                       Container(
@@ -973,7 +1090,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
             ],
           ),
         ),
-        if (widget.showAvatarFrames) ...[
+        if (_framesEnabled) ...[
           const SizedBox(height: AppSpacing.md),
           Text(
             'Avatar Frame',
@@ -985,7 +1102,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           const SizedBox(height: 4),
           _buildSelectedFrameMeta(),
           const SizedBox(height: AppSpacing.sm),
-          if (_leaderboardMissing)
+          if (!_isTeacherMode && _leaderboardMissing)
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: Text(
@@ -996,7 +1113,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                 ),
               ),
             ),
-          if (_frameError != null && !_leaderboardMissing)
+          if (_frameError != null && (_isTeacherMode || !_leaderboardMissing))
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: Text(
@@ -1007,28 +1124,39 @@ class AccountProfileSectionState extends State<AccountProfileSection>
               ),
             ),
           ProfileFrameSelector(
+            mode: _isTeacherMode
+                ? ProfileFrameSelectorMode.teacher
+                : ProfileFrameSelectorMode.trainee,
             unlockedBorderIds: _unlockedBorderIds,
-            equippedBorderId: _equippedBorderId,
+            equippedBorderId: _selectedBorderId,
             busyBorderId: _busyBorderId,
-            actionsDisabled: _busyBorderId != null || _leaderboardMissing,
-            onSelectBorder: _equipOrClearBorder,
-            onClearBorder: () => _equipOrClearBorder(''),
+            actionsDisabled:
+                _busyBorderId != null ||
+                (!_isTeacherMode && _leaderboardMissing),
+            onSelectBorder: _isTeacherMode
+                ? (borderId) => _updateTeacherBorder(borderId)
+                : _equipOrClearBorder,
+            onClearBorder: _isTeacherMode
+                ? () => _updateTeacherBorder(null)
+                : () => _equipOrClearBorder(''),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Frames are unlocked by claiming achievements.',
-            style: AppTheme.caption.copyWith(
-              color: context.elixTextSecondary,
-              fontSize: 11,
+          if (!_isTeacherMode) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Frames are unlocked by claiming achievements.',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+                fontSize: 11,
+              ),
             ),
-          ),
+          ],
         ],
       ],
     );
   }
 
   Widget _buildSelectedFrameMeta() {
-    final id = _equippedBorderId?.trim();
+    final id = _selectedBorderId?.trim();
     if (id == null || id.isEmpty) {
       return Text(
         'No Frame · Default',
@@ -1061,13 +1189,14 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           ),
         ),
         const SizedBox(height: 2),
-        Text(
-          border.description,
-          style: AppTheme.caption.copyWith(
-            color: context.elixTextSecondary,
-            height: 1.3,
+        if (!_isTeacherMode)
+          Text(
+            border.description,
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              height: 1.3,
+            ),
           ),
-        ),
       ],
     );
   }

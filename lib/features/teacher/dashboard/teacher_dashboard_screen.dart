@@ -237,6 +237,8 @@ class _TeacherCommandHeader extends StatelessWidget {
                 networkImageUrl: teacher?.profilePictureUrl,
                 legacyLocalPath: teacher?.profilePicturePath,
                 initials: userInitials(displayName),
+                equippedBorderId: teacher?.profileBorderId,
+                animateBorder: true,
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(

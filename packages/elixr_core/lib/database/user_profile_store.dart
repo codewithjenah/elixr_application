@@ -60,6 +60,9 @@ class FirebaseUserProfileStore implements UserProfileStore {
         'profile_picture_storage_path': user.profilePictureStoragePath,
       if (user.profilePictureUrl == null && user.profilePicturePath != null)
         'profile_picture_path': user.profilePicturePath,
+      if (user.profileBorderId != null &&
+          user.profileBorderId!.trim().isNotEmpty)
+        'profile_border_id': user.profileBorderId!.trim(),
       if (legalConsent != null)
         ...legalConsent.documentFields(consentTimestamp: timestamp()),
     };
@@ -80,6 +83,7 @@ class FirebaseUserProfileStore implements UserProfileStore {
       'profile_picture_path': data['profile_picture_path'],
       'profile_picture_url': data['profile_picture_url'],
       'profile_picture_storage_path': data['profile_picture_storage_path'],
+      'profile_border_id': data['profile_border_id'],
       'privacy_consent_at': readCreatedAt(data['privacy_consent_at']),
       'privacy_policy_version': data['privacy_policy_version'],
       'terms_consent_at': readCreatedAt(data['terms_consent_at']),

@@ -213,7 +213,9 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
             subtitle: role,
             initials: initials,
             user: user,
-            equippedBorderId: _equippedBorderId,
+            equippedBorderId: user?.isTeacher == true
+                ? user?.profileBorderId
+                : _equippedBorderId,
             onTap: _openMyProfile,
           ),
           const _MenuDivider(),

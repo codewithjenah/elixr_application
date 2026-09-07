@@ -4,6 +4,7 @@ import 'package:elixr_application/core/shell/teacher_sidebar.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_sidebar_chrome.dart';
 import 'package:elixr_application/core/widgets/message_unread_badge.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher/activity_center/activity_read_store.dart';
 import 'package:elixr_application/features/teacher/activity_center/teacher_activity_controller.dart';
@@ -141,6 +142,42 @@ void main() {
     expect(find.textContaining('Lv.'), findsNothing);
   });
 
+  testWidgets('teacher sidebar renders the canonical profile frame', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = phase3TeacherAuth(profileBorderId: 'starter_glow');
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [ChangeNotifierProvider<AuthService>.value(value: auth)],
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const Row(
+            children: [
+              TeacherSidebar(
+                currentRoute: AppRoutePaths.teacherDashboard,
+                isCollapsed: false,
+                onToggleCollapse: _noop,
+                onLogout: _noop,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final avatar = tester.widget<ProfileAvatarWidget>(
+      find.byKey(const Key('teacher_sidebar_avatar')),
+    );
+    expect(avatar.equippedBorderId, 'starter_glow');
+    expect(avatar.animateBorder, isTrue);
+  });
+
   testWidgets(
     'Classrooms badge follows pending joins without affecting other badges',
     (tester) async {
@@ -208,6 +245,8 @@ void main() {
     },
   );
 }
+
+void _noop() {}
 
 class _SidebarActivityController extends TeacherActivityController {
   _SidebarActivityController({

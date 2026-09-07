@@ -7,11 +7,18 @@ import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/profile_border.dart';
 import '../../../data/models/profile_frame_presentation.dart';
 
+/// Presentation mode for the shared profile-frame selector.
+///
+/// Trainee mode preserves achievement entitlement presentation. Teacher mode
+/// presents the same visual catalog as a directly selectable loadout.
+enum ProfileFrameSelectorMode { trainee, teacher }
+
 /// Compact cosmetics loadout for equipping avatar frames in Settings.
 class ProfileFrameSelector extends StatelessWidget {
   const ProfileFrameSelector({
     super.key,
-    required this.unlockedBorderIds,
+    this.mode = ProfileFrameSelectorMode.trainee,
+    this.unlockedBorderIds = const {},
     required this.equippedBorderId,
     required this.busyBorderId,
     required this.actionsDisabled,
@@ -19,6 +26,7 @@ class ProfileFrameSelector extends StatelessWidget {
     required this.onClearBorder,
   });
 
+  final ProfileFrameSelectorMode mode;
   final Set<String> unlockedBorderIds;
   final String? equippedBorderId;
   final String? busyBorderId;
@@ -29,12 +37,19 @@ class ProfileFrameSelector extends StatelessWidget {
   bool get _noneSelected =>
       equippedBorderId == null || equippedBorderId!.trim().isEmpty;
 
+  bool get _isTeacherMode => mode == ProfileFrameSelectorMode.teacher;
+
   @override
   Widget build(BuildContext context) {
-    final order = buildProfileFramePresentationOrder(
-      unlockedBorderIds: unlockedBorderIds,
-      equippedBorderId: equippedBorderId,
-    );
+    final traineeOrder = _isTeacherMode
+        ? null
+        : buildProfileFramePresentationOrder(
+            unlockedBorderIds: unlockedBorderIds,
+            equippedBorderId: equippedBorderId,
+          );
+    final selectableBorders = _isTeacherMode
+        ? profileBorderCatalog
+        : traineeOrder!.unlockedBorders;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -55,15 +70,15 @@ class ProfileFrameSelector extends StatelessWidget {
             ),
           ],
         ),
-        if (order.unlockedBorders.isNotEmpty) ...[
+        if (selectableBorders.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.sm),
-          const _FrameGroupLabel(label: 'Unlocked'),
+          _FrameGroupLabel(label: _isTeacherMode ? 'Frames' : 'Unlocked'),
           const SizedBox(height: 4),
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              for (final border in order.unlockedBorders)
+              for (final border in selectableBorders)
                 _FrameTile(
                   key: Key('frame_tile_${border.id}'),
                   border: border,
@@ -74,7 +89,10 @@ class ProfileFrameSelector extends StatelessWidget {
                   onSelect: () {
                     if (actionsDisabled) return;
                     // Persist only when actually unlocked in caller state.
-                    if (!unlockedBorderIds.contains(border.id)) return;
+                    if (!_isTeacherMode &&
+                        !unlockedBorderIds.contains(border.id)) {
+                      return;
+                    }
                     if (equippedBorderId == border.id) return;
                     onSelectBorder(border.id);
                   },
@@ -82,7 +100,7 @@ class ProfileFrameSelector extends StatelessWidget {
             ],
           ),
         ],
-        if (order.lockedBorders.isNotEmpty) ...[
+        if (!_isTeacherMode && traineeOrder!.lockedBorders.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.sm),
           const _FrameGroupLabel(label: 'Locked'),
           const SizedBox(height: 4),
@@ -90,7 +108,7 @@ class ProfileFrameSelector extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              for (final border in order.lockedBorders)
+              for (final border in traineeOrder.lockedBorders)
                 _FrameTile(
                   key: Key('frame_tile_${border.id}'),
                   border: border,

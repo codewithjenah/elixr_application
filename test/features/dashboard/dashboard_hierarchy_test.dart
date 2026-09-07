@@ -4,6 +4,7 @@ import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/repositories/progress_repository.dart';
@@ -403,6 +404,7 @@ void main() {
         email: 'jiro@example.test',
         role: User.roleTeacher,
         profilePictureUrl: 'https://example.test/jiro.png',
+        profileBorderId: 'cyan_orbit',
       );
       final auth = AuthService(
         repository: _SilentAuthRepository(teacher),
@@ -445,6 +447,11 @@ void main() {
       expect(find.text('Open classroom'), findsOneWidget);
       expect(find.textContaining('roster'), findsNothing);
       expect(find.byKey(const Key('teacher_dashboard_avatar')), findsOneWidget);
+      final avatar = tester.widget<ProfileAvatarWidget>(
+        find.byKey(const Key('teacher_dashboard_avatar')),
+      );
+      expect(avatar.equippedBorderId, 'cyan_orbit');
+      expect(avatar.animateBorder, isTrue);
       expect(
         find.byKey(const Key('teacher_dashboard_open_classrooms')),
         findsOneWidget,

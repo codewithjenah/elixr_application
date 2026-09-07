@@ -4,8 +4,11 @@ import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
+import 'package:elixr_application/data/models/profile_border.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
+import 'package:elixr_application/features/settings/sections/account_profile_section.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
 import 'package:elixr_application/features/settings/widgets/profile_frame_selector.dart';
 import 'package:elixr_application/features/teacher/teacher_settings_screen.dart';
@@ -97,6 +100,9 @@ void main() {
   Future<GoRouter> pumpSettings(
     WidgetTester tester, {
     SettingsSection? initialSection,
+    AccountProfileUpdateTeacherBorder? updateTeacherBorder,
+    VoidCallback? onWatchPlayer,
+    VoidCallback? onWatchUserCosmetics,
   }) async {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -111,10 +117,17 @@ void main() {
           builder: (context, state) => TeacherSettingsScreen(
             initialSection: initialSection,
             publicProfileRepository: profiles,
-            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
-            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            watchPlayer: (_) {
+              onWatchPlayer?.call();
+              return Stream<LeaderboardEntry?>.value(null);
+            },
+            watchUserCosmetics: (_) {
+              onWatchUserCosmetics?.call();
+              return Stream<UserCosmetics?>.value(null);
+            },
             equipBorder: ({required userId, required borderId}) async =>
                 const EquipBorderResult.alreadyEquipped(),
+            updateTeacherBorder: updateTeacherBorder,
           ),
         ),
         GoRoute(
@@ -157,11 +170,111 @@ void main() {
     expect(find.text('Manage your Elixr experience'), findsOneWidget);
     expect(find.text('Practice'), findsNothing);
     expect(find.text('Teacher Access'), findsNothing);
-    expect(find.byType(ProfileFrameSelector), findsNothing);
-    expect(find.text('Avatar Frame'), findsNothing);
-    expect(find.text('No Frame · Default'), findsNothing);
+    expect(find.byType(ProfileFrameSelector), findsOneWidget);
+    expect(find.text('Avatar Frame'), findsOneWidget);
+    expect(find.text('Frames'), findsOneWidget);
+    expect(find.text('No Frame · Default'), findsOneWidget);
+    expect(find.text('Locked'), findsNothing);
+    expect(find.text('Unlocked'), findsNothing);
+    expect(
+      find.text('Frames are unlocked by claiming achievements.'),
+      findsNothing,
+    );
     expect(find.textContaining('practice session'), findsNothing);
     expect(find.byIcon(FluentIcons.cancel), findsOneWidget);
+  });
+
+  testWidgets('Teacher can select and clear any available profile frame', (
+    tester,
+  ) async {
+    String? savedBorder;
+    var saveCount = 0;
+    var playerWatchCalls = 0;
+    var cosmeticsWatchCalls = 0;
+    await pumpSettings(
+      tester,
+      updateTeacherBorder: ({required userId, required borderId}) async {
+        saveCount++;
+        savedBorder = borderId;
+      },
+      onWatchPlayer: () => playerWatchCalls++,
+      onWatchUserCosmetics: () => cosmeticsWatchCalls++,
+    );
+
+    expect(playerWatchCalls, 0);
+    expect(cosmeticsWatchCalls, 0);
+
+    for (final border in profileBorderCatalog) {
+      expect(find.byKey(Key('frame_tile_${border.id}')), findsOneWidget);
+    }
+
+    final lockedTraineeWords = [
+      find.text('Locked'),
+      find.text('Unlocked'),
+      find.textContaining('achievement'),
+      find.textContaining('XP'),
+      find.textContaining('leaderboard'),
+    ];
+    for (final finder in lockedTraineeWords) {
+      expect(finder, findsNothing);
+    }
+
+    final frame = find.byKey(const Key('frame_tile_tin_specialist'));
+    await tester.ensureVisible(frame);
+    await tester.tap(frame);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(savedBorder, 'tin_specialist');
+    expect(saveCount, 1);
+    final avatarFinder = find.descendant(
+      of: find.byKey(const Key('account_profile_avatar_tap')),
+      matching: find.byType(ProfileAvatarWidget),
+    );
+    var avatar = tester.widget<ProfileAvatarWidget>(avatarFinder);
+    expect(avatar.equippedBorderId, 'tin_specialist');
+
+    final none = find.byKey(const Key('frame_tile_none'));
+    await tester.ensureVisible(none);
+    await tester.tap(none);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(savedBorder, isNull);
+    expect(saveCount, 2);
+    avatar = tester.widget<ProfileAvatarWidget>(
+      find.descendant(
+        of: find.byKey(const Key('account_profile_avatar_tap')),
+        matching: find.byType(ProfileAvatarWidget),
+      ),
+    );
+    expect(avatar.equippedBorderId, isNull);
+  });
+
+  testWidgets('Teacher frame failures keep the previous selection', (
+    tester,
+  ) async {
+    await pumpSettings(
+      tester,
+      updateTeacherBorder: ({required userId, required borderId}) async {
+        throw StateError('offline');
+      },
+    );
+
+    final frame = find.byKey(const Key('frame_tile_starter_glow'));
+    await tester.ensureVisible(frame);
+    await tester.tap(frame);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Could not update avatar frame.'), findsOneWidget);
+    final avatar = tester.widget<ProfileAvatarWidget>(
+      find.descendant(
+        of: find.byKey(const Key('account_profile_avatar_tap')),
+        matching: find.byType(ProfileAvatarWidget),
+      ),
+    );
+    expect(avatar.equippedBorderId, isNull);
   });
 
   testWidgets(

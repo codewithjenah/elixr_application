@@ -17,6 +17,7 @@ class User {
     this.profilePicturePath,
     this.profilePictureUrl,
     this.profilePictureStoragePath,
+    this.profileBorderId,
     this.privacyConsentAt,
     this.privacyPolicyVersion,
     this.termsConsentAt,
@@ -50,6 +51,12 @@ class User {
   /// Cloud Storage object path backing [profilePictureUrl], used to delete
   /// the previous avatar when a new one is saved.
   final String? profilePictureStoragePath;
+
+  /// Canonical profile border preference for Teacher profiles.
+  ///
+  /// Trainee cosmetic borders remain owned by the leaderboard/cosmetics
+  /// systems. An empty or missing value means that no border is selected.
+  final String? profileBorderId;
 
   /// When the user accepted the Privacy Policy / Terms at registration.
   final DateTime? privacyConsentAt;
@@ -87,6 +94,8 @@ class User {
     String? profilePicturePath,
     String? profilePictureUrl,
     String? profilePictureStoragePath,
+    String? profileBorderId,
+    bool clearProfileBorderId = false,
     DateTime? privacyConsentAt,
     String? privacyPolicyVersion,
     DateTime? termsConsentAt,
@@ -106,6 +115,9 @@ class User {
       profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
       profilePictureStoragePath:
           profilePictureStoragePath ?? this.profilePictureStoragePath,
+      profileBorderId: clearProfileBorderId
+          ? null
+          : (profileBorderId ?? this.profileBorderId),
       privacyConsentAt: privacyConsentAt ?? this.privacyConsentAt,
       privacyPolicyVersion: privacyPolicyVersion ?? this.privacyPolicyVersion,
       termsConsentAt: termsConsentAt ?? this.termsConsentAt,
@@ -132,6 +144,8 @@ class User {
         'profile_picture_storage_path': profilePictureStoragePath,
       if (profilePictureUrl == null && profilePicturePath != null)
         'profile_picture_path': profilePicturePath,
+      if (profileBorderId != null && profileBorderId!.trim().isNotEmpty)
+        'profile_border_id': profileBorderId!.trim(),
       if (privacyConsentAt != null)
         'privacy_consent_at': privacyConsentAt!.toIso8601String(),
       if (privacyPolicyVersion != null)
@@ -156,6 +170,12 @@ class User {
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
     return null;
+  }
+
+  static String? _readOptionalTrimmedString(dynamic value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   factory User.fromMap(Map<String, dynamic> map) {
@@ -183,6 +203,7 @@ class User {
         profilePictureUrl: map['profile_picture_url'] as String?,
         profilePictureStoragePath:
             map['profile_picture_storage_path'] as String?,
+        profileBorderId: _readOptionalTrimmedString(map['profile_border_id']),
         privacyConsentAt: privacyConsentAt,
         privacyPolicyVersion: privacyPolicyVersion,
         termsConsentAt: termsConsentAt,
@@ -206,6 +227,7 @@ class User {
       profilePicturePath: map['profile_picture_path'] as String?,
       profilePictureUrl: map['profile_picture_url'] as String?,
       profilePictureStoragePath: map['profile_picture_storage_path'] as String?,
+      profileBorderId: _readOptionalTrimmedString(map['profile_border_id']),
       privacyConsentAt: privacyConsentAt,
       privacyPolicyVersion: privacyPolicyVersion,
       termsConsentAt: termsConsentAt,

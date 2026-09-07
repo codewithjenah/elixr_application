@@ -177,6 +177,38 @@ void main() {
       expect(renamed.profilePictureUrl, user.profilePictureUrl);
       expect(renamed.profilePictureStoragePath, user.profilePictureStoragePath);
     });
+
+    test('parses a trimmed profile border and treats blank as no frame', () {
+      final user = User.fromMap({
+        'id': 'teacher-1',
+        'full_name': 'Grace Hopper',
+        'email': 'grace@example.com',
+        'profile_border_id': '  starter_glow  ',
+      });
+      final blank = User.fromMap({
+        'id': 'teacher-1',
+        'full_name': 'Grace Hopper',
+        'email': 'grace@example.com',
+        'profile_border_id': '   ',
+      });
+
+      expect(user.profileBorderId, 'starter_glow');
+      expect(blank.profileBorderId, isNull);
+    });
+
+    test('serializes and clears the profile border independently', () {
+      const user = User(
+        id: 'teacher-1',
+        firstName: 'Grace',
+        lastName: 'Hopper',
+        email: 'grace@example.com',
+        role: User.roleTeacher,
+        profileBorderId: 'starter_glow',
+      );
+
+      expect(user.toMap()['profile_border_id'], 'starter_glow');
+      expect(user.copyWith(clearProfileBorderId: true).profileBorderId, isNull);
+    });
   });
 
   group('User.toMap profile picture fields', () {

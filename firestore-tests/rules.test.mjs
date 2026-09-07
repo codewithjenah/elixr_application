@@ -3865,6 +3865,91 @@ describe('users role constraints', () => {
     );
   });
 
+  test('Teacher can select, clear, and delete a known profile border', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'users', 'bob'),
+        userProfile(ROLE_TEACHER, 'bob@example.com'),
+      );
+    });
+
+    const bob = bobDb();
+    await assertSucceeds(
+      updateDoc(doc(bob, 'users', 'bob'), {
+        profile_border_id: 'starter_glow',
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(bob, 'users', 'bob'), { profile_border_id: '' }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(bob, 'users', 'bob'), { profile_border_id: null }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(bob, 'users', 'bob'), {
+        profile_border_id: 'cyan_orbit',
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(bob, 'users', 'bob'), {
+        profile_border_id: deleteField(),
+      }),
+    );
+  });
+
+  test('invalid or Trainee profile border updates are rejected', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'users', 'alice'),
+        userProfile(ROLE_TRAINEE),
+      );
+      await setDoc(
+        doc(adminDb, 'users', 'bob'),
+        userProfile(ROLE_TEACHER, 'bob@example.com'),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'users', 'alice'), {
+        profile_border_id: 'starter_glow',
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(bobDb(), 'users', 'bob'), {
+        profile_border_id: 'arbitrary_client_value',
+      }),
+    );
+  });
+
+  test('profile border updates remain owner-only and cannot change protected fields', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'users', 'bob'),
+        userProfile(ROLE_TEACHER, 'bob@example.com', {
+          teacher_access_code: 'ABCDEFGHJKLM',
+        }),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'users', 'bob'), {
+        profile_border_id: 'starter_glow',
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(bobDb(), 'users', 'bob'), {
+        profile_border_id: 'starter_glow',
+        role: ROLE_TRAINEE,
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(bobDb(), 'users', 'bob'), {
+        profile_border_id: 'starter_glow',
+        teacher_access_code: 'DIFFERENT12',
+      }),
+    );
+  });
+
   test('owner can repeatedly update the session image setting with server audit fields', async () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'users', 'alice'), userProfile(ROLE_TRAINEE));

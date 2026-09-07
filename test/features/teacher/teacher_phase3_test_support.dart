@@ -94,7 +94,7 @@ class Phase3TestAuthRepository implements AuthRepositoryBase {
   }) async => PendingEmailChangeRecoveryResult.pending();
 }
 
-AuthService phase3TeacherAuth() {
+AuthService phase3TeacherAuth({String? profileBorderId}) {
   return AuthService(
     repository: Phase3TestAuthRepository(),
     awaitInitialAuthState: () async {},
@@ -105,6 +105,7 @@ AuthService phase3TeacherAuth() {
       lastName: 'Hopper',
       email: 'teacher@example.com',
       role: User.roleTeacher,
+      profileBorderId: profileBorderId,
     ),
   );
 }

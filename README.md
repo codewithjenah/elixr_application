@@ -474,6 +474,12 @@ Access model (`firestore.rules`):
 
 Leaderboard data is **not** globally writable. The current client-written transaction model is appropriate for a controlled capstone environment but is **not** a trusted server-authoritative ranking system against a hostile modified client.
 
+Teacher profile borders are separate from leaderboard cosmetics. The canonical
+`users/{uid}` Teacher profile may contain an optional `profile_border_id`; the
+Teacher Settings selector writes only this field, accepts a known catalog ID or
+an empty/deleted value for no frame, and does not create or update a leaderboard
+or `user_cosmetics` document.
+
 ### Achievements and profile borders (Phase 2)
 
 Achievements are **cosmetic only** — claiming an achievement unlocks a profile border and awards **no XP**. Quest XP, session XP, level thresholds, daily quest limits, and `total_xp` arithmetic are unchanged.
@@ -500,7 +506,7 @@ Initial catalog (`lib/data/models/achievement.dart` / `profile_border.dart`):
 | `week_warrior`             | 7 consecutive days                    | `week_warrior`   |
 | `bottle_in_tin_specialist` | 5× Bottle in a Tin with bottle+shaker | `tin_specialist` |
 
-Claims (`AchievementRepository.claimAchievement`) create `achievement_claims/{userId}_{achievementId}` and update `user_cosmetics/{userId}` atomically; they never write XP or leaderboard aggregates. Equipping is done in **Settings → Account & Profile** and writes only `leaderboard/{userId}.equipped_border_id` (empty string to unequip). The equipped border is shown around avatars in the sidebar, profile menu, profile settings, dashboard podium, and full leaderboard.
+Claims (`AchievementRepository.claimAchievement`) create `achievement_claims/{userId}_{achievementId}` and update `user_cosmetics/{userId}` atomically; they never write XP or leaderboard aggregates. Trainee equipping is done in **Settings → Account & Profile** and writes only `leaderboard/{userId}.equipped_border_id` (empty string to unequip). Teacher selection uses the separate canonical `users/{userId}.profile_border_id` preference and does not require trainee achievements, XP, sessions, or cosmetics. The selected border is shown on the owning avatar surfaces, while leaderboard entries continue to use the trainee `equipped_border_id` field.
 
 Security rules enforce ownership, fixed achievement→border rewards, append-only unlock lists, atomic claim↔cosmetics linkage, and equip-only-if-unlocked. They do **not** verify achievement completion. Because rewards grant no XP, modified-client impact is limited to the attacker's own cosmetics. Trusted callable-function evaluation remains the future hostile-client hardening path.
 
