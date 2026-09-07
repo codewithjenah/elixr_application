@@ -11,7 +11,11 @@ const {
   ensureTeacherRoleClaimHandler,
   buildArchivedConversationData,
   buildSearchPrefixes,
+  chatMessageIdForIdempotency,
+  chatSnapshot,
   conversationIdFor,
+  hasUsableChatSnapshots,
+  isCanonicalChatProfile,
   isActiveChatProfile,
   isSearchRateLimited,
   listTraineeAssignmentsHandler,
@@ -36,6 +40,7 @@ const {
   sanitizedResult,
   validateSearchQuery,
   runScheduledAnnouncementPublication,
+  sendFirstChatMessageHandler,
 } = require('../index')._test;
 
 function scheduledAnnouncementDatabase(records, {failIds = []} = {}) {
@@ -954,6 +959,64 @@ test('search result never exposes email or search prefixes', () => {
     'display_name',
     'id',
     'role',
+  ]);
+});
+
+test('first-send snapshots use canonical profile fields, not directory fields', () => {
+  const canonicalProfile = {
+    full_name: 'Professor Canonical',
+    role: 'Teacher',
+    profile_picture_url: 'https://example.test/canonical.png',
+    lifecycle_state: 'active',
+  };
+  assert.equal(isCanonicalChatProfile(canonicalProfile), true);
+  assert.deepEqual(chatSnapshot('teacher-1', canonicalProfile), {
+    id: 'teacher-1',
+    display_name: 'Professor Canonical',
+    role: 'Teacher',
+    avatar_url: 'https://example.test/canonical.png',
+  });
+  assert.equal(isCanonicalChatProfile({
+    full_name: 'Deleting User', role: 'Teacher', lifecycle_state: 'deleting',
+  }), false);
+  assert.equal(hasUsableChatSnapshots({
+    'teacher-1': chatSnapshot('teacher-1', canonicalProfile),
+    trainee: {id: 'trainee', display_name: 'Trainee', role: 'Trainee'},
+  }, ['teacher-1', 'trainee']), true);
+  assert.equal(hasUsableChatSnapshots({}, ['teacher-1', 'trainee']), false);
+});
+
+test('first-send idempotency message id matches the Flutter FNV contract', () => {
+  assert.equal(
+    chatMessageIdForIdempotency('local_123456_1'),
+    'assignment_result_c6377eaa',
+  );
+});
+
+test('first-send handler rejects unauthenticated and malformed requests before database access', async () => {
+  const responses = [];
+  const response = {
+    set: () => response,
+    status: (status) => ({json: (body) => responses.push({status, body})}),
+  };
+  const databaseFactory = () => {
+    throw new Error('database must not be accessed');
+  };
+
+  await sendFirstChatMessageHandler(
+    {method: 'POST', body: {}},
+    response,
+    {authenticate: async () => null, databaseFactory},
+  );
+  await sendFirstChatMessageHandler(
+    {method: 'POST', body: {recipient_id: 'recipient', body: '   '}},
+    response,
+    {authenticate: async () => 'sender', databaseFactory},
+  );
+
+  assert.deepEqual(responses, [
+    {status: 401, body: {error: 'unauthenticated'}},
+    {status: 400, body: {error: 'invalid_payload'}},
   ]);
 });
 

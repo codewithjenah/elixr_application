@@ -92,6 +92,36 @@ void main() {
     expect(await controller.send('Cannot send'), isFalse);
   });
 
+  test('failed send keeps Retry and reuses its idempotency key', () async {
+    final repository = _FailOnceChatRepository();
+    addTearDown(repository.dispose);
+    final controller = MessagesController(
+      repository: repository,
+      currentUser: current,
+    );
+    addTearDown(controller.dispose);
+    await controller.openUser(other);
+
+    expect(await controller.send('Please retry this'), isFalse);
+    final failed = controller.messages.single;
+    expect(failed.deliveryState, ChatDeliveryState.error);
+    expect(
+      controller.messageError,
+      isA<ChatException>().having(
+        (error) => error.userMessage,
+        'safe message',
+        'Messages could not connect. Check your connection.',
+      ),
+    );
+
+    await controller.retryMessage(failed);
+
+    expect(repository.idempotencyKeys, hasLength(2));
+    expect(repository.idempotencyKeys[1], repository.idempotencyKeys.first);
+    expect(controller.messages.single.deliveryState, ChatDeliveryState.sent);
+    expect(repository.messages.values.single, hasLength(1));
+  });
+
   test(
     'new-message alert stays until all unread conversations are opened',
     () async {
@@ -261,6 +291,31 @@ class _CountingChatRepository extends InMemoryChatRepository {
     return super.watchMessages(
       conversationId: conversationId,
       pageSize: pageSize,
+    );
+  }
+}
+
+class _FailOnceChatRepository extends InMemoryChatRepository {
+  final List<String?> idempotencyKeys = [];
+  bool _failNext = true;
+
+  @override
+  Future<ChatMessage> sendMessage({
+    required ChatUser sender,
+    required ChatUser recipient,
+    required String body,
+    String? idempotencyKey,
+  }) async {
+    idempotencyKeys.add(idempotencyKey);
+    if (_failNext) {
+      _failNext = false;
+      throw const ChatException(ChatError.network);
+    }
+    return super.sendMessage(
+      sender: sender,
+      recipient: recipient,
+      body: body,
+      idempotencyKey: idempotencyKey,
     );
   }
 }

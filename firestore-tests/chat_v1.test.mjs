@@ -134,6 +134,23 @@ describe('direct message rules', () => {
     }));
   });
 
+  test('first send rejects a stale directory identity but accepts canonical snapshots', async () => {
+    await assertFails(createConversation(db('alice'), {
+      participantSnapshots: {
+        ...snapshots(),
+        // This is a valid-looking, sanitized directory result whose profile
+        // picture and display name have not caught up with users/bob yet.
+        bob: {
+          id: 'bob',
+          display_name: 'Bob Teacher (old)',
+          role: 'Teacher',
+          avatar_url: 'https://example.test/old-avatar.png',
+        },
+      },
+    }));
+    await assertSucceeds(createConversation(db('alice')));
+  });
+
   test('participants can read history while an unrelated account cannot', async () => {
     await assertFails(getDoc(doc(db('alice'), 'users', 'bob')));
     await assertSucceeds(

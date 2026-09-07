@@ -121,6 +121,48 @@ function isActiveChatProfile(data) {
     data.lifecycle_state !== 'deleting';
 }
 
+function isCanonicalChatProfile(data) {
+  return isActiveChatProfile(data) &&
+    typeof data.full_name === 'string' &&
+    data.full_name.trim().length > 0;
+}
+
+function chatSnapshot(uid, profile) {
+  return {
+    id: uid,
+    display_name: profile.full_name,
+    role: profile.role,
+    ...(typeof profile.profile_picture_url === 'string' &&
+      profile.profile_picture_url
+      ? {avatar_url: profile.profile_picture_url}
+      : {}),
+  };
+}
+
+function chatMessageIdForIdempotency(key) {
+  let hash = 2166136261;
+  for (const byte of Buffer.from(key, 'utf8')) {
+    hash ^= byte;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return `assignment_result_${hash.toString(16).padStart(8, '0')}`;
+}
+
+function hasUsableChatSnapshots(snapshots, participantIds) {
+  return snapshots && typeof snapshots === 'object' &&
+    !Array.isArray(snapshots) &&
+    Object.keys(snapshots).length === participantIds.length &&
+    participantIds.every((id) => {
+      const snapshot = snapshots[id];
+      return snapshot && typeof snapshot === 'object' &&
+        snapshot.id === id &&
+        typeof snapshot.display_name === 'string' &&
+        snapshot.display_name.trim().length > 0 &&
+        SUPPORTED_ROLES.has(snapshot.role) &&
+        (snapshot.avatar_url == null || typeof snapshot.avatar_url === 'string');
+    });
+}
+
 // Scheduled assignments are intentionally time-gated rather than requiring a
 // client timer or an external scheduler. All authorization-sensitive callers
 // use this server-clock predicate.
@@ -1152,6 +1194,158 @@ exports.searchChatUsers = onRequest(
     const results = sanitizeDirectoryDocuments(uid, documents);
     response.status(200).json({results});
   },
+);
+
+async function sendFirstChatMessageHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') {
+    return response.status(405).json({error: 'method_not_allowed'});
+  }
+  const senderId = await authenticate(request);
+  if (!senderId) return response.status(401).json({error: 'unauthenticated'});
+
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  const recipientId = body.recipient_id;
+  const messageBody = boundedText(body.body, 2000);
+  const idempotencyKey = body.idempotency_key == null
+    ? null
+    : typeof body.idempotency_key === 'string' &&
+        body.idempotency_key.trim().length > 0 &&
+        body.idempotency_key.trim().length <= 256
+      ? body.idempotency_key.trim()
+      : false;
+  if (!validId(recipientId) || recipientId === senderId || !messageBody ||
+      idempotencyKey === false) {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+
+  const firestore = databaseFactory();
+  const participantIds = [senderId, recipientId].sort();
+  const conversationId = conversationIdFor(senderId, recipientId);
+  const conversationRef = firestore.collection('chat_conversations').doc(conversationId);
+  const messageRef = idempotencyKey
+    ? conversationRef.collection('messages').doc(chatMessageIdForIdempotency(idempotencyKey))
+    : conversationRef.collection('messages').doc();
+  try {
+    await firestore.runTransaction(async (transaction) => {
+      const senderProfileRef = firestore.collection('users').doc(senderId);
+      const recipientProfileRef = firestore.collection('users').doc(recipientId);
+      const outgoingBlockRef = firestore.collection('chat_blocks').doc(senderId)
+        .collection('blocked_users').doc(recipientId);
+      const incomingBlockRef = firestore.collection('chat_blocks').doc(recipientId)
+        .collection('blocked_users').doc(senderId);
+      const [senderProfile, recipientProfile, outgoingBlock, incomingBlock,
+        conversation, existingMessage] = await Promise.all([
+        transaction.get(senderProfileRef),
+        transaction.get(recipientProfileRef),
+        transaction.get(outgoingBlockRef),
+        transaction.get(incomingBlockRef),
+        transaction.get(conversationRef),
+        transaction.get(messageRef),
+      ]);
+
+      if (!senderProfile.exists || !recipientProfile.exists ||
+          !isCanonicalChatProfile(senderProfile.data()) ||
+          !isCanonicalChatProfile(recipientProfile.data())) {
+        const error = new Error('recipient_unavailable');
+        error.code = 'recipient_unavailable';
+        throw error;
+      }
+      if (outgoingBlock.exists || incomingBlock.exists) {
+        const error = new Error('blocked');
+        error.code = 'blocked';
+        throw error;
+      }
+      const existing = conversation.data();
+      if (existing && existing.status !== 'active') {
+        const error = new Error('conversation_unavailable');
+        error.code = 'conversation_unavailable';
+        throw error;
+      }
+      if (existing && !hasUsableChatSnapshots(
+        existing.participant_snapshots,
+        participantIds,
+      )) {
+        const error = new Error('conversation_unavailable');
+        error.code = 'conversation_unavailable';
+        throw error;
+      }
+      if (existingMessage.exists) {
+        const data = existingMessage.data();
+        if (!idempotencyKey || data.idempotency_key !== idempotencyKey ||
+            data.sender_id !== senderId || data.body !== messageBody) {
+          const error = new Error('idempotency_conflict');
+          error.code = 'idempotency_conflict';
+          throw error;
+        }
+        return;
+      }
+
+      const unreadCounts = {...(existing?.unread_counts || {})};
+      unreadCounts[senderId] = 0;
+      unreadCounts[recipientId] = (unreadCounts[recipientId] || 0) + 1;
+      const readAt = {...(existing?.read_at || {})};
+      if (!(senderId in readAt)) readAt[senderId] = FieldValue.serverTimestamp();
+      if (!(recipientId in readAt)) readAt[recipientId] = null;
+      transaction.set(messageRef, {
+        sender_id: senderId,
+        body: messageBody,
+        created_at: FieldValue.serverTimestamp(),
+        edited_at: null,
+        deleted_at: null,
+        ...(idempotencyKey ? {idempotency_key: idempotencyKey} : {}),
+      });
+      transaction.set(conversationRef, {
+        participant_ids: participantIds,
+        participant_a: participantIds[0],
+        participant_b: participantIds[1],
+        participant_snapshots: existing?.participant_snapshots || {
+          [senderId]: chatSnapshot(senderId, senderProfile.data()),
+          [recipientId]: chatSnapshot(recipientId, recipientProfile.data()),
+        },
+        last_message_id: messageRef.id,
+        last_message_body: messageBody,
+        last_message_sender_id: senderId,
+        last_message_at: FieldValue.serverTimestamp(),
+        unread_counts: unreadCounts,
+        read_at: readAt,
+        status: 'active',
+        updated_at: FieldValue.serverTimestamp(),
+        ...(!conversation.exists ? {
+          created_at: FieldValue.serverTimestamp(),
+          schema_version: 1,
+        } : {}),
+      }, {merge: true});
+    });
+    const saved = await messageRef.get();
+    return response.status(200).json({
+      conversation_id: conversationId,
+      message_id: messageRef.id,
+      created_at: saved.get('created_at').toDate().toISOString(),
+    });
+  } catch (error) {
+    const known = [
+      'recipient_unavailable',
+      'blocked',
+      'conversation_unavailable',
+      'idempotency_conflict',
+    ];
+    if (known.includes(error.code)) {
+      const status = error.code === 'blocked' ? 409 : 403;
+      return response.status(status).json({error: error.code});
+    }
+    console.error('First chat message failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+exports.sendFirstChatMessage = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 15},
+  sendFirstChatMessageHandler,
 );
 
 async function listTraineeAssignmentsHandler(
@@ -2773,6 +2967,11 @@ exports._test = {
   normalizeSearchText,
   buildSearchPrefixes,
   conversationIdFor,
+  chatSnapshot,
+  chatMessageIdForIdempotency,
+  isCanonicalChatProfile,
+  hasUsableChatSnapshots,
+  sendFirstChatMessageHandler,
   sanitizedResult,
   validateSearchQuery,
   sanitizeDirectoryDocuments,

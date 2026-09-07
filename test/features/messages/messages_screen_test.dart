@@ -133,6 +133,25 @@ void main() {
     expect(find.text('Hello from keyboard'), findsOneWidget);
   });
 
+  testWidgets('failed send shows the safe chat error and keeps Retry', (
+    tester,
+  ) async {
+    repository = _FailingChatRepository()..users.add(trainee);
+    await pump(tester, size: const Size(640, 760), initialConversation: true);
+    await tester.enterText(_composerFinder(), 'This will fail safely');
+    await tester.tap(find.byIcon(FluentIcons.send));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('message-send-error')), findsOneWidget);
+    expect(
+      find.text('Messages could not connect. Check your connection.'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 100));
+  });
+
   testWidgets('incoming message shows the sender avatar beside its bubble', (
     tester,
   ) async {
@@ -374,3 +393,13 @@ Finder _composerFinder() => find.byWidgetPredicate(
   (widget) => widget is TextBox && widget.placeholder == 'Write a message...',
   description: 'message composer',
 );
+
+class _FailingChatRepository extends InMemoryChatRepository {
+  @override
+  Future<ChatMessage> sendMessage({
+    required ChatUser sender,
+    required ChatUser recipient,
+    required String body,
+    String? idempotencyKey,
+  }) async => throw const ChatException(ChatError.network);
+}

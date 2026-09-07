@@ -416,12 +416,13 @@ client plugin:
 flutter run -d windows --dart-define=ELIXR_CHAT_API_BASE_URL=http://127.0.0.1:5001/elixr-app-2026/asia-southeast1/
 ```
 
-The first send atomically creates the deterministic conversation and message.
-It combines the sender's own profile with the sanitized search result, so the
-client never reads another account's private `users` document. Participant
-snapshots are validated at creation and remain immutable afterward. The
-transaction may read the missing deterministic conversation document before
-creating it; existing conversations remain readable only by their participants.
+The first send calls the authenticated `sendFirstChatMessage` HTTPS Function,
+which atomically creates the deterministic conversation and message from both
+canonical `users` profiles. This keeps profile-directory synchronization lag
+from producing a stale participant snapshot, while the client still never reads
+another account's private `users` document. Participant snapshots are validated
+at creation and remain immutable afterward. Existing conversations remain
+readable only by their participants.
 Later sends update the last-message summary, increment only the recipient's
 unread count, and keep the sender count at zero. Opening a thread advances only
 the caller's read timestamp. A participant may mark a conversation unread or

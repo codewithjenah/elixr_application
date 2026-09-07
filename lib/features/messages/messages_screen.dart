@@ -1024,12 +1024,18 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) {
     final archived = controller.selectedConversation?.isArchived == true;
     final disabled = controller.blockState.cannotSend || archived;
-    final message = archived
+    final unavailableMessage = archived
         ? 'This archived conversation is read-only.'
         : controller.blockState.blockedByMe
         ? 'Unblock this person to send a message.'
         : controller.blockState.blockedByOther
         ? 'Messages cannot be sent in this conversation.'
+        : null;
+    final sendError = controller.messageError;
+    final safeSendError = sendError is ChatException
+        ? sendError.userMessage
+        : sendError != null
+        ? 'Message could not be sent. Please try again.'
         : null;
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -1045,12 +1051,20 @@ class _Composer extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (message != null) ...[
+          if (unavailableMessage != null) ...[
             Text(
-              message,
+              unavailableMessage,
               style: AppTheme.caption.copyWith(
                 color: context.elixTextSecondary,
               ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          if (safeSendError != null) ...[
+            Text(
+              safeSendError,
+              key: const ValueKey('message-send-error'),
+              style: AppTheme.caption.copyWith(color: context.elixColors.error),
             ),
             const SizedBox(height: AppSpacing.sm),
           ],

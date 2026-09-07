@@ -43,6 +43,7 @@ class MessagesController extends ChangeNotifier {
   Timer? _searchTimer;
   Timer? _alertTimer;
   int _searchGeneration = 0;
+  int _nextOptimisticMessageId = 0;
   bool _disposed = false;
   bool _alertIsPersistent = false;
 
@@ -320,7 +321,7 @@ class MessagesController extends ChangeNotifier {
     }
   }
 
-  Future<bool> send(String body) async {
+  Future<bool> send(String body, {String? idempotencyKey}) async {
     final recipient = selectedUser;
     if (recipient == null || blockState.cannotSend) return false;
     final validation = ChatMessage.validateBody(body);
@@ -329,8 +330,11 @@ class MessagesController extends ChangeNotifier {
       _notify();
       return false;
     }
+    final messageKey =
+        idempotencyKey ??
+        'local_${DateTime.now().microsecondsSinceEpoch}_${++_nextOptimisticMessageId}';
     final temporary = ChatMessage(
-      id: 'local_${DateTime.now().microsecondsSinceEpoch}',
+      id: messageKey,
       conversationId: conversationId!,
       senderId: currentUser.id,
       body: body.trim(),
@@ -346,6 +350,7 @@ class MessagesController extends ChangeNotifier {
         sender: currentUser,
         recipient: recipient,
         body: body,
+        idempotencyKey: messageKey,
       );
       messages = _deduplicate([
         saved,
@@ -374,7 +379,7 @@ class MessagesController extends ChangeNotifier {
     }
     messages = messages.where((item) => item.id != message.id).toList();
     _notify();
-    await send(message.body!);
+    await send(message.body!, idempotencyKey: message.id);
   }
 
   Future<void> editMessage(ChatMessage message, String body) async {

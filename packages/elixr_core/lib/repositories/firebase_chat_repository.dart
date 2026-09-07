@@ -253,6 +253,21 @@ class FirebaseChatRepository implements ChatRepository {
     DateTime? existingCreatedAt;
 
     try {
+      // A first conversation needs immutable snapshots for both participants.
+      // The client cannot read the recipient's private profile, so the
+      // authenticated Function creates that initial atomic write from the
+      // canonical profiles. Existing conversations keep the direct,
+      // participant-scoped Firestore transaction below.
+      final existingConversation = await conversationRef.get();
+      if (!existingConversation.exists) {
+        return _sendFirstMessage(
+          senderId: sender.id,
+          recipientId: recipient.id,
+          conversationId: conversationId,
+          body: trimmedBody,
+          idempotencyKey: normalizedIdempotencyKey,
+        );
+      }
       await _firestore.runTransaction((transaction) async {
         final senderProfileRef = _firestore
             .collection(FirestoreCollections.users)
@@ -356,6 +371,87 @@ class FirebaseChatRepository implements ChatRepository {
       );
     } catch (error) {
       throw _classify(error);
+    }
+  }
+
+  Future<ChatMessage> _sendFirstMessage({
+    required String senderId,
+    required String recipientId,
+    required String conversationId,
+    required String body,
+    required String? idempotencyKey,
+  }) async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null || firebaseUser.uid != senderId) {
+      throw const ChatException(ChatError.unauthenticated);
+    }
+    final token = await firebaseUser.getIdToken(true);
+    if (token == null || token.isEmpty) {
+      throw const ChatException(ChatError.unauthenticated);
+    }
+    final client = _httpClientFactory();
+    try {
+      final request = await client
+          .postUrl(apiBaseUri.resolve('sendFirstChatMessage'))
+          .timeout(requestTimeout);
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.contentType = ContentType.json;
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            'recipient_id': recipientId,
+            'body': body,
+            if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
+          }),
+        ),
+      );
+      final response = await request.close().timeout(requestTimeout);
+      final payload = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(requestTimeout);
+      final decoded = _jsonMap(payload);
+      if (response.statusCode == HttpStatus.ok) {
+        final messageId = decoded?['message_id'];
+        final returnedConversationId = decoded?['conversation_id'];
+        final createdAt = decoded?['created_at'];
+        if (messageId is! String ||
+            returnedConversationId != conversationId ||
+            createdAt is! String) {
+          throw const ChatException(ChatError.unknown);
+        }
+        return ChatMessage(
+          id: messageId,
+          conversationId: conversationId,
+          senderId: senderId,
+          body: body,
+          createdAt:
+              DateTime.tryParse(createdAt)?.toUtc() ?? DateTime.now().toUtc(),
+        );
+      }
+      final errorCode = decoded?['error'];
+      if (response.statusCode == HttpStatus.unauthorized) {
+        throw const ChatException(ChatError.unauthenticated);
+      }
+      if (errorCode == 'blocked') throw const ChatException(ChatError.blocked);
+      if (errorCode == 'recipient_unavailable') {
+        throw const ChatException(ChatError.notFound);
+      }
+      if (errorCode == 'conversation_unavailable' ||
+          errorCode == 'idempotency_conflict') {
+        throw const ChatException(ChatError.permissionDenied);
+      }
+      throw const ChatException(ChatError.network);
+    } on ChatException {
+      rethrow;
+    } on TimeoutException {
+      throw const ChatException(ChatError.network);
+    } on SocketException {
+      throw const ChatException(ChatError.network);
+    } on FormatException {
+      throw const ChatException(ChatError.unknown);
+    } finally {
+      client.close(force: true);
     }
   }
 
@@ -663,6 +759,15 @@ class FirebaseChatRepository implements ChatRepository {
   static Map<String, dynamic> _dynamicMap(dynamic value) {
     if (value is! Map) return <String, dynamic>{};
     return {for (final entry in value.entries) '${entry.key}': entry.value};
+  }
+
+  static Map<String, dynamic>? _jsonMap(String value) {
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } on FormatException {
+      return null;
+    }
   }
 
   static void _validatePageSize(int value) {
