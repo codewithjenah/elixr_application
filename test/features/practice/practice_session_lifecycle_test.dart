@@ -1162,7 +1162,7 @@ void main() {
       run.enterReadiness();
     }
 
-    test('stable readiness arms beat; after 800ms autoStartDue is true', () {
+    test('stable readiness arms beat; after 500ms autoStartDue is true', () {
       fakeAsync((async) {
         final run = PracticeRunController();
         enterGuidedReadiness(run);
@@ -1175,7 +1175,7 @@ void main() {
         expect(run.hasAutoStartTimer, isTrue);
         expect(run.autoStartDue, isFalse);
 
-        async.elapse(const Duration(milliseconds: 799));
+        async.elapse(const Duration(milliseconds: 499));
         expect(run.autoStartDue, isFalse);
 
         async.elapse(const Duration(milliseconds: 1));
@@ -1209,7 +1209,7 @@ void main() {
         expect(run.hasAutoStartTimer, isFalse);
         expect(run.autoStartDue, isFalse);
 
-        async.elapse(const Duration(milliseconds: 800));
+        async.elapse(const Duration(milliseconds: 500));
         expect(run.autoStartDue, isFalse);
         expect(run.consumeAutoStartDue(), isFalse);
         run.dispose();

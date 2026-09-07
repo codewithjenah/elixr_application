@@ -39,7 +39,7 @@ class PracticeRunController extends ChangeNotifier {
 
   /// Brief hold after [PracticeReadinessState.canStartPractice] so the Ready
   /// checklist state is visible before auto-confirm.
-  static const defaultAutoStartReadyBeat = Duration(milliseconds: 800);
+  static const defaultAutoStartReadyBeat = Duration(milliseconds: 500);
 
   final Duration preparationTimeout;
 

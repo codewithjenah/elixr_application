@@ -195,6 +195,50 @@ def test_prepare_opens_one_camera_session(monkeypatch):
     session.close()
 
 
+def test_readiness_warmup_is_reused_by_begin_readiness(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class CountingDetector(StubBottleDetector):
+        ensure_calls = 0
+
+        def ensure_ready(self):
+            type(self).ensure_calls += 1
+
+    monkeypatch.setattr(websocket_api, "BottleDetector", CountingDetector)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+
+    assert session.warm_readiness() is None
+    assert session.begin_readiness() is True
+
+    assert CountingDetector.ensure_calls == 1
+    assert session.hands_detector is not None
+    # Warm observations are discarded; only real readiness frames can advance.
+    assert session._latest_readiness_snapshot is None
+    session.close()
+
+
+def test_begin_readiness_performs_same_one_time_warmup(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class CountingDetector(StubBottleDetector):
+        ensure_calls = 0
+
+        def ensure_ready(self):
+            type(self).ensure_calls += 1
+
+    monkeypatch.setattr(websocket_api, "BottleDetector", CountingDetector)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+
+    assert session.begin_readiness() is True
+    assert session.warm_readiness() is None
+
+    assert CountingDetector.ensure_calls == 1
+    assert session._latest_readiness_snapshot is None
+    session.close()
+
+
 def test_shaker_session_preserves_prop_and_loads_only_after_activation(monkeypatch):
     _patch_vision(monkeypatch)
     StubPropDetector.instances = []

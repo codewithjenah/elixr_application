@@ -491,8 +491,8 @@ class VisionSession:
                 enabled=bottle_detection_enabled,
             )
         self.bottle_detector = self.prop_detector
-        # MediaPipe detectors are deferred so prepare can open the camera and
-        # stream preview JPEGs before model init cost.
+        # MediaPipe detectors are deferred until after the first preview is
+        # sent, keeping camera startup independent from readiness warm-up.
         self.hands_detector: HandsDetector | None = None
         self.pose_detector: PoseDetector | None = None
         self._prop_detection_only = movement_is_prop_detection_only(movement)
@@ -522,6 +522,8 @@ class VisionSession:
         self._prev_hip_center: Point2D | None = None
         self._movement_state: dict | None = None
         self._model_checked = False
+        self._model_error: FeedbackMessage | None = None
+        self._readiness_warmed = False
         self._lifecycle = SESSION_PREPARED
         self._hold_validator = HoldValidator()
         self._evidence_emitted = False
@@ -808,6 +810,49 @@ class VisionSession:
             ),
         )
 
+    def _warm_readiness_locked(
+        self, *, run_first_inference: bool
+    ) -> FeedbackMessage | None:
+        """Initialize readiness AI once without updating readiness or scoring.
+
+        The observations are discarded so readiness hysteresis starts only
+        after the explicit begin_readiness transition.
+        """
+        if self._readiness_warmed:
+            return self._model_error
+
+        self._ensure_readiness_detectors()
+        model_error = self._check_model()
+        if model_error is not None:
+            self._readiness_warmed = True
+            return model_error
+
+        captured = (
+            self._acquire_captured_frame(timeout=0.05)
+            if run_first_inference
+            else None
+        )
+        if captured is not None:
+            normalized = self._detect_normalized_props(captured.frame)
+            if self.hands_detector is not None:
+                bottle_ref = normalized.primary[0] if normalized.primary else None
+                self.hands_detector.detect(captured.frame, bottle=bottle_ref)
+            if self.pose_detector is not None:
+                self.pose_detector.detect(captured.frame)
+
+        self._readiness_warmed = True
+        return None
+
+    def warm_readiness(self) -> FeedbackMessage | None:
+        """Warm readiness AI while prepared, serialized with lifecycle changes."""
+        self._acquire_ai_state(blocking=True)
+        try:
+            if self._lifecycle != SESSION_PREPARED:
+                return self._model_error
+            return self._warm_readiness_locked(run_first_inference=True)
+        finally:
+            self._release_ai_state()
+
     def begin_readiness(self) -> bool:
         """Transition prepared → readying. Idempotent when already READYING.
 
@@ -820,7 +865,7 @@ class VisionSession:
                 return True
             if self._lifecycle != SESSION_PREPARED:
                 return False
-            self._ensure_readiness_detectors()
+            self._warm_readiness_locked(run_first_inference=False)
             self._readiness_tracker = ReadinessTracker(
                 self.movement,
                 self.prop_type,
@@ -929,14 +974,14 @@ class VisionSession:
             return None
 
         if self._model_checked:
-            return None
+            return self._model_error
 
         self._model_checked = True
 
         try:
             self.prop_detector.ensure_ready()
         except ModelLoadError:
-            return self._stamp(
+            self._model_error = self._stamp(
                 FeedbackMessage(
                     bottle_detected=False,
                     prop_type=self.prop_type,
@@ -953,6 +998,7 @@ class VisionSession:
                     session_state="unavailable",
                 )
             )
+            return self._model_error
 
         return None
 
@@ -1788,11 +1834,14 @@ async def _cv_session_loop(
 
     preview_worker: asyncio.Task | None = None
     ai_worker: asyncio.Task | None = None
+    readiness_warm_worker: asyncio.Task | None = None
     preview_task: asyncio.Task | None = None
     ai_task: asyncio.Task | None = None
+    readiness_warm_task: asyncio.Task | None = None
     writer_task: asyncio.Task | None = None
     stop = asyncio.Event()
     writer_closing = asyncio.Event()
+    first_preview_sent = asyncio.Event()
     mailbox = _OutboundMailbox()
     outbound_error: str | None = None
 
@@ -2032,6 +2081,8 @@ async def _cv_session_loop(
                     try:
                         t_send = time.perf_counter()
                         await _send(item.payload)
+                        if item.kind == "preview":
+                            first_preview_sent.set()
                         send_s = time.perf_counter() - t_send
                         now = time.perf_counter()
                         if item.kind == "preview":
@@ -2049,11 +2100,29 @@ async def _cv_session_loop(
                     finally:
                         mailbox.sends_in_flight -= 1
 
+        async def warm_readiness_after_preview() -> None:
+            nonlocal readiness_warm_worker, outbound_error
+            await first_preview_sent.wait()
+            if stop.is_set() or movement == "Free Practice":
+                return
+            readiness_warm_worker = asyncio.create_task(
+                asyncio.to_thread(session.warm_readiness)
+            )
+            message = await asyncio.shield(readiness_warm_worker)
+            readiness_warm_worker = None
+            if message is not None:
+                outbound_error = message.model_dump_json()
+                stop.set()
+                mailbox.wake()
+
         preview_task = asyncio.create_task(preview_loop(), name="elixr-preview")
         ai_task = asyncio.create_task(ai_loop(), name="elixr-ai")
         writer_task = asyncio.create_task(writer_loop(), name="elixr-ws-writer")
+        readiness_warm_task = asyncio.create_task(
+            warm_readiness_after_preview(), name="elixr-readiness-warm"
+        )
         _done, _pending = await asyncio.wait(
-            {preview_task, ai_task},
+            {preview_task, ai_task, readiness_warm_task},
             return_when=asyncio.FIRST_EXCEPTION,
         )
         for task in _done:
@@ -2085,11 +2154,14 @@ async def _cv_session_loop(
         mailbox.wake()
         await _await_in_flight_worker(preview_worker, "In-flight preview processing")
         await _await_in_flight_worker(ai_worker, "In-flight AI processing")
+        await _await_in_flight_worker(
+            readiness_warm_worker, "In-flight readiness warm-up"
+        )
         await asyncio.sleep(0)
-        for task in (preview_task, ai_task):
+        for task in (preview_task, ai_task, readiness_warm_task):
             if task is not None and not task.done():
                 task.cancel()
-        for task in (preview_task, ai_task):
+        for task in (preview_task, ai_task, readiness_warm_task):
             if task is None:
                 continue
             try:

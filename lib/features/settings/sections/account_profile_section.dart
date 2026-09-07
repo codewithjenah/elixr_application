@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -415,7 +417,14 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         _teacherProfileBorderId = normalized;
         _frameError = null;
       });
-    } catch (_) {
+    } catch (error) {
+      if (kDebugMode && error is FirebaseException) {
+        debugPrint(
+          '[TeacherProfileBorder] update failed: '
+          'plugin=${error.plugin} code=${error.code} '
+          'message=${error.message ?? '(none)'}',
+        );
+      }
       if (!mounted) return;
       setState(() => _frameError = 'Could not update avatar frame.');
     } finally {

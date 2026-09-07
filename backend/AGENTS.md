@@ -66,7 +66,8 @@ Keep Flutter independent of these implementation details except for the document
   a correlated `command_ack` only after the backend completes the corresponding
   work. `prepare` opens the camera and streams preview
   (`session_state: preparing`) without detectors or scoring.
-  `begin_readiness` (guided practice) loads detectors on the same session,
+  after the first preview is sent, readiness AI warms asynchronously on the
+  same session; `begin_readiness` (guided practice) waits for or reuses it,
   streams `session_state: readying` with observability checklist fields, and
   must not call movement technique evaluation, `RubricTracker.record`, or
   `HoldValidator.update`. It is idempotent when already readying and rejected

@@ -129,6 +129,24 @@ def _release_all_gates() -> None:
         pose.release.set()
 
 
+class GatedWarmDetector:
+    def __init__(self, *, enabled: bool):
+        self.enabled = enabled
+        self.ensure_calls = 0
+        self.detect_calls = 0
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def ensure_ready(self):
+        self.ensure_calls += 1
+        self.entered.set()
+        self.release.wait(timeout=_WAIT_S)
+
+    def detect(self, current_frame):
+        self.detect_calls += 1
+        return []
+
+
 @pytest.fixture(autouse=True)
 def _ungate_detectors():
     yield
@@ -166,6 +184,58 @@ def test_begin_readiness_waits_for_in_flight_readiness_worker(monkeypatch):
     assert len(GatedHands.instances) == 1
     assert not hands.closed_during_detect
     session.close()
+
+
+def test_begin_readiness_reuses_in_flight_warmup(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "BottleDetector", GatedWarmDetector)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    detector = session.prop_detector
+
+    warm_thread = threading.Thread(target=session.warm_readiness)
+    warm_thread.start()
+    assert detector.entered.wait(timeout=_WAIT_S)
+
+    begin_done = threading.Event()
+    begin_thread = threading.Thread(
+        target=lambda: (session.begin_readiness(), begin_done.set())
+    )
+    begin_thread.start()
+    assert not begin_done.wait(_STILL_BLOCKED_S)
+
+    detector.release.set()
+    _join(warm_thread)
+    _join(begin_thread)
+    assert begin_done.is_set()
+    assert detector.ensure_calls == 1
+    assert session.is_readying
+    session.close()
+
+
+def test_close_waits_for_readiness_warmup_before_cleanup(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "BottleDetector", GatedWarmDetector)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    detector = session.prop_detector
+
+    warm_thread = threading.Thread(target=session.warm_readiness)
+    warm_thread.start()
+    assert detector.entered.wait(timeout=_WAIT_S)
+
+    close_done = threading.Event()
+    close_thread = threading.Thread(target=lambda: (session.close(), close_done.set()))
+    close_thread.start()
+    assert not close_done.wait(_STILL_BLOCKED_S)
+    assert session.camera.released is False
+
+    detector.release.set()
+    _join(warm_thread)
+    _join(close_thread)
+    assert close_done.is_set()
+    assert session.camera.released is True
+    assert session.hands_detector is None
 
 
 def test_confirm_readiness_waits_until_in_flight_ai_finishes(monkeypatch):
