@@ -275,6 +275,38 @@ def _claw_grip_hand(
     )
 
 
+def _side_entry_claw_grip_hand(*, mirrored: bool = False) -> HandLandmarks:
+    points = {
+        0: Point2D(0.25, 0.34),
+        4: Point2D(0.46, 0.46),
+        5: Point2D(0.48, 0.35),
+        6: Point2D(0.46, 0.38),
+        7: Point2D(0.44, 0.42),
+        8: Point2D(0.43, 0.48),
+        9: Point2D(0.49, 0.34),
+        10: Point2D(0.48, 0.37),
+        11: Point2D(0.47, 0.42),
+        12: Point2D(0.46, 0.48),
+        13: Point2D(0.50, 0.35),
+        14: Point2D(0.50, 0.38),
+        15: Point2D(0.49, 0.43),
+        16: Point2D(0.48, 0.48),
+        17: Point2D(0.51, 0.36),
+        18: Point2D(0.52, 0.39),
+        19: Point2D(0.52, 0.44),
+        20: Point2D(0.51, 0.48),
+    }
+    if mirrored:
+        points = {
+            index: Point2D(1.0 - point.x, point.y)
+            for index, point in points.items()
+        }
+    return HandLandmarks(
+        points=points,
+        handedness="Left" if mirrored else "Right",
+    )
+
+
 def _evaluate_claw_grip(
     hand: HandLandmarks,
     bottle: BottleDetection | None = None,
@@ -1432,6 +1464,22 @@ def test_claw_grip_accepts_reference_like_top_down_hold(hand):
     assert result.feedback == "Good claw grip curled over the upper neck."
 
 
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _side_entry_claw_grip_hand(),
+        _side_entry_claw_grip_hand(mirrored=True),
+    ],
+    ids=["wrist-from-left", "wrist-from-right"],
+)
+def test_claw_grip_accepts_side_entry_top_down_hold(hand):
+    result = _evaluate_claw_grip(hand)
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback == "Good claw grip curled over the upper neck."
+
+
 def test_claw_grip_rejects_hand_around_bottle_body():
     result = _evaluate_claw_grip(_claw_grip_hand(y_offset=0.20))
 
@@ -1498,6 +1546,23 @@ def test_claw_grip_rejects_bartender_style_pinch():
         "pinch" in result.feedback.lower()
         or "wrist" in result.feedback.lower()
     )
+
+
+def test_claw_grip_rejects_side_entry_bartender_pinch():
+    hand = _side_entry_claw_grip_hand()
+    hand.points.update(
+        {
+            12: Point2D(0.60, 0.62),
+            16: Point2D(0.63, 0.65),
+            20: Point2D(0.66, 0.68),
+        }
+    )
+
+    result = _evaluate_claw_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert "pinch" in result.feedback.lower()
 
 
 def test_claw_grip_rejects_normal_overhand_orientation():

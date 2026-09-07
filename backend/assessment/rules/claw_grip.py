@@ -313,12 +313,22 @@ def _looks_like_reverse_grip(
     return _engaged_fingertips(hand, zone) >= _NORMAL_REQUIRED_FINGERTIPS
 
 
-def _looks_like_bartenders_grip(hand: HandLandmarks, hand_scale: float) -> bool:
+def _looks_like_bartenders_grip(
+    hand: HandLandmarks,
+    hand_scale: float,
+    *,
+    has_strong_claw_wrap: bool,
+) -> bool:
     wrist = hand.points.get(0)
     thumb = hand.points.get(4)
     index = hand.points.get(8)
     middle_mcp = hand.points.get(9)
     if wrist is None or thumb is None or index is None or middle_mcp is None:
+        return False
+
+    # A lateral wrist describes the approach direction, not the grip itself.
+    # Multiple curled neck contacts distinguish an enclosing claw from a pinch.
+    if has_strong_claw_wrap:
         return False
 
     if _pixel_distance(thumb, index) > hand_scale * _MAX_THUMB_INDEX_GAP_RATIO:
@@ -437,13 +447,23 @@ def evaluate(
         _MIN_WRIST_ABOVE_NECK,
         _normalized_distance(wrist, neck_anchor) * _WRIST_ABOVE_NECK_RATIO,
     )
+    curled_contacting = _curled_contacting_fingers(
+        hand,
+        contact_zone,
+        hand_scale=hand_scale,
+    )
+    has_strong_claw_wrap = curled_contacting >= _REQUIRED_CURLED_CONTACTING
 
     technique_fail = None
     if not _is_upright(bottle):
         technique_fail = FeedbackCode.PROP_NOT_UPRIGHT.value
     elif _fingers_extended_upward(hand, hand_scale=hand_scale):
         technique_fail = FeedbackCode.CLAW_FINGERS_NOT_CURLED.value
-    elif _looks_like_bartenders_grip(hand, hand_scale):
+    elif _looks_like_bartenders_grip(
+        hand,
+        hand_scale,
+        has_strong_claw_wrap=has_strong_claw_wrap,
+    ):
         technique_fail = FeedbackCode.CLAW_NOT_PINCH_GRIP.value
     elif _looks_like_normal_overhand(hand, contact_zone, palm):
         technique_fail = FeedbackCode.CLAW_NOT_SIDE_OVERHAND.value
@@ -452,11 +472,6 @@ def evaluate(
     elif not _is_in_zone(thumb, contact_zone):
         technique_fail = FeedbackCode.CLAW_THUMB_SUPPORT.value
     else:
-        curled_contacting = _curled_contacting_fingers(
-            hand,
-            contact_zone,
-            hand_scale=hand_scale,
-        )
         if curled_contacting < _MIN_CURLED_FINGERS:
             technique_fail = FeedbackCode.CLAW_FINGERS_NOT_CURLED.value
         elif curled_contacting < _REQUIRED_CURLED_CONTACTING:
