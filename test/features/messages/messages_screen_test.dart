@@ -208,6 +208,177 @@ void main() {
     expect(find.textContaining('does not delete their copy'), findsOneWidget);
   });
 
+  testWidgets('search result without a conversation only offers View profile', (
+    tester,
+  ) async {
+    await pump(tester, size: const Size(1200, 800));
+    await _searchPeople(tester, 'Te');
+
+    expect(find.text('SEARCH RESULTS'), findsOneWidget);
+    expect(find.text('Terry Trainee'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('conversation-menu-trainee')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('View profile'), findsOneWidget);
+    expect(find.text('Mark as unread'), findsNothing);
+    expect(find.text('Delete conversation'), findsNothing);
+  });
+
+  testWidgets(
+    'search result with a conversation can delete it without removing the user',
+    (tester) async {
+      final authUser = auth.currentUser!;
+      await repository.sendMessage(
+        sender: trainee,
+        recipient: ChatUser(
+          id: authUser.id!,
+          displayName: authUser.fullName,
+          role: authUser.role,
+        ),
+        body: 'Search delete',
+      );
+      await pump(
+        tester,
+        size: const Size(1200, 800),
+        initialConversation: true,
+      );
+      await tester.pump();
+      expect(find.text('Search delete'), findsWidgets);
+
+      await _searchPeople(tester, 'Te');
+      await tester.tap(find.byKey(const ValueKey('conversation-menu-trainee')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('View profile'), findsOneWidget);
+      expect(find.text('Mark as unread'), findsOneWidget);
+      expect(find.text('Delete conversation'), findsOneWidget);
+
+      await tester.tap(find.text('Delete conversation'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete conversation?'), findsOneWidget);
+      expect(find.textContaining('does not delete their copy'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('SEARCH RESULTS'), findsOneWidget);
+      expect(find.text('Terry Trainee'), findsOneWidget);
+      expect(
+        find.text('Select a conversation or search for someone to message.'),
+        findsOneWidget,
+      );
+      expect(repository.users, contains(trainee));
+      expect(
+        repository.conversations.values.single.isClearedFor(authUser.id!),
+        isTrue,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('conversation-menu-trainee')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('View profile'), findsOneWidget);
+      expect(find.text('Mark as unread'), findsNothing);
+      expect(find.text('Delete conversation'), findsNothing);
+
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byIcon(FluentIcons.clear));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('RECENT CONVERSATIONS'), findsOneWidget);
+      expect(find.text('Terry Trainee'), findsNothing);
+      expect(
+        find.text(
+          'Search for a teacher or trainee to send your first message.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('search result can mark an existing conversation unread', (
+    tester,
+  ) async {
+    final authUser = auth.currentUser!;
+    await repository.sendMessage(
+      sender: ChatUser(
+        id: authUser.id!,
+        displayName: authUser.fullName,
+        role: authUser.role,
+      ),
+      recipient: trainee,
+      body: 'Outbound for unread',
+    );
+    await pump(tester, size: const Size(1200, 800));
+    await tester.pump();
+
+    await _searchPeople(tester, 'Te');
+    await tester.tap(find.byKey(const ValueKey('conversation-menu-trainee')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mark as unread'));
+    await tester.pumpAndSettle();
+
+    final conversationId = ChatRepository.conversationIdFor(
+      authUser.id!,
+      trainee.id,
+    );
+    expect(
+      repository.conversations[conversationId]!.unreadFor(authUser.id!),
+      1,
+    );
+  });
+
+  testWidgets('search result View profile still opens the person', (
+    tester,
+  ) async {
+    String? openedPath;
+    ProfileRouteArgs? openedArgs;
+    final router = GoRouter(
+      initialLocation: '/messages',
+      routes: [
+        GoRoute(
+          path: '/messages',
+          builder: (context, state) => const MessagesScreen(),
+        ),
+        GoRoute(
+          path: '/teacher/profile/:userId',
+          builder: (context, state) {
+            openedPath = state.uri.path;
+            openedArgs = state.extra is ProfileRouteArgs
+                ? state.extra! as ProfileRouteArgs
+                : null;
+            return const ScaffoldPage(content: Text('Profile page'));
+          },
+        ),
+      ],
+    );
+
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthService>.value(value: auth),
+          Provider<ChatRepository>.value(value: repository),
+        ],
+        child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _searchPeople(tester, 'Te');
+    await tester.tap(find.byKey(const ValueKey('conversation-menu-trainee')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View profile'));
+    await tester.pumpAndSettle();
+
+    expect(openedPath, '/teacher/profile/trainee');
+    expect(openedArgs?.displayName, trainee.displayName);
+    expect(openedArgs?.role, User.roleTrainee);
+  });
+
   testWidgets(
     'new-message alert stays in the inbox flow and can be dismissed',
     (tester) async {
@@ -393,6 +564,19 @@ Finder _composerFinder() => find.byWidgetPredicate(
   (widget) => widget is TextBox && widget.placeholder == 'Write a message...',
   description: 'message composer',
 );
+
+Finder _peopleSearchFinder() => find.byWidgetPredicate(
+  (widget) =>
+      widget is TextBox && widget.placeholder == 'Find a Teacher or Trainee',
+  description: 'people search',
+);
+
+Future<void> _searchPeople(WidgetTester tester, String query) async {
+  await tester.enterText(_peopleSearchFinder(), query);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
+  await tester.pump();
+}
 
 class _FailingChatRepository extends InMemoryChatRepository {
   @override

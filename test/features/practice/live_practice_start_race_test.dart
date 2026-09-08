@@ -13,8 +13,8 @@ import 'package:elixr_application/data/repositories/classroom_assignment_reposit
 import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/features/practice/freestyle/freestyle_models.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
-import 'package:elixr_application/features/practice/just_dance/playground_session_controller.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
@@ -127,6 +127,8 @@ class _RecordingWebSocketService extends WebSocketService {
     String? sessionId,
     bool allowSubmissionRecording = false,
     TeacherActivityReadinessSpec? readinessSpec,
+    String? sessionMode,
+    List<({String movement, TrainingProp prop})>? allowedMovements,
   }) {
     final resolvedSessionId =
         sessionId ?? currentSessionId ?? beginPracticeAttempt();
@@ -142,6 +144,12 @@ class _RecordingWebSocketService extends WebSocketService {
       'camera_index': ?legacyCameraIndex,
       if (allowSubmissionRecording) 'allow_submission_recording': true,
       if (readinessSpec != null) 'readiness_spec': readinessSpec.toMap(),
+      if (sessionMode != null) 'session_mode': sessionMode,
+      if (allowedMovements != null)
+        'allowed_movements': [
+          for (final entry in allowedMovements)
+            {'movement': entry.movement, 'prop_type': entry.prop.protocolValue},
+        ],
     });
     return prepareAck.future;
   }
@@ -432,6 +440,8 @@ void main() {
       expect(payload['movement'], 'Free Practice');
       expect(payload['difficulty'], 'Easy');
       expect(payload['prop_type'], 'bottle');
+      expect(payload.containsKey('session_mode'), isFalse);
+      expect(payload.containsKey('allowed_movements'), isFalse);
       expect(payload['bottle_detection_enabled'], isTrue);
       expect(payload['session_id'], ws.currentSessionId);
       expect(payload.containsKey('camera_device_id'), isTrue);
@@ -447,35 +457,47 @@ void main() {
     },
   );
 
+  testWidgets('Playground overlapping Start prepares one freestyle session', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    expect(find.text('Playground'), findsOneWidget);
+    expect(find.text('Start Freestyle'), findsOneWidget);
+    expect(find.text('Build Your Set'), findsNothing);
+    expect(find.text('Free Practice'), findsNothing);
+    final cameraBox = tester.renderObject<RenderBox>(
+      find.byKey(const ValueKey('practice-camera-workspace')),
+    );
+    expect(cameraBox.size.aspectRatio, closeTo(4 / 3, 0.01));
+
+    screenKey.currentState!.debugStartSession();
+    screenKey.currentState!.debugStartSession();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump();
+    expect(ws.beginCalls, 1);
+    expect(ws.preparePayloads, hasLength(1));
+    expect(ws.preparePayloads.single['movement'], 'Free Practice');
+    expect(ws.preparePayloads.single['session_mode'], 'freestyle');
+    expect(ws.preparePayloads.single['prop_type'], 'bottle_and_shaker');
+    expect(ws.preparePayloads.single['allowed_movements'], isA<List>());
+    expect(
+      (ws.preparePayloads.single['allowed_movements'] as List).any(
+        (entry) =>
+            entry is Map &&
+            entry['movement'] == 'Normal Grip' &&
+            entry['prop_type'] == 'bottle',
+      ),
+      isTrue,
+    );
+    ws.acceptPrepare();
+    await tester.pump();
+  });
+
   testWidgets(
-    'Playground overlapping Start prepares its first official movement',
-    (tester) async {
-      await pumpScreen(tester);
-
-      expect(find.text('Playground'), findsOneWidget);
-      expect(find.text('Start Playground'), findsOneWidget);
-      expect(find.text('Free Practice'), findsNothing);
-      final cameraBox = tester.renderObject<RenderBox>(
-        find.byKey(const ValueKey('practice-camera-workspace')),
-      );
-      expect(cameraBox.size.aspectRatio, closeTo(4 / 3, 0.01));
-
-      screenKey.currentState!.debugStartSession();
-      screenKey.currentState!.debugStartSession();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 20));
-      await tester.pump(const Duration(milliseconds: 20));
-      await tester.pump();
-      expect(ws.beginCalls, 1);
-      expect(ws.preparePayloads, hasLength(1));
-      expect(ws.preparePayloads.single['movement'], 'Normal Grip');
-      ws.acceptPrepare();
-      await tester.pump();
-    },
-  );
-
-  testWidgets(
-    'Playground Get Ready has one activation owner while its ack is slow',
+    'Playground first JPEG has one activation owner while its ack is slow',
     (tester) async {
       await pumpScreen(tester);
 
@@ -490,7 +512,6 @@ void main() {
       await tester.pump();
       // Preview bytes are fixtures for lifecycle timing; ignore decode noise.
       while (tester.takeException() != null) {}
-      await tester.pump(const Duration(seconds: 4));
       await tester.pump();
       while (tester.takeException() != null) {}
 
@@ -498,15 +519,13 @@ void main() {
       expect(
         find.byType(GameCountdownOverlay),
         findsNothing,
-        reason: 'Playground renders its controller-owned Get Ready HUD only.',
+        reason: 'Freestyle does not use a per-movement Get Ready countdown.',
       );
       expect(
-        screenKey.currentState!.debugPlayground.phase,
-        PlaygroundSessionPhase.getReady,
+        screenKey.currentState!.debugFreestyle.phase,
+        FreestyleSessionPhase.ready,
       );
 
-      // A slow activate acknowledgement must not allow a shared countdown
-      // completion to issue a second generic activate command.
       await tester.pump(const Duration(seconds: 5));
       expect(ws.activateCalls, 1);
 
@@ -515,8 +534,8 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(
-        screenKey.currentState!.debugPlayground.phase,
-        PlaygroundSessionPhase.assessing,
+        screenKey.currentState!.debugFreestyle.phase,
+        FreestyleSessionPhase.active,
       );
     },
   );

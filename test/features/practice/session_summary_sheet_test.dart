@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_application/data/models/movement.dart';
@@ -170,6 +171,79 @@ SessionAssessment denseCoachingAssessment({
   );
 }
 
+/// 1x1 PNG so Image.memory can decode in widget tests.
+Uint8List _tinyEvidencePng() {
+  return Uint8List.fromList(const [
+    0x89,
+    0x50,
+    0x4E,
+    0x47,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+    0x00,
+    0x00,
+    0x00,
+    0x0D,
+    0x49,
+    0x48,
+    0x44,
+    0x52,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x08,
+    0x06,
+    0x00,
+    0x00,
+    0x00,
+    0x1F,
+    0x15,
+    0xC4,
+    0x89,
+    0x00,
+    0x00,
+    0x00,
+    0x0A,
+    0x49,
+    0x44,
+    0x41,
+    0x54,
+    0x78,
+    0x9C,
+    0x63,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x05,
+    0x00,
+    0x01,
+    0x0D,
+    0x0A,
+    0x2D,
+    0xB4,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x49,
+    0x45,
+    0x4E,
+    0x44,
+    0xAE,
+    0x42,
+    0x60,
+    0x82,
+  ]);
+}
+
 Future<void> _openSummary(
   WidgetTester tester, {
   required SessionAssessment assessment,
@@ -178,6 +252,7 @@ Future<void> _openSummary(
   String movement = 'Hand Stall',
   Movement? nextMovement,
   TrainingProp? nextProp,
+  Uint8List? evidenceJpegBytes,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -197,6 +272,7 @@ Future<void> _openSummary(
                   onSave: onSave,
                   nextMovement: nextMovement,
                   nextProp: nextProp,
+                  evidenceJpegBytes: evidenceJpegBytes,
                 );
               },
               child: const Text('Open'),
@@ -256,6 +332,8 @@ void main() {
       onSave: (_) async => 'session-coaching',
     );
 
+    expect(find.text('Session Complete'), findsOneWidget);
+    expect(find.text('Hand Stall'), findsWidgets);
     expect(find.text('What Went Well'), findsOneWidget);
     expect(find.text('Needs Improvement'), findsOneWidget);
     expect(find.text('Recommended Next Session'), findsOneWidget);
@@ -646,7 +724,7 @@ void main() {
         final badgeRect = tester.getRect(find.byType(RankBadge));
         expect(badgeRect.right, lessThanOrEqualTo(dialogRect.right + 0.5));
         expect(badgeRect.left, greaterThanOrEqualTo(dialogRect.left - 0.5));
-        expect(find.textContaining(movement), findsOneWidget);
+        expect(find.textContaining(movement), findsAtLeastNWidgets(1));
       },
     );
   });
@@ -1399,5 +1477,39 @@ void main() {
         expect(find.byKey(const Key('session-summary-dialog')), findsNothing);
       },
     );
+  });
+
+  group('evidence thumbnail', () {
+    testWidgets('confirmed frame thumbnail opens the full viewer', (
+      tester,
+    ) async {
+      await _openSummary(
+        tester,
+        assessment: _standardSummaryAssessment(),
+        evidenceJpegBytes: _tinyEvidencePng(),
+        onSave: (_) async => 'session-evidence',
+      );
+
+      expect(find.byKey(const Key('session-summary-evidence')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('session-summary-evidence')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Confirmed movement frame'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Confirmed movement frame'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('absent evidence does not render a thumbnail', (tester) async {
+      await _openSummary(
+        tester,
+        assessment: _standardSummaryAssessment(),
+        onSave: (_) async => 'session-no-evidence',
+      );
+
+      expect(find.byKey(const Key('session-summary-evidence')), findsNothing);
+      expect(find.text('Confirmed movement frame'), findsNothing);
+    });
   });
 }

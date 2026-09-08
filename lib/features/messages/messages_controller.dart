@@ -54,6 +54,11 @@ class MessagesController extends ChangeNotifier {
     return ChatRepository.conversationIdFor(currentUser.id, other.id);
   }
 
+  ChatConversation? conversationForUser(String userId) {
+    final id = ChatRepository.conversationIdFor(currentUser.id, userId);
+    return inbox.where((item) => item.id == id).firstOrNull;
+  }
+
   void start({ChatUser? initialUser}) {
     _inboxSubscription?.cancel();
     _inboxSubscription = repository
@@ -185,13 +190,7 @@ class MessagesController extends ChangeNotifier {
   Future<void> openUser(ChatUser user) async {
     if (user.id == currentUser.id) return;
     selectedUser = user;
-    selectedConversation = inbox
-        .where(
-          (item) =>
-              item.id ==
-              ChatRepository.conversationIdFor(currentUser.id, user.id),
-        )
-        .firstOrNull;
+    selectedConversation = conversationForUser(user.id);
     messages = const [];
     _messageCursor = null;
     _hasLoadedOlder = false;

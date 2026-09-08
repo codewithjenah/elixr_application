@@ -9,7 +9,7 @@ import 'package:elixr_application/data/repositories/assignment_submission_reposi
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
-import 'package:elixr_application/features/practice/just_dance/playground_session_controller.dart';
+import 'package:elixr_application/features/practice/freestyle/freestyle_models.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/features/practice/practice_screen.dart';
@@ -60,8 +60,38 @@ class _TestWebSocket extends WebSocketService {
     String? sessionId,
     bool allowSubmissionRecording = false,
     TeacherActivityReadinessSpec? readinessSpec,
+    String? sessionMode,
+    List<({String movement, TrainingProp prop})>? allowedMovements,
   }) {
     return prepareAck.future;
+  }
+
+  @override
+  Future<CommandAck> sendPause({String? sessionId}) {
+    return Future.value(
+      CommandAck(
+        protocolVersion: 1,
+        requestId: 'pause-test',
+        action: 'pause',
+        accepted: true,
+        sessionId: sessionId ?? currentSessionId,
+        sessionState: 'active',
+      ),
+    );
+  }
+
+  @override
+  Future<CommandAck> sendResume({String? sessionId}) {
+    return Future.value(
+      CommandAck(
+        protocolVersion: 1,
+        requestId: 'resume-test',
+        action: 'resume',
+        accepted: true,
+        sessionId: sessionId ?? currentSessionId,
+        sessionState: 'active',
+      ),
+    );
   }
 
   @override
@@ -333,8 +363,8 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(
-      screenKey.currentState!.debugPlayground.phase,
-      isNot(PlaygroundSessionPhase.idle),
+      screenKey.currentState!.debugFreestyle.phase,
+      isNot(FreestyleSessionPhase.idle),
     );
     await tester.tap(_backButton());
     await _pumpUi(tester);
@@ -344,8 +374,8 @@ void main() {
     await _pumpUi(tester);
     expect(find.byType(LivePracticeScreen), findsOneWidget);
     expect(
-      screenKey.currentState!.debugPlayground.phase,
-      isNot(PlaygroundSessionPhase.idle),
+      screenKey.currentState!.debugFreestyle.phase,
+      isNot(FreestyleSessionPhase.idle),
     );
 
     await tester.tap(_backButton());

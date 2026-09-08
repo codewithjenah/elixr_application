@@ -5,7 +5,8 @@ import '../../../core/progression/progression_catalog.dart';
 import '../../../services/settings_service.dart';
 import 'practice_preferences_draft.dart';
 
-/// Local draft editor for Live Practice setlist, interval, and music.
+/// Local draft editor for Playground music (and leftover setlist fields kept
+/// for settings-file compatibility).
 ///
 /// Presentation widgets listen to this notifier; hosts own save/discard
 /// actions. Persistence goes through [SettingsService.updateLivePracticePreferences].
@@ -24,11 +25,14 @@ class PracticePreferencesController extends ChangeNotifier {
 
   bool get isDirty => _draft != _original;
 
-  /// At least one catalog-resolvable variant after filtering, and a positive interval.
+  /// Music can always be saved. Empty leftover setlist drafts fall back to the
+  /// last persisted variants so settings-file compatibility is preserved.
   bool get canSave {
     final normalized = normalizeDraft();
-    return normalized.practiceVariants.isNotEmpty &&
-        normalized.intervalSeconds > 0;
+    final interval = normalized.intervalSeconds > 0
+        ? normalized.intervalSeconds
+        : _original.intervalSeconds;
+    return interval > 0;
   }
 
   void loadFrom(SettingsService settings) {
@@ -99,17 +103,22 @@ class PracticePreferencesController extends ChangeNotifier {
 
   Future<SettingsWriteOutcome> save() async {
     final normalized = normalizeDraft();
-    if (normalized.practiceVariants.isEmpty ||
-        normalized.intervalSeconds <= 0) {
+    final variants = normalized.practiceVariants.isNotEmpty
+        ? normalized.practiceVariants
+        : _original.practiceVariants;
+    final interval = normalized.intervalSeconds > 0
+        ? normalized.intervalSeconds
+        : _original.intervalSeconds;
+    if (variants.isEmpty || interval <= 0) {
       throw ArgumentError(
-        'Live Practice preferences require at least one catalog variant '
+        'Playground preferences require stored catalog variants '
         'and a positive interval',
       );
     }
 
     final outcome = await _settings.updateLivePracticePreferences(
-      practiceVariants: normalized.practiceVariants,
-      intervalSeconds: normalized.intervalSeconds,
+      practiceVariants: variants,
+      intervalSeconds: interval,
       musicTrackId: normalized.musicTrackId,
     );
 

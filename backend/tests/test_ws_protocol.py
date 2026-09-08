@@ -206,6 +206,49 @@ def test_valid_prepare_command_parses():
     assert cmd.prop_type == "bottle"
 
 
+def test_freestyle_prepare_command_parses_allowlist():
+    cmd = parse_v1_command(
+        _prepare_payload(
+            movement="Free Practice",
+            difficulty="Easy",
+            session_mode="freestyle",
+            prop_type="bottle_and_shaker",
+            allowed_movements=[
+                {"movement": "Normal Grip", "prop_type": "bottle"},
+                {"movement": "Hand Stall", "prop_type": "shaker"},
+            ],
+        )
+    )
+    assert isinstance(cmd, PrepareCommand)
+    assert cmd.session_mode == "freestyle"
+    assert cmd.allowed_movements is not None
+    assert cmd.allowed_movements[0].movement == "Normal Grip"
+    assert cmd.allowed_movements[1].prop_type == "shaker"
+
+
+def test_pause_and_resume_commands_parse():
+    pause = parse_v1_command(
+        {
+            "protocol_version": 1,
+            "request_id": "req-p",
+            "session_id": "session-1",
+            "action": "pause",
+        }
+    )
+    resume = parse_v1_command(
+        {
+            "protocol_version": 1,
+            "request_id": "req-r",
+            "session_id": "session-1",
+            "action": "resume",
+        }
+    )
+    from schemas.commands import PauseCommand, ResumeCommand
+
+    assert isinstance(pause, PauseCommand)
+    assert isinstance(resume, ResumeCommand)
+
+
 def test_retired_template_session_purpose_is_rejected():
     with pytest.raises(ValidationError) as exc_info:
         PrepareCommand.model_validate(

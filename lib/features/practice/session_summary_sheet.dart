@@ -9,6 +9,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
@@ -26,15 +27,18 @@ abstract final class _SummaryLayout {
   static const twoColumnBreakpoint = 720.0;
   static const actionsRegularBreakpoint = 780.0;
   static const insightSideBySideBreakpoint = 440.0;
-  static const performanceColumnWidth = 220.0;
-  static const scoreRingSize = 92.0;
-  static const cardPadding = 16.0;
-  static const sectionGap = 16.0;
-  static const bodyPadding = 20.0;
-  static const headerPaddingH = 20.0;
-  static const headerPaddingV = 14.0;
+  static const performanceColumnWidth = 236.0;
+  static const scoreRingSize = 108.0;
+  static const scoreRingSizeCompact = 88.0;
+  static const cardPadding = 12.0;
+  static const sectionGap = 12.0;
+  static const bodyPadding = 16.0;
+  static const headerPaddingH = 18.0;
+  static const headerPaddingV = 12.0;
   static const actionsPadding = 16.0;
   static const primaryActionWidth = 260.0;
+  static const evidenceWidth = 96.0;
+  static const evidenceHeight = 72.0;
 }
 
 class SessionSummarySheet extends StatelessWidget {
@@ -86,7 +90,7 @@ class SessionSummarySheet extends StatelessWidget {
     return showDialog<SessionSummaryResult>(
       context: context,
       barrierDismissible: false,
-      barrierColor: const Color(0xCC000000),
+      barrierColor: const Color(0xE6080812),
       useRootNavigator: true,
       builder: (ctx) {
         var saving = false;
@@ -122,9 +126,10 @@ class SessionSummarySheet extends StatelessWidget {
               }
             }
 
+            final reduceMotion = MediaQuery.disableAnimationsOf(context);
             return Stack(
               children: [
-                if (celebrates(assessment.performanceLevel))
+                if (celebrates(assessment.performanceLevel) && !reduceMotion)
                   const Positioned.fill(child: ConfettiOverlay()),
                 SafeArea(
                   child: Center(
@@ -228,6 +233,12 @@ class SessionSummarySheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final levelColor = performanceLevelColor(_level);
     final tier = _tier(_level);
+    final colors = context.elixColors;
+    final highContrast = context.isHighContrast;
+    final isDark = context.isDarkTheme;
+    final flatten =
+        highContrast || context.elixWorkspaceVisuals.flattenDenseSurfaces;
+    final glowScale = context.elixWorkspaceVisuals.ambientGlowScale;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -248,34 +259,49 @@ class SessionSummarySheet extends StatelessWidget {
           child: Container(
             width: maxWidth,
             decoration: BoxDecoration(
-              color: context.elixCardSurface,
-              borderRadius: BorderRadius.circular(20),
+              color: isDark ? colors.canvasDeep : colors.surfaceRaised,
+              borderRadius: BorderRadius.circular(22),
               border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.15),
+                color: highContrast
+                    ? colors.borderStrong
+                    : AppColors.primary.withValues(alpha: isDark ? 0.28 : 0.22),
+                width: highContrast ? 2 : 1,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.08),
-                  blurRadius: 48,
-                  spreadRadius: 4,
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  blurRadius: 40,
-                  offset: const Offset(0, 20),
-                ),
-              ],
+              boxShadow: flatten
+                  ? const []
+                  : [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(
+                          alpha: (isDark ? 0.16 : 0.10) * glowScale,
+                        ),
+                        blurRadius: 48,
+                        spreadRadius: 2,
+                      ),
+                      BoxShadow(
+                        color: colors.shadow.withValues(
+                          alpha: isDark ? 0.7 : 0.22,
+                        ),
+                        blurRadius: 44,
+                        offset: const Offset(0, 22),
+                      ),
+                    ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(22),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _SummaryHeader(
+                  _ResultHero(
                     movement: movement,
                     heldSteady: _heldSteady,
                     level: _level,
+                    completionMessage: _heldSteady
+                        ? 'You held "$movement" steady. Well done!'
+                        : _tierMessage(
+                            _level,
+                            hasImprovements: assessment.hasImprovements,
+                          ),
                     evidenceJpegBytes: evidenceJpegBytes,
                   ),
                   Flexible(
@@ -286,10 +312,6 @@ class SessionSummarySheet extends StatelessWidget {
                       tier: tier,
                       durationSeconds: durationSeconds,
                       assessment: assessment,
-                      performanceMessage: _tierMessage(
-                        _level,
-                        hasImprovements: assessment.hasImprovements,
-                      ),
                       emptyImprovementsMessage:
                           assessment.coaching.cleanSessionMessage ??
                           _performanceMessage(_level),
@@ -319,91 +341,183 @@ class SessionSummarySheet extends StatelessWidget {
   }
 }
 
-class _SummaryHeader extends StatelessWidget {
-  const _SummaryHeader({
+class _ResultHero extends StatelessWidget {
+  const _ResultHero({
     required this.movement,
     required this.heldSteady,
     required this.level,
+    required this.completionMessage,
     this.evidenceJpegBytes,
   });
 
   final String movement;
   final bool heldSteady;
   final PerformanceLevel level;
+  final String completionMessage;
   final Uint8List? evidenceJpegBytes;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: _SummaryLayout.headerPaddingH,
-        vertical: _SummaryLayout.headerPaddingV,
-      ),
+    final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    final glowScale = context.elixWorkspaceVisuals.ambientGlowScale;
+    final success = context.elixColors.success;
+
+    return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.success.withValues(alpha: 0.12),
-            AppColors.primary.withValues(alpha: 0.07),
-            Colors.transparent,
-          ],
-        ),
+        gradient: highContrast
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.primary.withValues(
+                    alpha: (isDark ? 0.14 : 0.06) * glowScale,
+                  ),
+                  AppColors.accent.withValues(
+                    alpha: (isDark ? 0.07 : 0.035) * glowScale,
+                  ),
+                  Colors.transparent,
+                ],
+                stops: const [0, 0.42, 1],
+              ),
         border: Border(
-          bottom: BorderSide(color: AppColors.primary.withValues(alpha: 0.1)),
+          bottom: BorderSide(
+            color: highContrast
+                ? context.elixBorder
+                : AppColors.primary.withValues(alpha: 0.16),
+          ),
         ),
       ),
-      child: Row(
+      child: Stack(
         children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
+          if (!highContrast) ...[
+            Positioned(
+              left: -36,
+              top: -48,
+              child: IgnorePointer(
+                child: Container(
+                  width: 200,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        AppColors.primary.withValues(
+                          alpha: (isDark ? 0.20 : 0.08) * glowScale,
+                        ),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-            child: Icon(
-              heldSteady
-                  ? FluentIcons.trophy2_solid
-                  : FluentIcons.completed_solid,
-              color: AppColors.success,
-              size: 18,
+            Positioned(
+              right: 120,
+              top: -28,
+              child: IgnorePointer(
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        AppColors.accent.withValues(
+                          alpha: (isDark ? 0.14 : 0.06) * glowScale,
+                        ),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm + 4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          ],
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: _SummaryLayout.headerPaddingH,
+              vertical: _SummaryLayout.headerPaddingV,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Text(
-                  'Session Complete',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: success.withValues(alpha: highContrast ? 0 : 0.14),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: success.withValues(alpha: highContrast ? 1 : 0.4),
+                    ),
+                    boxShadow: highContrast
+                        ? const []
+                        : [
+                            BoxShadow(
+                              color: success.withValues(alpha: 0.22),
+                              blurRadius: 16,
+                            ),
+                          ],
+                  ),
+                  child: Icon(
+                    heldSteady
+                        ? FluentIcons.trophy2_solid
+                        : FluentIcons.completed_solid,
+                    color: success,
+                    size: 18,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  heldSteady
-                      ? 'You held "$movement" steady. Well done!'
-                      : movement,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.primary,
+                const SizedBox(width: AppSpacing.sm + 4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Session Complete',
+                        style: AppTheme.eyebrow(
+                          color: context.elixTextSecondary,
+                        ).copyWith(letterSpacing: 1.6),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        movement,
+                        style: AppTheme.headingMedium.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: context.elixTextPrimary,
+                          height: 1.15,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        completionMessage,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                          color: heldSteady
+                              ? AppColors.primary
+                              : context.elixTextSecondary,
+                          height: 1.35,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(width: AppSpacing.sm),
+                if (evidenceJpegBytes != null) ...[
+                  _EvidenceThumbnail(bytes: evidenceJpegBytes!),
+                  const SizedBox(width: AppSpacing.sm),
+                ],
+                RankBadge(level: level),
               ],
             ),
           ),
-          const SizedBox(width: AppSpacing.sm),
-          if (evidenceJpegBytes != null) ...[
-            _EvidenceThumbnail(bytes: evidenceJpegBytes!),
-            const SizedBox(width: AppSpacing.sm),
-          ],
-          RankBadge(level: level),
         ],
       ),
     );
@@ -417,57 +531,111 @@ class _EvidenceThumbnail extends StatelessWidget {
 
   final Uint8List bytes;
 
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'View confirmed frame',
-      child: GestureDetector(
-        onTap: () => showDialog<void>(
-          context: context,
-          builder: (_) => ContentDialog(
-            constraints: const BoxConstraints(maxWidth: 760),
-            title: const Text('Confirmed movement frame'),
-            content: AspectRatio(
-              aspectRatio: 4 / 3,
-              child: ColoredBox(
-                color: Colors.black,
-                child: Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.diagonal3Values(-1, 1, 1),
-                  child: Image.memory(bytes, fit: BoxFit.contain),
-                ),
-              ),
-            ),
-            actions: [
-              Button(
-                child: const Text('Close'),
-                onPressed: () =>
-                    Navigator.of(context, rootNavigator: true).pop(),
-              ),
-            ],
-          ),
-        ),
-        child: Semantics(
-          button: true,
-          label: 'View confirmed movement frame',
-          child: Container(
-            width: 64,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.35),
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
+  void _openViewer(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => ContentDialog(
+        constraints: const BoxConstraints(maxWidth: 760),
+        title: const Text('Confirmed movement frame'),
+        content: AspectRatio(
+          aspectRatio: 4 / 3,
+          child: ColoredBox(
+            color: Colors.black,
             child: Transform(
               alignment: Alignment.center,
               transform: Matrix4.diagonal3Values(-1, 1, 1),
-              child: Image.memory(bytes, fit: BoxFit.contain),
+              child: Image.memory(
+                bytes,
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => const Center(
+                  child: Icon(FluentIcons.photo2, color: Colors.white),
+                ),
+              ),
             ),
           ),
         ),
+        actions: [
+          Button(
+            child: const Text('Close'),
+            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final highContrast = context.isHighContrast;
+
+    return Tooltip(
+      message: 'View confirmed frame',
+      child: HoverButton(
+        onPressed: () => _openViewer(context),
+        cursor: SystemMouseCursors.click,
+        builder: (context, states) {
+          final hovered = states.isHovered;
+          final focused = states.isFocused;
+          return Semantics(
+            button: true,
+            label: 'View confirmed movement frame',
+            child: AnimatedContainer(
+              key: const Key('session-summary-evidence'),
+              duration: reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              width: _SummaryLayout.evidenceWidth,
+              height: _SummaryLayout.evidenceHeight,
+              transformAlignment: Alignment.center,
+              transform: Matrix4.translationValues(
+                0,
+                hovered && !reduceMotion ? -1 : 0,
+                0,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: focused
+                      ? context.elixColors.focusRing
+                      : AppColors.primary.withValues(
+                          alpha: hovered || highContrast ? 0.75 : 0.38,
+                        ),
+                  width: focused || highContrast ? 2 : 1,
+                ),
+                boxShadow: highContrast
+                    ? const []
+                    : [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(
+                            alpha: hovered ? 0.28 : 0.14,
+                          ),
+                          blurRadius: hovered ? 16 : 10,
+                        ),
+                      ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.diagonal3Values(-1, 1, 1),
+                child: Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => const Center(
+                    child: Icon(
+                      FluentIcons.photo2,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -480,7 +648,6 @@ class _SummaryBody extends StatelessWidget {
     required this.tier,
     required this.durationSeconds,
     required this.assessment,
-    required this.performanceMessage,
     required this.emptyImprovementsMessage,
     required this.emptyStrengthsMessage,
   });
@@ -490,7 +657,6 @@ class _SummaryBody extends StatelessWidget {
   final ({String label, Color color}) tier;
   final int durationSeconds;
   final SessionAssessment assessment;
-  final String performanceMessage;
   final String emptyImprovementsMessage;
   final String emptyStrengthsMessage;
 
@@ -505,7 +671,7 @@ class _SummaryBody extends StatelessWidget {
           key: const Key('session-summary-scroll'),
           padding: const EdgeInsets.fromLTRB(
             _SummaryLayout.bodyPadding,
-            AppSpacing.sm + 4,
+            AppSpacing.sm + 2,
             _SummaryLayout.bodyPadding,
             AppSpacing.sm,
           ),
@@ -516,7 +682,6 @@ class _SummaryBody extends StatelessWidget {
                   tier: tier,
                   durationSeconds: durationSeconds,
                   assessment: assessment,
-                  performanceMessage: performanceMessage,
                   emptyImprovementsMessage: emptyImprovementsMessage,
                   emptyStrengthsMessage: emptyStrengthsMessage,
                 )
@@ -526,7 +691,6 @@ class _SummaryBody extends StatelessWidget {
                   tier: tier,
                   durationSeconds: durationSeconds,
                   assessment: assessment,
-                  performanceMessage: performanceMessage,
                   emptyImprovementsMessage: emptyImprovementsMessage,
                   emptyStrengthsMessage: emptyStrengthsMessage,
                 ),
@@ -543,7 +707,6 @@ class _RegularBody extends StatelessWidget {
     required this.tier,
     required this.durationSeconds,
     required this.assessment,
-    required this.performanceMessage,
     required this.emptyImprovementsMessage,
     required this.emptyStrengthsMessage,
   });
@@ -553,7 +716,6 @@ class _RegularBody extends StatelessWidget {
   final ({String label, Color color}) tier;
   final int durationSeconds;
   final SessionAssessment assessment;
-  final String performanceMessage;
   final String emptyImprovementsMessage;
   final String emptyStrengthsMessage;
 
@@ -564,16 +726,15 @@ class _RegularBody extends StatelessWidget {
       children: [
         SizedBox(
           width: _SummaryLayout.performanceColumnWidth,
-          child: _PerformanceColumn(
+          child: _PerformanceDashboard(
             rubric: rubric,
             levelColor: levelColor,
             tier: tier,
             durationSeconds: durationSeconds,
-            performanceMessage: performanceMessage,
             compact: false,
           ),
         ),
-        const SizedBox(width: _SummaryLayout.sectionGap + 4),
+        const SizedBox(width: _SummaryLayout.sectionGap + 2),
         Expanded(
           child: _CoachingColumn(
             assessment: assessment,
@@ -594,7 +755,6 @@ class _CompactBody extends StatelessWidget {
     required this.tier,
     required this.durationSeconds,
     required this.assessment,
-    required this.performanceMessage,
     required this.emptyImprovementsMessage,
     required this.emptyStrengthsMessage,
   });
@@ -604,7 +764,6 @@ class _CompactBody extends StatelessWidget {
   final ({String label, Color color}) tier;
   final int durationSeconds;
   final SessionAssessment assessment;
-  final String performanceMessage;
   final String emptyImprovementsMessage;
   final String emptyStrengthsMessage;
 
@@ -614,12 +773,11 @@ class _CompactBody extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _PerformanceColumn(
+        _PerformanceDashboard(
           rubric: rubric,
           levelColor: levelColor,
           tier: tier,
           durationSeconds: durationSeconds,
-          performanceMessage: performanceMessage,
           compact: true,
         ),
         const SizedBox(height: _SummaryLayout.sectionGap),
@@ -627,20 +785,19 @@ class _CompactBody extends StatelessWidget {
           assessment: assessment,
           emptyImprovementsMessage: emptyImprovementsMessage,
           emptyStrengthsMessage: emptyStrengthsMessage,
-          preferSideBySideInsights: false,
+          preferSideBySideInsights: true,
         ),
       ],
     );
   }
 }
 
-class _PerformanceColumn extends StatelessWidget {
-  const _PerformanceColumn({
+class _PerformanceDashboard extends StatelessWidget {
+  const _PerformanceDashboard({
     required this.rubric,
     required this.levelColor,
     required this.tier,
     required this.durationSeconds,
-    required this.performanceMessage,
     required this.compact,
   });
 
@@ -648,26 +805,32 @@ class _PerformanceColumn extends StatelessWidget {
   final Color levelColor;
   final ({String label, Color color}) tier;
   final int durationSeconds;
-  final String performanceMessage;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final ring = _RubricRing(total: rubric.total, color: levelColor);
+    final colors = context.elixColors;
+    final highContrast = context.isHighContrast;
+    final isDark = context.isDarkTheme;
+    final gauge = _ScoreGauge(
+      total: rubric.total,
+      color: levelColor,
+      size: compact
+          ? _SummaryLayout.scoreRingSizeCompact
+          : _SummaryLayout.scoreRingSize,
+    );
     final tierBadge = _TierBadge(label: tier.label, color: tier.color);
-    final durationPill = _DurationPill(
+    final durationChip = _MetaChip(
+      icon: FluentIcons.clock,
       label: SessionSummarySheet._formatDuration(durationSeconds),
     );
     final criteria = _CriteriaCard(rubric: rubric, accent: levelColor);
 
-    if (compact) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    final summary = compact
+        ? Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              ring,
+              gauge,
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -677,99 +840,115 @@ class _PerformanceColumn extends StatelessWidget {
                       spacing: AppSpacing.sm,
                       runSpacing: AppSpacing.xs,
                       crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [tierBadge, durationPill],
-                    ),
-                    const SizedBox(height: AppSpacing.xs + 2),
-                    Text(
-                      performanceMessage,
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: AppColors.textSecondary,
-                        height: 1.35,
-                      ),
+                      children: [tierBadge, durationChip],
                     ),
                   ],
                 ),
               ),
             ],
-          ),
+          )
+        : Column(
+            children: [
+              gauge,
+              const SizedBox(height: AppSpacing.sm),
+              tierBadge,
+              const SizedBox(height: AppSpacing.sm),
+              durationChip,
+            ],
+          );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(_SummaryLayout.cardPadding),
+      decoration: BoxDecoration(
+        color: highContrast
+            ? colors.surfaceRaised
+            : Color.alphaBlend(
+                levelColor.withValues(alpha: isDark ? 0.08 : 0.05),
+                isDark ? const Color(0xFF12101A) : colors.surfaceTinted,
+              ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : levelColor.withValues(alpha: isDark ? 0.28 : 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: compact
+            ? CrossAxisAlignment.stretch
+            : CrossAxisAlignment.center,
+        children: [
+          summary,
           const SizedBox(height: AppSpacing.sm + 2),
           criteria,
         ],
-      );
-    }
-
-    // Keep ring, tier, message, and duration on one centered axis so the
-    // performance column reads as a single aligned stack (not mixed axes).
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        ring,
-        const SizedBox(height: AppSpacing.sm + 2),
-        tierBadge,
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          performanceMessage,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppColors.textSecondary,
-            height: 1.35,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.sm + 2),
-        durationPill,
-        const SizedBox(height: AppSpacing.sm + 2),
-        criteria,
-      ],
+      ),
     );
   }
 }
 
-class _RubricRing extends StatelessWidget {
-  const _RubricRing({required this.total, required this.color});
+class _ScoreGauge extends StatelessWidget {
+  const _ScoreGauge({
+    required this.total,
+    required this.color,
+    required this.size,
+  });
 
   final int total;
   final Color color;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    const size = _SummaryLayout.scoreRingSize;
-    return TweenAnimationBuilder<double>(
-      duration: const Duration(milliseconds: 1200),
-      curve: Curves.easeOutCubic,
-      tween: Tween(begin: 0, end: total.toDouble()),
-      builder: (context, animatedTotal, _) => SizedBox(
-        width: size,
-        height: size,
-        child: CustomPaint(
-          painter: _ScoreRingPainter(
-            progress: (animatedTotal / RubricScale.maxTotal).clamp(0.0, 1.0),
-            color: color,
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${animatedTotal.round()}',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                    height: 1,
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final highContrast = context.isHighContrast;
+    final duration = reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 1100);
+
+    return Semantics(
+      label: 'Rubric score $total of ${RubricScale.maxTotal}',
+      child: TweenAnimationBuilder<double>(
+        duration: duration,
+        curve: Curves.easeOutCubic,
+        tween: Tween(
+          begin: reduceMotion ? total.toDouble() : 0,
+          end: total.toDouble(),
+        ),
+        builder: (context, animatedTotal, _) => SizedBox(
+          width: size,
+          height: size,
+          child: CustomPaint(
+            painter: _ScoreRingPainter(
+              progress: (animatedTotal / RubricScale.maxTotal).clamp(0.0, 1.0),
+              color: color,
+              glow: !highContrast,
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${animatedTotal.round()}',
+                    style: TextStyle(
+                      fontSize: size >= 100 ? 30 : 24,
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                      height: 1,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'of ${RubricScale.maxTotal}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w500,
+                  const SizedBox(height: 2),
+                  Text(
+                    '/ ${RubricScale.maxTotal}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.elixTextSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -787,72 +966,130 @@ class _CriteriaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Column(
       key: const Key('session-summary-rubric'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.sm + 2),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Rubric Score',
-                  style: AppTheme.caption.copyWith(
-                    letterSpacing: 0.5,
-                    fontWeight: FontWeight.w700,
-                    color: context.elixTextSecondary,
-                  ),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Rubric Score',
+                style: AppTheme.caption.copyWith(
+                  letterSpacing: 0.5,
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextSecondary,
                 ),
-              ),
-              Text(
-                '${rubric.total} / ${RubricScale.maxTotal}',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: accent,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          for (final criterion in RubricCriterion.values)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      criterion.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.elixTextSecondary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    '${rubric.scoreFor(criterion)} / '
-                    '${RubricScale.maxCriterion}',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: context.elixTextPrimary,
-                    ),
-                  ),
-                ],
               ),
             ),
+            Text(
+              '${rubric.total} / ${RubricScale.maxTotal}',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: accent,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        for (final criterion in RubricCriterion.values)
+          _RubricMetricRow(
+            label: criterion.label,
+            score: rubric.scoreFor(criterion),
+          ),
+      ],
+    );
+  }
+}
+
+class _RubricMetricRow extends StatelessWidget {
+  const _RubricMetricRow({required this.label, required this.score});
+
+  final String label;
+  final int score;
+
+  Color get _accent {
+    if (score >= RubricScale.maxCriterion) return AppColors.success;
+    if (score == 2) return AppColors.primarySoft;
+    if (score == 1) return AppColors.warning;
+    return AppColors.textMuted;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = _accent;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          SizedBox(
+            width: 46,
+            child: _SegmentMeter(
+              value: score,
+              max: RubricScale.maxCriterion,
+              color: accent,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          SizedBox(
+            width: 34,
+            child: Text(
+              '$score / ${RubricScale.maxCriterion}',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: context.elixTextPrimary,
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _SegmentMeter extends StatelessWidget {
+  const _SegmentMeter({
+    required this.value,
+    required this.max,
+    required this.color,
+  });
+
+  final int value;
+  final int max;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < max; i++) ...[
+          if (i > 0) const SizedBox(width: 3),
+          Expanded(
+            child: Container(
+              height: 5,
+              decoration: BoxDecoration(
+                color: i < value ? color : color.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -870,7 +1107,7 @@ class _TierBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
         label,
@@ -879,39 +1116,6 @@ class _TierBadge extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: color,
         ),
-      ),
-    );
-  }
-}
-
-class _DurationPill extends StatelessWidget {
-  const _DurationPill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: context.elixBackground,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(FluentIcons.clock, size: 13, color: AppColors.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -939,7 +1143,7 @@ class _CoachingColumn extends StatelessWidget {
     final strengthsCard = _InsightCard(
       title: 'What Went Well',
       accent: AppColors.success,
-      icon: FluentIcons.emoji2,
+      icon: FluentIcons.completed_solid,
       count: strengths.length,
       items: strengths.map((s) => s.message).toList(growable: false),
       emptyMessage: emptyStrengthsMessage,
@@ -1009,13 +1213,26 @@ class _InsightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    final surface = highContrast
+        ? context.elixCardSurface
+        : Color.alphaBlend(
+            accent.withValues(alpha: isDark ? 0.08 : 0.05),
+            isDark ? const Color(0xFF12101A) : context.elixPanelSurface,
+          );
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(_SummaryLayout.cardPadding),
       decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
+        color: surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : accent.withValues(alpha: isDark ? 0.28 : 0.22),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1023,18 +1240,22 @@ class _InsightCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(6),
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.15),
+                  color: accent.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, size: 14, color: accent),
+                child: Icon(icon, size: 13, color: accent),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
                   title,
-                  style: AppTheme.headingMedium.copyWith(fontSize: 13.5),
+                  style: AppTheme.headingMedium.copyWith(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               if (count > 0)
@@ -1044,7 +1265,7 @@ class _InsightCard extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.14),
+                    color: accent.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -1074,18 +1295,21 @@ class _InsightCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: accent,
-                        shape: BoxShape.circle,
+                  SizedBox(
+                    width: 16,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: accent,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.sm),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       items[i],
@@ -1119,14 +1343,40 @@ class _RecommendationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    final colors = context.elixColors;
+    final glowScale = context.elixWorkspaceVisuals.ambientGlowScale;
+    final surface = highContrast
+        ? colors.surfaceRaised
+        : Color.alphaBlend(
+            AppColors.primary.withValues(alpha: isDark ? 0.09 : 0.05),
+            isDark ? const Color(0xFF161122) : colors.surfaceTinted,
+          );
+
     return Container(
       key: const Key('session-summary-recommendation'),
       width: double.infinity,
       padding: const EdgeInsets.all(_SummaryLayout.cardPadding),
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.28)),
+        color: surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: highContrast
+              ? colors.borderStrong
+              : AppColors.primary.withValues(alpha: isDark ? 0.34 : 0.24),
+        ),
+        boxShadow: highContrast
+            ? const []
+            : [
+                BoxShadow(
+                  color: AppColors.primary.withValues(
+                    alpha: (isDark ? 0.10 : 0.05) * glowScale,
+                  ),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1134,33 +1384,64 @@ class _RecommendationCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(6),
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
+                  color: AppColors.primary.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
-                  FluentIcons.completed,
-                  size: 14,
+                  FluentIcons.forward,
+                  size: 13,
                   color: AppColors.primary,
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
-                child: Text(
-                  'Recommended Next Session',
-                  style: AppTheme.headingMedium.copyWith(fontSize: 13.5),
+                child: Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.28),
+                        ),
+                      ),
+                      child: Text(
+                        'NEXT UP',
+                        style: AppTheme.eyebrow(
+                          color: AppColors.primary,
+                        ).copyWith(fontSize: 10, letterSpacing: 1.3),
+                      ),
+                    ),
+                    Text(
+                      'Recommended Next Session',
+                      style: AppTheme.headingMedium.copyWith(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm + 2),
           Text(
             'Practice ${recommendation.movementName} again',
             style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
               color: context.elixTextPrimary,
+              height: 1.25,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -1172,7 +1453,7 @@ class _RecommendationCard extends StatelessWidget {
               height: 1.4,
             ),
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm + 2),
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
@@ -1182,7 +1463,8 @@ class _RecommendationCard extends StatelessWidget {
                 icon: FluentIcons.checkbox_composite,
                 label: 'Target: ${recommendation.targetLabel}',
               ),
-              _DurationPill(
+              _MetaChip(
+                icon: FluentIcons.clock,
                 label:
                     'Duration: ${_formatDuration(recommendation.recommendedDurationSeconds)}',
               ),
@@ -1202,31 +1484,37 @@ class _MetaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: context.elixBackground,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: AppColors.primary),
-          const SizedBox(width: 6),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
-                height: 1.3,
+    final isDark = context.isDarkTheme;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isDark
+              ? context.elixColors.canvas.withValues(alpha: 0.55)
+              : context.elixBackground,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: AppColors.primary),
+            const SizedBox(width: 6),
+            Flexible(
+              fit: FlexFit.loose,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextPrimary,
+                  height: 1.3,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1270,8 +1558,15 @@ class _SummaryActions extends StatelessWidget {
         _SummaryLayout.actionsPadding,
       ),
       decoration: BoxDecoration(
+        color: context.isHighContrast
+            ? null
+            : context.elixPanelSurface.withValues(alpha: 0.55),
         border: Border(
-          top: BorderSide(color: AppColors.primary.withValues(alpha: 0.1)),
+          top: BorderSide(
+            color: context.isHighContrast
+                ? context.elixBorder
+                : AppColors.primary.withValues(alpha: 0.12),
+          ),
         ),
       ),
       child: Column(
@@ -1300,9 +1595,9 @@ class _SummaryActions extends StatelessWidget {
                   Expanded(
                     child: Text(
                       saveError!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
-                        color: AppColors.textPrimary,
+                        color: context.elixTextPrimary,
                         height: 1.35,
                       ),
                     ),
@@ -1330,26 +1625,9 @@ class _SummaryActions extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
-                Button(
-                  style: ButtonStyle(
-                    padding: WidgetStateProperty.all(
-                      const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.sm + 4,
-                      ),
-                    ),
-                    backgroundColor: WidgetStateProperty.resolveWith(
-                      (_) => context.elixBackground,
-                    ),
-                  ),
+                _TryAgainButton(
                   onPressed: saving ? null : onTryAgain,
-                  child: Text(
-                    'Try Again',
-                    style: AppTheme.body.copyWith(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
+                  expanded: false,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 SizedBox(
@@ -1365,25 +1643,9 @@ class _SummaryActions extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Button(
-                        style: ButtonStyle(
-                          padding: WidgetStateProperty.all(
-                            const EdgeInsets.symmetric(
-                              vertical: AppSpacing.sm + 4,
-                            ),
-                          ),
-                          backgroundColor: WidgetStateProperty.resolveWith(
-                            (_) => context.elixBackground,
-                          ),
-                        ),
+                      child: _TryAgainButton(
                         onPressed: saving ? null : onTryAgain,
-                        child: Text(
-                          'Try Again',
-                          style: AppTheme.body.copyWith(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
+                        expanded: true,
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
@@ -1410,7 +1672,64 @@ class _SummaryActions extends StatelessWidget {
   }
 }
 
-/// Elastic pop-in entrance for the summary card.
+class _TryAgainButton extends StatelessWidget {
+  const _TryAgainButton({required this.onPressed, required this.expanded});
+
+  final VoidCallback? onPressed;
+  final bool expanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Row(
+      mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          FluentIcons.refresh,
+          size: 14,
+          color: onPressed == null
+              ? context.elixColors.disabledText
+              : context.elixTextPrimary,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'Try Again',
+          style: AppTheme.body.copyWith(
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
+
+    return Button(
+      style: ButtonStyle(
+        padding: WidgetStateProperty.all(
+          EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm + 4,
+          ),
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return context.elixColors.disabledSurface;
+          }
+          if (states.contains(WidgetState.pressed)) {
+            return context.elixColors.interactivePressed;
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return context.elixColors.interactiveHover;
+          }
+          return context.elixBackground;
+        }),
+      ),
+      onPressed: onPressed,
+      child: child,
+    );
+  }
+}
+
+/// Quick fade and scale-in for the summary card.
 class _AnimatedEntrance extends StatefulWidget {
   const _AnimatedEntrance({required this.child});
 
@@ -1425,22 +1744,24 @@ class _AnimatedEntranceState extends State<_AnimatedEntrance>
   late final AnimationController _controller;
   late final Animation<double> _scale;
   late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 320),
     )..forward();
     _scale = Tween(
-      begin: 0.75,
+      begin: 0.97,
       end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
-    _fade = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0, 0.3, curve: Curves.easeOut),
-    );
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slide = Tween(
+      begin: const Offset(0, 0.018),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
   }
 
   @override
@@ -1451,39 +1772,77 @@ class _AnimatedEntranceState extends State<_AnimatedEntrance>
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
     return FadeTransition(
       opacity: _fade,
-      child: ScaleTransition(scale: _scale, child: widget.child),
+      child: SlideTransition(
+        position: _slide,
+        child: ScaleTransition(scale: _scale, child: widget.child),
+      ),
     );
   }
 }
 
 class _ScoreRingPainter extends CustomPainter {
-  const _ScoreRingPainter({required this.progress, required this.color});
+  const _ScoreRingPainter({
+    required this.progress,
+    required this.color,
+    required this.glow,
+  });
+
   final double progress;
   final Color color;
+  final bool glow;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 6;
-    const strokeWidth = 6.0;
+    final radius = size.width / 2 - 7;
+    const strokeWidth = 7.0;
 
     canvas.drawCircle(
       center,
       radius,
       Paint()
-        ..color = color.withValues(alpha: 0.12)
+        ..color = color.withValues(alpha: 0.08)
+        ..style = PaintingStyle.fill,
+    );
+
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = color.withValues(alpha: 0.16)
         ..strokeWidth = strokeWidth
         ..style = PaintingStyle.stroke,
     );
 
     if (progress <= 0) return;
 
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    const start = -math.pi / 2;
+    final sweep = 2 * math.pi * progress;
+
+    if (glow) {
+      canvas.drawArc(
+        rect,
+        start,
+        sweep,
+        false,
+        Paint()
+          ..color = color.withValues(alpha: 0.22)
+          ..strokeWidth = strokeWidth + 5
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke,
+      );
+    }
+
     canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      2 * math.pi * progress,
+      rect,
+      start,
+      sweep,
       false,
       Paint()
         ..color = color
@@ -1495,5 +1854,7 @@ class _ScoreRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ScoreRingPainter oldDelegate) =>
-      oldDelegate.progress != progress || oldDelegate.color != color;
+      oldDelegate.progress != progress ||
+      oldDelegate.color != color ||
+      oldDelegate.glow != glow;
 }

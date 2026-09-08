@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'rubric_assessment.dart';
 import 'training_prop.dart';
 import 'coaching_verdict.dart';
+import 'recognition_event.dart';
 
 /// Typed status for a single readiness checklist item.
 ///
@@ -94,6 +95,9 @@ class PracticeFeedback {
     this.readinessStableProgress,
     this.calibrationScale,
     this.calibrationSource,
+    this.recognitionState,
+    this.recognizedDisplay,
+    this.detectedPropType,
   });
 
   final bool bottleDetected;
@@ -155,6 +159,11 @@ class PracticeFeedback {
 
   /// `shoulders`, `palm_fallback`, or `default`. Null until measured.
   final String? calibrationSource;
+
+  /// Playground freestyle live recognition. Absent on guided/assignment frames.
+  final RecognitionState? recognitionState;
+  final String? recognizedDisplay;
+  final TrainingProp? detectedPropType;
 
   bool get isPreparing => sessionState == 'preparing';
   bool get isSessionEvaluating => sessionState == 'active';
@@ -231,7 +240,10 @@ class PracticeFeedback {
         propType == other.propType &&
         feedbackType == other.feedbackType &&
         errorCode == other.errorCode &&
-        sessionState == other.sessionState;
+        sessionState == other.sessionState &&
+        recognitionState == other.recognitionState &&
+        recognizedDisplay == other.recognizedDisplay &&
+        detectedPropType == other.detectedPropType;
   }
 
   /// Scored-practice chrome fields that require a full screen rebuild.
@@ -318,6 +330,11 @@ class PracticeFeedback {
           ? (json['calibration_scale'] as num).toDouble()
           : null,
       calibrationSource: json['calibration_source'] as String?,
+      recognitionState: json['recognition_state'] is String
+          ? recognitionStateFromWire(json['recognition_state'] as String)
+          : null,
+      recognizedDisplay: json['recognized_display'] as String?,
+      detectedPropType: TrainingProp.tryParseStrict(json['detected_prop_type']),
     );
   }
 

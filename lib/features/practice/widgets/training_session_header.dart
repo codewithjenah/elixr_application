@@ -43,7 +43,7 @@ class TrainingSessionHeader extends StatelessWidget {
   final bool wideLayout;
   final Color? statusPillColor;
 
-  /// Optional header action (e.g. "Build Your Set"). Rendered next to the
+  /// Optional header action. Rendered next to the
   /// title on wide layouts, and alongside the connection badge otherwise.
   final Widget? trailing;
 

@@ -273,6 +273,36 @@ void main() {
     },
   );
 
+  test('conversationForUser looks up a loaded inbox conversation', () async {
+    final repository = InMemoryChatRepository();
+    addTearDown(repository.dispose);
+    final controller = MessagesController(
+      repository: repository,
+      currentUser: current,
+    );
+    addTearDown(controller.dispose);
+    controller.start();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.conversationForUser(other.id), isNull);
+
+    await repository.sendMessage(
+      sender: other,
+      recipient: current,
+      body: 'Inbox lookup',
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      controller.conversationForUser(other.id)?.id,
+      ChatRepository.conversationIdFor(current.id, other.id),
+    );
+
+    await controller.clearConversation(controller.inbox.single);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.conversationForUser(other.id), isNull);
+    expect(controller.inbox, isEmpty);
+  });
+
   test('mark unread closes an open thread and creates one marker', () async {
     final repository = InMemoryChatRepository();
     addTearDown(repository.dispose);

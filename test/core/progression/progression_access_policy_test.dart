@@ -146,4 +146,39 @@ void main() {
       );
     },
   );
+
+  test('personalReadyVariants includes only ready movement+prop pairs', () {
+    final ready = personalReadyVariants(
+      currentLevel: 5,
+      tutorialCompleted: (_) => true,
+    );
+    expect(
+      ready.any(
+        (variant) =>
+            variant.movementName == 'Normal Grip' &&
+            variant.trainingProp == TrainingProp.bottle,
+      ),
+      isTrue,
+    );
+    expect(
+      ready.any(
+        (variant) =>
+            variant.movementName == 'Hand Stall' &&
+            variant.trainingProp == TrainingProp.bottle,
+      ),
+      isTrue,
+    );
+    expect(
+      ready.any(
+        (variant) =>
+            variant.movementName == 'Hand Stall' &&
+            variant.trainingProp == TrainingProp.shaker,
+      ),
+      isFalse,
+    );
+    expect(
+      ready.any((variant) => variant.movementName == 'Elbow Stall'),
+      isFalse,
+    );
+  });
 }

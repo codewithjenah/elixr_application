@@ -123,6 +123,12 @@ class FeedbackMessage(BaseModel):
     readiness_stable_progress: Optional[float] = None
     calibration_scale: Optional[float] = None
     calibration_source: Optional[Literal["shoulders", "palm_fallback", "default"]] = None
+    # Playground freestyle live state. Absent on guided/assignment sessions.
+    recognition_state: Optional[
+        Literal["searching", "candidate", "confirmed", "paused"]
+    ] = None
+    recognized_display: Optional[str] = None
+    detected_prop_type: Optional[PropType] = None
 
     def with_session(self, session_id: str | None) -> "FeedbackMessage":
         """Stamp protocol v1 identity fields when a session_id is known."""

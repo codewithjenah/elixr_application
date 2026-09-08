@@ -55,6 +55,7 @@ class ElixDialog extends StatelessWidget {
     double maxWidth = 480,
     double? maxHeight,
     bool barrierDismissible = true,
+    bool scrollableContent = false,
   }) {
     return showDialog<T>(
       context: context,
@@ -74,6 +75,7 @@ class ElixDialog extends StatelessWidget {
           uniformActionSize: uniformActionSize,
           maxWidth: maxWidth,
           maxHeight: maxHeight,
+          scrollableContent: scrollableContent,
         ),
       ),
     );

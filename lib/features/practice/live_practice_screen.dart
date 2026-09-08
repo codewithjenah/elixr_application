@@ -10,18 +10,15 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/gamification_rules.dart';
-import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
-import '../../core/progression/practice_variant.dart';
 import '../../core/progression/progression_access.dart';
-import '../../core/progression/progression_catalog.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/classroom_exceptions.dart';
-import '../../data/models/movement.dart';
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/recognition_event.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../data/models/group_assignment.dart';
@@ -34,12 +31,13 @@ import '../../services/settings_service.dart';
 import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
-import 'just_dance/playground_session_controller.dart';
-import 'just_dance/movement_setlist_dialog.dart';
+import 'freestyle/freestyle_models.dart';
+import 'freestyle/freestyle_session_controller.dart';
 import 'practice_run_phase.dart';
 import 'submission_recording_controller.dart';
 import 'training_quit_guard.dart';
-import 'widgets/movement_rotation_overlay.dart';
+import 'widgets/freestyle_overlay.dart';
+import 'widgets/freestyle_summary_sheet.dart';
 import 'widgets/readiness_checklist_panel.dart';
 import 'widgets/submission_recording_panel.dart';
 import 'widgets/training_action_area.dart';
@@ -49,8 +47,8 @@ import 'widgets/training_session_header.dart';
 import 'widgets/training_session_panel.dart';
 import 'widgets/training_status_row.dart';
 
-/// Free-form live practice: camera streams with detection overlays but the
-/// user is not locked to a movement and no scoring/feedback is shown.
+/// Freestyle Playground and teacher-created assignment practice share this
+/// camera workspace. Playground is an unscored observation session.
 class LivePracticeScreen extends StatefulWidget {
   const LivePracticeScreen({
     super.key,
@@ -130,11 +128,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
-  late final PlaygroundSessionController _playground;
-  late List<TrainingProp> _playgroundProps;
-
+  late final FreestyleSessionController _freestyle;
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   StreamSubscription<PreviewFrame>? _previewSub;
+  StreamSubscription<RecognitionEvent>? _recognitionSub;
   final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
   PracticeFeedback? _latestFeedback;
   bool _bottleDetected = false;
@@ -151,8 +148,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   /// True while a WebSocket prepare/activate command is awaiting ack.
   bool _commandInFlight = false;
-  bool _playgroundTransitionInFlight = false;
-  bool _playgroundActivationInFlight = false;
+  bool _freestyleActivationInFlight = false;
+  bool _freestyleSummaryOpen = false;
 
   static const _wideBreakpoint = AppSpacing.practiceDesktopBreakpoint;
   static const _compactBreakpoint = AppSpacing.practiceCompactBreakpoint;
@@ -163,18 +160,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     super.initState();
     _ownsWebSocket = widget.websocketService == null;
     _ws = widget.websocketService ?? WebSocketService();
-    final settings = context.read<SettingsService>();
-    final steps = _resolvePlayableSteps(settings.justDancePracticeVariants);
-    _playgroundProps = _propsFromSteps(steps);
-    _playground = PlaygroundSessionController(
-      movements: _movementsFromSteps(steps),
-      assessmentDuration: Duration(seconds: settings.justDanceIntervalSeconds),
-    );
-    _playground.addListener(_onPlaygroundChanged);
+    _freestyle = FreestyleSessionController();
+    _freestyle.addListener(_onFreestyleChanged);
     _ws.addListener(_onWsStateChanged);
     _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
     _previewSub = _ws.previewStream.listen(_onPreviewFrame);
+    _recognitionSub = _ws.recognitionStream.listen(_onRecognitionEvent);
     if (widget.websocketService == null || !_ws.isConnected) {
       _connect();
     }
@@ -211,11 +203,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _recording?.dispose();
     _feedbackSub?.cancel();
     _previewSub?.cancel();
+    _recognitionSub?.cancel();
     _frameBytes.dispose();
     _music.dispose();
     _sfx.dispose();
-    _playground.removeListener(_onPlaygroundChanged);
-    _playground.dispose();
+    _freestyle.removeListener(_onFreestyleChanged);
+    _freestyle.dispose();
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     _run.dispose();
@@ -232,71 +225,38 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   WebSocketService get debugWebSocket => _ws;
 
   @visibleForTesting
-  PlaygroundSessionController get debugPlayground => _playground;
+  FreestyleSessionController get debugFreestyle => _freestyle;
 
-  /// Maps persisted Playground variants to catalog steps, dropping invalid
-  /// identities and variants that are not personally practice-ready.
-  List<PracticeCatalogStep> _resolvePlayableSteps(
-    List<PracticeVariant> variants,
-  ) {
+  @visibleForTesting
+  PracticeRunController get debugRun => _run;
+
+  List<({String movement, TrainingProp prop})> _freestyleAllowlist() {
     final progression = context.read<TraineeProgressionService>();
     final tutorials = context.read<TutorialProgressService>();
-    final steps = <PracticeCatalogStep>[];
-    for (final variant in variants) {
-      final step = resolvePracticeVariant(variant);
-      if (step == null) continue;
-      final access = evaluatePersonal(
-        variant: variant,
+    return [
+      for (final variant in personalReadyVariants(
         currentLevel: progression.currentLevelOrNull,
-        tutorialCompleted: tutorials.isInitialized
+        tutorialCompleted: (candidate) => tutorials.isInitialized
             ? tutorials.hasCompletedLesson(
-                variant.movementName,
-                variant.trainingProp,
+                candidate.movementName,
+                candidate.trainingProp,
               )
-            : null,
-      );
-      if (access == ProgressionAccessResult.personalReady) {
-        steps.add(step);
-      }
-    }
-    return steps;
-  }
-
-  List<Movement> _movementsFromSteps(List<PracticeCatalogStep> steps) => [
-    for (final step in steps) step.movement,
-  ];
-
-  List<TrainingProp> _propsFromSteps(List<PracticeCatalogStep> steps) => [
-    for (final step in steps) step.prop,
-  ];
-
-  Future<void> _openSetlistDialog() async {
-    final saved = await MovementSetlistDialog.show(context);
-    if (saved != true || !mounted) return;
-    final settings = context.read<SettingsService>();
-    final steps = _resolvePlayableSteps(settings.justDancePracticeVariants);
-    _playgroundProps = _propsFromSteps(steps);
-    _playground.updateSetlist(_movementsFromSteps(steps));
+            : false,
+      ))
+        (movement: variant.movementName, prop: variant.trainingProp),
+    ];
   }
 
   bool get _isPlayground => widget.teacherCreatedAssignment == null;
 
-  void _onPlaygroundChanged() {
+  void _onFreestyleChanged() {
     if (!mounted || !_isPlayground) return;
-    if (_playground.isPaused) {
+    if (_freestyle.isPaused) {
       _run.pauseElapsed();
     } else {
       _run.resumeElapsed();
     }
     setState(() {});
-    if (_playground.activationDue && !_playgroundActivationInFlight) {
-      unawaited(_activatePlaygroundMovement(_playground.generation));
-    }
-    if ((_playground.phase == PlaygroundSessionPhase.success ||
-            _playground.phase == PlaygroundSessionPhase.missed) &&
-        !_playgroundTransitionInFlight) {
-      unawaited(_advancePlaygroundRoutine());
-    }
   }
 
   void _onWsStateChanged() {
@@ -304,12 +264,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     setState(() {});
     if (_isPlayground &&
         !_ws.isConnected &&
-        _playground.phase != PlaygroundSessionPhase.idle &&
-        !_playground.isComplete) {
-      _playground.cancelToIdle();
+        _freestyle.phase != FreestyleSessionPhase.idle &&
+        !_freestyle.isComplete) {
+      _freestyle.cancelToIdle();
       _run.cancelToIdle();
       setState(
-        () => _sessionError = 'Backend connection lost. Restart the routine.',
+        () => _sessionError =
+            'Backend connection lost. Restart Freestyle to continue.',
       );
       return;
     }
@@ -372,7 +333,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       );
       if (startCountdown) {
         if (_isPlayground) {
-          _playground.markMovementPrepared(_playground.generation);
+          _onFreestylePreviewReady();
         } else if (_isTeacherActivityV2) {
           _run.enterReadiness();
           unawaited(_beginActivityReadiness());
@@ -388,13 +349,24 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     }
   }
 
+  void _onRecognitionEvent(RecognitionEvent event) {
+    if (!mounted || !_isPlayground) return;
+    _freestyle.applyEvent(_freestyle.generation, event);
+  }
+
+  void _onFreestylePreviewReady() {
+    final generation = _freestyle.generation;
+    if (!_freestyle.markPrepared(generation)) return;
+    unawaited(_activateFreestyle(generation));
+  }
+
   void _onFeedback(PracticeFeedback feedback) {
     if (!mounted) return;
 
     if (feedback.isSessionFatal) {
       _music.stop();
       _sfx.stop();
-      _playground.cancelToIdle();
+      if (_isPlayground) _freestyle.cancelToIdle();
       _run.onPreviewFeedback(
         hasJpegFrame: false,
         isFatal: true,
@@ -420,7 +392,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       );
       if (startCountdown) {
         if (_isPlayground) {
-          _playground.markMovementPrepared(_playground.generation);
+          _onFreestylePreviewReady();
         } else if (_isTeacherActivityV2) {
           _run.enterReadiness();
           unawaited(_beginActivityReadiness());
@@ -446,6 +418,14 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
     if (_run.isCountdown) {
       _publishFrame(feedback.frameJpegBytes);
+      if (_isPlayground) {
+        _freestyle.applyLiveState(
+          generation: _freestyle.generation,
+          state: feedback.recognitionState,
+          recognizedDisplay: feedback.recognizedDisplay,
+          detectedProp: feedback.detectedPropType,
+        );
+      }
       if (_sessionError != null) {
         setState(() => _sessionError = null);
       }
@@ -463,13 +443,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     if (!_run.isTrainingActive) return;
 
     _publishFrame(feedback.frameJpegBytes);
-    if (_isPlayground &&
-        _playground.isAssessing &&
-        feedback.isSessionEvaluating &&
-        feedback.sessionId == _ws.currentSessionId &&
-        feedback.movement == _playground.currentMovement?.name &&
-        feedback.holdConfirmed) {
-      _playground.markSuccessful(_playground.generation);
+    if (_isPlayground) {
+      _freestyle.applyLiveState(
+        generation: _freestyle.generation,
+        state: feedback.recognitionState,
+        recognizedDisplay: feedback.recognizedDisplay,
+        detectedProp: feedback.detectedPropType,
+      );
     }
     final visibleChanged =
         _bottleDetected != feedback.bottleDetected ||
@@ -609,11 +589,25 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _connect();
       return;
     }
-    if (_startInFlight || _leaving) return;
+    if (_startInFlight || _leaving || _stopInFlight || _freestyleSummaryOpen) {
+      return;
+    }
     if (_commandInFlight) return;
     if (_run.phase != PracticeRunPhase.idle &&
         _run.phase != PracticeRunPhase.error) {
       return;
+    }
+
+    if (widget.teacherCreatedAssignment == null) {
+      final progression = context.read<TraineeProgressionService>();
+      final tutorials = context.read<TutorialProgressService>();
+      if (!progression.isReady || !tutorials.isInitialized) {
+        setState(() {
+          _sessionError =
+              'Progression is still loading. Wait a moment, then start Freestyle.';
+        });
+        return;
+      }
     }
 
     final assignment = widget.teacherCreatedAssignment;
@@ -719,26 +713,14 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _latestFeedback = null;
     _bottleDetected = false;
     if (assignment == null) {
-      final steps = _resolvePlayableSteps(settings.justDancePracticeVariants);
-      if (steps.isEmpty) {
-        setState(() {
-          _sessionError =
-              'No personally ready movements are in your set. '
-              'Unlock and complete lessons first, then rebuild your set.';
-        });
-        return;
-      }
-      _playgroundProps = _propsFromSteps(steps);
-      _playground.updateSetlist(_movementsFromSteps(steps));
-      final generation = _playground.start();
+      final generation = _freestyle.start();
       if (generation == null) {
         setState(() {
-          _sessionError =
-              'Build a set with at least one official movement first.';
+          _sessionError = 'Could not start Freestyle. Try again.';
         });
         return;
       }
-      await _preparePlaygroundMovement(generation, settings);
+      await _prepareFreestyle(generation, settings);
       return;
     }
     _ws.beginPracticeAttempt();
@@ -807,7 +789,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   void _onPreparationTimeout() {
     if (!mounted) return;
-    if (_isPlayground) _playground.cancelToIdle();
+    if (_isPlayground) _freestyle.cancelToIdle();
     unawaited(_stopWebSocketSession());
     unawaited(_music.stop());
     unawaited(_sfx.stop());
@@ -817,20 +799,18 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     });
   }
 
-  Future<void> _preparePlaygroundMovement(
+  Future<void> _prepareFreestyle(
     int generation,
     SettingsService settings,
   ) async {
-    if (!mounted || _leaving || generation != _playground.generation) return;
-    final movement = _playground.currentMovement;
-    if (movement == null) return;
+    if (!mounted || _leaving || generation != _freestyle.generation) return;
     _ws.beginPracticeAttempt();
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     final runGeneration = _run.lifecycleGeneration;
     final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
     if (!mounted ||
         _leaving ||
-        generation != _playground.generation ||
+        generation != _freestyle.generation ||
         runGeneration != _run.lifecycleGeneration ||
         !_run.isPreparingCamera) {
       return;
@@ -838,18 +818,18 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _commandInFlight = true;
     try {
       final ack = await _ws.sendPrepare(
-        movement: movement.name,
-        difficulty: movement.difficulty,
-        prop: _playgroundProps.length > _playground.currentIndex
-            ? _playgroundProps[_playground.currentIndex]
-            : TrainingProp.bottle,
+        movement: TeacherCreatedAssignmentPractice.backendMovementName,
+        difficulty: 'Easy',
+        prop: TrainingProp.bottleAndShaker,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
             : null,
+        sessionMode: 'freestyle',
+        allowedMovements: _freestyleAllowlist(),
       );
       if (!mounted ||
-          generation != _playground.generation ||
+          generation != _freestyle.generation ||
           runGeneration != _run.lifecycleGeneration ||
           !_run.isPreparingCamera) {
         return;
@@ -858,25 +838,25 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         final message =
             ack.message ??
             ack.errorCode ??
-            'Movement preparation was rejected.';
+            'Freestyle preparation was rejected.';
         _run.onPreviewFeedback(
           hasJpegFrame: false,
           isFatal: true,
           fatalMessage: message,
         );
-        _playground.cancelToIdle();
+        _freestyle.cancelToIdle();
         unawaited(_stopWebSocketSession());
         setState(() => _sessionError = message);
       }
     } catch (error) {
-      if (!mounted || generation != _playground.generation) return;
+      if (!mounted || generation != _freestyle.generation) return;
       final message = livePracticePrepareFailureMessage(error);
       _run.onPreviewFeedback(
         hasJpegFrame: false,
         isFatal: true,
         fatalMessage: message,
       );
-      _playground.cancelToIdle();
+      _freestyle.cancelToIdle();
       unawaited(_stopWebSocketSession());
       setState(() => _sessionError = message);
     } finally {
@@ -885,37 +865,37 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     }
   }
 
-  Future<void> _activatePlaygroundMovement(int generation) async {
-    if (_playgroundActivationInFlight ||
+  Future<void> _activateFreestyle(int generation) async {
+    if (_freestyleActivationInFlight ||
         !mounted ||
-        generation != _playground.generation ||
-        !_playground.activationDue ||
-        _playground.isPaused) {
+        generation != _freestyle.generation ||
+        _freestyle.phase != FreestyleSessionPhase.ready ||
+        _freestyle.isPaused) {
       return;
     }
-    _playgroundActivationInFlight = true;
+    _freestyleActivationInFlight = true;
     _run.enterCountdown();
     try {
       final ack = await _ws.sendActivate();
-      if (!mounted ||
-          generation != _playground.generation ||
-          !_run.isCountdown) {
+      if (!mounted || generation != _freestyle.generation) {
         return;
       }
       if (!ack.accepted) {
         final message =
-            ack.message ?? ack.errorCode ?? 'Movement activation was rejected.';
+            ack.message ??
+            ack.errorCode ??
+            'Freestyle activation was rejected.';
         _run.onPreviewFeedback(
           hasJpegFrame: false,
           isFatal: true,
           fatalMessage: message,
         );
-        _playground.cancelToIdle();
+        _freestyle.cancelToIdle();
         unawaited(_stopWebSocketSession());
         setState(() => _sessionError = message);
         return;
       }
-      if (!_playground.markAssessing(generation)) return;
+      if (!_freestyle.markActive(generation)) return;
       _run.enterActive();
       final settings = context.read<SettingsService>();
       await _music.setVolume(
@@ -923,11 +903,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       );
       _music.start(resolveTrack(settings.selectedMusicTrackId));
     } catch (error, stackTrace) {
-      if (!mounted || generation != _playground.generation) return;
+      if (!mounted || generation != _freestyle.generation) return;
       debugPrint(
-        'Playground activation failed: type=${error.runtimeType} '
-        'generation=$generation movement=${_playground.currentMovement?.name} '
-        'sessionId=${_ws.currentSessionId} '
+        'Freestyle activation failed: type=${error.runtimeType} '
+        'generation=$generation sessionId=${_ws.currentSessionId} '
         'sessionState=${_ws.sessionActive
             ? 'active'
             : _ws.sessionPrepared
@@ -940,42 +919,94 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _run.onPreviewFeedback(
         hasJpegFrame: false,
         isFatal: true,
-        fatalMessage: 'Movement activation failed. Try starting again.',
+        fatalMessage: 'Freestyle activation failed. Try starting again.',
       );
-      _playground.cancelToIdle();
+      _freestyle.cancelToIdle();
       unawaited(_stopWebSocketSession());
       setState(
-        () => _sessionError = 'Movement activation failed. Try starting again.',
+        () =>
+            _sessionError = 'Freestyle activation failed. Try starting again.',
       );
     } finally {
-      _playgroundActivationInFlight = false;
+      _freestyleActivationInFlight = false;
       if (mounted) setState(() {});
     }
   }
 
-  Future<void> _advancePlaygroundRoutine() async {
-    if (_playgroundTransitionInFlight || !_isPlayground) return;
-    _playgroundTransitionInFlight = true;
-    final nextGeneration = _playground.beginNextMovement();
-    await _stopWebSocketSession();
-    _run.cancelToIdle();
-    if (nextGeneration == null) {
-      await _music.stop();
-    } else if (mounted && !_leaving) {
-      await _preparePlaygroundMovement(
-        nextGeneration,
-        context.read<SettingsService>(),
-      );
+  Future<void> _pauseFreestyle() async {
+    final generation = _freestyle.generation;
+    if (!_freestyle.pause(generation)) return;
+    try {
+      await _ws.sendPause();
+    } on Object catch (error) {
+      debugPrint('Freestyle pause command failed: $error');
     }
-    _playgroundTransitionInFlight = false;
-    if (mounted) setState(() {});
+  }
+
+  Future<void> _resumeFreestyle() async {
+    final generation = _freestyle.generation;
+    if (!_freestyle.resume(generation)) return;
+    try {
+      final ack = await _ws.sendResume();
+      if (!mounted || generation != _freestyle.generation) return;
+      if (!ack.accepted) {
+        _freestyle.pause(generation);
+        setState(() {});
+      }
+    } on Object catch (error) {
+      debugPrint('Freestyle resume command failed: $error');
+      if (generation == _freestyle.generation) {
+        _freestyle.pause(generation);
+        if (mounted) setState(() {});
+      }
+    }
+  }
+
+  Future<void> _finishFreestyle() async {
+    if (_leaving || _quitDialogOpen || _stopInFlight || _freestyleSummaryOpen) {
+      return;
+    }
+    if (!_freestyle.isActive) return;
+    final generation = _freestyle.generation;
+    final stats = _freestyle.stats;
+    final durationSeconds = _run.elapsedSeconds;
+    if (!_freestyle.beginEnding(generation)) return;
+    _stopInFlight = true;
+    try {
+      await _stopWebSocketSession();
+      unawaited(_music.stop());
+      unawaited(_sfx.stop());
+      _commandInFlight = false;
+      _startInFlight = false;
+      _run.markCompleted();
+      _freestyle.markCompleted(generation);
+      if (!mounted || _leaving) return;
+      _freestyleSummaryOpen = true;
+      await FreestyleSummarySheet.show(
+        context,
+        stats: stats,
+        durationSeconds: durationSeconds,
+        onDone: () {},
+      );
+      if (!mounted || _leaving) return;
+      _freestyle.cancelToIdle();
+      _run.cancelToIdle();
+      setState(() {
+        _clearFrame();
+        _latestFeedback = null;
+        _bottleDetected = false;
+        _sessionError = null;
+      });
+    } finally {
+      _freestyleSummaryOpen = false;
+      _stopInFlight = false;
+    }
   }
 
   Future<void> _beginSessionAfterCountdown() async {
     if (!mounted) return;
-    // Playground's controller owns its Get Ready clock and routes activation
-    // through _activatePlaygroundMovement. It may use the shared run phase for
-    // presentation compatibility, but must never inherit this generic owner.
+    // Playground owns activation from the first usable JPEG via
+    // _activateFreestyle and must not inherit this generic countdown owner.
     if (_isPlayground) return;
     if (!_run.isCountdown) return;
     if (_commandInFlight) return;
@@ -1045,7 +1076,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     unawaited(_sfx.stop());
     _commandInFlight = false;
     _startInFlight = false;
-    _playground.cancelToIdle();
+    _freestyle.cancelToIdle();
     if (mounted) {
       setState(() {
         _clearFrame();
@@ -1075,7 +1106,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       unawaited(_sfx.stop());
       _commandInFlight = false;
       _startInFlight = false;
-      _playground.cancelToIdle();
+      _freestyle.cancelToIdle();
       if (mounted) {
         setState(() {
           _clearFrame();
@@ -1096,8 +1127,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool get _shouldConfirmAbandon => trainingShouldConfirmAbandon(
     runPhase: _run.phase,
     playgroundPhase: _isPlayground
-        ? _playground.phase
-        : PlaygroundSessionPhase.idle,
+        ? _freestyle.phase
+        : FreestyleSessionPhase.idle,
     recordingPhase: _recording?.phase ?? SubmissionRecordingPhase.idle,
   );
 
@@ -1143,10 +1174,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
           );
     final feedbackSub = _feedbackSub;
     final previewSub = _previewSub;
+    final recognitionSub = _recognitionSub;
     _feedbackSub = null;
     _previewSub = null;
+    _recognitionSub = null;
     unawaited(feedbackSub?.cancel() ?? Future<void>.value());
     unawaited(previewSub?.cancel() ?? Future<void>.value());
+    unawaited(recognitionSub?.cancel() ?? Future<void>.value());
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     await _stopWebSocketSession();
@@ -1155,7 +1189,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     unawaited(_sfx.stop());
     _commandInFlight = false;
     _startInFlight = false;
-    _playground.cancelToIdle();
+    _freestyle.cancelToIdle();
     router.go(location);
   }
 
@@ -1226,25 +1260,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       : 'TEACHER REVIEWED',
                   statusPillColor: AppColors.primarySoft,
                   instruction: assignment == null
-                      ? 'Practice your unlocked movements in a continuous set. '
-                            'Playground sessions are not scored.'
+                      ? 'Grab a bottle or shaker and move freely. ELIXR will recognize techniques as you perform them.'
                       : (assignment.instructions.isEmpty
                             ? 'Practice this Teacher Activity. Your Teacher reviews the recording.'
                             : assignment.instructions),
                   connectionState: _ws.connectionState,
                   connecting: _connecting,
                   wideLayout: isDesktop || isCompact,
-                  trailing: assignment == null
-                      ? Button(
-                          onPressed:
-                              _playground.phase ==
-                                      PlaygroundSessionPhase.idle ||
-                                  _playground.isComplete
-                              ? _openSetlistDialog
-                              : null,
-                          child: const Text('Build Your Set'),
-                        )
-                      : null,
                 );
                 final progressionHud = assignment == null
                     ? _PlaygroundProgressionHud(
@@ -1264,21 +1286,23 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       _run.isCountdown,
                   readyAura:
                       _run.readiness.stable ||
-                      _playground.phase == PlaygroundSessionPhase.success,
+                      (_isPlayground &&
+                          _freestyle.liveState == RecognitionState.confirmed),
                   idleTitle: assignment == null
-                      ? 'Playground Arena'
+                      ? 'Freestyle Playground'
                       : 'Practice Arena',
                   idleSubtitle: assignment == null
-                      ? 'Press Start Playground when you are ready.'
+                      ? 'Press Start Freestyle when you are ready.'
                       : 'Press Start assignment practice when you are ready.',
-                  idleCaption:
-                      'Keep your upper body, hands, and bottle visible.',
+                  idleCaption: assignment == null
+                      ? 'Keep your upper body, hands, and bottle or shaker visible.'
+                      : 'Keep your upper body, hands, and bottle visible.',
                   errorMessage: _ws.errorMessage,
                   sessionError: _sessionError ?? _run.errorMessage,
                   onRetry: _connect,
                   // The shared overlay owns countdown completion for Guided
-                  // Practice and Teacher Activity only. Playground renders its
-                  // controller-owned Get Ready state in MovementRotationOverlay.
+                  // Practice and Teacher Activity only. Playground activates
+                  // from the first usable JPEG without a Get Ready clock.
                   countdownActive: !_isPlayground && _run.isCountdown,
                   onCountdownComplete: _beginSessionAfterCountdown,
                   overlayFeedback: isTrainingActive
@@ -1287,16 +1311,19 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   showFeedbackMessage: false,
                   overlays:
                       assignment == null &&
-                          _playground.currentMovement != null &&
-                          _playground.phase != PlaygroundSessionPhase.idle
-                      ? MovementRotationOverlay(
-                          controller: _playground,
-                          onRestart: _startSession,
-                          onEditSetlist: _openSetlistDialog,
+                          _freestyle.phase != FreestyleSessionPhase.idle &&
+                          !_freestyle.isComplete
+                      ? FreestyleOverlay(
+                          controller: _freestyle,
+                          onPause: () => unawaited(_pauseFreestyle()),
+                          onResume: () => unawaited(_resumeFreestyle()),
+                          onQuit: () => unawaited(_onCancelPressed()),
+                          connectionLost:
+                              !_ws.isConnected && _freestyle.hasWorkToLose,
                         )
                       : null,
                   statusItems: [
-                    if (isTrainingActive)
+                    if (isTrainingActive && assignment != null)
                       TrainingCameraStatusItem(
                         label: _bottleDetected
                             ? 'Bottle detected'
@@ -1317,10 +1344,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   metrics: idlePanel
                       ? TrainingReadyBrief(
                           title: assignment == null
-                              ? 'Ready for Playground'
+                              ? 'Freestyle Playground'
                               : 'Ready to practice',
                           body: assignment == null
-                              ? 'Start Playground to begin your routine. No scoring is recorded.'
+                              ? 'Grab a bottle or shaker and move freely. ELIXR will recognize techniques as you perform them.'
                               : 'Start assignment practice when the camera is ready. This attempt is teacher-reviewed, not scored.',
                         )
                       : LivePracticeElapsedMetric(
@@ -1348,13 +1375,23 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                           detection: resolveDetectionStatus(
                             sessionActive: isTrainingActive,
                             bottleDetected: isTrainingActive
-                                ? _bottleDetected
+                                ? (_isPlayground
+                                      ? _freestyle.detectedProp != null
+                                      : _bottleDetected)
                                 : null,
                           ),
+                          propLabel: _isPlayground
+                              ? switch (_freestyle.detectedProp) {
+                                  TrainingProp.bottle => 'Bottle',
+                                  TrainingProp.shaker => 'Shaker',
+                                  TrainingProp.bottleAndShaker => 'Prop',
+                                  null => 'Prop',
+                                }
+                              : 'Bottle',
                         ),
                   notice: Text(
                     assignment == null
-                        ? 'No score or session history will be saved.'
+                        ? 'No score, mastery, or XP will be saved from Freestyle.'
                         : 'Teacher-created practice is not scored and does not award XP.',
                     style: AppTheme.bodySecondary.copyWith(
                       color: context.elixTextSecondary,
@@ -1386,12 +1423,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   actionArea: TrainingActionArea(
                     kind: actionKind,
                     startLabel: assignment == null
-                        ? 'Start Playground'
+                        ? 'Start Freestyle'
                         : (_isTeacherActivityV2
                               ? 'Preparing attempt…'
                               : 'Start assignment practice'),
                     onPressed: switch (actionKind) {
-                      TrainingActionKind.finish => _stopSession,
+                      TrainingActionKind.finish =>
+                        _isPlayground ? _finishFreestyle : _stopSession,
                       TrainingActionKind.cancel => _onCancelPressed,
                       TrainingActionKind.retry || TrainingActionKind.start =>
                         _ws.isConnected ? _startSession : _connect,
@@ -1462,12 +1500,8 @@ class _PlaygroundProgressionHud extends StatelessWidget {
     final level = progression.level;
     final into = GamificationRules.xpIntoLevel(progression.totalXp);
     final perLevel = GamificationRules.xpPerLevel;
-    final next = nextUnlockAfterLevel(level);
-    final nextLabel = next == null
-        ? 'All official variants unlocked'
-        : 'Next unlock: ${next.movementName} · ${next.trainingProp.displayLabel}';
     return Text(
-      'Level $level · $into / $perLevel XP · $nextLabel',
+      'Level $level · $into / $perLevel XP',
       style: AppTheme.caption.copyWith(
         color: context.elixTextSecondary,
         fontWeight: FontWeight.w600,

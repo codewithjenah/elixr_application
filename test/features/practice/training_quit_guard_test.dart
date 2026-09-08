@@ -1,6 +1,6 @@
 import 'package:elixr_application/core/constants/app_spacing.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
-import 'package:elixr_application/features/practice/just_dance/playground_session_controller.dart';
+import 'package:elixr_application/features/practice/freestyle/freestyle_models.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/features/practice/submission_recording_controller.dart';
 import 'package:elixr_application/features/practice/training_quit_guard.dart';
@@ -52,14 +52,14 @@ void main() {
     expect(
       trainingShouldConfirmAbandon(
         runPhase: PracticeRunPhase.idle,
-        playgroundPhase: PlaygroundSessionPhase.assessing,
+        playgroundPhase: FreestyleSessionPhase.active,
       ),
       isTrue,
     );
     expect(
       trainingShouldConfirmAbandon(
         runPhase: PracticeRunPhase.idle,
-        playgroundPhase: PlaygroundSessionPhase.completed,
+        playgroundPhase: FreestyleSessionPhase.completed,
       ),
       isFalse,
     );

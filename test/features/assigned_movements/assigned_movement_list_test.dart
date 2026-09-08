@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
@@ -24,6 +25,8 @@ GroupAssignment _assignment({
   String teacherId = 'teacher-1',
   String teacherDisplayName = 'James Bartender',
   String? topic,
+  DateTime? dueAt,
+  String? officialMovementName,
 }) {
   return GroupAssignment(
     id: id,
@@ -42,9 +45,26 @@ GroupAssignment _assignment({
     teacherDisplayName: teacherDisplayName,
     groupName: 'BSHM-4A',
     topic: topic,
-    officialMovementName: origin == MovementOrigin.officialElixr
-        ? 'Hand Stall'
-        : null,
+    dueAt: dueAt,
+    officialMovementName:
+        officialMovementName ??
+        (origin == MovementOrigin.officialElixr ? title : null),
+  );
+}
+
+AssignmentAttempt _officialSubmittedAttempt(String assignmentId) {
+  return AssignmentAttempt(
+    id: 'ptr-$assignmentId',
+    traineeId: 'trainee-1',
+    teacherId: 'teacher-1',
+    groupId: 'group-1',
+    assignmentId: assignmentId,
+    movementId: 'official_elbow_stall',
+    revisionId: 'official_elbow_stall_v1',
+    origin: MovementOrigin.officialElixr,
+    assessmentMode: AssessmentMode.officialGuided,
+    attemptKind: AssignmentAttemptKind.practicePointer,
+    status: AssignmentAttemptStatus.submitted,
   );
 }
 
@@ -124,6 +144,10 @@ void _expectNoOverflow(WidgetTester tester) {
 
 Finder _card(String assignmentId) =>
     find.byKey(Key('assigned_movement_card_$assignmentId'));
+
+Finder _movementImage(String movementName) => find.byWidgetPredicate(
+  (widget) => widget is MovementImage && widget.movementName == movementName,
+);
 
 Finder _cardAvatar(String assignmentId) =>
     find.byKey(Key('assigned_movement_teacher_avatar_$assignmentId'));
@@ -255,6 +279,22 @@ void main() {
     expect(find.text('No due date'), findsNWidgets(2));
     expect(find.text('Not started'), findsOneWidget);
     expect(find.text('Not submitted'), findsOneWidget);
+    expect(_movementImage('Hand Stall'), findsOneWidget);
+    expect(_movementImage('Basic Bottle Balances'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('assigned_movement_card_asg-a')),
+        matching: find.byIcon(FluentIcons.education),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('assigned_movement_card_asg-b')),
+        matching: find.byIcon(FluentIcons.assign),
+      ),
+      findsNothing,
+    );
     expect(find.byIcon(FluentIcons.education), findsWidgets);
     expect(find.byIcon(FluentIcons.assign), findsWidgets);
     _expectNoOverflow(tester);
@@ -263,6 +303,126 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('practice:asg-a'), findsOneWidget);
+  });
+
+  testWidgets(
+    'official assignment cards resolve MovementImage from each movement name',
+    (tester) async {
+      await _pumpList(
+        tester,
+        items: [
+          AssignedMovementItem(
+            assignment: _assignment(id: 'asg-ng', title: 'Normal Grip'),
+            attempt: null,
+          ),
+          AssignedMovementItem(
+            assignment: _assignment(id: 'asg-es', title: 'Elbow Stall'),
+            attempt: _officialSubmittedAttempt('asg-es'),
+          ),
+        ],
+      );
+
+      expect(_movementImage('Normal Grip'), findsOneWidget);
+      expect(_movementImage('Elbow Stall'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: _card('asg-ng'),
+          matching: find.text('Official ELIXR'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: _card('asg-es'),
+          matching: find.text('Official ELIXR'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Not started'), findsOneWidget);
+      expect(find.text('Submitted'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: _card('asg-ng'),
+          matching: find.byIcon(FluentIcons.education),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: _card('asg-es'),
+          matching: find.byIcon(FluentIcons.education),
+        ),
+        findsNothing,
+      );
+      _expectNoOverflow(tester);
+    },
+  );
+
+  testWidgets('teacher-created cards pass the display title to MovementImage', (
+    tester,
+  ) async {
+    await _pumpList(
+      tester,
+      paneWidth: 800,
+      viewSize: const Size(800, 900),
+      items: [
+        _teacherItem(id: 'asg-custom', title: 'Custom Flair Sequence XYZ'),
+        _teacherItem(
+          id: 'asg-sub',
+          title: 'Tin Pour',
+          attempt: _teacherSubmittedAttempt('asg-sub'),
+        ),
+        AssignedMovementItem(
+          assignment: _assignment(
+            id: 'asg-due',
+            title: 'Hand Stall',
+            dueAt: DateTime.now().toUtc().add(const Duration(days: 14)),
+          ),
+          attempt: null,
+        ),
+      ],
+    );
+
+    expect(_movementImage('Custom Flair Sequence XYZ'), findsOneWidget);
+    expect(_movementImage('Tin Pour'), findsOneWidget);
+    expect(_movementImage('Hand Stall'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: _card('asg-custom'),
+        matching: find.text('Teacher-created'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: _card('asg-sub'),
+        matching: find.text('Teacher-created'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: _card('asg-due'),
+        matching: find.text('Official ELIXR'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Not submitted'), findsOneWidget);
+    expect(find.text('Awaiting check'), findsOneWidget);
+    expect(find.text('No due date'), findsNWidgets(2));
+    expect(find.text('Not started'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: _card('asg-custom'),
+        matching: find.byIcon(FluentIcons.assign),
+      ),
+      findsNothing,
+    );
+    expect(
+      _cardSize(tester, 'asg-custom').height,
+      _cardSize(tester, 'asg-sub').height,
+    );
+    _expectNoOverflow(tester);
   });
 
   testWidgets('tapping the card body opens assignment detail', (tester) async {
@@ -648,12 +808,13 @@ void main() {
     expect(avatar.networkImageUrl, 'https://example.test/grace.png');
     expect(avatar.initials, 'JB');
     expect(find.text('James Bartender'), findsOneWidget);
+    expect(_movementImage('Basic Bottle Balances'), findsOneWidget);
     expect(
       find.descendant(
         of: _card('asg-b'),
         matching: find.byIcon(FluentIcons.assign),
       ),
-      findsWidgets,
+      findsNothing,
     );
     expect(
       find.descendant(

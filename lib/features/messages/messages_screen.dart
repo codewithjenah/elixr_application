@@ -36,6 +36,40 @@ void _openChatUserProfile(BuildContext context, ChatUser user) {
   );
 }
 
+Future<void> _confirmDeleteConversation(
+  BuildContext context,
+  MessagesController controller,
+  ChatConversation conversation,
+  ChatUser user,
+) async {
+  final confirmed = await ElixDialog.show<bool>(
+    context,
+    title: 'Delete conversation?',
+    icon: FluentIcons.delete,
+    iconColor: context.elixColors.error,
+    headerAccentColor: context.elixColors.error,
+    content: Text(
+      'This removes your conversation with ${user.displayName} from your '
+      'inbox. It does not delete their copy, and this cannot be undone.',
+      style: AppTheme.body.copyWith(
+        color: context.elixTextSecondary,
+        height: 1.45,
+      ),
+    ),
+    actions: [
+      Button(
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+        child: const Text('Delete'),
+      ),
+    ],
+  );
+  if (confirmed == true) await controller.clearConversation(conversation);
+}
+
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({
     super.key,
@@ -460,12 +494,25 @@ class _SearchResults extends StatelessWidget {
         itemCount: controller.searchResults.length,
         itemBuilder: (context, index) {
           final user = controller.searchResults[index];
+          final conversation = controller.conversationForUser(user.id);
           return _PersonTile(
             user: user,
             subtitle: user.role,
             selected: controller.selectedUser?.id == user.id,
+            unread: conversation?.unreadFor(controller.currentUser.id) ?? 0,
             onPressed: () => controller.openUser(user),
             onViewProfile: () => _openChatUserProfile(context, user),
+            onMarkUnread: conversation == null
+                ? null
+                : () => controller.markConversationUnread(conversation),
+            onDelete: conversation == null
+                ? null
+                : () => _confirmDeleteConversation(
+                    context,
+                    controller,
+                    conversation,
+                    user,
+                  ),
           );
         },
       ),
@@ -511,44 +558,15 @@ class _InboxList extends StatelessWidget {
           onPressed: () => controller.openConversation(conversation),
           onMarkUnread: () => controller.markConversationUnread(conversation),
           onViewProfile: () => _openChatUserProfile(context, user),
-          onDelete: () => _confirmDelete(context, conversation, user),
+          onDelete: () => _confirmDeleteConversation(
+            context,
+            controller,
+            conversation,
+            user,
+          ),
         );
       },
     );
-  }
-
-  Future<void> _confirmDelete(
-    BuildContext context,
-    ChatConversation conversation,
-    ChatUser user,
-  ) async {
-    final confirmed = await ElixDialog.show<bool>(
-      context,
-      title: 'Delete conversation?',
-      icon: FluentIcons.delete,
-      iconColor: context.elixColors.error,
-      headerAccentColor: context.elixColors.error,
-      content: Text(
-        'This removes your conversation with ${user.displayName} from your '
-        'inbox. It does not delete their copy, and this cannot be undone.',
-        style: AppTheme.body.copyWith(
-          color: context.elixTextSecondary,
-          height: 1.45,
-        ),
-      ),
-      actions: [
-        Button(
-          onPressed: () =>
-              Navigator.of(context, rootNavigator: true).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-          child: const Text('Delete'),
-        ),
-      ],
-    );
-    if (confirmed == true) await controller.clearConversation(conversation);
   }
 }
 
@@ -619,7 +637,10 @@ class _PersonTileState extends State<_PersonTile> {
                 'Delete conversation',
                 style: TextStyle(color: context.elixColors.error),
               ),
-              onPressed: widget.onDelete,
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onDelete!();
+              },
             ),
           ],
         ],

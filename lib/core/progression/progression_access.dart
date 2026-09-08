@@ -59,6 +59,26 @@ ProgressionAccessResult evaluatePersonal({
       : ProgressionAccessResult.personalLearn;
 }
 
+/// Official variants the trainee may currently practice personally.
+List<PracticeVariant> personalReadyVariants({
+  required int? currentLevel,
+  required bool Function(PracticeVariant variant) tutorialCompleted,
+}) {
+  if (currentLevel == null) return const [];
+  final ready = <PracticeVariant>[];
+  for (final milestone in progressionMilestones) {
+    final access = evaluatePersonal(
+      variant: milestone.variant,
+      currentLevel: currentLevel,
+      tutorialCompleted: tutorialCompleted(milestone.variant),
+    );
+    if (access == ProgressionAccessResult.personalReady) {
+      ready.add(milestone.variant);
+    }
+  }
+  return ready;
+}
+
 /// Pure assignment access evaluation. Does not fetch authorization itself.
 ProgressionAccessResult evaluateAssignment({
   required PracticeVariant variant,

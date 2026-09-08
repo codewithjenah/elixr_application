@@ -46,6 +46,20 @@ class TeacherActivityReadinessSpec(BaseModel):
     body: Literal["none", "upper_body"]
 
 
+class AllowedMovement(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    movement: Annotated[str, Field(min_length=1, max_length=MAX_MOVEMENT_LENGTH)]
+    prop_type: PropType
+
+    @field_validator("movement", mode="before")
+    @classmethod
+    def _strip_movement(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
 class PrepareCommand(_CommandBase):
     action: Literal["prepare"]
     movement: Annotated[str, Field(min_length=1, max_length=MAX_MOVEMENT_LENGTH)]
@@ -56,6 +70,10 @@ class PrepareCommand(_CommandBase):
     camera_index: Optional[StrictInt] = None
     allow_submission_recording: StrictBool = False
     readiness_spec: Optional[TeacherActivityReadinessSpec] = None
+    session_mode: Optional[Literal["freestyle"]] = None
+    allowed_movements: Optional[list[AllowedMovement]] = Field(
+        default=None, max_length=32
+    )
 
     @field_validator("movement", "difficulty", mode="before")
     @classmethod
@@ -111,6 +129,14 @@ class ConfirmReadinessCommand(_CommandBase):
 
 class StopCommand(_CommandBase):
     action: Literal["stop"]
+
+
+class PauseCommand(_CommandBase):
+    action: Literal["pause"]
+
+
+class ResumeCommand(_CommandBase):
+    action: Literal["resume"]
 
 
 class StartSubmissionRecordCommand(_CommandBase):
@@ -169,6 +195,8 @@ InboundCommand = Union[
     BeginReadinessCommand,
     ConfirmReadinessCommand,
     StopCommand,
+    PauseCommand,
+    ResumeCommand,
     StartCommand,
     StartSubmissionRecordCommand,
     StopSubmissionRecordCommand,
@@ -189,6 +217,10 @@ def parse_v1_command(data: dict) -> InboundCommand:
         return ConfirmReadinessCommand.model_validate(data)
     if action == "stop":
         return StopCommand.model_validate(data)
+    if action == "pause":
+        return PauseCommand.model_validate(data)
+    if action == "resume":
+        return ResumeCommand.model_validate(data)
     if action == "start":
         return StartCommand.model_validate(data)
     if action == "start_submission_record":

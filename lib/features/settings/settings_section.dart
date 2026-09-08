@@ -69,8 +69,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.security =>
       'Update your password and protect access to your Elixr account.',
     SettingsSection.appearance => 'Customize how Elixr looks on this device.',
-    SettingsSection.practice =>
-      'Camera, mirroring, Live Practice setlist, pace, and music.',
+    SettingsSection.practice => 'Camera, mirroring, and Playground music.',
     SettingsSection.privacy =>
       'Control who can see your detailed player profile activity.',
     SettingsSection.about => 'Learn about ELIXR and the team behind it.',

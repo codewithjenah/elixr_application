@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/recognition_event.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
@@ -1536,6 +1537,43 @@ void main() {
       },
     );
 
+    test('stale recognition_event session_id is ignored', () async {
+      final received = <RecognitionEvent>[];
+      final sub = service.recognitionStream.listen(received.add);
+      final sessionId = service.beginPracticeAttempt();
+
+      service.debugHandleRawMessage(
+        jsonEncode({
+          'message_type': 'recognition_event',
+          'session_id': 'session-old',
+          'event_id': 'e-old',
+          'kind': 'movement',
+          'display_label': 'Normal Grip',
+          'identity_revealed': true,
+          'movement': 'Normal Grip',
+          'prop_type': 'bottle',
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received, isEmpty);
+
+      service.debugHandleRawMessage(
+        jsonEncode({
+          'message_type': 'recognition_event',
+          'session_id': sessionId,
+          'event_id': 'e-now',
+          'kind': 'flip',
+          'display_label': 'Flip',
+          'identity_revealed': true,
+          'prop_type': 'bottle',
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received, hasLength(1));
+      expect(received.single.kind, RecognitionKind.flip);
+      await sub.cancel();
+    });
+
     test('legacy feedback without session_id still forwards', () async {
       final received = <PracticeFeedback>[];
       final sub = service.feedbackStream.listen(received.add);
@@ -1591,6 +1629,39 @@ void main() {
       },
     );
   });
+
+  test(
+    'buildPreparePayload includes freestyle allowlist only for freestyle',
+    () {
+      final guided = WebSocketService.buildPreparePayload(
+        movement: 'Normal Grip',
+        difficulty: 'Easy',
+        sessionId: 'session-g',
+        requestId: 'req-g',
+      );
+      expect(guided.containsKey('session_mode'), isFalse);
+      expect(guided.containsKey('allowed_movements'), isFalse);
+
+      final freestyle = WebSocketService.buildPreparePayload(
+        movement: 'Free Practice',
+        difficulty: 'Easy',
+        prop: TrainingProp.bottleAndShaker,
+        sessionId: 'session-f',
+        requestId: 'req-f',
+        sessionMode: 'freestyle',
+        allowedMovements: [
+          (movement: 'Normal Grip', prop: TrainingProp.bottle),
+          (movement: 'Hand Stall', prop: TrainingProp.shaker),
+        ],
+      );
+      expect(freestyle['session_mode'], 'freestyle');
+      expect(freestyle['prop_type'], 'bottle_and_shaker');
+      expect(freestyle['allowed_movements'], [
+        {'movement': 'Normal Grip', 'prop_type': 'bottle'},
+        {'movement': 'Hand Stall', 'prop_type': 'shaker'},
+      ]);
+    },
+  );
 
   test('shaker prepare payload preserves the selected prop', () {
     final payload = WebSocketService.buildPreparePayload(

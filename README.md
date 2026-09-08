@@ -602,6 +602,54 @@ Prepare (preview only):
 }
 ```
 
+Playground Freestyle uses the same `prepare` command with optional fields:
+
+```json
+{
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "prepare",
+  "movement": "Free Practice",
+  "difficulty": "Easy",
+  "prop_type": "bottle_and_shaker",
+  "bottle_detection_enabled": true,
+  "session_mode": "freestyle",
+  "allowed_movements": [
+    {"movement": "Normal Grip", "prop_type": "bottle"}
+  ]
+}
+```
+
+`session_mode: "freestyle"` keeps one observation session active. The backend evaluates shared frame observations against the allowlist and must not disclose locked official movement names. Omit `session_mode` for guided practice, teacher assignments, and Free Practice recording. Pause and resume freeze or resume recognition without tearing down the camera:
+
+```json
+{
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "pause"
+}
+```
+
+Confirmed recognition is delivered as a discrete `recognition_event` (not as official mastery/XP). Locked evidence is mapped to a generic advanced-technique event:
+
+```json
+{
+  "protocol_version": 1,
+  "message_type": "recognition_event",
+  "session_id": "session-...",
+  "event_id": "evt-...",
+  "kind": "movement | flip | advanced_technique | failed_action",
+  "display_label": "Normal Grip",
+  "identity_revealed": true,
+  "quality": "perfect | great | nice",
+  "movement": "Normal Grip",
+  "prop_type": "bottle",
+  "supporting_message": null
+}
+```
+
 Begin readiness (guided practice, after prepare):
 
 ```json
@@ -684,7 +732,7 @@ Version-1 camera images use a dedicated `preview_frame` message so the live JPEG
 
 Flutter must apply `preview_frame` to the camera image only. It must not advance readiness, scoring, combo, hold confirmation, or session lifecycle flags from that message.
 
-Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and `session_id` in addition to the existing fields. After preview/AI decoupling, live `frame_jpeg_base64` is usually omitted from feedback (the preview path carries the image). Feedback still carries assessment, readiness, hold, and optional `evidence_jpeg_base64`.
+Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and `session_id` in addition to the existing fields. After preview/AI decoupling, live `frame_jpeg_base64` is usually omitted from feedback (the preview path carries the image). Feedback still carries assessment, readiness, hold, and optional `evidence_jpeg_base64`. Freestyle sessions also include `recognition_state`, `recognized_display`, and `detected_prop_type` for the live overlay.
 
 ```text
 bottle_detected

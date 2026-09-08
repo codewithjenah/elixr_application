@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
@@ -196,7 +197,19 @@ void main() {
       find.byKey(const Key('assigned_movement_card_asg-a')),
       findsOneWidget,
     );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MovementImage && widget.movementName == 'Hand Stall',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Start practice'), findsOneWidget);
+    expect(find.text('View your work'), findsNothing);
+    expect(
+      find.byKey(const Key('teacher_access_class_view_your_work')),
+      findsNothing,
+    );
     expect(find.text('Ada Lovelace (you)'), findsNothing);
 
     await tester.tap(find.text('Hand Stall'));
@@ -236,76 +249,44 @@ void main() {
     expect(find.text('classes home'), findsOneWidget);
   });
 
-  testWidgets(
-    'View your work returns to the same classroom classwork through history',
-    (tester) async {
-      final group = await approvedClass(name: 'BSHM 4A');
-      assignmentRepository.seedAssignment(
-        _assignment(id: 'asg-a', groupId: group.id, title: 'Hand Stall'),
-      );
-      final controller = TraineeClassDetailController(
-        groupId: group.id,
-        traineeId: 'trainee-1',
-        groupRepository: groupRepository,
-        assignmentRepository: assignmentRepository,
-      );
-      final workController = AssignedMovementsController(
-        traineeId: 'trainee-1',
-        groupRepository: groupRepository,
-        assignmentRepository: assignmentRepository,
-        filterGroupId: group.id,
-      );
-      addTearDown(controller.dispose);
-      addTearDown(workController.dispose);
-      await controller.start();
+  testWidgets('classwork toolbar has no View your work shortcut', (
+    tester,
+  ) async {
+    final group = await approvedClass(name: 'BSHM 4A');
+    assignmentRepository.seedAssignment(
+      _assignment(id: 'asg-a', groupId: group.id, title: 'Hand Stall'),
+    );
+    final controller = TraineeClassDetailController(
+      groupId: group.id,
+      traineeId: 'trainee-1',
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
 
-      await pumpClassDetail(
-        tester,
-        controller: controller,
-        groupRepository: groupRepository,
-        assignmentRepository: assignmentRepository,
-        workController: workController,
-      );
-      controller.setTab(TraineeClassDetailTab.classwork);
-      await tester.pump();
+    await pumpClassDetail(
+      tester,
+      controller: controller,
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+    controller.setTab(TraineeClassDetailTab.classwork);
+    await tester.pump();
 
-      expect(find.text('View your work'), findsOneWidget);
-      expect(find.byIcon(FluentIcons.task_list), findsWidgets);
-      final action = tester.getRect(
-        find.byKey(const Key('teacher_access_class_view_your_work')),
-      );
-      final classworkContent = tester.getRect(
-        find.byType(ClassroomTopicContent),
-      );
-      expect(action.top, lessThan(classworkContent.top));
-      expect(action.left, greaterThan(classworkContent.left));
-      expect(action.right, lessThanOrEqualTo(classworkContent.right + 1));
-      expect(classworkContent.width, greaterThan(860));
-      expect(action.right, lessThan(tester.view.physicalSize.width));
-
-      await tester.tap(
-        find.byKey(const Key('teacher_access_class_view_your_work')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Your work'), findsOneWidget);
-      expect(
-        find.byKey(const Key('teacher_access_class_work_back')),
-        findsOneWidget,
-      );
-
-      await tester.tap(find.byKey(const Key('teacher_access_class_work_back')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('BSHM 4A'), findsOneWidget);
-      expect(controller.tab, TraineeClassDetailTab.classwork);
-      expect(
-        find.byKey(const Key('teacher_access_class_tab_classwork')),
-        findsOneWidget,
-      );
-      expect(find.text('classes home'), findsNothing);
-    },
-  );
+    expect(find.text('View your work'), findsNothing);
+    expect(
+      find.byKey(const Key('teacher_access_class_view_your_work')),
+      findsNothing,
+    );
+    expect(find.byIcon(FluentIcons.task_list), findsNothing);
+    final contextText = tester.getRect(
+      find.text('Practice, review submissions, and track what is due.'),
+    );
+    final classworkContent = tester.getRect(find.byType(ClassroomTopicContent));
+    expect(contextText.bottom, lessThan(classworkContent.top));
+    expect(classworkContent.width, greaterThan(860));
+  });
 
   testWidgets('wide classwork is not limited to the old 860px column', (
     tester,
@@ -335,9 +316,10 @@ void main() {
     final classwork = tester.getRect(find.byType(ClassroomTopicContent));
     expect(classwork.width, greaterThan(860));
     expect(classwork.width, greaterThan(1200));
+    expect(find.text('View your work'), findsNothing);
     expect(
       find.byKey(const Key('teacher_access_class_view_your_work')),
-      findsOneWidget,
+      findsNothing,
     );
   });
 

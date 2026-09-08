@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'practice_feedback.dart';
+import 'recognition_event.dart';
 
 /// Protocol version negotiated by new Flutter command payloads.
 const int wsProtocolVersion = 1;
@@ -259,6 +260,11 @@ final class WsPreviewFrameMessage extends WsInboundMessage {
   final PreviewFrame frame;
 }
 
+final class WsRecognitionEventMessage extends WsInboundMessage {
+  const WsRecognitionEventMessage(this.event);
+  final RecognitionEvent event;
+}
+
 final class WsMalformedMessage extends WsInboundMessage {
   const WsMalformedMessage(this.reason);
   final String reason;
@@ -302,6 +308,8 @@ class WsMessageDecoder {
           return WsCommandAckMessage(CommandAck.fromJson(json));
         case 'protocol_error':
           return WsProtocolErrorInbound(ProtocolErrorMessage.fromJson(json));
+        case 'recognition_event':
+          return WsRecognitionEventMessage(RecognitionEvent.fromJson(json));
         default:
           return WsUnknownMessage(messageType);
       }

@@ -27,6 +27,11 @@ from assessment.readiness import (
     readiness_needs_pose,
     readiness_profile_for,
 )
+from assessment.freestyle import (
+    FREESTYLE_MOVEMENT_LABEL,
+    FreestyleRecognizer,
+    sanitize_allowed_movements,
+)
 from assessment.rule_engine import (
     evaluate_movement,
     movement_is_prop_detection_only,
@@ -58,8 +63,10 @@ from schemas.commands import (
     BeginReadinessCommand,
     CancelSubmissionRecordCommand,
     ConfirmReadinessCommand,
+    PauseCommand,
     PrepareCommand,
     PropType,
+    ResumeCommand,
     StartCommand,
     StartSubmissionRecordCommand,
     StopCommand,
@@ -68,6 +75,7 @@ from schemas.commands import (
 )
 from schemas.feedback import AssessmentPayload, CriterionScorePayload, FeedbackMessage, PreviewFrameMessage
 from schemas.protocol import CommandAck, ProtocolError
+from schemas.recognition import RecognitionEventMessage
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
 from vision.dual_prop_detector import DualPropDetector
@@ -387,6 +395,7 @@ def _human_error_message(error_code: str) -> str:
             "camera in Settings, or use Auto-select."
         ),
         "session_not_prepared": "No matching prepared session is available.",
+        "session_not_active": "No matching active session is available.",
         "session_already_active": "The session is already active.",
         "session_id_mismatch": "The session_id does not match the current session.",
         "readiness_not_stable": (
@@ -456,9 +465,15 @@ class VisionSession:
         bottle_detection_enabled: bool = True,
         session_id: str | None = None,
         readiness_spec: dict | None = None,
+        session_mode: str | None = None,
+        allowed_movements: list[tuple[str, str]] | None = None,
     ):
         if prop_type not in {"bottle", "shaker", "bottle_and_shaker"}:
             raise ValueError("invalid_prop_type")
+
+        self._is_freestyle = session_mode == "freestyle"
+        if self._is_freestyle:
+            prop_type = "bottle_and_shaker"
 
         self.movement = movement
         self.prop_type = prop_type
@@ -496,26 +511,53 @@ class VisionSession:
         self.hands_detector: HandsDetector | None = None
         self.pose_detector: PoseDetector | None = None
         self._prop_detection_only = movement_is_prop_detection_only(movement)
+        if self._is_freestyle:
+            self._prop_detection_only = False
         self._hands_rotated_fallback = (
             not self._prop_detection_only
-            and movement in HANDS_ROTATED_FALLBACK_MOVEMENTS
+            and (
+                self._is_freestyle
+                or movement in HANDS_ROTATED_FALLBACK_MOVEMENTS
+            )
         )
         self._hands_bartender_roi = (
             not self._prop_detection_only
-            and movement in HANDS_BARTENDER_ROI_MOVEMENTS
+            and (
+                self._is_freestyle
+                or movement in HANDS_BARTENDER_ROI_MOVEMENTS
+            )
         )
         self._hands_needed = (
-            not self._prop_detection_only and movement_requires_hands(movement)
+            not self._prop_detection_only
+            and (
+                self._is_freestyle or movement_requires_hands(movement)
+            )
         )
         self._pose_needed = (
-            not self._prop_detection_only and movement_requires_pose(movement)
+            not self._prop_detection_only
+            and (
+                self._is_freestyle or movement_requires_pose(movement)
+            )
         )
-        self._hands_max = movement_max_hands(movement)
+        self._hands_max = 2 if self._is_freestyle else movement_max_hands(movement)
         self.rubric = RubricTracker()
 
         self._frame_index = 0
         self._last_bottles: list[PropDetection] = []
         self._last_shakers: list[PropDetection] = []
+        self._last_live_bottles: list[PropDetection] = []
+        self._last_live_shakers: list[PropDetection] = []
+        self._recognizer: FreestyleRecognizer | None = (
+            FreestyleRecognizer(
+                allowed_movements=sanitize_allowed_movements(allowed_movements)
+            )
+            if self._is_freestyle
+            else None
+        )
+        self._recognition_paused = False
+        self._pending_recognition_events: list[RecognitionEventMessage] = []
+        self._recognition_event_seq = 0
+        self._freestyle_display: str | None = None
 
         # Do not cache hands landmarks.
         # Hands move fast, and caching causes ghost/stuck finger dots.
@@ -632,18 +674,24 @@ class VisionSession:
         """Run YOLO and normalize bottle vs shaker lists for this prop_type."""
         if self._is_dual_prop:
             dual_result = self.prop_detector.detect(frame)
-            return self._normalize_detections(
-                bottles=list(dual_result.bottles),
-                shakers=list(dual_result.shakers),
-            )
-        detected = list(self.prop_detector.detect(frame))
-        if self.prop_type == "shaker":
-            return self._normalize_detections(bottles=[], shakers=detected)
-        return self._normalize_detections(bottles=detected, shakers=[])
+            live_bottles = list(dual_result.bottles)
+            live_shakers = list(dual_result.shakers)
+        else:
+            detected = list(self.prop_detector.detect(frame))
+            if self.prop_type == "shaker":
+                live_bottles, live_shakers = [], detected
+            else:
+                live_bottles, live_shakers = detected, []
+        self._last_live_bottles = live_bottles
+        self._last_live_shakers = live_shakers
+        return self._normalize_detections(
+            bottles=live_bottles,
+            shakers=live_shakers,
+        )
 
     def _cached_normalized_props(self) -> _NormalizedFrameDetections:
-        bottles = list(self._last_bottles)
-        shakers = list(self._last_shakers)
+        bottles = list(self._last_live_bottles)
+        shakers = list(self._last_live_shakers)
         extrapolate = getattr(self.prop_detector, "extrapolate_detections", None)
         if callable(extrapolate):
             bottles, shakers = extrapolate(
@@ -651,6 +699,8 @@ class VisionSession:
                 shakers=shakers,
                 now=time.monotonic(),
             )
+        self._last_live_bottles = list(bottles)
+        self._last_live_shakers = list(shakers)
         return self._normalize_detections(
             bottles=list(bottles),
             shakers=list(shakers),
@@ -746,6 +796,8 @@ class VisionSession:
 
     @property
     def display_movement(self) -> str:
+        if self._is_freestyle:
+            return self._freestyle_display or FREESTYLE_MOVEMENT_LABEL
         return self.movement
 
     def start(self) -> bool:
@@ -953,6 +1005,13 @@ class VisionSession:
             self._movement_state = None
             self._last_bottles = []
             self._last_shakers = []
+            self._last_live_bottles = []
+            self._last_live_shakers = []
+            if self._recognizer is not None:
+                self._recognizer.reset()
+            self._recognition_paused = False
+            self._pending_recognition_events = []
+            self._freestyle_display = None
             if self._is_dual_prop:
                 self.prop_detector.reset_cache()
             self._frame_index = 0
@@ -968,6 +1027,26 @@ class VisionSession:
             return True, None
         finally:
             self._release_ai_state()
+
+    def set_recognition_paused(self, paused: bool) -> tuple[bool, str | None]:
+        """Freeze freestyle recognition without tearing down the camera session."""
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_freestyle:
+                return False, "invalid_command"
+            if self._lifecycle != SESSION_ACTIVE:
+                return False, "session_not_active"
+            self._recognition_paused = paused
+            if self._recognizer is not None:
+                self._recognizer.set_paused(paused)
+            return True, None
+        finally:
+            self._release_ai_state()
+
+    def drain_recognition_events(self) -> list[RecognitionEventMessage]:
+        events = self._pending_recognition_events
+        self._pending_recognition_events = []
+        return events
 
     def _check_model(self) -> FeedbackMessage | None:
         if not self.bottle_detection_enabled:
@@ -1491,6 +1570,17 @@ class VisionSession:
             pose = self.pose_detector.detect(frame)
             self.timings.add("pose", time.perf_counter() - t0)
 
+        if self._is_freestyle:
+            return self._finish_freestyle_frame(
+                frame=frame,
+                captured=captured,
+                normalized=normalized,
+                hands=hands,
+                pose=pose,
+                emit_preview_jpeg=emit_preview_jpeg,
+                total_start=total_start,
+            )
+
         # Generic rules expect the selected prop in `bottle` / `bottles`.
         rule_bottles = (
             bottles
@@ -1622,6 +1712,134 @@ class VisionSession:
                 feedback_code=feedback_code,
                 feedback_category=category.value if category is not None else None,
                 assessment=assessment,
+            )
+        )
+        self.timings.add("processing_total", time.perf_counter() - total_start)
+        return message
+
+    def _finish_freestyle_frame(
+        self,
+        *,
+        frame,
+        captured: CapturedFrame,
+        normalized: _NormalizedFrameDetections,
+        hands,
+        pose,
+        emit_preview_jpeg: bool,
+        total_start: float,
+    ) -> FeedbackMessage:
+        assert self._recognizer is not None
+        height, width = frame.shape[:2]
+        t0 = time.perf_counter()
+        tick = self._recognizer.update(
+            timestamp=time.monotonic(),
+            dt=1.0 / max(TARGET_FPS, 1),
+            bottles=list(self._last_live_bottles),
+            shakers=list(self._last_live_shakers),
+            hands=hands,
+            pose=pose,
+            width=int(width),
+            height=int(height),
+            calibration_scale=self._calibration.resolved[0],
+        )
+        self.timings.add("evaluate", time.perf_counter() - t0)
+
+        if tick.recognition_state in {"searching", "candidate"}:
+            self._freestyle_display = None
+        elif tick.recognized_display:
+            self._freestyle_display = tick.recognized_display
+
+        if tick.event is not None:
+            self._recognition_event_seq += 1
+            event = tick.event
+            self._pending_recognition_events.append(
+                RecognitionEventMessage(
+                    session_id=self.session_id or "",
+                    event_id=f"{self.session_id or 'freestyle'}:{self._recognition_event_seq}",
+                    kind=event.kind,
+                    display_label=event.display_label,
+                    identity_revealed=event.identity_revealed,
+                    quality=event.quality,
+                    movement=event.movement if event.identity_revealed else None,
+                    prop_type=event.prop_type
+                    if event.prop_type in {"bottle", "shaker", "bottle_and_shaker"}
+                    else None,
+                    supporting_message=event.supporting_message,
+                    capture_sequence=captured.sequence,
+                )
+            )
+
+        detected = tick.detected_prop_type is not None
+        overlay_feedback = tick.recognized_display or "Watching your technique."
+        overlay_type = "positive" if tick.recognition_state == "confirmed" else "warning"
+        boxes_to_draw = list(self._last_live_bottles) + list(self._last_live_shakers)
+        prop_label = {
+            "shaker": "Cocktail Shaker",
+            "bottle_and_shaker": "Bottle + Cocktail Shaker",
+        }.get(tick.detected_prop_type or "", "Bottle")
+        self._publish_overlay(
+            freeze_overlay(
+                published_at_monotonic=time.monotonic(),
+                captured_at_monotonic=captured.captured_at_monotonic,
+                capture_sequence=captured.sequence,
+                boxes=boxes_to_draw,
+                hands=hands,
+                pose=pose,
+                feedback=overlay_feedback,
+                feedback_type=overlay_type,
+                movement=self.display_movement,
+                prop_label=prop_label,
+            )
+        )
+
+        annotated = None
+        frame_b64 = None
+        if emit_preview_jpeg:
+            t0 = time.perf_counter()
+            annotated = annotate_frame(
+                frame,
+                boxes_to_draw,
+                hands,
+                overlay_feedback,
+                overlay_type,
+                self.display_movement,
+                pose=pose,
+                prop_label=prop_label,
+            )
+            self.timings.add("annotate", time.perf_counter() - t0)
+            t0 = time.perf_counter()
+            _, buffer = cv2.imencode(
+                ".jpg",
+                annotated,
+                [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+            )
+            self.timings.add("jpeg", time.perf_counter() - t0)
+            t0 = time.perf_counter()
+            frame_b64 = base64.b64encode(buffer).decode("ascii")
+            self.timings.add("encode", time.perf_counter() - t0)
+
+        message = self._stamp(
+            FeedbackMessage(
+                bottle_detected=detected,
+                bottle_count=len(boxes_to_draw),
+                prop_type=self.prop_type,
+                movement=FREESTYLE_MOVEMENT_LABEL,
+                feedback=overlay_feedback,
+                feedback_type=overlay_type,
+                posture_status=(
+                    "stable" if tick.recognition_state == "confirmed" else "unknown"
+                ),
+                frame_jpeg_base64=frame_b64,
+                camera_ready=True,
+                session_state="active",
+                hold_progress=0.0,
+                hold_duration_ms=0,
+                hold_confirmed=False,
+                positive_frame_ratio=0.0,
+                hold_target_ms=0,
+                recognition_state=tick.recognition_state,
+                recognized_display=tick.recognized_display,
+                detected_prop_type=tick.detected_prop_type,
             )
         )
         self.timings.add("processing_total", time.perf_counter() - total_start)
@@ -1786,6 +2004,8 @@ async def _cv_session_loop(
     prepare_gate: dict | None = None,
     send_text: SendText | None = None,
     readiness_spec: dict | None = None,
+    session_mode: str | None = None,
+    allowed_movements: list[tuple[str, str]] | None = None,
 ):
     async def _send(payload: str) -> None:
         if send_text is not None:
@@ -1802,6 +2022,8 @@ async def _cv_session_loop(
             bottle_detection_enabled=bottle_detection_enabled,
             session_id=session_id,
             readiness_spec=readiness_spec,
+            session_mode=session_mode,
+            allowed_movements=allowed_movements,
         )
     except Exception:
         logger.exception("Failed to initialize vision session")
@@ -2062,6 +2284,15 @@ async def _cv_session_loop(
                         ),
                     )
                 )
+                for event in session.drain_recognition_events():
+                    mailbox.put(
+                        _OutboundItem(
+                            kind="feedback",
+                            payload=event.model_dump_json(),
+                            started_at=session._pipeline_started_at,
+                            must_deliver=True,
+                        )
+                    )
                 ai_count += 1
                 if message.error_code == "model_load_failed":
                     stop.set()
@@ -2410,6 +2641,8 @@ async def websocket_endpoint(websocket: WebSocket):
         session_id: str | None,
         wait_for_prepare: bool,
         readiness_spec: dict | None = None,
+        session_mode: str | None = None,
+        allowed_movements: list[tuple[str, str]] | None = None,
     ) -> tuple[bool, str | None, str | None]:
         nonlocal session_task, current_session_id, submission_recording_allowed
 
@@ -2446,6 +2679,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 prepare_gate=prepare_gate,
                 send_text=safe_send,
                 readiness_spec=readiness_spec,
+                session_mode=session_mode,
+                allowed_movements=allowed_movements,
             )
         )
 
@@ -2529,10 +2764,19 @@ async def websocket_endpoint(websocket: WebSocket):
         movement = command.movement
         difficulty = auth_difficulty
         start_active = command.action == "start"
+        session_mode = getattr(command, "session_mode", None)
+        allowed_entries: list[tuple[str, str]] | None = None
+        prop_type = command.prop_type
+        if session_mode == "freestyle":
+            raw_allowed = getattr(command, "allowed_movements", None) or []
+            allowed_entries = [
+                (item.movement, item.prop_type) for item in raw_allowed
+            ]
+            prop_type = "bottle_and_shaker"
 
         ok, error_code, error_message = await start_session_loop(
             movement_name=movement,
-            prop_type=command.prop_type,
+            prop_type=prop_type,
             camera_device_id=command.camera_device_id,
             camera_index=command.camera_index,
             bottle_detection_enabled=command.bottle_detection_enabled,
@@ -2544,12 +2788,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 if command.readiness_spec is not None
                 else None
             ),
+            session_mode=session_mode,
+            allowed_movements=allowed_entries,
         )
 
         if ok:
             submission_recording_allowed = (
                 bool(command.allow_submission_recording)
                 and command.movement == "Free Practice"
+                and session_mode != "freestyle"
             )
             await send_ack(
                 request_id=command.request_id,
@@ -2769,6 +3016,64 @@ async def websocket_endpoint(websocket: WebSocket):
             request_id=command.request_id,
             session_id=command.session_id,
             action="activate",
+            accepted=True,
+            session_state="active",
+        )
+
+    async def handle_v1_pause_or_resume(command: PauseCommand | ResumeCommand) -> None:
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+        paused = isinstance(command, PauseCommand)
+
+        if active_id is not None and command.session_id != active_id:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_id_mismatch",
+                message=_human_error_message("session_id_mismatch"),
+            )
+            return
+
+        if session is None or not session.is_active:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_not_active",
+                message=_human_error_message("session_not_active"),
+            )
+            return
+
+        accepted, error_code = await asyncio.to_thread(
+            session.set_recognition_paused, paused
+        )
+        if not accepted:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state="active",
+                error_code=error_code or "invalid_command",
+                message=_human_error_message(error_code or "invalid_command"),
+            )
+            return
+
+        await send_ack(
+            request_id=command.request_id,
+            session_id=command.session_id,
+            action=command.action,
             accepted=True,
             session_state="active",
         )
@@ -3105,6 +3410,10 @@ async def websocket_endpoint(websocket: WebSocket):
             await handle_v1_prepare_or_start(command)
         elif isinstance(command, ActivateCommand):
             await handle_v1_activate(command)
+        elif isinstance(command, PauseCommand):
+            await handle_v1_pause_or_resume(command)
+        elif isinstance(command, ResumeCommand):
+            await handle_v1_pause_or_resume(command)
         elif isinstance(command, BeginReadinessCommand):
             await handle_v1_begin_readiness(command)
         elif isinstance(command, ConfirmReadinessCommand):

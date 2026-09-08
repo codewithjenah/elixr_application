@@ -73,7 +73,11 @@ Keep Flutter independent of these implementation details except for the document
   `HoldValidator.update`. It is idempotent when already readying and rejected
   before prepare or after activation. `confirm_readiness` locks stable readiness
   before countdown; `activate` from `readying` requires prior confirmation.
-  `prepared→active` without readiness remains for Free Practice. `activate`
+  `prepared→active` without readiness remains for Free Practice. Playground
+  Freestyle uses `session_mode: "freestyle"` on prepare, then the same
+  prepare → first JPEG → activate path, evaluating shared observations against
+  an allowlist without official rubric/XP writes. `pause` / `resume` freeze
+  recognition without releasing the camera. `activate`
   transitions prepared or confirmed-readying to active inference/scoring without
   reopening the camera and reuses detectors loaded during readiness when present. Legacy `start` (no protocol
   version) still combines prepare+activate; Free Practice keeps prepare →

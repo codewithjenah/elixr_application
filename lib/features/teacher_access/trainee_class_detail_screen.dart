@@ -333,12 +333,7 @@ class _ClassworkPane extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _ClassworkToolbar(
-                onViewYourWork: () => context.push(
-                  AppRoutePaths.teacherAccessClassWork(controller.groupId),
-                  extra: true,
-                ),
-              ),
+              const _ClassworkToolbar(),
               const SizedBox(height: AppSpacing.md),
               ClassroomTopicContent(
                 items: assignments.items,
@@ -353,14 +348,11 @@ class _ClassworkPane extends StatelessWidget {
 }
 
 class _ClassworkToolbar extends StatelessWidget {
-  const _ClassworkToolbar({required this.onViewYourWork});
-
-  final VoidCallback onViewYourWork;
+  const _ClassworkToolbar();
 
   @override
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
-    final colors = context.elixColors;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -397,56 +389,6 @@ class _ClassworkToolbar extends StatelessWidget {
               style: AppTheme.caption.copyWith(
                 color: context.elixTextSecondary,
               ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Button(
-            key: const Key('teacher_access_class_view_your_work'),
-            onPressed: onViewYourWork,
-            style: ButtonStyle(
-              padding: WidgetStateProperty.all(
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              ),
-              backgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.pressed)) {
-                  return colors.interactivePressed;
-                }
-                if (states.contains(WidgetState.hovered) ||
-                    states.contains(WidgetState.focused)) {
-                  return colors.interactiveHover;
-                }
-                return highContrast ? colors.surfaceBase : Colors.transparent;
-              }),
-              foregroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.hovered) ||
-                    states.contains(WidgetState.focused)) {
-                  return highContrast
-                      ? colors.textPrimary
-                      : colors.brandPrimary;
-                }
-                return colors.textPrimary;
-              }),
-              shape: WidgetStateProperty.resolveWith((states) {
-                return RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(
-                    color: states.contains(WidgetState.focused)
-                        ? colors.focusRing
-                        : (highContrast
-                              ? colors.borderStrong
-                              : colors.borderSubtle),
-                    width: states.contains(WidgetState.focused) ? 2 : 1,
-                  ),
-                );
-              }),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(FluentIcons.task_list, size: 14),
-                const SizedBox(width: 8),
-                Text('View your work', style: AppTheme.label()),
-              ],
             ),
           ),
         ],

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../data/models/practice_feedback.dart';
+import '../data/models/recognition_event.dart';
 import '../data/models/training_prop.dart';
 import '../data/models/teacher_activity_assessment.dart';
 import '../data/models/ws_protocol.dart';
@@ -33,6 +34,7 @@ class WebSocketService extends ChangeNotifier {
   StreamSubscription<dynamic>? _subscription;
   final _feedbackController = StreamController<PracticeFeedback>.broadcast();
   final _previewController = StreamController<PreviewFrame>.broadcast();
+  final _recognitionController = StreamController<RecognitionEvent>.broadcast();
   final _protocolErrorController =
       StreamController<ProtocolErrorMessage>.broadcast();
 
@@ -86,6 +88,8 @@ class WebSocketService extends ChangeNotifier {
 
   Stream<PracticeFeedback> get feedbackStream => _feedbackController.stream;
   Stream<PreviewFrame> get previewStream => _previewController.stream;
+  Stream<RecognitionEvent> get recognitionStream =>
+      _recognitionController.stream;
   Stream<ProtocolErrorMessage> get protocolErrorStream =>
       _protocolErrorController.stream;
 
@@ -149,6 +153,8 @@ class WebSocketService extends ChangeNotifier {
     String? sessionId,
     bool allowSubmissionRecording = false,
     TeacherActivityReadinessSpec? readinessSpec,
+    String? sessionMode,
+    List<({String movement, TrainingProp prop})>? allowedMovements,
   }) {
     final resolvedSessionId =
         sessionId ?? _currentSessionId ?? beginPracticeAttempt();
@@ -168,6 +174,8 @@ class WebSocketService extends ChangeNotifier {
         requestId: _nextId('req'),
         allowSubmissionRecording: allowSubmissionRecording,
         readinessSpec: readinessSpec,
+        sessionMode: sessionMode,
+        allowedMovements: allowedMovements,
       ),
     );
   }
@@ -188,6 +196,37 @@ class WebSocketService extends ChangeNotifier {
         sessionId: resolvedSessionId,
         requestId: _nextId('req'),
       ),
+    );
+  }
+
+  Future<CommandAck> sendPause({String? sessionId}) {
+    return _sendSessionAction(action: 'pause', sessionId: sessionId);
+  }
+
+  Future<CommandAck> sendResume({String? sessionId}) {
+    return _sendSessionAction(action: 'resume', sessionId: sessionId);
+  }
+
+  Future<CommandAck> _sendSessionAction({
+    required String action,
+    String? sessionId,
+  }) {
+    final resolvedSessionId = sessionId ?? _currentSessionId;
+    if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
+      return Future.error(
+        StateError('Cannot $action without a current session_id'),
+      );
+    }
+    return _sendTrackedCommand(
+      action: action,
+      timeout: commandTimeout,
+      sessionId: resolvedSessionId,
+      payload: <String, dynamic>{
+        'protocol_version': wsProtocolVersion,
+        'request_id': _nextId('req'),
+        'session_id': resolvedSessionId,
+        'action': action,
+      },
     );
   }
 
@@ -532,6 +571,8 @@ class WebSocketService extends ChangeNotifier {
     required String requestId,
     bool allowSubmissionRecording = false,
     TeacherActivityReadinessSpec? readinessSpec,
+    String? sessionMode,
+    List<({String movement, TrainingProp prop})>? allowedMovements,
   }) {
     return _buildSessionPayload(
       action: 'prepare',
@@ -544,6 +585,8 @@ class WebSocketService extends ChangeNotifier {
       requestId: requestId,
       allowSubmissionRecording: allowSubmissionRecording,
       readinessSpec: readinessSpec,
+      sessionMode: sessionMode,
+      allowedMovements: allowedMovements,
     );
   }
 
@@ -695,6 +738,8 @@ class WebSocketService extends ChangeNotifier {
     required String requestId,
     bool allowSubmissionRecording = false,
     TeacherActivityReadinessSpec? readinessSpec,
+    String? sessionMode,
+    List<({String movement, TrainingProp prop})>? allowedMovements,
   }) {
     final payload = <String, dynamic>{
       'protocol_version': wsProtocolVersion,
@@ -723,6 +768,13 @@ class WebSocketService extends ChangeNotifier {
     }
     if (readinessSpec != null) {
       payload['readiness_spec'] = readinessSpec.toMap();
+    }
+    if (sessionMode == 'freestyle') {
+      payload['session_mode'] = 'freestyle';
+      payload['allowed_movements'] = [
+        for (final entry in allowedMovements ?? const [])
+          {'movement': entry.movement, 'prop_type': entry.prop.protocolValue},
+      ];
     }
     return payload;
   }
@@ -804,6 +856,8 @@ class WebSocketService extends ChangeNotifier {
         _handleFeedback(feedback);
       case WsPreviewFrameMessage(:final frame):
         _handlePreviewFrame(frame);
+      case WsRecognitionEventMessage(:final event):
+        _handleRecognitionEvent(event);
       case WsCommandAckMessage(:final ack):
         _handleAck(ack);
       case WsProtocolErrorInbound(:final error):
@@ -859,6 +913,15 @@ class WebSocketService extends ChangeNotifier {
 
     if (!_previewController.isClosed) {
       _previewController.add(frame);
+    }
+  }
+
+  void _handleRecognitionEvent(RecognitionEvent event) {
+    if (_currentSessionId == null || event.sessionId != _currentSessionId) {
+      return;
+    }
+    if (!_recognitionController.isClosed) {
+      _recognitionController.add(event);
     }
   }
 
@@ -1007,6 +1070,8 @@ class WebSocketService extends ChangeNotifier {
       case 'start_submission_record':
       case 'stop_submission_record':
       case 'cancel_submission_record':
+      case 'pause':
+      case 'resume':
         // Recording must not mutate prepare/activate/stop session flags.
         break;
       default:
@@ -1213,6 +1278,9 @@ class WebSocketService extends ChangeNotifier {
     }
     if (!_previewController.isClosed) {
       _previewController.close();
+    }
+    if (!_recognitionController.isClosed) {
+      _recognitionController.close();
     }
     if (!_protocolErrorController.isClosed) {
       _protocolErrorController.close();

@@ -10,9 +10,16 @@ import 'widgets/training_performance.dart';
 
 /// Falling confetti rendered with a custom painter (no extra dependencies).
 class ConfettiOverlay extends StatefulWidget {
-  const ConfettiOverlay({super.key, this.particleCount = 120});
+  const ConfettiOverlay({
+    super.key,
+    this.particleCount = 80,
+    this.playOnce = true,
+  });
 
   final int particleCount;
+
+  /// When true, particles fall once and stop so the result stays readable.
+  final bool playOnce;
 
   @override
   State<ConfettiOverlay> createState() => _ConfettiOverlayState();
@@ -64,8 +71,13 @@ class _ConfettiOverlayState extends State<ConfettiOverlay>
     );
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat();
+      duration: Duration(milliseconds: widget.playOnce ? 2200 : 4000),
+    );
+    if (widget.playOnce) {
+      _controller.forward();
+    } else {
+      _controller.repeat();
+    }
   }
 
   @override
@@ -76,6 +88,9 @@ class _ConfettiOverlayState extends State<ConfettiOverlay>
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return const SizedBox.shrink();
+    }
     return IgnorePointer(
       child: AnimatedBuilder(
         animation: _controller,
@@ -83,6 +98,7 @@ class _ConfettiOverlayState extends State<ConfettiOverlay>
           painter: _ConfettiPainter(
             particles: _particles,
             progress: _controller.value,
+            loop: !widget.playOnce,
           ),
           size: Size.infinite,
         ),
@@ -92,23 +108,30 @@ class _ConfettiOverlayState extends State<ConfettiOverlay>
 }
 
 class _ConfettiPainter extends CustomPainter {
-  _ConfettiPainter({required this.particles, required this.progress});
+  _ConfettiPainter({
+    required this.particles,
+    required this.progress,
+    required this.loop,
+  });
 
   final List<_ConfettiParticle> particles;
   final double progress;
+  final bool loop;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint();
     for (final p in particles) {
-      // Each particle loops on its own offset timeline.
-      final t = ((progress * p.speed + p.delay) % 1.0);
+      // Looping uses a wrapping timeline; play-once lets each particle exit.
+      final raw = progress * p.speed + p.delay * (loop ? 1 : 0.35);
+      final t = loop ? raw % 1.0 : raw;
+      if (!loop && (t <= 0 || t >= 1)) continue;
       final y = t * (size.height + 40) - 20;
       final x =
           (p.x + p.sway * math.sin(t * p.swayFreq * math.pi * 2)) * size.width;
       // Fade in at the top, fade out near the bottom.
       final alpha = t < 0.05 ? t / 0.05 : (t > 0.85 ? (1 - t) / 0.15 : 1.0);
-      paint.color = p.color.withValues(alpha: alpha.clamp(0.0, 1.0) * 0.9);
+      paint.color = p.color.withValues(alpha: alpha.clamp(0.0, 1.0) * 0.82);
 
       canvas.save();
       canvas.translate(x, y);
@@ -130,7 +153,7 @@ class _ConfettiPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ConfettiPainter oldDelegate) =>
-      oldDelegate.progress != progress;
+      oldDelegate.progress != progress || oldDelegate.loop != loop;
 }
 
 /// Full-screen "3.. 2.. 1.. GO!" overlay shown before a session starts.
@@ -665,10 +688,25 @@ class _GameActionButtonState extends State<GameActionButton> {
                             SizedBox(
                               width: _kIconLaneWidth,
                               child: Center(
-                                child: Icon(
-                                  widget.icon,
-                                  size: _kIconSize,
-                                  color: iconColor,
+                                child: AnimatedSlide(
+                                  duration: const Duration(milliseconds: 180),
+                                  curve: Curves.easeOutCubic,
+                                  offset: Offset(
+                                    _hovering &&
+                                            enabled &&
+                                            !_pressed &&
+                                            !MediaQuery.disableAnimationsOf(
+                                              context,
+                                            )
+                                        ? 0.14
+                                        : 0,
+                                    0,
+                                  ),
+                                  child: Icon(
+                                    widget.icon,
+                                    size: _kIconSize,
+                                    color: iconColor,
+                                  ),
                                 ),
                               ),
                             ),

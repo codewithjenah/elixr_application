@@ -11,6 +11,7 @@ import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
+import '../../core/widgets/movement_image.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/assessment_score_display.dart';
@@ -394,7 +395,8 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
     final accent = assignment.isOfficial ? AppColors.accent : AppColors.primary;
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
-    final originIcon = assignedMovementOriginIcon(assignment);
+    final movementName =
+        assignment.officialMovementName ?? assignment.displayTitle;
     final detail = assignedMovementDetailLine(assignment, attempt, submission);
     final statusLabel = assignedMovementStatusLabel(
       assignment,
@@ -536,10 +538,9 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
                                       width: highContrast ? 2 : 1,
                                     ),
                                   ),
-                                  child: Icon(
-                                    originIcon,
-                                    size: 16,
-                                    color: accent,
+                                  child: MovementImage(
+                                    movementName: movementName,
+                                    size: _assignmentOriginSize,
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -869,10 +870,6 @@ class _ResourceIndicator extends StatelessWidget {
       ],
     );
   }
-}
-
-IconData assignedMovementOriginIcon(GroupAssignment assignment) {
-  return assignment.isOfficial ? FluentIcons.education : FluentIcons.assign;
 }
 
 IconData assignedMovementDueIcon(GroupAssignment assignment) {

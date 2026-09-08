@@ -5,7 +5,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_primary_button.dart';
-import 'just_dance/playground_session_controller.dart';
+import 'freestyle/freestyle_models.dart';
 import 'practice_run_phase.dart';
 import 'submission_recording_controller.dart';
 
@@ -34,10 +34,10 @@ class TrainingQuitCopy {
   static const playground = TrainingQuitCopy(
     title: 'Quit Playground?',
     body:
-        'Your current routine will end. This Playground run is not scored and '
+        'Your current Freestyle session will end. This Playground run is not scored and '
         'will not be saved.',
     keepLabel: 'Keep Training',
-    quitLabel: 'Quit Routine',
+    quitLabel: 'Quit Session',
   );
 
   static const assignment = TrainingQuitCopy(
@@ -53,7 +53,7 @@ class TrainingQuitCopy {
 /// an in-progress Playground routine, or recording work has begun.
 bool trainingShouldConfirmAbandon({
   required PracticeRunPhase runPhase,
-  PlaygroundSessionPhase playgroundPhase = PlaygroundSessionPhase.idle,
+  FreestyleSessionPhase playgroundPhase = FreestyleSessionPhase.idle,
   SubmissionRecordingPhase recordingPhase = SubmissionRecordingPhase.idle,
 }) {
   if (_recordingHasWorkToLose(recordingPhase)) return true;
@@ -69,15 +69,16 @@ bool trainingShouldConfirmAbandon({
   };
 }
 
-bool _playgroundHasWorkToLose(PlaygroundSessionPhase phase) {
+bool _playgroundHasWorkToLose(FreestyleSessionPhase phase) {
   return switch (phase) {
-    PlaygroundSessionPhase.idle || PlaygroundSessionPhase.completed => false,
-    PlaygroundSessionPhase.preparingMovement ||
-    PlaygroundSessionPhase.getReady ||
-    PlaygroundSessionPhase.assessing ||
-    PlaygroundSessionPhase.success ||
-    PlaygroundSessionPhase.missed ||
-    PlaygroundSessionPhase.transitioning => true,
+    FreestyleSessionPhase.idle ||
+    FreestyleSessionPhase.completed ||
+    FreestyleSessionPhase.error => false,
+    FreestyleSessionPhase.preparing ||
+    FreestyleSessionPhase.ready ||
+    FreestyleSessionPhase.active ||
+    FreestyleSessionPhase.paused ||
+    FreestyleSessionPhase.ending => true,
   };
 }
 
