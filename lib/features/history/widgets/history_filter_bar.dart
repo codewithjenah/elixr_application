@@ -1,9 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../history_format.dart';
+import 'history_header.dart';
 
 class HistoryFilterBar extends StatelessWidget {
   const HistoryFilterBar({
@@ -18,6 +21,8 @@ class HistoryFilterBar extends StatelessWidget {
     required this.onClearFilters,
     this.dateFilterLabel,
     this.onDateFilterCleared,
+    this.loading = false,
+    this.onRefresh,
   });
 
   final String? difficultyFilter;
@@ -30,15 +35,20 @@ class HistoryFilterBar extends StatelessWidget {
   final ValueChanged<HistorySortMode> onSortChanged;
   final VoidCallback onClearFilters;
   final VoidCallback? onDateFilterCleared;
+  final bool loading;
+  final VoidCallback? onRefresh;
 
   static const _difficulties = ['All', 'Easy', 'Medium', 'Hard'];
+  static const _stackBreakpoint = 780.0;
+  static const _controlHeight = 34.0;
+  static const _controlRadius = 10.0;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final narrow = constraints.maxWidth < 700;
-        final difficultyRow = Wrap(
+        final stacked = constraints.maxWidth < _stackBreakpoint;
+        final chips = Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
           crossAxisAlignment: WrapCrossAlignment.center,
@@ -49,6 +59,7 @@ class HistoryFilterBar extends StatelessWidget {
                 selected: true,
                 color: AppColors.accent,
                 onTap: onDateFilterCleared ?? onClearFilters,
+                dismissible: true,
               ),
             for (final opt in _difficulties)
               _DifficultyChip(
@@ -62,28 +73,20 @@ class HistoryFilterBar extends StatelessWidget {
           ],
         );
 
-        final sortAndClear = Row(
-          mainAxisSize: MainAxisSize.min,
+        final search = SizedBox(
+          width: stacked ? double.infinity : 220,
+          child: _SyncedSearchField(
+            query: searchQuery,
+            onChanged: onSearchChanged,
+          ),
+        );
+
+        final tools = Row(
+          mainAxisSize: stacked ? MainAxisSize.max : MainAxisSize.min,
           children: [
-            ComboBox<HistorySortMode>(
-              value: sortMode,
-              items: [
-                for (final mode in HistorySortMode.values)
-                  ComboBoxItem<HistorySortMode>(
-                    value: mode,
-                    child: _SortModeOptionRow(mode: mode),
-                  ),
-              ],
-              selectedItemBuilder: (context) {
-                return [
-                  for (final mode in HistorySortMode.values)
-                    _SortModeOptionRow(mode: mode),
-                ];
-              },
-              onChanged: (mode) {
-                if (mode != null) onSortChanged(mode);
-              },
-            ),
+            if (stacked) Expanded(child: search) else search,
+            const SizedBox(width: AppSpacing.sm),
+            _SortControl(sortMode: sortMode, onSortChanged: onSortChanged),
             if (hasActiveFilters) ...[
               const SizedBox(width: AppSpacing.sm),
               HyperlinkButton(
@@ -91,46 +94,62 @@ class HistoryFilterBar extends StatelessWidget {
                 child: const Text('Clear Filters'),
               ),
             ],
+            if (onRefresh != null) ...[
+              const SizedBox(width: AppSpacing.sm),
+              HistoryRefreshButton(loading: loading, onPressed: onRefresh!),
+            ],
           ],
         );
 
-        if (narrow) {
+        if (stacked) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              difficultyRow,
+              chips,
               const SizedBox(height: AppSpacing.sm),
-              _SyncedSearchField(
-                query: searchQuery,
-                onChanged: onSearchChanged,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              sortAndClear,
+              tools,
             ],
           );
         }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(child: difficultyRow),
-                const SizedBox(width: AppSpacing.md),
-                SizedBox(
-                  width: 220,
-                  child: _SyncedSearchField(
-                    query: searchQuery,
-                    onChanged: onSearchChanged,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                sortAndClear,
-              ],
-            ),
+            Expanded(child: chips),
+            const SizedBox(width: AppSpacing.md),
+            tools,
           ],
         );
+      },
+    );
+  }
+}
+
+class _SortControl extends StatelessWidget {
+  const _SortControl({required this.sortMode, required this.onSortChanged});
+
+  final HistorySortMode sortMode;
+  final ValueChanged<HistorySortMode> onSortChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ComboBox<HistorySortMode>(
+      value: sortMode,
+      items: [
+        for (final mode in HistorySortMode.values)
+          ComboBoxItem<HistorySortMode>(
+            value: mode,
+            child: _SortModeOptionRow(mode: mode),
+          ),
+      ],
+      selectedItemBuilder: (context) {
+        return [
+          for (final mode in HistorySortMode.values)
+            _SortModeOptionRow(mode: mode),
+        ];
+      },
+      onChanged: (mode) {
+        if (mode != null) onSortChanged(mode);
       },
     );
   }
@@ -217,12 +236,14 @@ class _DifficultyChip extends StatefulWidget {
     required this.selected,
     required this.color,
     required this.onTap,
+    this.dismissible = false,
   });
 
   final String label;
   final bool selected;
   final Color color;
   final VoidCallback onTap;
+  final bool dismissible;
 
   @override
   State<_DifficultyChip> createState() => _DifficultyChipState();
@@ -230,38 +251,90 @@ class _DifficultyChip extends StatefulWidget {
 
 class _DifficultyChipState extends State<_DifficultyChip> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final selected = widget.selected;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: selected
-                ? widget.color.withValues(
-                    alpha: context.isDarkTheme ? 0.22 : 0.16,
-                  )
-                : (_hovered ? context.elixCardSurface : context.elixBackground),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected
-                  ? widget.color.withValues(alpha: 0.55)
-                  : context.elixBorder,
-            ),
+    final highContrast = context.isHighContrast;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: widget.dismissible
+          ? 'Clear ${widget.label} date filter'
+          : widget.label,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap();
+              return null;
+            },
           ),
-          child: Text(
-            widget.label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: selected ? widget.color : context.elixTextSecondary,
+        },
+        onShowHoverHighlight: (value) {
+          if (_hovered != value) setState(() => _hovered = value);
+        },
+        onShowFocusHighlight: (value) {
+          if (_focused != value) setState(() => _focused = value);
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: ElixMotion.duration(context, ElixMotion.micro),
+            height: HistoryFilterBar._controlHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: selected
+                  ? widget.color.withValues(
+                      alpha: context.isDarkTheme ? 0.22 : 0.16,
+                    )
+                  : (_hovered
+                        ? context.elixCardSurface
+                        : context.elixBackground),
+              borderRadius: BorderRadius.circular(
+                HistoryFilterBar._controlRadius,
+              ),
+              border: Border.all(
+                color: _focused
+                    ? context.elixColors.focusRing
+                    : selected
+                    ? widget.color.withValues(alpha: 0.55)
+                    : (_hovered && !highContrast
+                          ? widget.color.withValues(alpha: 0.35)
+                          : context.elixBorder),
+                width: _focused
+                    ? (highContrast
+                          ? ElixFocus.ringWidthHighContrast
+                          : ElixFocus.ringWidth)
+                    : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: selected ? widget.color : context.elixTextSecondary,
+                  ),
+                ),
+                if (widget.dismissible) ...[
+                  const SizedBox(width: 6),
+                  Icon(
+                    FluentIcons.chrome_close,
+                    size: 8,
+                    color: selected ? widget.color : context.elixTextSecondary,
+                  ),
+                ],
+              ],
             ),
           ),
         ),

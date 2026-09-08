@@ -12,6 +12,7 @@ class _SplashHarness extends StatefulWidget {
     this.startupError,
     this.onRetry,
     this.reducedMotion = false,
+    this.highContrast = false,
     this.size = const Size(1100, 760),
   });
 
@@ -20,6 +21,7 @@ class _SplashHarness extends StatefulWidget {
   final String? startupError;
   final VoidCallback? onRetry;
   final bool reducedMotion;
+  final bool highContrast;
   final Size size;
 
   @override
@@ -45,7 +47,7 @@ class _SplashHarnessState extends State<_SplashHarness> {
       disableAnimations: widget.reducedMotion,
     ),
     child: FluentApp(
-      theme: AppTheme.dark,
+      theme: widget.highContrast ? AppTheme.highContrastDark : AppTheme.dark,
       home: SplashScreen(
         onFinished: widget.onFinished,
         authReady: authReady,
@@ -73,7 +75,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 2200));
     expect(completionCount, 0);
     expect(find.text(AppConstants.appTagline), findsOneWidget);
-    expect(find.text('Preparing your session…'), findsOneWidget);
+    expect(find.text('PREPARING YOUR SESSION'), findsOneWidget);
+    expect(find.textContaining('%'), findsNothing);
+    expect(find.byKey(const Key('splash_startup_rail')), findsOneWidget);
     expect(
       find.image(const AssetImage(AppConstants.appLogoAsset)),
       findsOneWidget,
@@ -81,10 +85,32 @@ void main() {
 
     key.currentState!.setAuthReady(true);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('READY'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 400));
     expect(completionCount, 1);
     await tester.pump(const Duration(milliseconds: 1000));
     expect(completionCount, 1);
+  });
+
+  testWidgets('does not finish while a startup failure is visible', (
+    tester,
+  ) async {
+    var completionCount = 0;
+    await tester.pumpWidget(
+      _SplashHarness(
+        authReady: true,
+        startupError:
+            "ELIXR couldn't finish preparing your session. Check your connection and try again.",
+        onRetry: () {},
+        onFinished: () => completionCount++,
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 2200));
+    expect(find.text('SESSION PREPARATION FAILED'), findsOneWidget);
+    expect(find.byKey(const Key('splash_failure_panel')), findsOneWidget);
+    expect(completionCount, 0);
   });
 
   testWidgets('replaces a startup failure with a retryable safe state', (
@@ -108,14 +134,14 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 2200));
     expect(find.text('SESSION PREPARATION FAILED'), findsOneWidget);
-    expect(find.text('Preparing your session…'), findsNothing);
+    expect(find.text('PREPARING YOUR SESSION'), findsNothing);
     expect(find.byKey(const Key('splash_retry_button')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('splash_retry_button')));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(retryCount, 1);
-    expect(find.text('Preparing your session…'), findsOneWidget);
+    expect(find.text('PREPARING YOUR SESSION'), findsOneWidget);
     expect(find.text('SESSION PREPARATION FAILED'), findsNothing);
   });
 
@@ -134,7 +160,7 @@ void main() {
 
       expect(find.text(AppConstants.appName), findsOneWidget);
       expect(find.text(AppConstants.appTagline), findsOneWidget);
-      expect(find.text('READY TO TRAIN'), findsOneWidget);
+      expect(find.text('READY'), findsOneWidget);
       expect(completionCount, 1);
     },
   );
@@ -158,7 +184,42 @@ void main() {
     await tester.pump();
 
     expect(find.text(AppConstants.appName), findsOneWidget);
-    expect(find.text('Preparing your session…'), findsOneWidget);
+    expect(find.text('PREPARING YOUR SESSION'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('high contrast keeps brand copy and a bordered failure surface', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _SplashHarness(
+        authReady: false,
+        reducedMotion: true,
+        highContrast: true,
+        startupError: 'Could not reach authentication.',
+        onRetry: () {},
+        onFinished: () {},
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.widget<Text>(find.text('ELIXR')).style!.color, Colors.white);
+    expect(find.byKey(const Key('splash_failure_panel')), findsOneWidget);
+    expect(find.byKey(const Key('splash_retry_button')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'disposing during motion does not leave a stray ticker exception',
+    (tester) async {
+      await tester.pumpWidget(
+        _SplashHarness(authReady: false, onFinished: () {}),
+      );
+      await tester.pump(const Duration(milliseconds: 240));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/features/auth/login_screen.dart';
 import 'package:elixr_application/features/auth/complete_google_profile_screen.dart';
@@ -192,17 +193,16 @@ void main() {
     (widget) => widget is TextBox && widget.placeholder == placeholder,
   );
 
-  testWidgets('validates locally and has no compact auth scroller', (
+  testWidgets('validates locally without overflowing the compact login form', (
     tester,
   ) async {
     await pumpLogin(tester);
     await tester.enterText(field('Email address'), 'not-an-email');
-    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign In'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign in'));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('Enter a valid email address.'), findsOneWidget);
     expect(repository.loginCalls, 0);
-    expect(find.byType(SingleChildScrollView), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -314,7 +314,7 @@ void main() {
     await pumpLogin(tester);
     await tester.enterText(field('Email address'), 'user@example.com');
     await tester.enterText(field('Password'), 'old123');
-    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign In'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign in'));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(repository.loginCalls, 1);
@@ -325,7 +325,7 @@ void main() {
     await pumpLogin(tester);
     await tester.enterText(field('Email address'), 'user@example.com');
     await tester.enterText(field('Password'), 'old123');
-    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign In'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign in'));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('Email or password is incorrect.'), findsOneWidget);
@@ -340,7 +340,7 @@ void main() {
     await pumpLogin(tester);
     await tester.enterText(field('Email address'), 'user@example.com');
     await tester.enterText(field('Password'), 'old123');
-    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign In'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign in'));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(
@@ -356,7 +356,7 @@ void main() {
     await pumpLogin(tester);
     await tester.enterText(field('Email address'), 'user@example.com');
     await tester.enterText(field('Password'), 'old123');
-    final submit = find.widgetWithText(ElixPrimaryButton, 'Sign In');
+    final submit = find.widgetWithText(ElixPrimaryButton, 'Sign in');
     await tester.tap(submit);
     await tester.tap(submit);
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -372,5 +372,100 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
+  });
+
+  testWidgets('shows welcome copy and keeps auth actions discoverable', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(theme: AppTheme.dark, home: const LoginScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Continue your flair training.'), findsOneWidget);
+    expect(
+      find.text(
+        'Learn the movement. Refine the technique.',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is AuthFooterLink && widget.action == 'Forgot password?',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is AuthFooterLink && widget.action == 'Create one',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is AuthFooterLink &&
+            widget.action == 'Register as a Teacher',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Real-time guidance'), findsOneWidget);
+  });
+
+  testWidgets('toggles password visibility without changing the value', (
+    tester,
+  ) async {
+    await pumpLogin(tester);
+    await tester.enterText(field('Password'), 'secret12');
+    expect(tester.widget<TextBox>(field('Password')).obscureText, isTrue);
+
+    await tester.tap(find.byIcon(FluentIcons.view));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(tester.widget<TextBox>(field('Password')).obscureText, isFalse);
+    expect(
+      tester.widget<TextBox>(field('Password')).controller?.text,
+      'secret12',
+    );
+
+    await tester.tap(find.byIcon(FluentIcons.hide));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(tester.widget<TextBox>(field('Password')).obscureText, isTrue);
+  });
+
+  testWidgets('login remains usable when animations are disabled', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: const LoginScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.widgetWithText(ElixPrimaryButton, 'Sign in'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

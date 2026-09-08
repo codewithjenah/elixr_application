@@ -722,6 +722,12 @@ void main() {
       memberships: [_membership(groupId: 'group-1', traineeId: 'a')],
     );
     expect(daily.trendBuckets, hasLength(31));
+    expect(daily.trendBuckets.first.label, 'Aug 1, 2026');
+    expect(daily.trendBuckets.last.label, 'Aug 31, 2026');
+    expect(
+      daily.trendBuckets.map((bucket) => bucket.label),
+      everyElement(isNot(matches(r'^\d{8}$'))),
+    );
 
     final weekly = _calculate(
       window: _customWindow(
@@ -733,5 +739,10 @@ void main() {
       memberships: [_membership(groupId: 'group-1', traineeId: 'a')],
     );
     expect(weekly.trendBuckets, hasLength(9));
+    expect(weekly.trendBuckets.first.label, 'Jul 1, 2026');
+    expect(
+      weekly.trendBuckets.map((bucket) => bucket.label),
+      everyElement(isNot(matches(r'^\d{8}$'))),
+    );
   });
 }

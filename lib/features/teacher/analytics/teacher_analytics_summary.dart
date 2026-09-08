@@ -265,14 +265,14 @@ FlTitlesData _scoreTitles(
   bottomTitles: AxisTitles(
     sideTitles: SideTitles(
       showTitles: true,
-      reservedSize: 30,
+      reservedSize: 34,
       interval: interval,
       getTitlesWidget: (value, _) {
         final index = value.toInt();
         if (index < 0 || index >= buckets.length) {
           return const SizedBox.shrink();
         }
-        return _AxisLabel(_shortLabel(buckets[index].label));
+        return _AxisLabel(buckets[index].label);
       },
     ),
   ),
@@ -293,9 +293,6 @@ class _AxisLabel extends StatelessWidget {
     ),
   );
 }
-
-String _shortLabel(String value) =>
-    value.length > 10 ? '${value.substring(0, 9)}…' : value;
 
 String _scoreChartSummary(List<AnalyticsTrendBucket> buckets) {
   final values = [

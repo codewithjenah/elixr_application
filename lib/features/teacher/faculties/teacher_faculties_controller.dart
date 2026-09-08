@@ -23,6 +23,7 @@ class TeacherFacultiesController extends ChangeNotifier {
   bool loading = false;
   bool busy = false;
   String? errorMessage;
+  String? codesErrorMessage;
 
   StreamSubscription<List<ChatUser>>? _teachersSub;
   StreamSubscription<List<TeacherAccessCode>>? _codesSub;
@@ -30,6 +31,7 @@ class TeacherFacultiesController extends ChangeNotifier {
   Future<void> start() async {
     loading = true;
     errorMessage = null;
+    codesErrorMessage = null;
     notifyListeners();
     await _teachersSub?.cancel();
     await _codesSub?.cancel();
@@ -53,10 +55,12 @@ class TeacherFacultiesController extends ChangeNotifier {
           .listen(
             (value) {
               pendingCodes = _unusedCodes(value);
+              codesErrorMessage = null;
               if (!codesReady.isCompleted) codesReady.complete();
               notifyListeners();
             },
             onError: (_) {
+              codesErrorMessage = 'Could not load pending access codes.';
               if (!codesReady.isCompleted) codesReady.complete();
               notifyListeners();
             },

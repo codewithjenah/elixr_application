@@ -15,6 +15,39 @@ class _HangingDirectory implements FacultyDirectoryRepository {
   Stream<List<ChatUser>> watchTeachers() => const Stream.empty();
 }
 
+class _ErrorAccessCodes implements TeacherAccessCodeRepository {
+  @override
+  Future<void> assertRedeemable(String? code) async {}
+
+  @override
+  Future<void> consumeAndCreateTeacherProfile({
+    required String code,
+    required User user,
+    required RegistrationLegalConsent legalConsent,
+  }) async {}
+
+  @override
+  Future<User?> reconcileTeacherProfile({
+    required User expectedUser,
+    required String code,
+  }) async => null;
+
+  @override
+  Future<void> deleteUnused({
+    required String createdBy,
+    required String normalizedCode,
+  }) async {}
+
+  @override
+  Future<TeacherAccessCode> mint({required String createdBy, String? note}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Stream<List<TeacherAccessCode>> watchCreatedBy(String teacherId) =>
+      Stream.error(Exception('permission-denied'));
+}
+
 void main() {
   const self = ChatUser(
     id: 'teacher',
@@ -129,6 +162,19 @@ void main() {
     await faculties.start();
     await faculties.revokePendingCode(faculties.pendingCodes.single);
     expect(faculties.pendingCodes, isEmpty);
+  });
+
+  test('codes stream errors surface a pending-codes message', () async {
+    final faculties = TeacherFacultiesController(
+      directory: directory,
+      accessCodes: _ErrorAccessCodes(),
+      teacherId: 'teacher',
+    );
+    addTearDown(faculties.dispose);
+    await faculties.start();
+    expect(faculties.codesErrorMessage, 'Could not load pending access codes.');
+    expect(faculties.pendingCodes, isEmpty);
+    expect(faculties.loading, isFalse);
   });
 
   test('directory errors surface a load message', () async {

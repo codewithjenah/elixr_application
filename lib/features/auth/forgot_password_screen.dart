@@ -98,14 +98,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     return AuthScaffold(
       noScrollForm: true,
-      title: 'Reset password',
-      subtitle: 'We will email you a secure link to choose a new password',
+      title: 'Reset your password',
+      subtitle: 'We will email a secure link so you can choose a new one.',
       formTitle: 'Forgot password',
       formSubtitle: resetConfirmed
-          ? 'You can sign in now'
+          ? 'You can sign in now.'
           : _emailSent
-          ? 'Check your inbox to continue'
-          : 'Enter the email for your account',
+          ? 'Check your inbox to continue.'
+          : 'Enter the email for your account.',
       child: resetConfirmed
           ? _buildConfirmedContent()
           : _emailSent

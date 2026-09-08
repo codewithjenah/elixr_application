@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import 'auth_validators.dart';
 
 enum AuthFieldStatus { neutral, error, success, help }
@@ -61,15 +61,79 @@ class AuthPasswordChecklist extends StatelessWidget {
     final length = passwordHasMinimumLength(password);
     final letter = passwordHasLetter(password);
     final number = passwordHasNumber(password);
-    String item(bool met, String label) => '${met ? '✓' : '○'} $label';
 
     return Semantics(
       label:
           'Password requirements: 8 or more characters ${length ? 'met' : 'not met'}, '
           'letter ${letter ? 'met' : 'not met'}, number ${number ? 'met' : 'not met'}',
-      child: Text(
-        '${item(length, '8+ characters')}   ${item(letter, 'Letter')}   ${item(number, 'Number')}',
-        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 2, bottom: 2),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            _PasswordRequirementChip(met: length, label: '8+ characters'),
+            _PasswordRequirementChip(met: letter, label: 'Letter'),
+            _PasswordRequirementChip(met: number, label: 'Number'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PasswordRequirementChip extends StatelessWidget {
+  const _PasswordRequirementChip({required this.met, required this.label});
+
+  final bool met;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    final highContrast = context.isHighContrast;
+    final tone = met ? colors.success : colors.textMuted;
+    final border = met
+        ? (highContrast
+              ? colors.success
+              : colors.success.withValues(alpha: 0.5))
+        : colors.borderSubtle;
+
+    return AnimatedContainer(
+      duration: ElixMotion.duration(context, ElixMotion.standard),
+      curve: ElixMotion.standardCurve,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: highContrast
+            ? colors.canvas
+            : met
+            ? colors.success.withValues(alpha: 0.12)
+            : colors.surfaceInteractive.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border, width: highContrast ? 2 : 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedSwitcher(
+            duration: ElixMotion.duration(context, ElixMotion.micro),
+            child: Icon(
+              met ? FluentIcons.check_mark : FluentIcons.status_circle_inner,
+              key: ValueKey(met),
+              size: 11,
+              color: tone,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTheme.caption.copyWith(
+              color: met ? colors.textPrimary : colors.textSecondary,
+              fontWeight: met ? FontWeight.w600 : FontWeight.w500,
+              height: 1.1,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -78,6 +142,7 @@ class AuthPasswordChecklist extends StatelessWidget {
 class _AuthTextFieldState extends State<AuthTextField> {
   late bool _obscured;
   bool _focused = false;
+  bool _hovered = false;
 
   @override
   void initState() {
@@ -86,13 +151,26 @@ class _AuthTextFieldState extends State<AuthTextField> {
   }
 
   @override
+  void didUpdateWidget(covariant AuthTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.obscureText != widget.obscureText && widget.obscureText) {
+      _obscured = true;
+    }
+    if (oldWidget.obscureText && !widget.obscureText) {
+      _obscured = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final colors = context.elixColors;
     final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    final enabled = widget.enabled && !widget.isLoading;
     final statusColor = switch (widget.status) {
-      AuthFieldStatus.error => AppColors.error,
-      AuthFieldStatus.success => AppColors.success,
-      AuthFieldStatus.help ||
-      AuthFieldStatus.neutral => context.elixTextSecondary,
+      AuthFieldStatus.error => colors.error,
+      AuthFieldStatus.success => colors.success,
+      AuthFieldStatus.help || AuthFieldStatus.neutral => colors.textSecondary,
     };
     final statusIcon = switch (widget.status) {
       AuthFieldStatus.error => FluentIcons.error_badge,
@@ -101,6 +179,47 @@ class _AuthTextFieldState extends State<AuthTextField> {
       AuthFieldStatus.neutral => null,
     };
     final supportingText = widget.validationText ?? widget.helperText;
+    final emphasizeStatus =
+        widget.status == AuthFieldStatus.error ||
+        widget.status == AuthFieldStatus.success;
+    final motion = ElixMotion.duration(context, ElixMotion.standard);
+
+    final Color borderColor;
+    var borderWidth = highContrast ? 2.0 : 1.0;
+    if (!enabled) {
+      borderColor = colors.disabledBorder;
+    } else if (emphasizeStatus) {
+      borderColor = highContrast
+          ? statusColor
+          : statusColor.withValues(alpha: _focused ? 0.95 : 0.72);
+      borderWidth = highContrast ? 2.5 : (_focused ? 1.6 : 1.15);
+    } else if (_focused) {
+      borderColor = highContrast ? colors.focusRing : colors.brandPrimary;
+      borderWidth = highContrast ? 2.5 : 1.5;
+    } else if (_hovered) {
+      borderColor = highContrast
+          ? colors.borderStrong
+          : colors.borderInteractive.withValues(alpha: 0.7);
+    } else {
+      borderColor = colors.borderSubtle.withValues(alpha: isDark ? 0.9 : 1);
+    }
+
+    final fill = !enabled
+        ? colors.disabledSurface
+        : highContrast
+        ? colors.surfaceRaised
+        : Color.alphaBlend(
+            colors.brandPrimary.withValues(
+              alpha: _focused
+                  ? (isDark ? 0.07 : 0.04)
+                  : _hovered
+                  ? (isDark ? 0.04 : 0.025)
+                  : 0.0,
+            ),
+            isDark
+                ? Colors.white.withValues(alpha: _focused ? 0.045 : 0.03)
+                : Colors.black.withValues(alpha: _focused ? 0.03 : 0.018),
+          );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -108,101 +227,131 @@ class _AuthTextFieldState extends State<AuthTextField> {
         if (widget.label != null) ...[
           Text(
             widget.label!,
-            style: AppTheme.caption.copyWith(
-              color: context.elixTextSecondary,
-              fontWeight: FontWeight.w600,
+            style: AppTheme.label(
+              color: _focused && enabled
+                  ? colors.textPrimary
+                  : colors.textSecondary,
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: 6),
         ],
-        Focus(
-          onFocusChange: (v) {
-            setState(() => _focused = v);
-            widget.onFocusChanged?.call(v);
+        MouseRegion(
+          onEnter: (_) {
+            if (enabled) setState(() => _hovered = true);
           },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: isDark
-                  ? Colors.white.withValues(alpha: _focused ? 0.05 : 0.025)
-                  : Colors.black.withValues(alpha: _focused ? 0.025 : 0.015),
-              border: Border.all(
-                color:
-                    widget.status == AuthFieldStatus.error ||
-                        widget.status == AuthFieldStatus.success
-                    ? statusColor.withValues(alpha: 0.75)
-                    : _focused
-                    ? AppColors.primary.withValues(alpha: 0.55)
-                    : context.elixBorder.withValues(alpha: isDark ? 0.55 : 0.8),
-              ),
-              boxShadow: _focused
-                  ? [
-                      BoxShadow(
-                        color: AppColors.primary.withValues(alpha: 0.18),
-                        blurRadius: 12,
-                        spreadRadius: -2,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: widget.dense ? 48 : 52),
-              child: TextBox(
-                controller: widget.controller,
-                placeholder: widget.placeholder,
-                placeholderStyle: AppTheme.body.copyWith(
-                  color: context.elixTextSecondary.withValues(alpha: 0.72),
-                  fontSize: 14,
-                ),
-                obscureText: _obscured,
-                keyboardType: widget.keyboardType,
-                onSubmitted: widget.onSubmitted,
-                onChanged: widget.onChanged,
-                focusNode: widget.focusNode,
-                enabled: widget.enabled && !widget.isLoading,
-                textInputAction: widget.textInputAction,
-                padding: EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: widget.dense ? 8 : 11,
-                ),
-                prefix: Padding(
-                  padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
-                  child: Icon(
-                    widget.icon,
-                    color: _focused
-                        ? AppColors.primary
-                        : context.elixTextSecondary,
-                    size: 16,
-                  ),
-                ),
-                suffix: widget.isLoading
-                    ? const Padding(
-                        padding: EdgeInsets.all(10),
-                        child: SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: ProgressRing(strokeWidth: 2),
-                        ),
-                      )
-                    : widget.obscureText
-                    ? Tooltip(
-                        message: _obscured ? 'Show password' : 'Hide password',
-                        child: IconButton(
-                          icon: Icon(
-                            _obscured ? FluentIcons.view : FluentIcons.hide,
-                            size: 15,
-                            color: context.elixTextSecondary,
+          onExit: (_) => setState(() => _hovered = false),
+          cursor: enabled ? SystemMouseCursors.text : SystemMouseCursors.basic,
+          child: Focus(
+            onFocusChange: (v) {
+              setState(() => _focused = v);
+              widget.onFocusChanged?.call(v);
+            },
+            child: AnimatedContainer(
+              duration: motion,
+              curve: ElixMotion.standardCurve,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: fill,
+                border: Border.all(color: borderColor, width: borderWidth),
+                boxShadow: highContrast || !enabled
+                    ? const []
+                    : [
+                        if (_focused && !emphasizeStatus)
+                          BoxShadow(
+                            color: colors.glowPrimary.withValues(alpha: 0.16),
+                            blurRadius: 14,
+                            spreadRadius: -4,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscured = !_obscured),
-                        ),
-                      )
-                    : null,
-                style: AppTheme.body.copyWith(
-                  color: context.elixTextPrimary,
-                  fontSize: 14,
+                        if (_focused && widget.status == AuthFieldStatus.error)
+                          BoxShadow(
+                            color: colors.error.withValues(alpha: 0.16),
+                            blurRadius: 12,
+                            spreadRadius: -4,
+                          ),
+                        if (_focused &&
+                            widget.status == AuthFieldStatus.success)
+                          BoxShadow(
+                            color: colors.success.withValues(alpha: 0.14),
+                            blurRadius: 12,
+                            spreadRadius: -4,
+                          ),
+                      ],
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: widget.dense ? 46 : 50),
+                child: TextBox(
+                  controller: widget.controller,
+                  placeholder: widget.placeholder,
+                  placeholderStyle: AppTheme.body.copyWith(
+                    color: colors.textMuted.withValues(alpha: 0.9),
+                    fontSize: 14,
+                  ),
+                  obscureText: _obscured,
+                  keyboardType: widget.keyboardType,
+                  onSubmitted: widget.onSubmitted,
+                  onChanged: widget.onChanged,
+                  focusNode: widget.focusNode,
+                  enabled: enabled,
+                  textInputAction: widget.textInputAction,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: widget.dense ? 8 : 11,
+                  ),
+                  decoration: const BoxDecoration(
+                    color: Color(0x00000000),
+                    border: Border.fromBorderSide(BorderSide.none),
+                  ),
+                  highlightColor: const Color(0x00000000),
+                  unfocusedColor: const Color(0x00000000),
+                  foregroundDecoration: const BoxDecoration(
+                    border: Border.fromBorderSide(BorderSide.none),
+                  ),
+                  prefix: Padding(
+                    padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
+                    child: Icon(
+                      widget.icon,
+                      color: !enabled
+                          ? colors.disabledText
+                          : _focused
+                          ? (emphasizeStatus
+                                ? statusColor
+                                : colors.brandPrimary)
+                          : colors.textSecondary,
+                      size: 16,
+                    ),
+                  ),
+                  suffix: widget.isLoading
+                      ? const Padding(
+                          padding: EdgeInsets.all(10),
+                          child: SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: ProgressRing(strokeWidth: 2),
+                          ),
+                        )
+                      : widget.obscureText
+                      ? Semantics(
+                          button: true,
+                          label: _obscured ? 'Show password' : 'Hide password',
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: IconButton(
+                              icon: Icon(
+                                _obscured ? FluentIcons.view : FluentIcons.hide,
+                                size: 15,
+                                color: colors.textSecondary,
+                              ),
+                              onPressed: enabled
+                                  ? () => setState(() => _obscured = !_obscured)
+                                  : null,
+                            ),
+                          ),
+                        )
+                      : null,
+                  style: AppTheme.body.copyWith(
+                    color: enabled ? colors.textPrimary : colors.disabledText,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             ),
@@ -213,7 +362,7 @@ class _AuthTextFieldState extends State<AuthTextField> {
           child: supportingText == null
               ? null
               : Padding(
-                  padding: const EdgeInsets.only(left: 2, top: AppSpacing.xs),
+                  padding: const EdgeInsets.only(left: 2, top: 5),
                   child: Row(
                     children: [
                       if (statusIcon != null) ...[

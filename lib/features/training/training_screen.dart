@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_colors.dart';
@@ -62,7 +63,7 @@ class TrainingScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const _TrainingHeader(),
-                  const SizedBox(height: AppSpacing.md),
+                  const SizedBox(height: AppSpacing.sm + 4),
                   _TrainingViewSelector(
                     view: view,
                     onChanged: (next) => _selectView(context, next),
@@ -172,18 +173,36 @@ class _TrainingViewTab extends StatefulWidget {
 
 class _TrainingViewTabState extends State<_TrainingViewTab> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final selected = widget.selected;
+    final highContrast = context.isHighContrast;
     return Semantics(
       button: true,
       selected: selected,
       label: widget.label,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap();
+              return null;
+            },
+          ),
+        },
+        onShowHoverHighlight: (value) {
+          if (_hovered != value) setState(() => _hovered = value);
+        },
+        onShowFocusHighlight: (value) {
+          if (_focused != value) setState(() => _focused = value);
+        },
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
@@ -196,6 +215,18 @@ class _TrainingViewTabState extends State<_TrainingViewTab> {
                         ? context.elixBorder.withValues(alpha: 0.18)
                         : Colors.transparent),
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _focused
+                    ? context.elixColors.focusRing
+                    : selected
+                    ? _pink.withValues(alpha: highContrast ? 1 : 0.45)
+                    : Colors.transparent,
+                width: _focused
+                    ? (highContrast
+                          ? ElixFocus.ringWidthHighContrast
+                          : ElixFocus.ringWidth)
+                    : 1,
+              ),
             ),
             child: Text(
               widget.label,

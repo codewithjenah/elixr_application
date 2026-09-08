@@ -20,10 +20,11 @@ import '../../features/teacher/teacher_phase3_test_support.dart';
 
 void main() {
   test('teacher sidebar follows the daily Teacher workflow', () {
-    expect(teacherSidebarItems, hasLength(7));
+    expect(teacherSidebarItems, hasLength(8));
     expect(teacherSidebarItems.map((item) => item.label), [
       'Dashboard',
       'Classrooms',
+      'Activity Library',
       'Review Work',
       'Students',
       'Calendar',
@@ -33,6 +34,7 @@ void main() {
     expect(teacherSidebarItems.map((item) => item.route), [
       AppRoutePaths.teacherDashboard,
       AppRoutePaths.teacherGroups,
+      AppRoutePaths.teacherMovements,
       AppRoutePaths.teacherToReview,
       AppRoutePaths.teacherStudents,
       AppRoutePaths.teacherCalendar,
@@ -153,9 +155,11 @@ void main() {
       findsOneWidget,
     );
     expect(find.text(AppConstants.appName), findsAtLeastNWidgets(1));
-    expect(find.text('Teacher'), findsWidgets);
+    expect(find.text('Teacher Workspace'), findsOneWidget);
+    expect(find.text('Teacher'), findsOneWidget);
     expect(find.text('WORKSPACE'), findsOneWidget);
     expect(find.text('UTILITIES'), findsOneWidget);
+    expect(find.byType(ElixSidebarPane), findsOneWidget);
     expect(find.text('ACCOUNT'), findsNothing);
     expect(find.text('Settings'), findsNothing);
     expect(find.text('EXP'), findsNothing);
@@ -264,6 +268,51 @@ void main() {
       expect(badgeFor('Messages'), findsOneWidget);
     },
   );
+
+  testWidgets('teacher sidebar uses the shared floating pane when collapsed', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const Row(
+            children: [
+              TeacherSidebar(
+                currentRoute: AppRoutePaths.teacherDashboard,
+                isCollapsed: true,
+                onToggleCollapse: _noop,
+                onLogout: _noop,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(ElixSidebarMetrics.paneMotion);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ElixSidebarPane), findsOneWidget);
+    expect(find.text('Teacher Workspace'), findsNothing);
+    expect(find.text('EXP'), findsNothing);
+
+    final pane = tester.widget<ElixSidebarPane>(find.byType(ElixSidebarPane));
+    expect(pane.isCollapsed, isTrue);
+
+    final dashboard = tester
+        .widgetList<ElixSidebarNavTile>(find.byType(ElixSidebarNavTile))
+        .firstWhere((tile) => tile.label == 'Dashboard');
+    expect(dashboard.isActive, isTrue);
+    expect(dashboard.isCollapsed, isTrue);
+  });
 }
 
 void _noop() {}

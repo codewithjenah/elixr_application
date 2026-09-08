@@ -58,7 +58,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('ELIXR'), findsOneWidget);
-      expect(find.text('Preparing your session…'), findsOneWidget);
+      expect(find.text('PREPARING YOUR SESSION'), findsOneWidget);
     },
   );
 
@@ -256,7 +256,7 @@ void main() {
         ),
       );
       final brandSpan = brandHeading.textSpan! as TextSpan;
-      expect(brandSpan.style!.fontSize, 52);
+      expect(brandSpan.style!.fontSize, 36);
       expect(
         (brandSpan.children!.last as TextSpan).style!.color,
         ElixSemanticColors.dark.brandPrimary,

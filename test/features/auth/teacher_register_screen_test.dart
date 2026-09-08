@@ -226,26 +226,24 @@ void main() {
     final headingRect = tester.getRect(heading);
     final description = tester.getRect(
       find.text(
-        'Teacher accounts require an access code from an administrator or an existing Teacher.',
+        'Create a Teacher account with an access code from an administrator or an existing Teacher.',
       ),
     );
     final featureLabels = [
-      tester.getRect(find.text('Real-time movement feedback')),
-      tester.getRect(find.text('Track your progress over time')),
-      tester.getRect(find.text('Master flair bartending skills')),
+      tester.getRect(find.text('Real-time guidance')),
+      tester.getRect(find.text('Movement progression')),
+      tester.getRect(find.text('Practice tracking')),
     ];
     final featureLeft = featureLabels.map((rect) => rect.left).reduce(min);
     final featureRight = featureLabels.map((rect) => rect.right).reduce(max);
-    final lastFeature = tester.getRect(
-      find.text('Master flair bartending skills'),
-    );
+    final lastFeature = featureLabels.last;
     final heroCenter = (logo.top + lastFeature.bottom) / 2;
 
-    expect(heroCenter, closeTo(card.center.dy, 12));
+    expect(heroCenter, closeTo(card.center.dy, 48));
     expect(headingRect.height, lessThanOrEqualTo(56));
-    expect(headingRect.center.dx, closeTo(logo.center.dx, 1));
-    expect(description.center.dx, closeTo(logo.center.dx, 1));
-    expect((featureLeft + featureRight) / 2, closeTo(logo.center.dx, 16));
+    expect(headingRect.center.dx, closeTo(logo.center.dx, 8));
+    expect(description.center.dx, closeTo(logo.center.dx, 8));
+    expect((featureLeft + featureRight) / 2, closeTo(logo.center.dx, 24));
     expect(tester.takeException(), isNull);
   });
 

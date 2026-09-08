@@ -674,18 +674,17 @@ class _TrendChart extends StatelessWidget {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 30,
+              reservedSize: 34,
               interval: interval,
               getTitlesWidget: (value, _) {
                 final index = value.toInt();
                 if (index < 0 || index >= buckets.length) {
                   return const SizedBox.shrink();
                 }
-                final label = buckets[index].label;
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    label.length > 8 ? label.substring(4, 8) : label,
+                    buckets[index].label,
                     style: TextStyle(
                       fontSize: 10,
                       color: context.elixTextSecondary,

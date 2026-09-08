@@ -130,7 +130,7 @@ class HistoryLoadingSkeleton extends StatelessWidget {
           runSpacing: AppSpacing.sm,
           children: List.generate(
             4,
-            (_) => _SkeletonBox(width: 200, height: 72, borderRadius: 18),
+            (_) => _SkeletonBox(width: 220, height: 88, borderRadius: 14),
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -143,7 +143,7 @@ class HistoryLoadingSkeleton extends StatelessWidget {
         for (var i = 0; i < 6; i++) ...[
           const _SkeletonBox(
             width: double.infinity,
-            height: 56,
+            height: 64,
             borderRadius: 12,
           ),
           const SizedBox(height: AppSpacing.sm),

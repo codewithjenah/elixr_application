@@ -9,4 +9,9 @@ void main() {
     expect(formatElixrDate(value), 'Aug 21, 2026');
     expect(formatElixrTime(value), '1:00 PM');
   });
+
+  test('formats Manila day keys without exposing yyyyMMdd', () {
+    expect(formatElixrManilaDayKey('20260907'), 'Sep 7, 2026');
+    expect(formatElixrManilaDayKey('20260919'), 'Sep 19, 2026');
+  });
 }

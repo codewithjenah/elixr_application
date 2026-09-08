@@ -249,10 +249,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('September Season • Resets in 22d'),
-        findsOneWidget,
-      );
+      expect(find.text('September Season • Resets in 22d'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
@@ -637,6 +634,235 @@ void main() {
   });
 
   group('LeaderboardRankRow', () {
+    testWidgets(
+      'header and rows share one column grid across ranks, borders, and names',
+      (tester) async {
+        await setSurface(tester, const Size(1200, 900));
+        const longName =
+            'Extremely Long Leaderboard Player Name That Must Not Push Metrics';
+        await tester.pumpWidget(
+          wrap(
+            SingleChildScrollView(
+              child: LeaderboardRankingsSection(
+                rows: [
+                  (
+                    rank: 1,
+                    entry: entry(id: '1', name: 'Ada', xp: 900, sessions: 8),
+                  ),
+                  (
+                    rank: 9,
+                    entry: entry(
+                      id: '9',
+                      name: 'Bea',
+                      xp: 800,
+                      sessions: 14,
+                      equippedBorderId: 'starter_glow',
+                    ),
+                  ),
+                  (
+                    rank: 10,
+                    entry: entry(
+                      id: '10',
+                      name: longName,
+                      xp: 700,
+                      sessions: 21,
+                    ),
+                  ),
+                  (
+                    rank: 99,
+                    entry: entry(
+                      id: '99',
+                      name: 'Cal',
+                      xp: 600,
+                      sessions: 33,
+                      equippedBorderId: 'tin_specialist',
+                    ),
+                  ),
+                  (
+                    rank: 100,
+                    entry: entry(id: '100', name: 'Dee', xp: 500, sessions: 47),
+                  ),
+                ],
+                currentUserId: null,
+                footer: const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final nameLefts = [
+          tester.getTopLeft(find.text('Ada')).dx,
+          tester.getTopLeft(find.text('Bea')).dx,
+          tester.getTopLeft(find.text(longName)).dx,
+          tester.getTopLeft(find.text('Cal')).dx,
+          tester.getTopLeft(find.text('Dee')).dx,
+        ];
+        expect(
+          nameLefts.toSet(),
+          hasLength(1),
+          reason:
+              'Player names must share one x origin regardless of rank '
+              'width, name length, or avatar border size.',
+        );
+
+        final sessionRights = [
+          tester.getTopRight(find.text('8')).dx,
+          tester.getTopRight(find.text('14')).dx,
+          tester.getTopRight(find.text('21')).dx,
+          tester.getTopRight(find.text('33')).dx,
+          tester.getTopRight(find.text('47')).dx,
+        ];
+        expect(
+          sessionRights.toSet(),
+          hasLength(1),
+          reason: 'Sessions values must share one right edge.',
+        );
+
+        final xpRights = [
+          tester.getTopRight(find.text('900 XP')).dx,
+          tester.getTopRight(find.text('800 XP')).dx,
+          tester.getTopRight(find.text('700 XP')).dx,
+          tester.getTopRight(find.text('600 XP')).dx,
+          tester.getTopRight(find.text('500 XP')).dx,
+        ];
+        expect(
+          xpRights.toSet(),
+          hasLength(1),
+          reason: 'Total XP values must share one right edge.',
+        );
+
+        expect(
+          tester.getTopLeft(find.text('Rank')).dx,
+          tester.getTopLeft(find.text('#1')).dx,
+        );
+        expect(tester.getTopLeft(find.text('Player')).dx, nameLefts.first);
+        expect(
+          tester.getTopRight(find.text('Sessions')).dx,
+          sessionRights.first,
+        );
+        expect(tester.getTopRight(find.text('Total XP')).dx, xpRights.first);
+
+        final avatarSlots = tester.getSize(
+          find.byKey(const Key('leaderboard_avatar_slot')).first,
+        );
+        for (var i = 0; i < 5; i++) {
+          expect(
+            tester.getSize(
+              find.byKey(const Key('leaderboard_avatar_slot')).at(i),
+            ),
+            avatarSlots,
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'many ranking rows scroll without drifting the shared column grid',
+      (tester) async {
+        await setSurface(tester, const Size(1100, 420));
+        final rows = [
+          for (var i = 0; i < 24; i++)
+            (
+              rank: i + 1,
+              entry: entry(
+                id: '$i',
+                name: i.isEven
+                    ? 'Player $i'
+                    : 'A much longer ranking display name for player $i',
+                xp: 400 - i,
+                sessions: 10 + i,
+                equippedBorderId: switch (i % 3) {
+                  0 => null,
+                  1 => 'starter_glow',
+                  _ => 'tin_specialist',
+                },
+              ),
+            ),
+        ];
+        await tester.pumpWidget(
+          wrap(
+            SizedBox(
+              height: 360,
+              child: SingleChildScrollView(
+                child: LeaderboardRankingsSection(
+                  rows: rows,
+                  currentUserId: null,
+                  footer: const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final firstNameLeft = tester.getTopLeft(find.text('Player 0')).dx;
+        final firstXpRight = tester.getTopRight(find.text('400 XP')).dx;
+
+        await tester.drag(
+          find.byType(SingleChildScrollView).first,
+          const Offset(0, -520),
+        );
+        await tester.pump();
+
+        expect(tester.getTopLeft(find.text('Player 22')).dx, firstNameLeft);
+        expect(tester.getTopRight(find.text('378 XP')).dx, firstXpRight);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'compact rows keep names aligned across ranks and avatar borders',
+      (tester) async {
+        await setSurface(tester, const Size(400, 700));
+        await tester.pumpWidget(
+          wrap(
+            SingleChildScrollView(
+              child: Column(
+                children: [
+                  LeaderboardRankRow(
+                    rank: 1,
+                    entry: entry(id: '1', name: 'Ada', xp: 900),
+                    isCurrentUser: false,
+                  ),
+                  LeaderboardRankRow(
+                    rank: 10,
+                    entry: entry(
+                      id: '10',
+                      name: 'Bea',
+                      xp: 800,
+                      equippedBorderId: 'starter_glow',
+                    ),
+                    isCurrentUser: false,
+                  ),
+                  LeaderboardRankRow(
+                    rank: 100,
+                    entry: entry(
+                      id: '100',
+                      name: 'Cal',
+                      xp: 600,
+                      equippedBorderId: 'tin_specialist',
+                    ),
+                    isCurrentUser: false,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final nameLefts = [
+          tester.getTopLeft(find.text('Ada')).dx,
+          tester.getTopLeft(find.text('Bea')).dx,
+          tester.getTopLeft(find.text('Cal')).dx,
+        ];
+        expect(nameLefts.toSet(), hasLength(1));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('wide layout shows XP columns without score columns', (
       tester,
     ) async {

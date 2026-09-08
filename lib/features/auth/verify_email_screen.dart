@@ -224,7 +224,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen>
           ? 'Confirm this account from the message we sent you.'
           : 'We sent a verification message to $email',
       formTitle: 'Email verification',
-      formSubtitle: 'Verify your email before accessing ELIXR.',
+      formSubtitle: 'Verify your email before using ELIXR.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

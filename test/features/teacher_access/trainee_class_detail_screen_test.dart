@@ -25,8 +25,9 @@ Future<GoRouter> pumpClassDetail(
   required ClassroomAssignmentRepository assignmentRepository,
   AssignedMovementsController? workController,
   String? initialLocation,
+  Size viewSize = const Size(1280, 720),
 }) async {
-  tester.view.physicalSize = const Size(1280, 720);
+  tester.view.physicalSize = viewSize;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -70,6 +71,11 @@ Future<GoRouter> pumpClassDetail(
         path: '${AppRoutePaths.assignedPracticePrefix}/:assignmentId',
         builder: (context, state) =>
             Text('practice:${state.pathParameters['assignmentId']}'),
+      ),
+      GoRoute(
+        path: '${AppRoutePaths.assignedMovements}/:assignmentId',
+        builder: (context, state) =>
+            Text('detail:${state.pathParameters['assignmentId']}'),
       ),
     ],
   );
@@ -192,6 +198,11 @@ void main() {
     );
     expect(find.text('Start practice'), findsOneWidget);
     expect(find.text('Ada Lovelace (you)'), findsNothing);
+
+    await tester.tap(find.text('Hand Stall'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('detail:asg-a'), findsOneWidget);
   });
 
   testWidgets('back returns to the trainee classes list', (tester) async {
@@ -258,13 +269,18 @@ void main() {
       controller.setTab(TraineeClassDetailTab.classwork);
       await tester.pump();
 
+      expect(find.text('View your work'), findsOneWidget);
+      expect(find.byIcon(FluentIcons.task_list), findsWidgets);
       final action = tester.getRect(
         find.byKey(const Key('teacher_access_class_view_your_work')),
       );
       final classworkContent = tester.getRect(
         find.byType(ClassroomTopicContent),
       );
-      expect(action.left, classworkContent.left);
+      expect(action.top, lessThan(classworkContent.top));
+      expect(action.left, greaterThan(classworkContent.left));
+      expect(action.right, lessThanOrEqualTo(classworkContent.right + 1));
+      expect(classworkContent.width, greaterThan(860));
       expect(action.right, lessThan(tester.view.physicalSize.width));
 
       await tester.tap(
@@ -290,6 +306,40 @@ void main() {
       expect(find.text('classes home'), findsNothing);
     },
   );
+
+  testWidgets('wide classwork is not limited to the old 860px column', (
+    tester,
+  ) async {
+    final group = await approvedClass(name: 'BSHM 4A');
+    assignmentRepository.seedAssignment(
+      _assignment(id: 'asg-a', groupId: group.id, title: 'Hand Stall'),
+    );
+    final controller = TraineeClassDetailController(
+      groupId: group.id,
+      traineeId: 'trainee-1',
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    controller.setTab(TraineeClassDetailTab.classwork);
+
+    await pumpClassDetail(
+      tester,
+      controller: controller,
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+      viewSize: const Size(1600, 900),
+    );
+
+    final classwork = tester.getRect(find.byType(ClassroomTopicContent));
+    expect(classwork.width, greaterThan(860));
+    expect(classwork.width, greaterThan(1200));
+    expect(
+      find.byKey(const Key('teacher_access_class_view_your_work')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('direct classroom work link falls back to its classwork tab', (
     tester,

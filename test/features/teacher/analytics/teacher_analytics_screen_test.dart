@@ -200,6 +200,8 @@ void main() {
 
     expect(find.text('Score progress'), findsOneWidget);
     expect(find.text('Average practice score over time.'), findsOneWidget);
+    expect(find.text('Aug 19, 2026'), findsWidgets);
+    expect(find.text('20260819'), findsNothing);
     expect(find.text('Class average score'), findsOneWidget);
     expect(find.text('Assignments completed'), findsOneWidget);
     expect(find.byType(LineChart), findsOneWidget);

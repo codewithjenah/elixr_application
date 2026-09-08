@@ -4,6 +4,7 @@ import 'package:elixr_application/features/teacher/faculties/teacher_faculties_s
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -192,7 +193,65 @@ void main() {
     await tester.tap(find.text('Revoke'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('Pending access codes'), findsNothing);
+    expect(find.text('Pending access codes'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_faculties_pending_empty')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('elix_toast_close')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+  });
+
+  testWidgets('always shows pending empty state when no unused codes exist', (
+    tester,
+  ) async {
+    await pumpFaculties(tester);
+    expect(find.text('Pending access codes'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_faculties_pending_empty')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_faculties_teacher_count')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_faculties_pending_count')),
+      findsOneWidget,
+    );
+    expect(find.text('0'), findsWidgets);
+  });
+
+  testWidgets('copies a pending access code', (tester) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') return null;
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    accessCodes.seed(
+      const TeacherAccessCode(
+        normalizedCode: '7KPMXR4DQ2WT',
+        consumed: false,
+        createdBy: 'teacher',
+      ),
+    );
+    await pumpFaculties(tester);
+    await tester.tap(find.text('Copy'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('Access code copied.'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('elix_toast_close')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
   });
 
   testWidgets('invite mints a code and shows it in a dialog', (tester) async {
@@ -212,5 +271,7 @@ void main() {
     await pumpFaculties(tester, directoryOverride: _ErrorDirectory());
     expect(find.byKey(const Key('teacher_faculties_error')), findsOneWidget);
     expect(find.text('Could not load faculties.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Pending access codes'), findsOneWidget);
   });
 }

@@ -2,9 +2,12 @@ import 'package:elixr_core/utils/manila_day.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/movements.dart';
 import '../../data/models/assessment_score_display.dart';
+import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
+import '../../data/models/training_prop.dart';
 
 /// Formats a duration for summary cards and session rows.
 ///
@@ -62,6 +65,38 @@ Color performanceLevelColor(PerformanceLevel level) => switch (level) {
   PerformanceLevel.competent => AppColors.warning,
   PerformanceLevel.developing || PerformanceLevel.beginning => AppColors.error,
 };
+
+/// Compact row subtitle from catalog + session prop. Difficulty stays in its
+/// own column, so this only surfaces prop identity when it adds information.
+String? historyMovementSubtitle({
+  required String movementName,
+  required TrainingProp propType,
+}) {
+  Movement? catalog;
+  for (final movement in movementCatalog) {
+    if (movement.name == movementName) {
+      catalog = movement;
+      break;
+    }
+  }
+  final showProp = catalog == null
+      ? propType != TrainingProp.bottle
+      : catalog.supportedProps.length > 1 || propType != TrainingProp.bottle;
+  if (!showProp) return null;
+  return propType.displayLabel;
+}
+
+/// Mixed-cohort note so legacy 0..100 sessions are not averaged into rubric.
+String? historyLegacyCohortExplanation({
+  required int legacySessionCount,
+  required double? averageLegacyScore,
+}) {
+  if (legacySessionCount <= 0) return null;
+  final noun = legacySessionCount == 1 ? 'session' : 'sessions';
+  final base = '$legacySessionCount legacy $noun scored 0–100';
+  if (averageLegacyScore == null) return base;
+  return '$base • average ${averageLegacyScore.toStringAsFixed(0)}/100';
+}
 
 Color difficultyColor(String difficulty) {
   switch (difficulty) {

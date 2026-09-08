@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/auth/teacher_auth_messages.dart';
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
@@ -13,6 +12,7 @@ import '../../core/utils/user_name.dart';
 import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
+import 'auth_form_chrome.dart';
 import 'auth_text_field.dart';
 import 'auth_validators.dart';
 import 'google_auth_button.dart';
@@ -39,7 +39,15 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
   String? _prevalidatedAccessCode;
   String? _error;
   int _step = 0;
+  bool _stepForward = true;
   final Set<String> _touched = <String>{};
+
+  static const _stepLabels = [
+    'Teacher access',
+    'Method',
+    'Profile',
+    'Security',
+  ];
 
   @override
   void dispose() {
@@ -63,6 +71,14 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
     return false;
   }
 
+  void _goToStep(int step) {
+    setState(() {
+      _stepForward = step > _step;
+      _step = step;
+      _error = null;
+    });
+  }
+
   Future<void> _continueFromAccess() async {
     if (_isCheckingAccess) return;
     setState(() => _touched.add('code'));
@@ -80,6 +96,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
       if (!mounted) return;
       setState(() {
         _prevalidatedAccessCode = accessCode;
+        _stepForward = true;
         _step = 1;
       });
     } catch (error) {
@@ -94,19 +111,13 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
   }
 
   void _chooseEmailAndPassword() {
-    setState(() {
-      _step = 2;
-      _error = null;
-    });
+    _goToStep(2);
   }
 
   void _continueToSecurity() {
     setState(() => _touched.addAll(['first', 'last']));
     if (!_validatePersonalDetails()) return;
-    setState(() {
-      _step = 3;
-      _error = null;
-    });
+    _goToStep(3);
   }
 
   Future<void> _register() async {
@@ -172,6 +183,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
       setState(() {
         _touched.add('code');
         _error = TeacherAuthMessages.accessCodeInvalid;
+        _stepForward = false;
         _step = 0;
       });
       return;
@@ -203,14 +215,14 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final viewportHeight = MediaQuery.sizeOf(context).height;
+    final dense = viewportHeight < 840;
 
     return AuthScaffold(
       noScrollForm: viewportHeight >= 680,
-      formOnLeft: true,
       compactBrandHero: true,
       title: 'Teach with ELIXR',
       subtitle:
-          'Teacher accounts require an access code from an administrator or an existing Teacher.',
+          'Create a Teacher account with an access code from an administrator or an existing Teacher.',
       formTitle: switch (_step) {
         0 => 'Teacher access',
         1 => 'Choose how to register',
@@ -218,160 +230,22 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
         _ => 'Secure your account',
       },
       formSubtitle: switch (_step) {
-        0 => 'Enter your Teacher access code to get started.',
+        0 => 'Enter your Teacher access code to continue.',
         1 => 'Use Google, or create an account with email and password.',
         2 => 'Students will see this name in classroom contexts.',
-        _ =>
-          'Enter your account email, choose a strong password, and accept the legal terms.',
+        _ => 'Choose an email, set a password, and accept the legal terms.',
       },
       child: Column(
         key: const Key('teacher_register_form_fields'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _TeacherProgress(step: _step),
+          AuthFlowStepper(step: _step, compact: dense, labels: _stepLabels),
           const SizedBox(height: AppSpacing.md),
-          if (_step == 0) ...[
-            AuthTextField(
-              key: const Key('teacher_register_access_code_field'),
-              controller: _accessCodeController,
-              label: 'Teacher access code',
-              placeholder: 'XXXX-XXXX-XXXX',
-              icon: FluentIcons.permissions,
-              helperText:
-                  'Ask an administrator or an existing Teacher for a code.',
-              isLoading: _isCheckingAccess,
-              validationText: _touched.contains('code') && !_teacherCodeValid
-                  ? TeacherAuthMessages.accessCodeInvalid
-                  : null,
-              status: _status(
-                'code',
-                _teacherCodeValid
-                    ? null
-                    : TeacherAuthMessages.accessCodeInvalid,
-              ),
-              onChanged: (_) {
-                _prevalidatedAccessCode = null;
-                _error = null;
-                _live('code');
-              },
-              onFocusChanged: (v) => _blur('code', v),
-              onSubmitted: (_) {
-                if (_teacherCodeValid) _continueFromAccess();
-              },
-            ),
-          ] else if (_step == 1) ...[
-            Text(
-              'Your access code is valid. Choose the sign-in method you want to use for this Teacher account.',
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            GoogleAuthButton(
-              key: const Key('teacher_register_google_button'),
-              label: 'Continue with Google',
-              isLoading: _isGoogleLoading,
-              onPressed: _isLoading ? null : _registerWithGoogle,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            const AuthOrDivider(),
-            const SizedBox(height: AppSpacing.sm),
-            ElixPrimaryButton(
-              key: const Key('teacher_register_email_button'),
-              label: 'Use email and password',
-              onPressed: _isGoogleLoading ? null : _chooseEmailAndPassword,
-            ),
-          ] else if (_step == 2) ...[
-            AuthTextField(
-              controller: _firstNameController,
-              label: 'First name',
-              placeholder: 'e.g. Jane',
-              icon: FluentIcons.contact,
-              validationText: _nameError('first'),
-              status: _status('first', _nameError('first')),
-              onChanged: (_) => _live('first'),
-              onFocusChanged: (v) => _blur('first', v),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            AuthTextField(
-              controller: _middleNameController,
-              label: 'Middle name (optional)',
-              placeholder: 'e.g. Marie',
-              icon: FluentIcons.contact,
-              onChanged: (_) => _live('middle'),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            AuthTextField(
-              controller: _lastNameController,
-              label: 'Last name',
-              placeholder: 'e.g. Santos',
-              icon: FluentIcons.contact,
-              validationText: _nameError('last'),
-              status: _status('last', _nameError('last')),
-              onChanged: (_) => _live('last'),
-              onFocusChanged: (v) => _blur('last', v),
-            ),
-          ] else ...[
-            AuthTextField(
-              key: const Key('teacher_register_email_field'),
-              controller: _emailController,
-              label: 'Email address',
-              placeholder: 'you@school.edu',
-              icon: FluentIcons.mail_solid,
-              keyboardType: TextInputType.emailAddress,
-              validationText: _touched.contains('email')
-                  ? validateAuthEmail(_emailController.text)
-                  : null,
-              status: _status(
-                'email',
-                validateAuthEmail(_emailController.text),
-              ),
-              onChanged: (_) => _live('email'),
-              onFocusChanged: (v) => _blur('email', v),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            AuthTextField(
-              controller: _passwordController,
-              label: 'Password',
-              placeholder: 'Create a password',
-              icon: FluentIcons.lock_solid,
-              obscureText: true,
-              helperText: '8+ characters, including a letter and a number',
-              validationText: _touched.contains('password')
-                  ? validateRegistrationPassword(_passwordController.text)
-                  : null,
-              status: _status(
-                'password',
-                validateRegistrationPassword(_passwordController.text),
-              ),
-              onChanged: (_) {
-                _live('password');
-                if (_touched.contains('confirm')) setState(() {});
-              },
-              onFocusChanged: (v) => _blur('password', v),
-            ),
-            AuthPasswordChecklist(password: _passwordController.text),
-            const SizedBox(height: AppSpacing.sm),
-            AuthTextField(
-              controller: _confirmController,
-              label: 'Confirm password',
-              placeholder: 'Re-enter your password',
-              icon: FluentIcons.shield_solid,
-              obscureText: true,
-              onSubmitted: (_) {
-                if (_agreedToLegal) _register();
-              },
-              validationText: _confirmationMessage,
-              status: _confirmationStatus,
-              onChanged: (_) => _live('confirm'),
-              onFocusChanged: (v) => _blur('confirm', v),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            _TeacherRegisterLegalConsent(
-              agreed: _agreedToLegal,
-              onChanged: (value) => setState(() => _agreedToLegal = value),
-            ),
-          ],
+          AuthStepSwitcher(
+            step: _step,
+            forward: _stepForward,
+            child: _stepBody(dense: dense),
+          ),
           if ((_step == 0 && !_teacherCodeValid) ||
               (_step == 2 && !_profileValid) ||
               (_step == 3 && !_securityValid)) ...[
@@ -388,72 +262,9 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               ),
             ),
           ],
-          if (_error != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            AuthErrorBanner(message: _error!),
-          ],
+          AuthErrorSlot(message: _error),
           const SizedBox(height: AppSpacing.lg),
-          if (_step == 0)
-            ElixPrimaryButton(
-              label: 'Continue',
-              isLoading: _isCheckingAccess,
-              onPressed: _continueFromAccess,
-            )
-          else if (_step == 1)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Button(
-                onPressed: _isGoogleLoading
-                    ? null
-                    : () => setState(() {
-                        _step = 0;
-                        _error = null;
-                      }),
-                child: const Text('Back'),
-              ),
-            )
-          else if (_step == 2)
-            Row(
-              children: [
-                Button(
-                  onPressed: () => setState(() {
-                    _step = 1;
-                    _error = null;
-                  }),
-                  child: const Text('Back'),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: ElixPrimaryButton(
-                    label: 'Continue',
-                    onPressed: _profileValid ? _continueToSecurity : null,
-                  ),
-                ),
-              ],
-            )
-          else ...[
-            Row(
-              children: [
-                Button(
-                  onPressed: _isLoading
-                      ? null
-                      : () => setState(() {
-                          _step = 2;
-                          _error = null;
-                        }),
-                  child: const Text('Back'),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: ElixPrimaryButton(
-                    label: 'Create Teacher account',
-                    isLoading: _isLoading,
-                    onPressed: _securityValid ? _register : null,
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ..._stepActions(dense: dense),
           const SizedBox(height: AppSpacing.sm),
           Center(
             child: AuthFooterLink(
@@ -462,17 +273,230 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               onTap: () => context.go(AppRoutePaths.login),
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
           Center(
             child: AuthFooterLink(
               prompt: 'Training as a student?',
               action: 'Create Trainee account',
+              muted: true,
+              dense: true,
               onTap: () => context.go(AppRoutePaths.register),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _stepBody({required bool dense}) {
+    return switch (_step) {
+      0 => AuthTextField(
+        key: const Key('teacher_register_access_code_field'),
+        controller: _accessCodeController,
+        label: 'Teacher access code',
+        placeholder: 'XXXX-XXXX-XXXX',
+        icon: FluentIcons.permissions,
+        helperText: 'Ask an administrator or an existing Teacher for a code.',
+        isLoading: _isCheckingAccess,
+        validationText: _touched.contains('code') && !_teacherCodeValid
+            ? TeacherAuthMessages.accessCodeInvalid
+            : null,
+        status: _status(
+          'code',
+          _teacherCodeValid ? null : TeacherAuthMessages.accessCodeInvalid,
+        ),
+        onChanged: (_) {
+          _prevalidatedAccessCode = null;
+          _error = null;
+          _live('code');
+        },
+        onFocusChanged: (v) => _blur('code', v),
+        onSubmitted: (_) {
+          if (_teacherCodeValid) _continueFromAccess();
+        },
+      ),
+      1 => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Your access code is valid. Choose the sign-in method you want to use for this Teacher account.',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          GoogleAuthButton(
+            key: const Key('teacher_register_google_button'),
+            label: 'Continue with Google',
+            isLoading: _isGoogleLoading,
+            onPressed: _isLoading ? null : _registerWithGoogle,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const AuthOrDivider(),
+          const SizedBox(height: AppSpacing.md),
+          ElixPrimaryButton(
+            key: const Key('teacher_register_email_button'),
+            label: 'Use email and password',
+            onPressed: _isGoogleLoading ? null : _chooseEmailAndPassword,
+          ),
+        ],
+      ),
+      2 => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AuthTextField(
+            controller: _firstNameController,
+            label: 'First name',
+            placeholder: 'e.g. Jane',
+            icon: FluentIcons.contact,
+            dense: dense,
+            validationText: _nameError('first'),
+            status: _status('first', _nameError('first')),
+            onChanged: (_) => _live('first'),
+            onFocusChanged: (v) => _blur('first', v),
+          ),
+          AuthTextField(
+            controller: _middleNameController,
+            label: 'Middle name (optional)',
+            placeholder: 'e.g. Marie',
+            icon: FluentIcons.contact,
+            dense: dense,
+            onChanged: (_) => _live('middle'),
+          ),
+          AuthTextField(
+            controller: _lastNameController,
+            label: 'Last name',
+            placeholder: 'e.g. Santos',
+            icon: FluentIcons.contact,
+            dense: dense,
+            validationText: _nameError('last'),
+            status: _status('last', _nameError('last')),
+            onChanged: (_) => _live('last'),
+            onFocusChanged: (v) => _blur('last', v),
+          ),
+        ],
+      ),
+      _ => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AuthTextField(
+            key: const Key('teacher_register_email_field'),
+            controller: _emailController,
+            label: 'Email address',
+            placeholder: 'you@school.edu',
+            icon: FluentIcons.mail_solid,
+            keyboardType: TextInputType.emailAddress,
+            dense: dense,
+            validationText: _touched.contains('email')
+                ? validateAuthEmail(_emailController.text)
+                : null,
+            status: _status('email', validateAuthEmail(_emailController.text)),
+            onChanged: (_) => _live('email'),
+            onFocusChanged: (v) => _blur('email', v),
+          ),
+          AuthTextField(
+            controller: _passwordController,
+            label: 'Password',
+            placeholder: 'Create a password',
+            icon: FluentIcons.lock_solid,
+            obscureText: true,
+            dense: dense,
+            validationText: _touched.contains('password')
+                ? validateRegistrationPassword(_passwordController.text)
+                : null,
+            status: _status(
+              'password',
+              validateRegistrationPassword(_passwordController.text),
+            ),
+            onChanged: (_) {
+              _live('password');
+              if (_touched.contains('confirm')) setState(() {});
+            },
+            onFocusChanged: (v) => _blur('password', v),
+          ),
+          AuthPasswordChecklist(password: _passwordController.text),
+          const SizedBox(height: AppSpacing.sm),
+          AuthTextField(
+            controller: _confirmController,
+            label: 'Confirm password',
+            placeholder: 'Re-enter your password',
+            icon: FluentIcons.shield_solid,
+            obscureText: true,
+            dense: dense,
+            onSubmitted: (_) {
+              if (_agreedToLegal) _register();
+            },
+            validationText: _confirmationMessage,
+            status: _confirmationStatus,
+            onChanged: (_) => _live('confirm'),
+            onFocusChanged: (v) => _blur('confirm', v),
+          ),
+          AuthLegalConsent(
+            agreed: _agreedToLegal,
+            onChanged: (value) => setState(() => _agreedToLegal = value),
+            checkboxKey: const Key('teacher_register_privacy_consent'),
+          ),
+        ],
+      ),
+    };
+  }
+
+  List<Widget> _stepActions({required bool dense}) {
+    return switch (_step) {
+      0 => [
+        ElixPrimaryButton(
+          label: 'Continue',
+          isLoading: _isCheckingAccess,
+          onPressed: _continueFromAccess,
+        ),
+      ],
+      1 => [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: AuthSecondaryButton(
+            label: 'Back',
+            dense: dense,
+            onPressed: _isGoogleLoading ? null : () => _goToStep(0),
+          ),
+        ),
+      ],
+      2 => [
+        Row(
+          children: [
+            AuthSecondaryButton(
+              label: 'Back',
+              dense: dense,
+              onPressed: () => _goToStep(1),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: ElixPrimaryButton(
+                label: 'Continue',
+                onPressed: _profileValid ? _continueToSecurity : null,
+                dense: dense,
+              ),
+            ),
+          ],
+        ),
+      ],
+      _ => [
+        Row(
+          children: [
+            AuthSecondaryButton(
+              label: 'Back',
+              dense: dense,
+              onPressed: _isLoading ? null : () => _goToStep(2),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: ElixPrimaryButton(
+                label: 'Create Teacher account',
+                isLoading: _isLoading,
+                onPressed: _securityValid ? _register : null,
+                dense: dense,
+              ),
+            ),
+          ],
+        ),
+      ],
+    };
   }
 
   void _blur(String field, bool focused) {
@@ -546,102 +570,5 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
             null
         ? AuthFieldStatus.success
         : AuthFieldStatus.error;
-  }
-}
-
-class _TeacherProgress extends StatelessWidget {
-  const _TeacherProgress({required this.step});
-  final int step;
-
-  @override
-  Widget build(BuildContext context) {
-    const labels = ['Teacher access', 'Method', 'Profile', 'Security'];
-    return Semantics(
-      label: 'Step ${step + 1} of 4: ${labels[step]}',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Step ${step + 1} of 4',
-            style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Row(
-            children: List.generate(4, (index) {
-              return Expanded(
-                child: Container(
-                  margin: EdgeInsets.only(
-                    right: index == 3 ? 0 : AppSpacing.xs,
-                  ),
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: index <= step
-                        ? AppColors.primary
-                        : context.elixBorder,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              );
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TeacherRegisterLegalConsent extends StatelessWidget {
-  const _TeacherRegisterLegalConsent({
-    required this.agreed,
-    required this.onChanged,
-  });
-
-  final bool agreed;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final linkStyle = AppTheme.caption.copyWith(
-      color: AppColors.primary,
-      height: 1.35,
-      decoration: TextDecoration.underline,
-      decorationColor: AppColors.primary,
-    );
-    final plainStyle = AppTheme.caption.copyWith(
-      color: context.elixTextSecondary,
-      height: 1.35,
-    );
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Checkbox(
-          key: const Key('teacher_register_privacy_consent'),
-          checked: agreed,
-          onChanged: (value) => onChanged(value == true),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              GestureDetector(
-                onTap: () => onChanged(!agreed),
-                child: Text('I agree to the ', style: plainStyle),
-              ),
-              GestureDetector(
-                onTap: () => context.push(AppRoutePaths.privacyPolicy),
-                child: Text('Privacy Policy', style: linkStyle),
-              ),
-              Text(' and ', style: plainStyle),
-              GestureDetector(
-                onTap: () => context.push(AppRoutePaths.termsOfService),
-                child: Text('Terms of Service', style: linkStyle),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 }

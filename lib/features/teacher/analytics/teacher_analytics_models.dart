@@ -2,6 +2,7 @@ import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/public_profile_session.dart';
 
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/utils/manila_day.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/group_assignment.dart';
@@ -632,7 +633,7 @@ class AnalyticsCalculator {
         AnalyticsTrendBucket(
           startUtc: cursor,
           endUtc: end,
-          label: ManilaDay.dayKeyFor(cursor),
+          label: formatElixrManilaDayKey(ManilaDay.dayKeyFor(cursor)),
           sessionCount: bucketSessions.length,
           distinctStudentCount: bucketStudents.length,
           averageScore: _mean(studentAverages),

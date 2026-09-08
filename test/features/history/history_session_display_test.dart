@@ -4,9 +4,12 @@ import 'dart:typed_data';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/history/history_format.dart';
+import 'package:elixr_application/features/history/widgets/history_date_group.dart';
 import 'package:elixr_application/features/history/widgets/history_filter_bar.dart';
 import 'package:elixr_application/features/history/widgets/history_session_details.dart';
+import 'package:elixr_application/features/history/widgets/history_session_row.dart';
 import 'package:elixr_application/features/history/widgets/history_summary_section.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,13 +23,17 @@ Session _rubricSession({
   int completion = 3,
   int propPositioning = 2,
   String movementName = 'Hand Stall',
+  String difficulty = 'Medium',
+  int durationSeconds = 90,
+  String? createdAt = '2026-08-02T10:00:00.000',
+  TrainingProp propType = TrainingProp.bottle,
   String? evidenceStoragePath,
   String? evidenceKind,
 }) {
   return Session(
     userId: _userId,
     movementName: movementName,
-    difficulty: 'Medium',
+    difficulty: difficulty,
     rubric: RubricAssessment(
       technique: technique,
       stability: stability,
@@ -34,8 +41,9 @@ Session _rubricSession({
       propPositioning: propPositioning,
     ),
     assessmentVersion: 2,
-    durationSeconds: 90,
-    createdAt: '2026-08-02T10:00:00.000',
+    durationSeconds: durationSeconds,
+    createdAt: createdAt,
+    propType: propType,
     evidenceStoragePath: evidenceStoragePath,
     evidenceKind: evidenceKind,
   );
@@ -178,6 +186,36 @@ void main() {
       expect(find.byIcon(FluentIcons.sort_up), findsOneWidget);
       expect(find.byIcon(FluentIcons.sort_down), findsOneWidget);
       expect(find.byIcon(FluentIcons.timer), findsOneWidget);
+    });
+
+    testWidgets('narrow width stacks search under difficulty chips', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(520, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        _wrap(
+          HistoryFilterBar(
+            difficultyFilter: null,
+            searchQuery: '',
+            sortMode: HistorySortMode.mostRecent,
+            hasActiveFilters: false,
+            onDifficultyChanged: (_) {},
+            onSearchChanged: (_) {},
+            onSortChanged: (_) {},
+            onClearFilters: () {},
+          ),
+          width: 520,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('All'), findsOneWidget);
+      expect(find.text('Search movements'), findsOneWidget);
+      expect(find.text('Most Recent'), findsOneWidget);
     });
   });
 
@@ -443,10 +481,207 @@ void main() {
 
       expect(find.text('Average Rubric'), findsOneWidget);
       expect(find.text('9/12 • 75%'), findsOneWidget);
+      expect(find.byKey(const Key('history-legacy-info')), findsOneWidget);
+      expect(find.byIcon(FluentIcons.info), findsOneWidget);
+      expect(
+        tester
+            .widget<Tooltip>(find.byKey(const Key('history-legacy-info')))
+            .message,
+        '2 legacy sessions scored 0–100 • average 70/100',
+      );
       expect(
         find.text('2 legacy sessions scored 0–100 • average 70/100'),
-        findsOneWidget,
+        findsNothing,
       );
+    });
+
+    testWidgets('matching filters appear as Total Sessions context', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const HistorySummarySection(
+            totalSessions: 5,
+            rubricSessionCount: 5,
+            averageRubricTotal: 9,
+            bestRubricTotal: 11,
+            legacySessionCount: 0,
+            averageLegacyScore: null,
+            bestLegacyScore: null,
+            totalDurationSeconds: 400,
+            matchingCount: 2,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('2 matching'), findsOneWidget);
+    });
+  });
+
+  group('history presentation helpers', () {
+    test('subtitle shows prop only when it adds information', () {
+      expect(
+        historyMovementSubtitle(
+          movementName: 'Normal Grip',
+          propType: TrainingProp.bottle,
+        ),
+        isNull,
+      );
+      expect(
+        historyMovementSubtitle(
+          movementName: 'Hand Stall',
+          propType: TrainingProp.bottle,
+        ),
+        'Bottle',
+      );
+      expect(
+        historyMovementSubtitle(
+          movementName: 'Hand Stall',
+          propType: TrainingProp.shaker,
+        ),
+        'Cocktail Shaker',
+      );
+      expect(
+        historyMovementSubtitle(
+          movementName: 'Bottle in a tin',
+          propType: TrainingProp.bottleAndShaker,
+        ),
+        'Bottle + Cocktail Shaker',
+      );
+    });
+
+    test('legacy cohort copy stays on the 0-100 scale', () {
+      expect(
+        historyLegacyCohortExplanation(
+          legacySessionCount: 2,
+          averageLegacyScore: 70,
+        ),
+        '2 legacy sessions scored 0–100 • average 70/100',
+      );
+      expect(
+        historyLegacyCohortExplanation(
+          legacySessionCount: 1,
+          averageLegacyScore: null,
+        ),
+        '1 legacy session scored 0–100',
+      );
+      expect(
+        historyLegacyCohortExplanation(
+          legacySessionCount: 0,
+          averageLegacyScore: 80,
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('HistorySessionRow layout', () {
+    Future<void> pumpRows(WidgetTester tester, List<Session> sessions) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        _wrap(
+          HistoryDateGroup(label: 'Yesterday', sessions: sessions),
+          width: 1100,
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    void expectColumnAligned(
+      WidgetTester tester,
+      Key key, {
+      required int count,
+    }) {
+      final finder = find.byKey(key);
+      expect(finder, findsNWidgets(count));
+      final x = tester.getTopLeft(finder.at(0)).dx;
+      final width = tester.getSize(finder.at(0)).width;
+      for (var i = 1; i < count; i++) {
+        expect(tester.getTopLeft(finder.at(i)).dx, closeTo(x, 0.5));
+        expect(tester.getSize(finder.at(i)).width, closeTo(width, 0.5));
+      }
+    }
+
+    testWidgets(
+      'metadata columns stay aligned across different content lengths',
+      (tester) async {
+        await pumpRows(tester, [
+          _rubricSession(
+            movementName: 'Hand Stall',
+            difficulty: 'Easy',
+            durationSeconds: 34,
+            technique: 3,
+            stability: 3,
+            completion: 3,
+            propPositioning: 3,
+          ),
+          _rubricSession(
+            movementName: 'Reverse Forearm Stall',
+            difficulty: 'Hard',
+            durationSeconds: 492,
+            technique: 2,
+            stability: 2,
+            completion: 2,
+            propPositioning: 1,
+          ),
+          _rubricSession(
+            movementName: 'Bottle in a tin',
+            difficulty: 'Medium',
+            durationSeconds: 125,
+            technique: 3,
+            stability: 2,
+            completion: 3,
+            propPositioning: 2,
+            propType: TrainingProp.bottleAndShaker,
+          ),
+        ]);
+
+        expect(find.text('YESTERDAY'), findsOneWidget);
+        expect(find.text('3 sessions'), findsOneWidget);
+        expect(find.text('Reverse Forearm Stall'), findsOneWidget);
+        expect(find.text('Bottle + Cocktail Shaker'), findsOneWidget);
+
+        expectColumnAligned(
+          tester,
+          HistorySessionColumns.difficultyKey,
+          count: 3,
+        );
+        expectColumnAligned(tester, HistorySessionColumns.timeKey, count: 3);
+        expectColumnAligned(
+          tester,
+          HistorySessionColumns.durationKey,
+          count: 3,
+        );
+        expectColumnAligned(tester, HistorySessionColumns.scoreKey, count: 3);
+        expectColumnAligned(tester, HistorySessionColumns.expandKey, count: 3);
+
+        expect(
+          tester
+              .getSize(find.byKey(HistorySessionColumns.scoreKey).first)
+              .width,
+          HistorySessionColumns.score,
+        );
+      },
+    );
+
+    testWidgets('expanding a row keeps the inspector inside the same card', (
+      tester,
+    ) async {
+      await pumpRows(tester, [_rubricSession()]);
+
+      expect(find.text('Correct Technique'), findsNothing);
+
+      await tester.tap(find.text('Hand Stall'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Performance'), findsOneWidget);
+      expect(find.text('10/12 • 83.3%'), findsWidgets);
     });
   });
 }

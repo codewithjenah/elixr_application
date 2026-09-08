@@ -272,12 +272,12 @@ void main() {
         await tester.pump();
 
         final disabled = tester.widget<ElixPrimaryButton>(
-          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+          find.widgetWithText(ElixPrimaryButton, 'Create account'),
         );
         expect(disabled.onPressed, isNull);
 
         await tester.tap(
-          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+          find.widgetWithText(ElixPrimaryButton, 'Create account'),
         );
         await tester.pump();
         expect(repository.registerCallCount, 0);
@@ -285,12 +285,12 @@ void main() {
         await checkPrivacyConsent(tester);
 
         final enabled = tester.widget<ElixPrimaryButton>(
-          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+          find.widgetWithText(ElixPrimaryButton, 'Create account'),
         );
         expect(enabled.onPressed, isNotNull);
 
         await tester.tap(
-          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+          find.widgetWithText(ElixPrimaryButton, 'Create account'),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
@@ -350,7 +350,7 @@ void main() {
         await _enterAuthField(tester, 'Confirm password', 'secret12');
         await checkPrivacyConsent(tester);
         await tester.tap(
-          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+          find.widgetWithText(ElixPrimaryButton, 'Create account'),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
@@ -414,9 +414,10 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(RegisterScreen), findsOneWidget);
-      expect(find.byType(SingleChildScrollView), findsNothing);
       expect(find.byType(ElixPrimaryButton), findsOneWidget);
       expect(find.byType(AuthFooterLink), findsOneWidget);
+      expect(find.text('Your details'), findsOneWidget);
+      expect(find.text('Account security'), findsOneWidget);
     });
 
     testWidgets('does not overflow at a compact auth window size', (
@@ -439,6 +440,40 @@ void main() {
       for (final placeholder in _registerFieldPlaceholders.take(3)) {
         expect(_authField(placeholder), findsOneWidget);
       }
+    });
+
+    testWidgets('keeps entered names after returning from account security', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      await pumpRegisterScreen(tester);
+
+      expect(find.text('Step 1 of 2'), findsOneWidget);
+      await _enterAuthField(tester, 'First name', 'Ada');
+      await _enterAuthField(tester, 'Last name', 'Lovelace');
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Step 2 of 2'), findsOneWidget);
+      expect(_authField('Email address'), findsOneWidget);
+      expect(find.text('8+ characters'), findsOneWidget);
+      expect(find.text('Letter'), findsOneWidget);
+      expect(find.text('Number'), findsOneWidget);
+
+      await tester.tap(find.text('Back'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(_authField('First name'), findsOneWidget);
+      expect(
+        tester.widget<TextBox>(_authField('First name')).controller?.text,
+        'Ada',
+      );
+      expect(
+        tester.widget<TextBox>(_authField('Last name')).controller?.text,
+        'Lovelace',
+      );
     });
   });
 }

@@ -323,24 +323,132 @@ class _ClassworkPane extends StatelessWidget {
         ),
       );
     }
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 860),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Button(
-              key: const Key('teacher_access_class_view_your_work'),
-              onPressed: () => context.push(
-                AppRoutePaths.teacherAccessClassWork(controller.groupId),
-                extra: true,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth.clamp(0.0, 1600.0)
+            : 1600.0;
+        return SizedBox(
+          width: width,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _ClassworkToolbar(
+                onViewYourWork: () => context.push(
+                  AppRoutePaths.teacherAccessClassWork(controller.groupId),
+                  extra: true,
+                ),
               ),
-              child: const Text('View your work'),
+              const SizedBox(height: AppSpacing.md),
+              ClassroomTopicContent(
+                items: assignments.items,
+                showGroupName: false,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ClassworkToolbar extends StatelessWidget {
+  const _ClassworkToolbar({required this.onViewYourWork});
+
+  final VoidCallback onViewYourWork;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final colors = context.elixColors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: highContrast
+            ? context.elixCardSurface
+            : Color.alphaBlend(
+                AppColors.accent.withValues(
+                  alpha: context.isDarkTheme ? 0.08 : 0.05,
+                ),
+                context.elixCardSurface,
+              ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: 0.9),
+          width: highContrast ? 2 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            FluentIcons.education,
+            size: 16,
+            color: context.elixTextSecondary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Practice, review submissions, and track what is due.',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
             ),
           ),
-          const SizedBox(height: AppSpacing.md),
-          ClassroomTopicContent(items: assignments.items, showGroupName: false),
+          const SizedBox(width: AppSpacing.sm),
+          Button(
+            key: const Key('teacher_access_class_view_your_work'),
+            onPressed: onViewYourWork,
+            style: ButtonStyle(
+              padding: WidgetStateProperty.all(
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.pressed)) {
+                  return colors.interactivePressed;
+                }
+                if (states.contains(WidgetState.hovered) ||
+                    states.contains(WidgetState.focused)) {
+                  return colors.interactiveHover;
+                }
+                return highContrast ? colors.surfaceBase : Colors.transparent;
+              }),
+              foregroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.hovered) ||
+                    states.contains(WidgetState.focused)) {
+                  return highContrast
+                      ? colors.textPrimary
+                      : colors.brandPrimary;
+                }
+                return colors.textPrimary;
+              }),
+              shape: WidgetStateProperty.resolveWith((states) {
+                return RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(
+                    color: states.contains(WidgetState.focused)
+                        ? colors.focusRing
+                        : (highContrast
+                              ? colors.borderStrong
+                              : colors.borderSubtle),
+                    width: states.contains(WidgetState.focused) ? 2 : 1,
+                  ),
+                );
+              }),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(FluentIcons.task_list, size: 14),
+                const SizedBox(width: 8),
+                Text('View your work', style: AppTheme.label()),
+              ],
+            ),
+          ),
         ],
       ),
     );

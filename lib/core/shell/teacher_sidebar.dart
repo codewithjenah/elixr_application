@@ -9,7 +9,6 @@ import '../../services/auth_service.dart';
 import '../../services/message_unread_service.dart';
 import '../constants/app_spacing.dart';
 import '../router/app_route_paths.dart';
-import '../theme/app_theme.dart';
 import '../utils/user_name.dart';
 import '../widgets/elix_sidebar_chrome.dart';
 import '../widgets/profile_avatar.dart';
@@ -150,63 +149,49 @@ class TeacherSidebar extends StatelessWidget {
         ? userInitials(user!.fullName)
         : '?';
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-      width: isCollapsed
-          ? ElixSidebarMetrics.collapsedWidth
-          : ElixSidebarMetrics.expandedWidth,
-      clipBehavior: Clip.hardEdge,
-      decoration: elixSidebarSurfaceDecoration(context),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final showCollapsedLayout =
-              isCollapsed ||
-              constraints.maxWidth < ElixSidebarMetrics.layoutCollapseThreshold;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ElixSidebarHeader(
-                showCollapsedLayout: showCollapsedLayout,
-                isCollapsed: isCollapsed,
-                onToggleCollapse: onToggleCollapse,
-                subtitle: 'Teacher',
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              ElixSidebarBrandDivider(collapsed: showCollapsedLayout),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, navConstraints) => FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.topCenter,
-                    child: SizedBox(
-                      width: navConstraints.maxWidth,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: _buildGroupedItems(
-                          context,
-                          showCollapsedLayout,
-                          unreadCount,
-                          activityUnreadCount,
-                          pendingReviewCount,
-                          pendingJoinCount,
-                        ),
-                      ),
+    return ElixSidebarPane(
+      isCollapsed: isCollapsed,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ElixSidebarHeader(
+            showCollapsedLayout: isCollapsed,
+            isCollapsed: isCollapsed,
+            onToggleCollapse: onToggleCollapse,
+            subtitle: 'Teacher Workspace',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ElixSidebarBrandDivider(collapsed: isCollapsed),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, navConstraints) => FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  width: navConstraints.maxWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: _buildGroupedItems(
+                      context,
+                      isCollapsed,
+                      unreadCount,
+                      activityUnreadCount,
+                      pendingReviewCount,
+                      pendingJoinCount,
                     ),
                   ),
                 ),
               ),
-              _TeacherIdentityFooter(
-                user: user,
-                initials: initials,
-                isCollapsed: showCollapsedLayout,
-                onLogout: onLogout,
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-          );
-        },
+            ),
+          ),
+          _TeacherIdentityFooter(
+            user: user,
+            initials: initials,
+            isCollapsed: isCollapsed,
+            onLogout: onLogout,
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
       ),
     );
   }
@@ -256,7 +241,7 @@ class TeacherSidebar extends StatelessWidget {
 }
 
 /// Identity card that opens [ProfileMenu]. No XP / level / EXP bar.
-class _TeacherIdentityFooter extends StatefulWidget {
+class _TeacherIdentityFooter extends StatelessWidget {
   const _TeacherIdentityFooter({
     required this.user,
     required this.initials,
@@ -270,118 +255,25 @@ class _TeacherIdentityFooter extends StatefulWidget {
   final VoidCallback onLogout;
 
   @override
-  State<_TeacherIdentityFooter> createState() => _TeacherIdentityFooterState();
-}
-
-class _TeacherIdentityFooterState extends State<_TeacherIdentityFooter> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
-    final sidebarFirstName = normalizeNamePart(widget.user?.firstName ?? '');
+    final sidebarFirstName = normalizeNamePart(user?.firstName ?? '');
 
-    final profileTile = Semantics(
-      button: true,
-      label: 'Profile menu',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: Builder(
-          builder: (profileContext) => GestureDetector(
-            onTap: () =>
-                ProfileMenu.show(profileContext, onLogout: widget.onLogout),
-            behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOutCubic,
-              margin: EdgeInsets.symmetric(
-                horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.md,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.isCollapsed ? 0 : AppSpacing.sm,
-                vertical: AppSpacing.sm,
-              ),
-              decoration: BoxDecoration(
-                color: _hovered
-                    ? context.elixBorder.withValues(alpha: 0.15)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: _hovered
-                      ? context.elixBorder.withValues(alpha: 0.4)
-                      : context.elixBorder.withValues(alpha: 0.2),
-                ),
-              ),
-              child: widget.isCollapsed
-                  ? Center(
-                      child: ProfileAvatarWidget(
-                        key: const Key('teacher_sidebar_avatar'),
-                        networkImageUrl: widget.user?.profilePictureUrl,
-                        legacyLocalPath: widget.user?.profilePicturePath,
-                        initials: widget.initials,
-                        radius: 18,
-                        equippedBorderId: widget.user?.profileBorderId,
-                        animateBorder: true,
-                      ),
-                    )
-                  : Row(
-                      children: [
-                        ProfileAvatarWidget(
-                          key: const Key('teacher_sidebar_avatar'),
-                          networkImageUrl: widget.user?.profilePictureUrl,
-                          legacyLocalPath: widget.user?.profilePicturePath,
-                          initials: widget.initials,
-                          radius: 18,
-                          equippedBorderId: widget.user?.profileBorderId,
-                          animateBorder: true,
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                sidebarFirstName.isNotEmpty
-                                    ? sidebarFirstName
-                                    : 'User',
-                                style: AppTheme.bodySecondary.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: context.elixTextPrimary,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                'Teacher',
-                                style: AppTheme.caption.copyWith(
-                                  fontSize: 11,
-                                  color: context.elixTextSecondary,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
-        ),
+    return ElixSidebarIdentityCard(
+      isCollapsed: isCollapsed,
+      onOpen: (profileContext) =>
+          ProfileMenu.show(profileContext, onLogout: onLogout),
+      avatar: ProfileAvatarWidget(
+        key: const Key('teacher_sidebar_avatar'),
+        networkImageUrl: user?.profilePictureUrl,
+        legacyLocalPath: user?.profilePicturePath,
+        initials: initials,
+        radius: 18,
+        equippedBorderId: user?.profileBorderId,
+        animateBorder: true,
       ),
+      name: sidebarFirstName.isNotEmpty ? sidebarFirstName : 'User',
+      roleLabel: 'Teacher',
+      tooltip: user?.fullName ?? 'Profile',
     );
-
-    if (widget.isCollapsed) {
-      return Tooltip(
-        message: widget.user?.fullName ?? 'Profile',
-        displayHorizontally: true,
-        useMousePosition: false,
-        style: const TooltipThemeData(preferBelow: false),
-        child: profileTile,
-      );
-    }
-    return profileTile;
   }
 }

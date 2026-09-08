@@ -597,4 +597,16 @@ void main() {
     expect(state.debugIsAnimating, isTrue);
     expect(tester.takeException(), isNull);
   });
+
+  test('maxOrnamentPadding covers the catalog and the neutral ring', () {
+    final maxPadding = ProfileBorderFrame.maxOrnamentPadding();
+    expect(
+      maxPadding,
+      greaterThanOrEqualTo(ProfileBorderFrame.ornamentPaddingFor(null)),
+    );
+    for (final border in profileBorderCatalog) {
+      expect(maxPadding, greaterThanOrEqualTo(border.ornamentExtent));
+    }
+    expect(ProfileBorderFrame.maxOrnamentPadding(showBorder: false), 0);
+  });
 }

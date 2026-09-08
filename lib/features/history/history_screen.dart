@@ -280,13 +280,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              HistoryHeader(
-                loading: _loading,
-                onRefresh: _loadSessions,
-                showTitle: !widget.embedded,
-              ),
+              if (!widget.embedded)
+                HistoryHeader(loading: _loading, onRefresh: _loadSessions)
+              else if (!hasSessions)
+                HistoryHeader(
+                  loading: _loading,
+                  onRefresh: _loadSessions,
+                  showTitle: false,
+                ),
               if (_loadError != null && hasSessions) ...[
-                const SizedBox(height: AppSpacing.md),
+                if (!widget.embedded) const SizedBox(height: AppSpacing.md),
                 ElixStatusPanel(
                   isError: true,
                   icon: FluentIcons.warning,
@@ -296,9 +299,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ],
               if (hasSessions) ...[
-                SizedBox(
-                  height: widget.embedded ? AppSpacing.sm : AppSpacing.lg,
-                ),
+                if (!widget.embedded || _loadError != null)
+                  SizedBox(
+                    height: widget.embedded ? AppSpacing.sm : AppSpacing.md,
+                  ),
                 HistorySummarySection(
                   totalSessions: _sessions.length,
                   rubricSessionCount: rubricTotals.length,
@@ -317,6 +321,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   sortMode: _sortMode,
                   dateFilterLabel: dateFilterLabel,
                   hasActiveFilters: _hasActiveFilters,
+                  loading: _loading,
+                  onRefresh: _loadSessions,
                   onDifficultyChanged: (v) {
                     setState(() {
                       _difficultyFilter = v;
@@ -344,7 +350,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   },
                 ),
               ],
-              const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.md),
             ],
           ),
         ),

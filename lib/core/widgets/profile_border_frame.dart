@@ -46,6 +46,21 @@ class ProfileBorderFrame extends StatefulWidget {
     return 6;
   }
 
+  /// Largest ornament padding in the catalog, including the neutral ring.
+  ///
+  /// Dense lists can reserve one square slot of
+  /// `size + 2 * maxOrnamentPadding()` so decorative frames never change
+  /// neighboring layout measurements.
+  static double maxOrnamentPadding({bool showBorder = true}) {
+    if (!showBorder) return 0;
+    var maxPadding = ornamentPaddingFor(null, showBorder: showBorder);
+    for (final border in profileBorderCatalog) {
+      final padding = border.ornamentExtent;
+      if (padding > maxPadding) maxPadding = padding;
+    }
+    return maxPadding;
+  }
+
   @override
   State<ProfileBorderFrame> createState() => ProfileBorderFrameState();
 }

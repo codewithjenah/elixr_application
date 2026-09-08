@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/models/leaderboard_period.dart';
 import '../leaderboard_presentation.dart';
@@ -21,27 +22,49 @@ abstract final class LeaderboardRankRowLayout {
 /// Assessment V2 replaced the 0..100 session percentage with a 0..12 rubric
 /// total, so the ranking table no longer exposes percentage score columns.
 /// Ranking remains XP-based.
+///
+/// Grid: Rank | Avatar | Player identity | Sessions | Total XP
 abstract final class LeaderboardRankColumns {
   static const double accentGutter = 3;
   static const double rank = 64;
+  static const double avatarContent = 34;
+  static const double avatarGap = 10;
   static const double sessions = 92;
   static const double xp = 116;
+  static const Key avatarSlotKey = Key('leaderboard_avatar_slot');
   static const EdgeInsets rowPadding = EdgeInsets.fromLTRB(16, 10, 16, 10);
   static const EdgeInsets headerPadding = EdgeInsets.fromLTRB(16, 8, 16, 9);
 
+  /// Square slot large enough for any catalog frame around [avatarContent].
+  static final double avatar =
+      avatarContent + 2 * ProfileBorderFrame.maxOrnamentPadding();
+
   static Widget row({
     required Widget rank,
+    required Widget avatar,
     required Widget player,
     required Widget sessions,
     required Widget xp,
   }) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(width: LeaderboardRankColumns.rank, child: rank),
+        SizedBox(width: LeaderboardRankColumns.avatar, child: avatar),
+        const SizedBox(width: avatarGap),
         Expanded(child: player),
         SizedBox(width: LeaderboardRankColumns.sessions, child: sessions),
         SizedBox(width: LeaderboardRankColumns.xp, child: xp),
       ],
+    );
+  }
+
+  static Widget avatarSlot({required Widget child}) {
+    return SizedBox(
+      key: avatarSlotKey,
+      width: avatar,
+      height: avatar,
+      child: Center(child: child),
     );
   }
 }
@@ -185,16 +208,31 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                             return LeaderboardRankColumns.row(
                               rank: Text(
                                 '#${widget.rank}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
                                   color: context.elixTextSecondary,
                                 ),
                               ),
+                              avatar: LeaderboardRankColumns.avatarSlot(
+                                child: LeaderboardInitialsAvatar(
+                                  initials: LeaderboardPresentation.initialsFor(
+                                    widget.entry.displayName,
+                                  ),
+                                  accent: AppColors.accent,
+                                  size: LeaderboardRankColumns.avatarContent,
+                                  profilePictureUrl: widget.profilePictureUrl,
+                                  equippedBorderId:
+                                      widget.entry.equippedBorderId,
+                                  highlightRing: widget.isCurrentUser,
+                                  animateBorder: true,
+                                ),
+                              ),
                               player: _PlayerCell(
                                 entry: widget.entry,
                                 isCurrentUser: widget.isCurrentUser,
-                                profilePictureUrl: widget.profilePictureUrl,
                                 lastActive: lastActive,
                               ),
                               sessions: Text(
@@ -286,6 +324,7 @@ class LeaderboardRankingsHeaderRow extends StatelessWidget {
 
                 return LeaderboardRankColumns.row(
                   rank: Text('Rank', style: style),
+                  avatar: const SizedBox.shrink(),
                   player: Text('Player', style: style),
                   sessions: Text(
                     'Sessions',
@@ -313,70 +352,52 @@ class _PlayerCell extends StatelessWidget {
   const _PlayerCell({
     required this.entry,
     required this.isCurrentUser,
-    this.profilePictureUrl,
     this.lastActive,
   });
 
   final LeaderboardEntry entry;
   final bool isCurrentUser;
-  final String? profilePictureUrl;
   final String? lastActive;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        LeaderboardInitialsAvatar(
-          initials: LeaderboardPresentation.initialsFor(entry.displayName),
-          accent: AppColors.accent,
-          size: 34,
-          profilePictureUrl: profilePictureUrl,
-          equippedBorderId: entry.equippedBorderId,
-          highlightRing: isCurrentUser,
-          animateBorder: true,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: _PlayerName(displayName: entry.displayName)),
-                  if (isCurrentUser) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    const LeaderboardYouBadge(compact: true),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Lv. ${entry.level}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: context.elixTextSecondary,
-                ),
-              ),
-              if (lastActive != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  lastActive!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
+        Row(
+          children: [
+            Expanded(child: _PlayerName(displayName: entry.displayName)),
+            if (isCurrentUser) ...[
+              const SizedBox(width: AppSpacing.sm),
+              const LeaderboardYouBadge(compact: true),
             ],
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Lv. ${entry.level}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: context.elixTextSecondary,
           ),
         ),
+        if (lastActive != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            lastActive!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: context.elixTextSecondary,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -402,32 +423,33 @@ class _CompactRankRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(
-          width: 42,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 7),
-            child: Text(
-              '#$rank',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: context.elixTextSecondary,
-              ),
+          width: LeaderboardRankColumns.rank,
+          child: Text(
+            '#$rank',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: context.elixTextSecondary,
             ),
           ),
         ),
-        LeaderboardInitialsAvatar(
-          initials: LeaderboardPresentation.initialsFor(entry.displayName),
-          accent: AppColors.accent,
-          size: 34,
-          profilePictureUrl: profilePictureUrl,
-          equippedBorderId: entry.equippedBorderId,
-          highlightRing: isCurrentUser,
-          animateBorder: true,
+        LeaderboardRankColumns.avatarSlot(
+          child: LeaderboardInitialsAvatar(
+            initials: LeaderboardPresentation.initialsFor(entry.displayName),
+            accent: AppColors.accent,
+            size: LeaderboardRankColumns.avatarContent,
+            profilePictureUrl: profilePictureUrl,
+            equippedBorderId: entry.equippedBorderId,
+            highlightRing: isCurrentUser,
+            animateBorder: true,
+          ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: LeaderboardRankColumns.avatarGap),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,20 +492,19 @@ class _CompactRankRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: AppSpacing.sm),
-        Padding(
-          padding: const EdgeInsets.only(top: 7),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 92),
-            child: Text(
-              '${metrics.xp} XP',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primary,
-              ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: LeaderboardRankColumns.xp,
+          ),
+          child: Text(
+            '${metrics.xp} XP',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppColors.primary,
             ),
           ),
         ),

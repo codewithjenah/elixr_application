@@ -179,8 +179,11 @@ void main() {
     expect(activations, 1);
     final decoration =
         tester
-                .widgetList<AnimatedContainer>(find.byType(AnimatedContainer))
-                .first
+                .widget<AnimatedContainer>(
+                  find.byKey(
+                    const ValueKey('elix-sidebar-nav-surface-Dashboard'),
+                  ),
+                )
                 .decoration!
             as BoxDecoration;
     expect((decoration.border! as Border).top.width, 2);
@@ -209,8 +212,11 @@ void main() {
 
     final decoration =
         tester
-                .widgetList<AnimatedContainer>(find.byType(AnimatedContainer))
-                .first
+                .widget<AnimatedContainer>(
+                  find.byKey(
+                    const ValueKey('elix-sidebar-nav-surface-Dashboard'),
+                  ),
+                )
                 .decoration!
             as BoxDecoration;
     expect(
@@ -218,6 +224,54 @@ void main() {
       ElixSemanticColors.highContrastDark.surfaceSelected,
     );
     expect(decoration.color?.a, 1);
+  });
+
+  testWidgets('reduced motion skips sidebar hover flourish duration', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 260,
+          child: ElixSidebarNavTile(
+            label: 'Dashboard',
+            icon: FluentIcons.home,
+            isActive: false,
+            isCollapsed: false,
+            onTap: () {},
+          ),
+        ),
+        reducedMotion: true,
+      ),
+    );
+
+    final surface = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('elix-sidebar-nav-surface-Dashboard')),
+    );
+    expect(surface.duration, Duration.zero);
+  });
+
+  testWidgets('sidebar destination activates from a pointer tap', (
+    tester,
+  ) async {
+    var activations = 0;
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 260,
+          child: ElixSidebarNavTile(
+            label: 'Dashboard',
+            icon: FluentIcons.home,
+            isActive: false,
+            isCollapsed: false,
+            onTap: () => activations++,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Dashboard'));
+    expect(activations, 1);
   });
 
   testWidgets(

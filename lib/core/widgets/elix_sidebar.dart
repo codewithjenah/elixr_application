@@ -20,7 +20,6 @@ import '../../features/profile/profile_menu.dart';
 import '../../features/trainee/activity_center/trainee_activity_controller.dart';
 
 const _pink = AppColors.primary;
-const _purple = AppColors.accent;
 
 enum SidebarGroup { overview, training, insights }
 
@@ -200,55 +199,41 @@ class _ElixSidebarState extends State<ElixSidebar> {
         ? userInitials(user!.fullName)
         : '?';
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-      width: widget.isCollapsed
-          ? ElixSidebarMetrics.collapsedWidth
-          : ElixSidebarMetrics.expandedWidth,
-      clipBehavior: Clip.hardEdge,
-      decoration: elixSidebarSurfaceDecoration(context),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final showCollapsedLayout =
-              widget.isCollapsed ||
-              constraints.maxWidth < ElixSidebarMetrics.layoutCollapseThreshold;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ElixSidebarHeader(
-                showCollapsedLayout: showCollapsedLayout,
-                isCollapsed: widget.isCollapsed,
-                onToggleCollapse: widget.onToggleCollapse,
-                subtitle: 'Trainee Workspace',
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              ElixSidebarBrandDivider(collapsed: showCollapsedLayout),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, navConstraints) => FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.topCenter,
-                    child: SizedBox(
-                      width: navConstraints.maxWidth,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: _buildGroupedItems(
-                          showCollapsedLayout,
-                          unreadCount,
-                          activityUnreadCount,
-                        ),
-                      ),
+    return ElixSidebarPane(
+      isCollapsed: widget.isCollapsed,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ElixSidebarHeader(
+            showCollapsedLayout: widget.isCollapsed,
+            isCollapsed: widget.isCollapsed,
+            onToggleCollapse: widget.onToggleCollapse,
+            subtitle: 'Trainee Workspace',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ElixSidebarBrandDivider(collapsed: widget.isCollapsed),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, navConstraints) => FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  width: navConstraints.maxWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: _buildGroupedItems(
+                      widget.isCollapsed,
+                      unreadCount,
+                      activityUnreadCount,
                     ),
                   ),
                 ),
               ),
-              _buildProfileSection(user, initials, showCollapsedLayout),
-              const SizedBox(height: AppSpacing.md),
-            ],
-          );
-        },
+            ),
+          ),
+          _buildProfileSection(user, initials, widget.isCollapsed),
+          const SizedBox(height: AppSpacing.md),
+        ],
       ),
     );
   }
@@ -310,7 +295,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
   }
 }
 
-class _ProfileSectionWidget extends StatefulWidget {
+class _ProfileSectionWidget extends StatelessWidget {
   const _ProfileSectionWidget({
     required this.user,
     required this.initials,
@@ -328,196 +313,44 @@ class _ProfileSectionWidget extends StatefulWidget {
   final VoidCallback onLogout;
 
   @override
-  State<_ProfileSectionWidget> createState() => _ProfileSectionWidgetState();
-}
-
-class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
-    final sidebarFirstName = normalizeNamePart(widget.user?.firstName ?? '');
-    final level = GamificationRules.levelForXp(widget.totalXp);
-    final expInLevel = GamificationRules.xpIntoLevel(widget.totalXp);
+    final sidebarFirstName = normalizeNamePart(user?.firstName ?? '');
+    final level = GamificationRules.levelForXp(totalXp);
+    final expInLevel = GamificationRules.xpIntoLevel(totalXp);
 
-    final profileTile = Semantics(
-      button: true,
-      label: 'Profile menu',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: Builder(
-          builder: (profileContext) => GestureDetector(
-            onTap: () =>
-                ProfileMenu.show(profileContext, onLogout: widget.onLogout),
-            behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOutCubic,
-              margin: EdgeInsets.symmetric(
-                horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.md,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.isCollapsed ? 0 : AppSpacing.sm,
-                vertical: AppSpacing.sm,
-              ),
-              decoration: BoxDecoration(
-                color: _hovered
-                    ? context.elixBorder.withValues(alpha: 0.15)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: _hovered
-                      ? context.elixBorder.withValues(alpha: 0.4)
-                      : context.elixBorder.withValues(alpha: 0.2),
-                ),
-              ),
-              child: widget.isCollapsed
-                  ? Center(
-                      child: ProfileAvatarWidget(
-                        networkImageUrl: widget.user?.profilePictureUrl,
-                        legacyLocalPath: widget.user?.profilePicturePath,
-                        initials: widget.initials,
-                        radius: 18,
-                        equippedBorderId: widget.equippedBorderId,
-                        animateBorder: true,
-                      ),
-                    )
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            ProfileAvatarWidget(
-                              networkImageUrl: widget.user?.profilePictureUrl,
-                              legacyLocalPath: widget.user?.profilePicturePath,
-                              initials: widget.initials,
-                              radius: 18,
-                              equippedBorderId: widget.equippedBorderId,
-                              animateBorder: true,
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          sidebarFirstName.isNotEmpty
-                                              ? sidebarFirstName
-                                              : 'User',
-                                          style: AppTheme.bodySecondary
-                                              .copyWith(
-                                                fontWeight: FontWeight.w600,
-                                                color: context.elixTextPrimary,
-                                              ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      if (widget.user?.role == 'Admin')
-                                        const Text(
-                                          '👑',
-                                          style: TextStyle(fontSize: 10),
-                                        ),
-                                    ],
-                                  ),
-                                  Text(
-                                    widget.user?.role ?? 'Trainee',
-                                    style: AppTheme.caption.copyWith(
-                                      fontSize: 11,
-                                      color: context.elixTextSecondary,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Text(
-                              'Lv. $level',
-                              style: AppTheme.caption.copyWith(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: _pink,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'EXP',
-                              style: AppTheme.caption.copyWith(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w600,
-                                color: context.elixTextSecondary,
-                              ),
-                            ),
-                            Text(
-                              '$expInLevel / ${GamificationRules.xpPerLevel}',
-                              style: AppTheme.caption.copyWith(
-                                fontSize: 9,
-                                color: context.elixTextSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: SizedBox(
-                            height: 4,
-                            child: Stack(
-                              children: [
-                                Container(
-                                  color: context.elixBorder.withValues(
-                                    alpha: 0.5,
-                                  ),
-                                ),
-                                FractionallySizedBox(
-                                  widthFactor:
-                                      (expInLevel /
-                                              GamificationRules.xpPerLevel)
-                                          .clamp(0.0, 1.0),
-                                  child: Container(
-                                    decoration: const BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [_pink, _purple],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
+    return ElixSidebarIdentityCard(
+      isCollapsed: isCollapsed,
+      onOpen: (profileContext) =>
+          ProfileMenu.show(profileContext, onLogout: onLogout),
+      avatar: ProfileAvatarWidget(
+        networkImageUrl: user?.profilePictureUrl,
+        legacyLocalPath: user?.profilePicturePath,
+        initials: initials,
+        radius: 18,
+        equippedBorderId: equippedBorderId,
+        animateBorder: true,
+      ),
+      name: sidebarFirstName.isNotEmpty ? sidebarFirstName : 'User',
+      roleLabel: user?.role ?? 'Trainee',
+      tooltip: user?.fullName ?? 'Profile',
+      nameSuffix: user?.role == 'Admin'
+          ? const Text('👑', style: TextStyle(fontSize: 10))
+          : null,
+      trailing: Text(
+        'Lv. $level',
+        style: AppTheme.caption.copyWith(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: _pink,
         ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      footer: ElixSidebarXpTrack(
+        progress: expInLevel / GamificationRules.xpPerLevel,
+        caption: 'EXP',
+        valueLabel: '$expInLevel / ${GamificationRules.xpPerLevel}',
       ),
     );
-
-    if (widget.isCollapsed) {
-      return Tooltip(
-        message: widget.user?.fullName ?? 'Profile',
-        displayHorizontally: true,
-        useMousePosition: false,
-        style: const TooltipThemeData(preferBelow: false),
-        child: profileTile,
-      );
-    }
-    return profileTile;
   }
 }

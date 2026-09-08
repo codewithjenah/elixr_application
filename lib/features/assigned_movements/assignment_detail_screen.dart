@@ -878,7 +878,7 @@ class _YourWork extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         if (canStart)
           ElixPrimaryButton(
-            label: assignedMovementActionLabel(assignment, current),
+            label: assignedMovementPracticeButtonLabel(current),
             expanded: true,
             icon: FluentIcons.play,
             onPressed: () =>

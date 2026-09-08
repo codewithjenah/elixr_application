@@ -121,10 +121,11 @@ class _LoginScreenState extends State<LoginScreen> {
         : null;
     return AuthScaffold(
       noScrollForm: true,
-      title: 'Welcome back',
-      subtitle: 'Sign in to continue your flair training',
-      formTitle: 'Sign In',
-      formSubtitle: 'Enter your account details',
+      title: AuthHeroCopy.headline,
+      accentTitle: AuthHeroCopy.accentHeadline,
+      subtitle: AuthHeroCopy.supporting,
+      formTitle: 'Welcome back',
+      formSubtitle: 'Continue your flair training.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -148,7 +149,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 : AuthFieldStatus.error,
             validationText: emailError,
           ),
-          const SizedBox(height: AppSpacing.sm + 4),
           AuthTextField(
             controller: _passwordController,
             label: 'Password',
@@ -174,29 +174,27 @@ class _LoginScreenState extends State<LoginScreen> {
             child: AuthFooterLink(
               prompt: '',
               action: 'Forgot password?',
+              dense: true,
               onTap: () => context.go('/forgot-password'),
             ),
           ),
-          if (_error != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            AuthErrorBanner(message: _error!),
-          ],
+          AuthErrorSlot(message: _error),
           const SizedBox(height: AppSpacing.lg),
           ElixPrimaryButton(
-            label: 'Sign In',
+            label: 'Sign in',
             isLoading: _isLoading,
             onPressed: _isGoogleLoading ? null : _login,
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
           const AuthOrDivider(),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
           GoogleAuthButton(
             key: const Key('login_google_button'),
             label: 'Continue with Google',
             isLoading: _isGoogleLoading,
             onPressed: _isLoading ? null : _googleLogin,
           ),
-          const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: AppSpacing.md),
           Center(
             child: AuthFooterLink(
               prompt: "Don't have an account?",
@@ -204,11 +202,12 @@ class _LoginScreenState extends State<LoginScreen> {
               onTap: () => context.go(AppRoutePaths.register),
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
           Center(
             child: AuthFooterLink(
               prompt: 'Have a Teacher access code?',
               action: 'Register as a Teacher',
+              muted: true,
+              dense: true,
               onTap: () => context.go(AppRoutePaths.registerTeacher),
             ),
           ),
