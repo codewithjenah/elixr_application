@@ -55,8 +55,15 @@ class MovementImage extends StatelessWidget {
               assetPath,
               fit: BoxFit.contain,
               alignment: alignment,
-              cacheWidth: imageSize,
-              cacheHeight: imageSize,
+              cacheWidth: imageSize > 0 ? imageSize : null,
+              cacheHeight: imageSize > 0 ? imageSize : null,
+              errorBuilder: (context, error, stackTrace) {
+                return Icon(
+                  FluentIcons.running,
+                  size: size * 0.5,
+                  color: Colors.white,
+                );
+              },
             ),
           ),
         ),

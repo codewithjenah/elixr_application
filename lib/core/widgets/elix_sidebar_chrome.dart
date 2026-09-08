@@ -17,13 +17,18 @@ abstract final class ElixSidebarMetrics {
   static const expandedWidth = 272.0;
   static const collapsedWidth = 84.0;
 
-  /// Matches [AppSpacing.practiceSurfaceRadius] so the floating pane shares
-  /// ELIXR's established 22px desktop surface language.
-  static const paneRadius = AppSpacing.practiceSurfaceRadius;
+  /// Right-side dock radius. Left corners stay square so the pane reads as
+  /// shell chrome rather than a floating card.
+  static const paneRadius = 28.0;
 
-  /// Breathing room around the floating pane. Trailing inset is slightly
-  /// larger so the content-facing silhouette and shadow stay visible.
-  static const paneInset = EdgeInsets.fromLTRB(10, 10, 12, 10);
+  static const paneBorderRadius = BorderRadius.only(
+    topRight: Radius.circular(paneRadius),
+    bottomRight: Radius.circular(paneRadius),
+  );
+
+  /// Docked flush to the window on the left, top, and bottom. Destination
+  /// pages keep their own content inset (dashboard uses [AppSpacing.lg]).
+  static const paneInset = EdgeInsets.zero;
 
   static const paneMotion = Duration(milliseconds: 220);
   static const hoverMotion = Duration(milliseconds: 160);
@@ -42,7 +47,7 @@ abstract final class ElixSidebarMetrics {
   static const navHoverIconScale = 1.05;
   static const navPressedScale = 0.985;
   static const navLabelSlide = 0.06;
-  static const identityCardRadius = 16.0;
+  static const identityCardRadius = 14.0;
   static const collapseButtonSize = 34.0;
 
   /// Left edge of destination labels; group titles use the same origin.
@@ -68,19 +73,13 @@ BoxDecoration elixSidebarSurfaceDecoration(BuildContext context) {
   final highContrast = context.isHighContrast;
   final colors = context.elixColors;
   final glowScale = context.elixWorkspaceVisuals.ambientGlowScale;
-  final radius = BorderRadius.circular(ElixSidebarMetrics.paneRadius);
   final sidebarBase = isDark
       ? const Color(0xFF0E0A16)
       : context.elixCardSurface;
-  final perimeter = highContrast
-      ? colors.borderStrong
-      : (isDark
-            ? Color.lerp(_purple, Colors.white, 0.18)!.withValues(alpha: 0.30)
-            : _purple.withValues(alpha: 0.22));
 
   return BoxDecoration(
     color: highContrast ? context.elixBackground : sidebarBase,
-    borderRadius: radius,
+    borderRadius: ElixSidebarMetrics.paneBorderRadius,
     gradient: highContrast
         ? null
         : LinearGradient(
@@ -88,50 +87,44 @@ BoxDecoration elixSidebarSurfaceDecoration(BuildContext context) {
             end: Alignment.bottomCenter,
             colors: [
               Color.alphaBlend(
-                _pink.withValues(alpha: isDark ? 0.16 : 0.06),
+                _pink.withValues(alpha: isDark ? 0.10 : 0.04),
                 sidebarBase,
               ),
               Color.alphaBlend(
-                _purple.withValues(alpha: isDark ? 0.07 : 0.03),
+                _purple.withValues(alpha: isDark ? 0.05 : 0.02),
                 sidebarBase,
               ),
               sidebarBase,
               Color.alphaBlend(
-                _pink.withValues(alpha: isDark ? 0.05 : 0.02),
+                _pink.withValues(alpha: isDark ? 0.03 : 0.015),
                 sidebarBase,
               ),
             ],
             stops: const [0, 0.24, 0.68, 1],
           ),
-    border: Border.all(color: perimeter, width: highContrast ? 2 : 1),
+    border: highContrast
+        ? Border.all(color: colors.borderStrong, width: 2)
+        : null,
     boxShadow: highContrast
         ? const []
         : [
             BoxShadow(
-              color: colors.shadow.withValues(alpha: isDark ? 0.42 : 0.14),
-              blurRadius: 22,
-              offset: const Offset(4, 8),
-            ),
-            BoxShadow(
-              color: _pink.withValues(
-                alpha: (isDark ? 0.10 : 0.05) * glowScale,
-              ),
-              blurRadius: 28,
-              spreadRadius: -6,
-              offset: const Offset(2, 4),
+              color: colors.shadow.withValues(alpha: isDark ? 0.20 : 0.07),
+              blurRadius: 16,
+              offset: const Offset(6, 0),
             ),
             BoxShadow(
               color: _purple.withValues(
-                alpha: (isDark ? 0.08 : 0.04) * glowScale,
+                alpha: (isDark ? 0.05 : 0.025) * glowScale,
               ),
-              blurRadius: 18,
-              offset: const Offset(6, 0),
+              blurRadius: 14,
+              offset: const Offset(4, 0),
             ),
           ],
   );
 }
 
-/// Floating rounded pane used by both Trainee and Teacher sidebars.
+/// Docked shell pane used by both Trainee and Teacher sidebars.
 class ElixSidebarPane extends StatelessWidget {
   const ElixSidebarPane({
     super.key,
@@ -144,24 +137,21 @@ class ElixSidebarPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: ElixSidebarMetrics.paneInset,
-      child: AnimatedContainer(
-        duration: ElixSidebarMetrics.paneDuration(context),
-        curve: ElixMotion.standardCurve,
-        width: isCollapsed
-            ? ElixSidebarMetrics.collapsedWidth
-            : ElixSidebarMetrics.expandedWidth,
-        decoration: elixSidebarSurfaceDecoration(context),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const ElixSidebarAmbientGlow(),
-            child,
-            const ElixSidebarFacingHighlight(),
-          ],
-        ),
+    return AnimatedContainer(
+      duration: ElixSidebarMetrics.paneDuration(context),
+      curve: ElixMotion.standardCurve,
+      width: isCollapsed
+          ? ElixSidebarMetrics.collapsedWidth
+          : ElixSidebarMetrics.expandedWidth,
+      decoration: elixSidebarSurfaceDecoration(context),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const ElixSidebarAmbientGlow(),
+          child,
+          const ElixSidebarFacingHighlight(),
+        ],
       ),
     );
   }
@@ -181,16 +171,16 @@ class ElixSidebarAmbientGlow extends StatelessWidget {
         child: Stack(
           children: [
             Positioned(
-              left: -40,
-              top: -52,
+              left: -48,
+              top: -64,
               child: Container(
-                width: 176,
-                height: 176,
+                width: 148,
+                height: 148,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      _pink.withValues(alpha: (isDark ? 0.18 : 0.08) * scale),
+                      _pink.withValues(alpha: (isDark ? 0.08 : 0.04) * scale),
                       _pink.withValues(alpha: 0),
                     ],
                   ),
@@ -198,16 +188,18 @@ class ElixSidebarAmbientGlow extends StatelessWidget {
               ),
             ),
             Positioned(
-              left: 18,
-              top: 188,
+              left: 8,
+              top: 196,
               child: Container(
-                width: 128,
-                height: 160,
+                width: 112,
+                height: 128,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      _purple.withValues(alpha: (isDark ? 0.11 : 0.05) * scale),
+                      _purple.withValues(
+                        alpha: (isDark ? 0.05 : 0.025) * scale,
+                      ),
                       _purple.withValues(alpha: 0),
                     ],
                   ),
@@ -221,8 +213,8 @@ class ElixSidebarAmbientGlow extends StatelessWidget {
   }
 }
 
-/// 1px content-facing highlight. Flutter cannot mix border colors with a
-/// rounded [BoxDecoration], so this stays a separate overlay.
+/// 1px content-facing separator. Flutter cannot mix a right-only border
+/// with a rounded [BoxDecoration], so this stays a separate overlay.
 class ElixSidebarFacingHighlight extends StatelessWidget {
   const ElixSidebarFacingHighlight({super.key});
 
@@ -235,16 +227,18 @@ class ElixSidebarFacingHighlight extends StatelessWidget {
         alignment: Alignment.centerRight,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: const BorderRadius.horizontal(
-              right: Radius.circular(ElixSidebarMetrics.paneRadius),
-            ),
+            borderRadius: ElixSidebarMetrics.paneBorderRadius,
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                _pink.withValues(alpha: isDark ? 0.42 : 0.22),
-                _purple.withValues(alpha: isDark ? 0.28 : 0.16),
-                _pink.withValues(alpha: isDark ? 0.14 : 0.08),
+                _pink.withValues(alpha: isDark ? 0.16 : 0.09),
+                Color.lerp(
+                  _purple,
+                  Colors.white,
+                  0.12,
+                )!.withValues(alpha: isDark ? 0.18 : 0.10),
+                _purple.withValues(alpha: isDark ? 0.08 : 0.05),
               ],
             ),
           ),
@@ -787,10 +781,10 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
                         ? [
                             BoxShadow(
                               color: colors.glowPrimary.withValues(
-                                alpha: 0.22 * glowScale,
+                                alpha: 0.28 * glowScale,
                               ),
-                              blurRadius: 14,
-                              offset: const Offset(0, 3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 2),
                             ),
                           ]
                         : (_hovered && !soon)
@@ -1165,7 +1159,6 @@ class _ElixSidebarIdentityCardState extends State<ElixSidebarIdentityCard> {
     final collapsed = widget.isCollapsed;
     final reduced = ElixSidebarMetrics.reducedMotion(context);
     final highContrast = context.isHighContrast;
-    final hoverLift = !reduced && _hovered ? -1.0 : 0.0;
     final hoverShift = !reduced && _hovered ? 1.0 : 0.0;
 
     final card = Semantics(
@@ -1182,7 +1175,7 @@ class _ElixSidebarIdentityCardState extends State<ElixSidebarIdentityCard> {
             child: AnimatedContainer(
               duration: ElixSidebarMetrics.hoverDuration(context),
               curve: ElixMotion.standardCurve,
-              transform: Matrix4.translationValues(hoverShift, hoverLift, 0),
+              transform: Matrix4.translationValues(hoverShift, 0, 0),
               transformAlignment: Alignment.center,
               margin: EdgeInsets.symmetric(
                 horizontal: collapsed ? AppSpacing.sm : AppSpacing.md,
@@ -1196,11 +1189,11 @@ class _ElixSidebarIdentityCardState extends State<ElixSidebarIdentityCard> {
                     ? (highContrast
                           ? context.elixCardSurface
                           : context.elixColors.surfaceInteractive.withValues(
-                              alpha: 0.55,
+                              alpha: 0.42,
                             ))
                     : (highContrast
                           ? Colors.transparent
-                          : context.elixCardSurface.withValues(alpha: 0.22)),
+                          : context.elixCardSurface.withValues(alpha: 0.14)),
                 borderRadius: BorderRadius.circular(
                   ElixSidebarMetrics.identityCardRadius,
                 ),
@@ -1208,17 +1201,17 @@ class _ElixSidebarIdentityCardState extends State<ElixSidebarIdentityCard> {
                   color: _hovered
                       ? (highContrast
                             ? context.elixTextPrimary
-                            : _pink.withValues(alpha: 0.28))
+                            : _pink.withValues(alpha: 0.22))
                       : context.elixBorder.withValues(
-                          alpha: highContrast ? 1 : 0.28,
+                          alpha: highContrast ? 1 : 0.16,
                         ),
                 ),
                 boxShadow: _hovered && !highContrast
                     ? [
                         BoxShadow(
-                          color: _pink.withValues(alpha: 0.10),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
+                          color: _pink.withValues(alpha: 0.08),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
                         ),
                       ]
                     : const [],

@@ -20,7 +20,7 @@ import '../../features/teacher/teacher_phase3_test_support.dart';
 
 void main() {
   test('teacher sidebar follows the daily Teacher workflow', () {
-    expect(teacherSidebarItems, hasLength(8));
+    expect(teacherSidebarItems, hasLength(9));
     expect(teacherSidebarItems.map((item) => item.label), [
       'Dashboard',
       'Classrooms',
@@ -29,6 +29,7 @@ void main() {
       'Students',
       'Calendar',
       'Progress',
+      'Analytics',
       'Messages',
     ]);
     expect(teacherSidebarItems.map((item) => item.route), [
@@ -39,6 +40,7 @@ void main() {
       AppRoutePaths.teacherStudents,
       AppRoutePaths.teacherCalendar,
       AppRoutePaths.teacherProgress,
+      AppRoutePaths.teacherAnalytics,
       AppRoutePaths.teacherMessages,
     ]);
     expect(teacherSidebarUtilityItems, hasLength(2));
@@ -91,19 +93,70 @@ void main() {
     final progress = teacherSidebarItems.singleWhere(
       (item) => item.label == 'Progress',
     );
+    final analytics = teacherSidebarItems.singleWhere(
+      (item) => item.label == 'Analytics',
+    );
 
     expect(
       isTeacherSidebarItemActive(AppRoutePaths.teacherProgress, progress),
       isTrue,
     );
     expect(
-      isTeacherSidebarItemActive(AppRoutePaths.teacherAnalytics, progress),
-      isTrue,
-    );
-    expect(
       isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, progress),
       isTrue,
     );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherAnalytics, progress),
+      isFalse,
+    );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherAnalytics, analytics),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherProgress, analytics),
+      isFalse,
+    );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, analytics),
+      isFalse,
+    );
+  });
+
+  testWidgets('Analytics is selected on the analytics route', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const Row(
+            children: [
+              TeacherSidebar(
+                currentRoute: AppRoutePaths.teacherAnalytics,
+                isCollapsed: false,
+                onToggleCollapse: _noop,
+                onLogout: _noop,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    ElixSidebarNavTile tileFor(String label) => tester
+        .widgetList<ElixSidebarNavTile>(find.byType(ElixSidebarNavTile))
+        .firstWhere((tile) => tile.label == label);
+
+    expect(find.text('Analytics'), findsOneWidget);
+    expect(tileFor('Analytics').isActive, isTrue);
+    expect(tileFor('Progress').isActive, isFalse);
   });
 
   testWidgets('teacher sidebar uses Trainee chrome without XP copy', (
@@ -269,7 +322,7 @@ void main() {
     },
   );
 
-  testWidgets('teacher sidebar uses the shared floating pane when collapsed', (
+  testWidgets('teacher sidebar uses the shared docked pane when collapsed', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
@@ -306,6 +359,10 @@ void main() {
 
     final pane = tester.widget<ElixSidebarPane>(find.byType(ElixSidebarPane));
     expect(pane.isCollapsed, isTrue);
+    expect(
+      tester.getSize(find.byType(ElixSidebarPane)).width,
+      ElixSidebarMetrics.collapsedWidth,
+    );
 
     final dashboard = tester
         .widgetList<ElixSidebarNavTile>(find.byType(ElixSidebarNavTile))

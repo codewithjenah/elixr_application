@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -29,9 +29,12 @@ import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
 import 'practice_run_phase.dart';
 import 'session_summary_sheet.dart';
+import 'training_quit_guard.dart';
 import 'widgets/readiness_checklist_panel.dart';
 import 'widgets/training_action_area.dart';
+import 'widgets/training_arena_layout.dart';
 import 'widgets/training_camera_workspace.dart';
+import 'widgets/training_live_hud.dart';
 import 'widgets/training_performance.dart';
 import 'widgets/training_session_header.dart';
 import 'widgets/training_session_panel.dart';
@@ -52,6 +55,7 @@ class PracticeScreen extends StatefulWidget {
     required this.difficulty,
     this.prop = TrainingProp.bottle,
     this.assignmentContext,
+    @visibleForTesting this.websocketService,
   });
 
   final String movement;
@@ -62,14 +66,15 @@ class PracticeScreen extends StatefulWidget {
   /// Ordinary catalog practice leaves this null.
   final SessionAssignmentContext? assignmentContext;
 
-  static const cameraAspectWidth = 640.0;
-  static const cameraAspectHeight = 480.0;
+  /// Test injection. Production constructs [WebSocketService] in [createState].
+  @visibleForTesting
+  final WebSocketService? websocketService;
+
+  static const cameraAspectWidth = TrainingArenaLayout.cameraAspectWidth;
+  static const cameraAspectHeight = TrainingArenaLayout.cameraAspectHeight;
 
   static double panelWidthForContent(double contentWidth) {
-    return math.min(
-      AppSpacing.practicePanelMaxWidth,
-      math.max(AppSpacing.practicePanelMinWidth, contentWidth * 0.28),
-    );
+    return TrainingArenaLayout.panelWidthForContent(contentWidth);
   }
 
   @visibleForTesting
@@ -77,36 +82,29 @@ class PracticeScreen extends StatefulWidget {
     required double contentWidth,
     required double workspaceHeight,
   }) {
-    final panelWidth = panelWidthForContent(contentWidth);
-    final availableCameraWidth =
-        contentWidth - panelWidth - AppSpacing.practiceCameraPanelGap;
-    final cameraWidth = math.min(
-      availableCameraWidth,
-      workspaceHeight * cameraAspectWidth / cameraAspectHeight,
+    return TrainingArenaLayout.desktopCameraSize(
+      contentWidth: contentWidth,
+      workspaceHeight: workspaceHeight,
     );
-    final cameraHeight = cameraWidth * cameraAspectHeight / cameraAspectWidth;
-    return Size(cameraWidth, cameraHeight);
   }
 
   @visibleForTesting
   static Size stackedCameraSize(double contentWidth) {
-    return Size(
-      contentWidth,
-      contentWidth * cameraAspectHeight / cameraAspectWidth,
-    );
+    return TrainingArenaLayout.stackedCameraSize(contentWidth);
   }
 
   @override
-  State<PracticeScreen> createState() => _PracticeScreenState();
+  State<PracticeScreen> createState() => PracticeScreenState();
 }
 
-class _PracticeScreenState extends State<PracticeScreen>
+class PracticeScreenState extends State<PracticeScreen>
     with SingleTickerProviderStateMixin {
   late final String _movement = widget.movement;
   late final String _difficulty = widget.difficulty;
   late final TrainingProp _prop = widget.prop;
 
-  final _ws = WebSocketService();
+  late final WebSocketService _ws;
+  late final bool _ownsWebSocket;
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
@@ -114,6 +112,9 @@ class _PracticeScreenState extends State<PracticeScreen>
   final _comboNotifier = ValueNotifier<ComboState>(const ComboState());
   final _scorePopupNotifier = ValueNotifier<ScorePopupState>(
     const ScorePopupState(),
+  );
+  final _calloutNotifier = ValueNotifier<PerformanceCalloutState>(
+    const PerformanceCalloutState(),
   );
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
@@ -127,6 +128,9 @@ class _PracticeScreenState extends State<PracticeScreen>
   bool _isShowingSummary = false;
   bool _movementConfirmedShowing = false;
   bool _commandInFlight = false;
+  bool _leaving = false;
+  bool _quitDialogOpen = false;
+  bool _stopInFlight = false;
   Uint8List? _confirmedEvidenceJpegBytes;
 
   late final AnimationController _scorePulseController;
@@ -140,6 +144,8 @@ class _PracticeScreenState extends State<PracticeScreen>
   @override
   void initState() {
     super.initState();
+    _ownsWebSocket = widget.websocketService == null;
+    _ws = widget.websocketService ?? WebSocketService();
     _scorePulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -155,7 +161,9 @@ class _PracticeScreenState extends State<PracticeScreen>
     _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
     _previewSub = _ws.previewStream.listen(_onPreviewFrame);
-    _connect();
+    if (widget.websocketService == null || !_ws.isConnected) {
+      _connect();
+    }
     _sfx.preload();
   }
 
@@ -169,12 +177,15 @@ class _PracticeScreenState extends State<PracticeScreen>
     _holdProgressNotifier.dispose();
     _comboNotifier.dispose();
     _scorePopupNotifier.dispose();
+    _calloutNotifier.dispose();
     _music.dispose();
     _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     _run.dispose();
-    _ws.dispose();
+    if (_ownsWebSocket) {
+      _ws.dispose();
+    }
     super.dispose();
   }
 
@@ -213,7 +224,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   void _onRunChanged() {
-    if (!mounted) return;
+    if (!mounted || _leaving) return;
     setState(() {});
     if (_run.consumeAutoStartDue()) {
       _onStartPractice();
@@ -243,7 +254,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   void _onPreviewFrame(PreviewFrame frame) {
-    if (!mounted) return;
+    if (!mounted || _leaving) return;
     if (!frame.hasJpeg) return;
 
     _publishFrame(frame.jpegBytes);
@@ -270,7 +281,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   void _onFeedback(PracticeFeedback feedback) {
-    if (!mounted) return;
+    if (!mounted || _leaving) return;
 
     if (feedback.isSessionFatal) {
       _music.stop();
@@ -358,6 +369,9 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (result.scorePopupChanged) {
       _scorePopupNotifier.value = result.scorePopupState;
     }
+    if (result.calloutChanged) {
+      _calloutNotifier.value = result.calloutState;
+    }
 
     if (result.needsChromeRebuild || _sessionError != null) {
       setState(() {
@@ -423,7 +437,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   /// Auto-start entry after the Ready beat (or shared confirm path).
   void _onStartPractice() {
-    if (_commandInFlight) return;
+    if (_leaving || _commandInFlight) return;
     final stable = _run.readiness.stable || (_run.readinessStable == true);
     if (!_run.requestStartPractice(readinessStable: stable)) return;
     setState(() {});
@@ -523,6 +537,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   Future<void> _startSession() async {
+    if (_leaving) return;
     if (!_ws.isConnected) {
       _connect();
       return;
@@ -685,6 +700,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _holdProgressNotifier.value = 0;
     _comboNotifier.value = const ComboState();
     _scorePopupNotifier.value = const ScorePopupState();
+    _calloutNotifier.value = const PerformanceCalloutState();
     _lastPulsedTotal = null;
     _movementConfirmedShowing = false;
   }
@@ -692,176 +708,193 @@ class _PracticeScreenState extends State<PracticeScreen>
   Future<void> _cancelPreActive() async {
     await _stopWebSocketSession();
     _run.cancelToIdle();
-    await _music.stop();
-    await _sfx.stop();
+    unawaited(_music.stop());
+    unawaited(_sfx.stop());
+    _commandInFlight = false;
     _clearSessionState();
     if (mounted) setState(() {});
   }
 
   Future<void> _stopSession({bool heldSteady = false}) async {
-    if (_isShowingSummary) return;
-
-    // Cancel during prepare/readiness/countdown/error: no summary.
-    if (_run.isPreparingCamera ||
-        _run.isReadiness ||
-        _run.isCountdown ||
-        _run.isError) {
-      await _cancelPreActive();
+    if (_isShowingSummary || _leaving || _stopInFlight || _quitDialogOpen) {
       return;
     }
-
-    final wasTraining =
-        _run.isTrainingActive || _run.phase == PracticeRunPhase.completed;
-    if (!wasTraining) {
-      await _cancelPreActive();
-      if (mounted) _goPracticeExit(catalog: true);
-      return;
-    }
-
-    final router = GoRouter.of(context);
-    final sessionService = context.read<SessionService>();
-    final authUser = context.read<AuthService>().currentUser;
-    final userId = authUser?.id;
-    final displayName = authUser?.fullName ?? 'Trainee';
-    final settings = context.read<SettingsService>();
-    final tutorialProgress = context.read<TutorialProgressService>();
-    final sfxVolume = settings.soundEnabled ? settings.musicVolume : 0.0;
-
-    await _stopWebSocketSession();
-    if (_run.phase == PracticeRunPhase.active) {
-      _run.markCompleted();
-    }
-    unawaited(_music.stop());
-    // Do not await _sfx.stop() here. playCongrats() already stops then
-    // plays on the same AudioPlayer; a parallel stop can race and mute it.
-
-    if (!_hasSessionData && _run.elapsedSeconds == 0) {
-      // Still show summary for an activated session with zero elapsed when
-      // there was at least a feedback snapshot; otherwise return to catalog.
-      if (_feedback.latestFeedback == null &&
-          _feedback.feedbackHistory.isEmpty) {
-        _run.cancelToIdle();
-        _clearSessionState();
-        if (mounted) router.go(_practiceExitLocation(catalog: true));
+    _stopInFlight = true;
+    try {
+      // Cancel during prepare/readiness/countdown/error: no summary.
+      if (_run.isPreparingCamera ||
+          _run.isReadiness ||
+          _run.isCountdown ||
+          _run.isError) {
+        await _cancelPreActive();
         return;
       }
-    }
 
-    if (userId == null) {
-      _run.cancelToIdle();
-      _clearSessionState();
-      if (mounted) setState(() {});
-      if (mounted) router.go(_practiceExitLocation(catalog: true));
-      return;
-    }
-
-    // Assessment V2 requires a rubric to persist. A session that ended before
-    // any assessment frame arrived saves an explicit all-zero rubric rather
-    // than fabricating criterion scores.
-    final summaryRubric = _feedback.latestFeedback?.assessment ?? _emptyRubric;
-    final summaryDuration = _run.elapsedSeconds;
-    final sessionAssessment = _feedback.buildSessionAssessment(
-      movement: _movement,
-      prop: _prop,
-      rubric: summaryRubric,
-      heldSteady: heldSteady,
-    );
-    var saveEvidence = false;
-    final evidence = _confirmedEvidenceJpegBytes;
-    if (heldSteady && evidence != null) {
-      final preference = await sessionService.sessionEvidenceEnabled(userId);
-      if (!mounted) return;
-      if (preference == null) {
-        saveEvidence = await _askEvidenceConsent() ?? false;
-        await sessionService.setSessionEvidenceEnabled(
-          userId: userId,
-          enabled: saveEvidence,
-        );
-        if (!mounted) return;
-      } else {
-        saveEvidence = preference;
+      final wasTraining =
+          _run.isTrainingActive || _run.phase == PracticeRunPhase.completed;
+      if (!wasTraining) {
+        await _cancelPreActive();
+        if (_leaving || !mounted) return;
+        _goPracticeExit(catalog: true);
+        return;
       }
-    }
-    _isShowingSummary = true;
-    if (mounted) setState(() {});
-    try {
-      unawaited(_playCongratsBestEffort(sfxVolume));
-      if (!mounted) return;
-      final nextStep = widget.assignmentContext == null
-          ? nextEnabledPracticeAfter(_movement, _prop)
-          : null;
-      final result = await SessionSummarySheet.show(
-        context,
+
+      final router = GoRouter.of(context);
+      final sessionService = context.read<SessionService>();
+      final authUser = context.read<AuthService>().currentUser;
+      final userId = authUser?.id;
+      final displayName = authUser?.fullName ?? 'Trainee';
+      final settings = context.read<SettingsService>();
+      final tutorialProgress = context.read<TutorialProgressService>();
+      final sfxVolume = settings.soundEnabled ? settings.musicVolume : 0.0;
+
+      await _stopWebSocketSession();
+      if (_leaving || !mounted) return;
+      if (_run.phase == PracticeRunPhase.active) {
+        _run.markCompleted();
+      }
+      unawaited(_music.stop());
+      // Do not await _sfx.stop() here. playCongrats() already stops then
+      // plays on the same AudioPlayer; a parallel stop can race and mute it.
+
+      if (!_hasSessionData && _run.elapsedSeconds == 0) {
+        // Still show summary for an activated session with zero elapsed when
+        // there was at least a feedback snapshot; otherwise return to catalog.
+        if (_feedback.latestFeedback == null &&
+            _feedback.feedbackHistory.isEmpty) {
+          _run.cancelToIdle();
+          _clearSessionState();
+          if (mounted && !_leaving) {
+            router.go(_practiceExitLocation(catalog: true));
+          }
+          return;
+        }
+      }
+
+      if (userId == null) {
+        _run.cancelToIdle();
+        _clearSessionState();
+        if (mounted && !_leaving) setState(() {});
+        if (mounted && !_leaving) {
+          router.go(_practiceExitLocation(catalog: true));
+        }
+        return;
+      }
+
+      // Assessment V2 requires a rubric to persist. A session that ended before
+      // any assessment frame arrived saves an explicit all-zero rubric rather
+      // than fabricating criterion scores.
+      final summaryRubric =
+          _feedback.latestFeedback?.assessment ?? _emptyRubric;
+      final summaryDuration = _run.elapsedSeconds;
+      final sessionAssessment = _feedback.buildSessionAssessment(
         movement: _movement,
-        durationSeconds: summaryDuration,
-        assessment: sessionAssessment,
-        nextMovement: nextStep?.movement,
-        nextProp: nextStep?.prop,
-        evidenceJpegBytes: evidence,
-        onSave: (existingSessionId) => sessionService.saveCompletedSession(
-          existingSessionId: existingSessionId,
-          userId: userId,
-          displayName: displayName,
-          profilePictureUrl: authUser?.profilePictureUrl,
-          movementName: _movement,
-          difficulty: _difficulty,
-          prop: _prop,
-          rubric: summaryRubric,
-          durationSeconds: summaryDuration,
-          sessionImprovements: sessionAssessment.improvementFeedbacks,
-          evidenceJpegBytes: evidence,
-          saveEvidence: saveEvidence,
-          assignmentContext: widget.assignmentContext,
-        ),
+        prop: _prop,
+        rubric: summaryRubric,
+        heldSteady: heldSteady,
       );
+      var saveEvidence = false;
+      final evidence = _confirmedEvidenceJpegBytes;
+      if (heldSteady && evidence != null) {
+        final preference = await sessionService.sessionEvidenceEnabled(userId);
+        if (_leaving || !mounted) return;
+        if (preference == null) {
+          saveEvidence = await _askEvidenceConsent() ?? false;
+          if (_leaving || !mounted) return;
+          await sessionService.setSessionEvidenceEnabled(
+            userId: userId,
+            enabled: saveEvidence,
+          );
+          if (_leaving || !mounted) return;
+        } else {
+          saveEvidence = preference;
+        }
+      }
+      if (_leaving) return;
+      _isShowingSummary = true;
+      if (mounted) setState(() {});
+      try {
+        unawaited(_playCongratsBestEffort(sfxVolume));
+        if (!mounted || _leaving) return;
+        final nextStep = widget.assignmentContext == null
+            ? nextEnabledPracticeAfter(_movement, _prop)
+            : null;
+        final result = await SessionSummarySheet.show(
+          context,
+          movement: _movement,
+          durationSeconds: summaryDuration,
+          assessment: sessionAssessment,
+          nextMovement: nextStep?.movement,
+          nextProp: nextStep?.prop,
+          evidenceJpegBytes: evidence,
+          onSave: (existingSessionId) => sessionService.saveCompletedSession(
+            existingSessionId: existingSessionId,
+            userId: userId,
+            displayName: displayName,
+            profilePictureUrl: authUser?.profilePictureUrl,
+            movementName: _movement,
+            difficulty: _difficulty,
+            prop: _prop,
+            rubric: summaryRubric,
+            durationSeconds: summaryDuration,
+            sessionImprovements: sessionAssessment.improvementFeedbacks,
+            evidenceJpegBytes: evidence,
+            saveEvidence: saveEvidence,
+            assignmentContext: widget.assignmentContext,
+          ),
+        );
 
-      if (!mounted) return;
+        if (!mounted || _leaving) return;
 
-      if (result == SessionSummaryResult.tryAgain) {
+        if (result == SessionSummaryResult.tryAgain) {
+          await _sfx.stop();
+          _clearSessionState();
+          _run.cancelToIdle();
+          setState(() {});
+          await _startSession();
+          return;
+        }
+
+        if (result == SessionSummaryResult.next && nextStep != null) {
+          // Session was already persisted by the summary primary action.
+          unawaited(tutorialProgress.completeFirstSessionGuidance());
+          // Don't block navigation on SFX teardown.
+          unawaited(_sfx.stop());
+          _clearSessionState();
+          _run.cancelToIdle();
+          final encoded = Uri.encodeComponent(nextStep.movement.name);
+          router.go(
+            '/practice?movement=$encoded'
+            '&difficulty=${nextStep.movement.difficulty}'
+            '&prop=${nextStep.prop.protocolValue}',
+          );
+          return;
+        }
+
+        // End congrats before leaving practice. Do NOT stop again in finally —
+        // Try Again starts preparation on the same player and a finally stop
+        // would silence it immediately.
         await _sfx.stop();
+        if (_leaving || !mounted) return;
+
+        if (result == SessionSummaryResult.saved) {
+          unawaited(tutorialProgress.completeFirstSessionGuidance());
+        }
+
         _clearSessionState();
         _run.cancelToIdle();
         setState(() {});
-        await _startSession();
-        return;
-      }
 
-      if (result == SessionSummaryResult.next && nextStep != null) {
-        // Session was already persisted by the summary primary action.
-        unawaited(tutorialProgress.completeFirstSessionGuidance());
-        // Don't block navigation on SFX teardown.
-        unawaited(_sfx.stop());
-        _clearSessionState();
-        _run.cancelToIdle();
-        final encoded = Uri.encodeComponent(nextStep.movement.name);
         router.go(
-          '/practice?movement=$encoded'
-          '&difficulty=${nextStep.movement.difficulty}'
-          '&prop=${nextStep.prop.protocolValue}',
+          result == SessionSummaryResult.saved
+              ? _practiceExitLocation(catalog: false)
+              : _practiceExitLocation(catalog: true),
         );
-        return;
+      } finally {
+        _isShowingSummary = false;
       }
-
-      // End congrats before leaving practice. Do NOT stop again in finally —
-      // Try Again starts preparation on the same player and a finally stop
-      // would silence it immediately.
-      await _sfx.stop();
-
-      if (result == SessionSummaryResult.saved) {
-        unawaited(tutorialProgress.completeFirstSessionGuidance());
-      }
-
-      _clearSessionState();
-      _run.cancelToIdle();
-      setState(() {});
-
-      router.go(
-        result == SessionSummaryResult.saved
-            ? _practiceExitLocation(catalog: false)
-            : _practiceExitLocation(catalog: true),
-      );
     } finally {
-      _isShowingSummary = false;
+      _stopInFlight = false;
     }
   }
 
@@ -966,18 +999,72 @@ class _PracticeScreenState extends State<PracticeScreen>
     context.go(_practiceExitLocation(catalog: catalog));
   }
 
-  void _onBack() {
-    if (_isShowingSummary) return;
-    if (_run.isPreparingCamera || _run.isReadiness || _run.isCountdown) {
-      _cancelPreActive();
+  bool get _shouldConfirmAbandon =>
+      trainingShouldConfirmAbandon(runPhase: _run.phase);
+
+  Future<void> _abandonAndLeave() async {
+    if (_leaving || _isShowingSummary || _stopInFlight) return;
+    _leaving = true;
+    final router = GoRouter.of(context);
+    final location = _practiceExitLocation(catalog: true);
+    final feedbackSub = _feedbackSub;
+    final previewSub = _previewSub;
+    _feedbackSub = null;
+    _previewSub = null;
+    unawaited(feedbackSub?.cancel() ?? Future<void>.value());
+    unawaited(previewSub?.cancel() ?? Future<void>.value());
+    _ws.removeListener(_onWsStateChanged);
+    _run.removeListener(_onRunChanged);
+    await _stopWebSocketSession();
+    _run.cancelToIdle();
+    unawaited(_music.stop());
+    unawaited(_sfx.stop());
+    _commandInFlight = false;
+    _clearSessionState();
+    router.go(location);
+  }
+
+  Future<void> _confirmAbandonThen(Future<void> Function() onConfirmed) async {
+    if (_leaving || _isShowingSummary || _quitDialogOpen || _stopInFlight) {
       return;
     }
-    if (_hasSessionData || _run.isTrainingActive) {
-      _stopSession();
-    } else {
-      _goPracticeExit(catalog: true);
+    _quitDialogOpen = true;
+    try {
+      final confirmed = await showTrainingQuitDialog(
+        context,
+        copy: TrainingQuitCopy.practice,
+      );
+      if (confirmed && mounted && !_leaving && !_stopInFlight) {
+        await onConfirmed();
+      }
+    } finally {
+      _quitDialogOpen = false;
     }
   }
+
+  Future<void> _onCancelPressed() async {
+    if (_leaving || _quitDialogOpen || _stopInFlight) return;
+    if (!_shouldConfirmAbandon) {
+      await _cancelPreActive();
+      return;
+    }
+    await _confirmAbandonThen(_cancelPreActive);
+  }
+
+  Future<void> _onBack() async {
+    if (_isShowingSummary || _leaving || _stopInFlight) return;
+    if (!_shouldConfirmAbandon) {
+      _goPracticeExit(catalog: true);
+      return;
+    }
+    await _confirmAbandonThen(_abandonAndLeave);
+  }
+
+  @visibleForTesting
+  PracticeRunController get debugRun => _run;
+
+  @visibleForTesting
+  WebSocketService get debugWebSocket => _ws;
 
   TrainingActionKind _actionKind() {
     return switch (_run.phase) {
@@ -1058,19 +1145,13 @@ class _PracticeScreenState extends State<PracticeScreen>
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, workspaceConstraints) {
-                          final workspace = isDesktop
-                              ? _buildDesktopWorkspace(
-                                  contentWidth: contentWidth,
-                                  workspaceHeight:
-                                      workspaceConstraints.maxHeight,
-                                  camera: camera,
-                                  panel: panel,
-                                )
-                              : _buildStackedWorkspace(
-                                  contentWidth: contentWidth,
-                                  camera: camera,
-                                  panel: panel,
-                                );
+                          final workspace = TrainingArenaWorkspace(
+                            desktop: isDesktop,
+                            contentWidth: contentWidth,
+                            workspaceHeight: workspaceConstraints.maxHeight,
+                            camera: camera,
+                            panel: panel,
+                          );
 
                           if (isDesktop) {
                             return workspace;
@@ -1112,57 +1193,27 @@ class _PracticeScreenState extends State<PracticeScreen>
       isPreparingCamera: _run.isPreparingCamera,
       accentBorder:
           _run.isPreparingCamera || _run.isReadiness || _run.isCountdown,
+      readyAura: _run.isReadiness && _run.readiness.stable,
+      idleTitle: 'Training Arena',
+      idleSubtitle: 'Press Start Camera Setup when you are ready.',
+      idleCaption: 'Keep your upper body, hands, and bottle visible.',
       errorMessage: _ws.errorMessage,
       sessionError: _sessionError ?? _run.errorMessage,
       onRetry: _connect,
       countdownActive: _run.isCountdown,
       onCountdownComplete: _beginSessionAfterCountdown,
-      overlayFeedback: isTrainingActive ? _feedback.latestFeedback : null,
-      overlays: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (isTrainingActive)
-            ValueListenableBuilder<double>(
-              valueListenable: _holdProgressNotifier,
-              builder: (context, holdProgress, _) {
-                if (holdProgress <= 0 || holdProgress >= 1) {
-                  return const SizedBox.shrink();
-                }
-                return Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: AppSpacing.lg,
-                  child: Center(child: _HoldIndicator(progress: holdProgress)),
-                );
-              },
-            ),
-          Positioned(
-            right: AppSpacing.lg,
-            bottom: AppSpacing.lg,
-            child: ValueListenableBuilder<ComboState>(
-              valueListenable: _comboNotifier,
-              builder: (context, comboState, _) {
-                return ComboBadge(
-                  combo: isTrainingActive ? comboState.combo : 0,
-                );
-              },
-            ),
-          ),
-          Positioned.fill(
-            child: Center(
-              child: ValueListenableBuilder<ScorePopupState>(
-                valueListenable: _scorePopupNotifier,
-                builder: (context, popupState, _) {
-                  return ScorePopup(
-                    trigger: popupState.trigger,
-                    delta: popupState.delta,
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
+      overlayFeedback: isTrainingActive ? null : _feedback.latestFeedback,
+      overlays: isTrainingActive
+          ? TrainingLiveHud(
+              elapsedDisplay: _formatDuration(_run.elapsedSeconds),
+              assessmentListenable: _assessmentNotifier,
+              holdListenable: _holdProgressNotifier,
+              comboListenable: _comboNotifier,
+              scorePopupListenable: _scorePopupNotifier,
+              calloutListenable: _calloutNotifier,
+              coaching: _feedback.latestFeedback,
+            )
+          : null,
     );
   }
 
@@ -1197,47 +1248,41 @@ class _PracticeScreenState extends State<PracticeScreen>
               setupDone: _run.isCountdown,
               practiceActive: _run.isCountdown,
             )
-          : SessionMetricTiles(
+          : isTrainingActive
+          ? SessionMetricTiles(
               elapsedDisplay: _formatDuration(_run.elapsedSeconds),
-              rubricChild: isTrainingActive
-                  ? ValueListenableBuilder<RubricAssessment?>(
-                      valueListenable: _assessmentNotifier,
-                      builder: (context, assessment, _) {
-                        return ScaleTransition(
-                          scale: _scorePulse,
-                          child: Text(
-                            assessment != null
-                                ? '${assessment.total} / ${RubricScale.maxTotal}'
-                                : '—',
-                            style: AppTheme.sectionTitle(
-                              context,
-                              color: AppColors.primary,
-                            ).copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        );
-                      },
-                    )
-                  : Text(
-                      '—',
+              rubricChild: ValueListenableBuilder<RubricAssessment?>(
+                valueListenable: _assessmentNotifier,
+                builder: (context, assessment, _) {
+                  return ScaleTransition(
+                    scale: _scorePulse,
+                    child: Text(
+                      assessment != null
+                          ? '${assessment.total} / ${RubricScale.maxTotal}'
+                          : '—',
                       style: AppTheme.sectionTitle(
                         context,
                         color: AppColors.primary,
                       ).copyWith(fontWeight: FontWeight.w800),
                     ),
-              performanceBar: isTrainingActive
-                  ? ValueListenableBuilder<RubricAssessment?>(
-                      valueListenable: _assessmentNotifier,
-                      builder: (context, assessment, _) =>
-                          TrainingPerformanceBar(total: assessment?.total),
-                    )
-                  : const TrainingPerformanceBar(total: null),
-              rubricBreakdown: isTrainingActive
-                  ? ValueListenableBuilder<RubricAssessment?>(
-                      valueListenable: _assessmentNotifier,
-                      builder: (context, assessment, _) =>
-                          RubricCriteriaTiles(assessment: assessment),
-                    )
-                  : const RubricCriteriaTiles(assessment: null),
+                  );
+                },
+              ),
+              performanceBar: ValueListenableBuilder<RubricAssessment?>(
+                valueListenable: _assessmentNotifier,
+                builder: (context, assessment, _) =>
+                    TrainingPerformanceBar(total: assessment?.total),
+              ),
+              rubricBreakdown: ValueListenableBuilder<RubricAssessment?>(
+                valueListenable: _assessmentNotifier,
+                builder: (context, assessment, _) =>
+                    RubricCriteriaTiles(assessment: assessment),
+              ),
+            )
+          : const TrainingReadyBrief(
+              title: 'Ready to train',
+              body:
+                  'Start Camera Setup to prepare the camera, complete the setup check, then begin scored practice.',
             ),
       statusContent: (isReadiness || (_run.isCountdown && readiness.frozen))
           ? ReadinessChecklistPanel(
@@ -1313,63 +1358,16 @@ class _PracticeScreenState extends State<PracticeScreen>
               startLabel: 'Start Camera Setup',
               onPressed: switch (actionKind) {
                 TrainingActionKind.finish => () => _stopSession(),
-                TrainingActionKind.cancel => _cancelPreActive,
+                TrainingActionKind.cancel => _onCancelPressed,
                 TrainingActionKind.retry || TrainingActionKind.start =>
                   _ws.isConnected ? _startSession : _connect,
               },
-              isLoading: _connecting || _commandInFlight,
+              isLoading:
+                  actionKind == TrainingActionKind.cancel ||
+                      actionKind == TrainingActionKind.finish
+                  ? false
+                  : (_connecting || _commandInFlight),
             ),
-    );
-  }
-
-  Widget _buildDesktopWorkspace({
-    required double contentWidth,
-    required double workspaceHeight,
-    required Widget camera,
-    required Widget panel,
-  }) {
-    final panelWidth = PracticeScreen.panelWidthForContent(contentWidth);
-    final cameraSize = PracticeScreen.desktopCameraSize(
-      contentWidth: contentWidth,
-      workspaceHeight: workspaceHeight,
-    );
-
-    return Align(
-      alignment: Alignment.topCenter,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: cameraSize.width,
-            height: cameraSize.height,
-            child: camera,
-          ),
-          SizedBox(width: AppSpacing.practiceCameraPanelGap),
-          SizedBox(width: panelWidth, height: cameraSize.height, child: panel),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStackedWorkspace({
-    required double contentWidth,
-    required Widget camera,
-    required Widget panel,
-  }) {
-    final cameraSize = PracticeScreen.stackedCameraSize(contentWidth);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          width: cameraSize.width,
-          height: cameraSize.height,
-          child: camera,
-        ),
-        SizedBox(height: AppSpacing.practiceCameraPanelGap),
-        panel,
-      ],
     );
   }
 
@@ -1396,7 +1394,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           ),
         ),
         HyperlinkButton(
-          onPressed: _cancelPreActive,
+          onPressed: _onCancelPressed,
           child: Text(
             'Cancel',
             style: AppTheme.bodySecondary.copyWith(
@@ -1405,49 +1403,6 @@ class _PracticeScreenState extends State<PracticeScreen>
           ),
         ),
       ],
-    );
-  }
-}
-
-class _HoldIndicator extends StatelessWidget {
-  const _HoldIndicator({required this.progress});
-
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.sm + 2,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xE6101018),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 20,
-            height: 20,
-            child: ProgressRing(
-              value: progress * 100,
-              strokeWidth: 3,
-              activeColor: AppColors.success,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Text(
-            'Hold steady…',
-            style: AppTheme.body.copyWith(
-              color: AppColors.success,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

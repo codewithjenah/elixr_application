@@ -1,5 +1,4 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
-import 'package:elixr_application/core/constants/app_spacing.dart';
 import 'package:elixr_application/core/widgets/elix_sidebar.dart';
 import 'package:elixr_application/core/widgets/elix_sidebar_chrome.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -154,22 +153,130 @@ void main() {
     expect(sessions.isCollapsed, isTrue);
   });
 
-  test('floating pane geometry is shared and uses the 22px surface radius', () {
-    expect(ElixSidebarMetrics.paneRadius, AppSpacing.practiceSurfaceRadius);
-    expect(ElixSidebarMetrics.paneRadius, 22);
-    expect(ElixSidebarMetrics.paneInset.left, greaterThan(0));
-    expect(ElixSidebarMetrics.paneInset.top, greaterThan(0));
-    expect(ElixSidebarMetrics.paneInset.bottom, greaterThan(0));
-    expect(ElixSidebarMetrics.paneInset.right, greaterThan(0));
-    expect(
-      ElixSidebarMetrics.navGroupLabelLeft,
-      ElixSidebarMetrics.navOuterPadding +
-          ElixSidebarMetrics.navInnerPadding +
-          ElixSidebarMetrics.navIndicatorSlot +
-          ElixSidebarMetrics.navIconSlot +
-          ElixSidebarMetrics.navIconLabelGap,
+  testWidgets('trainee sidebar docks flush in the application shell', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = AuthService(
+      repository: _UnusedAuthRepository(),
+      awaitInitialAuthState: () async {},
     );
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ElixSidebar(
+                currentRoute: '/dashboard',
+                isCollapsed: false,
+                onToggleCollapse: _noop,
+                onLogout: _noop,
+              ),
+              Expanded(child: ColoredBox(color: Color(0xFF050308))),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final paneRect = tester.getRect(find.byType(ElixSidebarPane));
+    expect(paneRect.left, 0);
+    expect(paneRect.top, 0);
+    expect(paneRect.bottom, 760);
+    expect(paneRect.width, ElixSidebarMetrics.expandedWidth);
+
+    final paneContainer = tester
+        .widgetList<AnimatedContainer>(find.byType(AnimatedContainer))
+        .firstWhere(
+          (container) =>
+              container.constraints?.maxWidth ==
+              ElixSidebarMetrics.expandedWidth,
+        );
+    final decoration = paneContainer.decoration! as BoxDecoration;
+    expect(decoration.borderRadius, ElixSidebarMetrics.paneBorderRadius);
+    expect(decoration.border, isNull);
+    expect(find.byType(ElixSidebarFacingHighlight), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
+
+  testWidgets('collapsed trainee sidebar stays docked to the shell', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = AuthService(
+      repository: _UnusedAuthRepository(),
+      awaitInitialAuthState: () async {},
+    );
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ElixSidebar(
+                currentRoute: '/dashboard',
+                isCollapsed: true,
+                onToggleCollapse: _noop,
+                onLogout: _noop,
+              ),
+              Expanded(child: ColoredBox(color: Color(0xFF050308))),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(ElixSidebarMetrics.paneMotion);
+
+    final paneRect = tester.getRect(find.byType(ElixSidebarPane));
+    expect(paneRect.left, 0);
+    expect(paneRect.top, 0);
+    expect(paneRect.bottom, 760);
+    expect(paneRect.width, ElixSidebarMetrics.collapsedWidth);
+    expect(tester.takeException(), isNull);
+  });
+
+  test(
+    'docked pane geometry keeps square left corners and compact nav radius',
+    () {
+      expect(ElixSidebarMetrics.paneRadius, 28);
+      expect(ElixSidebarMetrics.paneBorderRadius.topLeft, Radius.zero);
+      expect(ElixSidebarMetrics.paneBorderRadius.bottomLeft, Radius.zero);
+      expect(
+        ElixSidebarMetrics.paneBorderRadius.topRight,
+        const Radius.circular(28),
+      );
+      expect(
+        ElixSidebarMetrics.paneBorderRadius.bottomRight,
+        const Radius.circular(28),
+      );
+      expect(ElixSidebarMetrics.paneInset, EdgeInsets.zero);
+      expect(ElixSidebarMetrics.navItemRadius, 12);
+      expect(ElixSidebarMetrics.identityCardRadius, lessThanOrEqualTo(14));
+      expect(
+        ElixSidebarMetrics.navGroupLabelLeft,
+        ElixSidebarMetrics.navOuterPadding +
+            ElixSidebarMetrics.navInnerPadding +
+            ElixSidebarMetrics.navIndicatorSlot +
+            ElixSidebarMetrics.navIconSlot +
+            ElixSidebarMetrics.navIconLabelGap,
+      );
+    },
+  );
 }
 
 void _noop() {}

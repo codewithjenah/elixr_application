@@ -6,19 +6,28 @@ import 'package:flutter/foundation.dart';
 
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/models/public_profile.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
+import '../../../data/repositories/public_profile_repository.dart';
 
 class AssignedMovementItem {
   const AssignedMovementItem({
     required this.assignment,
     required this.attempt,
     this.latestSubmission,
+    this.teacherProfilePictureUrl,
   });
 
   final GroupAssignment assignment;
   final AssignmentAttempt? attempt;
   final AssignmentAttempt? latestSubmission;
+
+  /// Best-effort public profile picture for [assignment.teacherId].
+  ///
+  /// Null until a public profile snapshot arrives, and whenever the teacher
+  /// has no photo. Assignment loading must not wait on this field.
+  final String? teacherProfilePictureUrl;
 }
 
 class AssignedMovementsController extends ChangeNotifier {
@@ -27,6 +36,7 @@ class AssignedMovementsController extends ChangeNotifier {
     required this.groupRepository,
     required this.assignmentRepository,
     this.submissionRepository,
+    this.publicProfileRepository,
     this.filterGroupId,
   });
 
@@ -34,6 +44,7 @@ class AssignedMovementsController extends ChangeNotifier {
   final GroupRepository groupRepository;
   final ClassroomAssignmentRepository assignmentRepository;
   final AssignmentSubmissionRepository? submissionRepository;
+  final PublicProfileRepository? publicProfileRepository;
 
   /// When set, only assignments for this approved class are loaded.
   final String? filterGroupId;
@@ -46,6 +57,10 @@ class AssignedMovementsController extends ChangeNotifier {
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
   List<AssignmentAttempt> _attempts = const [];
   Set<String> _approvedGroupIds = const {};
+  final Map<String, String> _teacherProfilePictureUrls = {};
+  final Map<String, StreamSubscription<PublicProfile?>> _teacherProfileSubs =
+      {};
+  bool _disposed = false;
 
   Future<void> start() async {
     loading = true;
@@ -115,12 +130,14 @@ class AssignedMovementsController extends ChangeNotifier {
         traineeId: traineeId,
         groupId: filterGroupId,
       );
+      if (_disposed) return;
       _assignments = filterGroupId == null
           ? [
               for (final assignment in loaded)
                 if (_approvedGroupIds.contains(assignment.groupId)) assignment,
             ]
           : loaded;
+      _syncTeacherProfileWatches();
       _rebuildItems();
       errorMessage = null;
       notifyListeners();
@@ -171,6 +188,8 @@ class AssignedMovementsController extends ChangeNotifier {
           latestSubmission:
               canonicalByAssignment[assignment.id] ??
               submissionsByAssignment[assignment.id],
+          teacherProfilePictureUrl:
+              _teacherProfilePictureUrls[assignment.teacherId.trim()],
         ),
     ];
     next.sort(_compareItems);
@@ -188,6 +207,66 @@ class AssignedMovementsController extends ChangeNotifier {
     } catch (_) {
       // Retention is best-effort and must not crash Assigned Movements.
     }
+  }
+
+  void _syncTeacherProfileWatches() {
+    final repository = publicProfileRepository;
+    final teacherIds = {
+      for (final assignment in _assignments)
+        if (assignment.teacherId.trim().isNotEmpty) assignment.teacherId.trim(),
+    };
+    if (repository == null) {
+      _cancelTeacherProfileWatches();
+      return;
+    }
+
+    final staleIds = _teacherProfileSubs.keys
+        .where((id) => !teacherIds.contains(id))
+        .toList(growable: false);
+    for (final id in staleIds) {
+      unawaited(_teacherProfileSubs.remove(id)?.cancel());
+      _teacherProfilePictureUrls.remove(id);
+    }
+
+    for (final teacherId in teacherIds) {
+      if (_teacherProfileSubs.containsKey(teacherId)) continue;
+      _teacherProfileSubs[teacherId] = repository
+          .watchProfileRoot(teacherId)
+          .listen(
+            (profile) {
+              if (_disposed) return;
+              final trimmed = profile?.profilePictureUrl?.trim();
+              final next = (trimmed == null || trimmed.isEmpty)
+                  ? null
+                  : trimmed;
+              final previous = _teacherProfilePictureUrls[teacherId];
+              if (previous == next) return;
+              if (next == null) {
+                _teacherProfilePictureUrls.remove(teacherId);
+              } else {
+                _teacherProfilePictureUrls[teacherId] = next;
+              }
+              _rebuildItems();
+              if (!_disposed) notifyListeners();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              // Public identity is best-effort and must not fail classwork.
+              if (!kDebugMode) return;
+              debugPrint(
+                '[AssignedMovements] teacher profile watch failed for '
+                '$teacherId: $error\n$stackTrace',
+              );
+            },
+          );
+    }
+  }
+
+  void _cancelTeacherProfileWatches() {
+    for (final subscription in _teacherProfileSubs.values) {
+      unawaited(subscription.cancel());
+    }
+    _teacherProfileSubs.clear();
+    _teacherProfilePictureUrls.clear();
   }
 
   static int _compareItems(AssignedMovementItem a, AssignedMovementItem b) {
@@ -208,8 +287,10 @@ class AssignedMovementsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _membershipsSub?.cancel();
     _attemptsSub?.cancel();
+    _cancelTeacherProfileWatches();
     super.dispose();
   }
 }

@@ -193,6 +193,7 @@ class TraineeClassDetailController extends ChangeNotifier {
       groupRepository: groupRepository,
       assignmentRepository: assignmentRepository,
       submissionRepository: submissionRepository,
+      publicProfileRepository: publicProfileRepository,
       filterGroupId: groupId,
     );
     assignments = controller;

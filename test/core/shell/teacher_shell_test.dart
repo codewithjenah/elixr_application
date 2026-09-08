@@ -174,7 +174,7 @@ void main() {
     expect(find.text('Teacher Access'), findsOneWidget);
     expect(find.text('Students'), findsWidgets);
     expect(find.text('Progress'), findsOneWidget);
-    expect(find.text('Analytics'), findsNothing);
+    expect(find.text('Analytics'), findsOneWidget);
     expect(find.text('Activity Library'), findsOneWidget);
     expect(find.text('Review Work'), findsWidgets);
     expect(find.text('Notifications'), findsOneWidget);

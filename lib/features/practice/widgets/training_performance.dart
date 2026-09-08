@@ -28,6 +28,52 @@ Color performanceLevelColor(PerformanceLevel? level) => switch (level) {
   PerformanceLevel.beginning => AppColors.error,
 };
 
+/// Presentation-only labels for live scored callouts.
+///
+/// Thresholds stay on [PerformanceLevel]; this never inspects 0..12 totals.
+class PerformanceCalloutCopy {
+  const PerformanceCalloutCopy({
+    required this.headline,
+    required this.detail,
+    required this.restrained,
+  });
+
+  final String headline;
+  final String detail;
+  final bool restrained;
+}
+
+PerformanceCalloutCopy? performanceCalloutCopy(PerformanceLevel? level) {
+  if (level == null) return null;
+  return switch (level) {
+    PerformanceLevel.mastered => PerformanceCalloutCopy(
+      headline: 'PERFECT!',
+      detail: level.label,
+      restrained: false,
+    ),
+    PerformanceLevel.proficient => PerformanceCalloutCopy(
+      headline: 'GREAT!',
+      detail: level.label,
+      restrained: false,
+    ),
+    PerformanceLevel.competent => PerformanceCalloutCopy(
+      headline: 'GOOD!',
+      detail: level.label,
+      restrained: false,
+    ),
+    PerformanceLevel.developing => PerformanceCalloutCopy(
+      headline: 'KEEP GOING',
+      detail: level.label,
+      restrained: false,
+    ),
+    PerformanceLevel.beginning => PerformanceCalloutCopy(
+      headline: 'STAY FOCUSED',
+      detail: level.label,
+      restrained: true,
+    ),
+  };
+}
+
 /// Practice-session rubric bar (not XP). Scored presentation only.
 class TrainingPerformanceBar extends StatelessWidget {
   const TrainingPerformanceBar({super.key, required this.total});

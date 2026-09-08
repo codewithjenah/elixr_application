@@ -57,9 +57,17 @@ class TrainingConnectionBadge extends StatelessWidget {
           vertical: 6,
         ),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: bgAlpha),
+          color: color.withValues(
+            alpha: state == WebSocketConnectionState.connected ? 0.06 : bgAlpha,
+          ),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: color.withValues(alpha: borderAlpha)),
+          border: Border.all(
+            color: color.withValues(
+              alpha: state == WebSocketConnectionState.connected
+                  ? 0.16
+                  : borderAlpha,
+            ),
+          ),
         ),
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 180),
@@ -96,7 +104,9 @@ class TrainingConnectionBadge extends StatelessWidget {
               Text(
                 label,
                 style: AppTheme.caption.copyWith(
-                  color: color,
+                  color: state == WebSocketConnectionState.connected
+                      ? context.elixTextSecondary
+                      : color,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.2,
                 ),

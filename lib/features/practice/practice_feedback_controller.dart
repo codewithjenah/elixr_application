@@ -40,6 +40,26 @@ class ScorePopupState {
   int get hashCode => Object.hash(trigger, delta);
 }
 
+/// Transient performance-callout trigger derived from [PerformanceLevel] changes.
+class PerformanceCalloutState {
+  const PerformanceCalloutState({this.trigger = 0, this.level, this.total});
+
+  final int trigger;
+  final PerformanceLevel? level;
+  final int? total;
+
+  @override
+  bool operator ==(Object other) {
+    return other is PerformanceCalloutState &&
+        trigger == other.trigger &&
+        level == other.level &&
+        total == other.total;
+  }
+
+  @override
+  int get hashCode => Object.hash(trigger, level, total);
+}
+
 /// Result of applying one active-session feedback frame.
 class PracticeFeedbackApplyResult {
   const PracticeFeedbackApplyResult({
@@ -49,9 +69,11 @@ class PracticeFeedbackApplyResult {
     required this.holdChanged,
     required this.comboChanged,
     required this.scorePopupChanged,
+    required this.calloutChanged,
     required this.holdConfirmed,
     required this.comboState,
     required this.scorePopupState,
+    required this.calloutState,
     required this.latestFeedback,
     required this.feedbackHistory,
   });
@@ -62,9 +84,11 @@ class PracticeFeedbackApplyResult {
   final bool holdChanged;
   final bool comboChanged;
   final bool scorePopupChanged;
+  final bool calloutChanged;
   final bool holdConfirmed;
   final ComboState comboState;
   final ScorePopupState scorePopupState;
+  final PerformanceCalloutState calloutState;
   final PracticeFeedback latestFeedback;
   final List<PracticeFeedback> feedbackHistory;
 
@@ -77,6 +101,7 @@ class PracticeFeedbackController {
   final List<PracticeFeedback> feedbackHistory = [];
   ComboState comboState = const ComboState();
   ScorePopupState scorePopupState = const ScorePopupState();
+  PerformanceCalloutState calloutState = const PerformanceCalloutState();
   final SessionAssessmentAccumulator _assessmentAccumulator =
       SessionAssessmentAccumulator();
 
@@ -138,6 +163,18 @@ class PracticeFeedbackController {
       scorePopupState = nextScorePopupState;
     }
 
+    var calloutChanged = false;
+    final previousLevel = previous?.assessment?.performanceLevel;
+    final currentLevel = feedback.assessment?.performanceLevel;
+    if (currentLevel != null && currentLevel != previousLevel) {
+      calloutState = PerformanceCalloutState(
+        trigger: calloutState.trigger + 1,
+        level: currentLevel,
+        total: feedback.assessment?.total,
+      );
+      calloutChanged = true;
+    }
+
     latestFeedback = feedback;
     if (historyChanged) {
       feedbackHistory.insert(0, feedback);
@@ -153,9 +190,11 @@ class PracticeFeedbackController {
       holdChanged: holdChanged,
       comboChanged: comboChanged,
       scorePopupChanged: scorePopupChanged,
+      calloutChanged: calloutChanged,
       holdConfirmed: feedback.holdConfirmed,
       comboState: comboState,
       scorePopupState: scorePopupState,
+      calloutState: calloutState,
       latestFeedback: feedback,
       feedbackHistory: List<PracticeFeedback>.unmodifiable(feedbackHistory),
     );
@@ -190,6 +229,7 @@ class PracticeFeedbackController {
     feedbackHistory.clear();
     comboState = const ComboState();
     scorePopupState = const ScorePopupState();
+    calloutState = const PerformanceCalloutState();
     _assessmentAccumulator.reset();
   }
 }

@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/rubric_assessment.dart';
+import 'widgets/training_performance.dart';
 
 /// Falling confetti rendered with a custom painter (no extra dependencies).
 class ConfettiOverlay extends StatefulWidget {
@@ -188,8 +189,19 @@ class _GameCountdownOverlayState extends State<GameCountdownOverlay>
   Widget build(BuildContext context) {
     final isGo = _steps[_index] == 'GO!';
     final color = isGo ? AppColors.success : AppColors.primary;
-    return ColoredBox(
-      color: const Color(0xB30A0A0F),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: Alignment.center,
+          radius: 1.15,
+          colors: [
+            color.withValues(alpha: isGo ? 0.10 : 0.07),
+            const Color(0x660A0A0F),
+            const Color(0x9907060C),
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ),
+      ),
       child: Center(
         child: FadeTransition(
           opacity: _fade,
@@ -198,12 +210,12 @@ class _GameCountdownOverlayState extends State<GameCountdownOverlay>
             child: Text(
               _steps[_index],
               style: TextStyle(
-                fontSize: isGo ? 96 : 120,
+                fontSize: isGo ? 88 : 108,
                 fontWeight: FontWeight.w900,
-                letterSpacing: 4,
+                letterSpacing: 6,
                 color: color,
                 shadows: [
-                  Shadow(color: color.withValues(alpha: 0.8), blurRadius: 40),
+                  Shadow(color: color.withValues(alpha: 0.7), blurRadius: 28),
                   const Shadow(color: Color(0x66000000), blurRadius: 8),
                 ],
               ),
@@ -278,7 +290,7 @@ class _ComboBadgeState extends State<ComboBadge>
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: _color.withValues(alpha: 0.7), width: 1.5),
           boxShadow: [
-            BoxShadow(color: _color.withValues(alpha: 0.35), blurRadius: 16),
+            BoxShadow(color: _color.withValues(alpha: 0.28), blurRadius: 18),
           ],
         ),
         child: Row(
@@ -358,16 +370,145 @@ class _ScorePopupState extends State<ScorePopup>
               child: Text(
                 '+${widget.delta}',
                 style: TextStyle(
-                  fontSize: 44,
+                  fontSize: 40,
                   fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
                   color: AppColors.success,
                   shadows: [
                     Shadow(
-                      color: AppColors.success.withValues(alpha: 0.7),
-                      blurRadius: 24,
+                      color: AppColors.success.withValues(alpha: 0.55),
+                      blurRadius: 20,
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Transient PERFECT / GREAT / GOOD callout driven by [PerformanceCalloutState].
+class PerformanceCallout extends StatefulWidget {
+  const PerformanceCallout({
+    super.key,
+    required this.trigger,
+    required this.level,
+    this.total,
+  });
+
+  final int trigger;
+  final PerformanceLevel? level;
+  final int? total;
+
+  @override
+  State<PerformanceCallout> createState() => _PerformanceCalloutState();
+}
+
+class _PerformanceCalloutState extends State<PerformanceCallout>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 720),
+    );
+    _scale = TweenSequence<double>(
+      [
+        TweenSequenceItem(tween: Tween(begin: 0.82, end: 1.08), weight: 28),
+        TweenSequenceItem(tween: Tween(begin: 1.08, end: 1.0), weight: 22),
+        TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 30),
+        TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.96), weight: 20),
+      ],
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fade = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 18),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 52),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
+    ]).animate(_controller);
+    if (widget.trigger > 0 && widget.level != null) {
+      _controller.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(PerformanceCallout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.trigger != oldWidget.trigger && widget.level != null) {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final copy = performanceCalloutCopy(widget.level);
+    if (copy == null) return const SizedBox.shrink();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final highContrast = context.isHighContrast;
+    final color = performanceLevelColor(widget.level);
+    final detail = widget.total == null
+        ? copy.detail
+        : '${copy.detail} · ${widget.total} / ${RubricScale.maxTotal}';
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        if (_controller.isDismissed || _controller.isCompleted) {
+          return const SizedBox.shrink();
+        }
+        final opacity = reduceMotion ? 1.0 : _fade.value;
+        final scale = reduceMotion || copy.restrained ? 1.0 : _scale.value;
+        return IgnorePointer(
+          child: Opacity(
+            opacity: opacity,
+            child: Transform.scale(
+              scale: scale,
+              child: Column(
+                key: const ValueKey('training-performance-callout'),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    copy.headline,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: copy.restrained ? 28 : 46,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: copy.restrained ? 2 : 3.4,
+                      color: color,
+                      shadows: highContrast || copy.restrained
+                          ? const []
+                          : [
+                              Shadow(
+                                color: color.withValues(alpha: 0.55),
+                                blurRadius: 28,
+                              ),
+                            ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    detail,
+                    textAlign: TextAlign.center,
+                    style: AppTheme.caption.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

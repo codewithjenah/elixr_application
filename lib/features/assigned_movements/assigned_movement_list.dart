@@ -1,3 +1,4 @@
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +11,7 @@ import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
+import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/assessment_score_display.dart';
 import '../../data/models/group_assignment.dart';
@@ -19,6 +21,25 @@ import 'assigned_movements_controller.dart';
 const double _classworkWideBreakpoint = 1080;
 const double _classworkCompactBreakpoint = 720;
 const double _classworkCardRadius = 14;
+const double _assignmentOriginSize = 36;
+const double _assignmentTeacherAvatarOuter = 28;
+const double _assignmentActionHeight = 40;
+const double _assignmentDueRowHeight = 20;
+const int _assignmentTitleLines = 2;
+const int _assignmentDetailLines = 2;
+const double _assignmentDetailLineHeight = 1.35;
+
+double _assignmentTextSlotHeight({
+  required BuildContext context,
+  required TextStyle style,
+  required int lines,
+}) {
+  final fontSize = style.fontSize ?? 12;
+  final heightFactor = style.height ?? 1.0;
+  return MediaQuery.textScalerOf(context).scale(fontSize) *
+      heightFactor *
+      lines;
+}
 
 /// Learner-facing label for assignments with a null or empty stored topic.
 const String classworkUncategorizedTopicLabel = 'General';
@@ -391,6 +412,21 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
         : context.elixTextSecondary;
     final hasDemoVideo =
         assignment.activityAssessment?.demonstrationVideo != null;
+    final titleStyle = AppTheme.cardTitle(color: context.elixTextPrimary);
+    final detailStyle = AppTheme.caption.copyWith(
+      color: context.elixTextSecondary,
+      height: _assignmentDetailLineHeight,
+    );
+    final titleSlotHeight = _assignmentTextSlotHeight(
+      context: context,
+      style: titleStyle,
+      lines: _assignmentTitleLines,
+    );
+    final detailSlotHeight = _assignmentTextSlotHeight(
+      context: context,
+      style: detailStyle,
+      lines: _assignmentDetailLines,
+    );
     final colors = context.elixColors;
     final surface = isDark ? AppColors.panelSurface : context.elixCardSurface;
     final tintedSurface = Color.alphaBlend(
@@ -478,104 +514,140 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: highContrast
-                                      ? context.elixCardSurface
-                                      : accent.withValues(
-                                          alpha: isDark ? 0.22 : 0.12,
-                                        ),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: accent.withValues(
-                                      alpha: highContrast ? 1 : 0.38,
+                          SizedBox(
+                            height: _assignmentOriginSize,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: _assignmentOriginSize,
+                                  height: _assignmentOriginSize,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: highContrast
+                                        ? context.elixCardSurface
+                                        : accent.withValues(
+                                            alpha: isDark ? 0.22 : 0.12,
+                                          ),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: accent.withValues(
+                                        alpha: highContrast ? 1 : 0.38,
+                                      ),
+                                      width: highContrast ? 2 : 1,
                                     ),
-                                    width: highContrast ? 2 : 1,
+                                  ),
+                                  child: Icon(
+                                    originIcon,
+                                    size: 16,
+                                    color: accent,
                                   ),
                                 ),
-                                child: Icon(
-                                  originIcon,
-                                  size: 16,
+                                const SizedBox(width: 8),
+                                ElixPill(
+                                  text: assignment.origin.displayLabel,
                                   color: accent,
+                                  compact: true,
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              ElixPill(
-                                text: assignment.origin.displayLabel,
-                                color: accent,
-                                compact: true,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _IconLabel(
-                                  icon: assignedMovementStatusIcon(
-                                    assignment,
-                                    attempt,
-                                    submission,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _IconLabel(
+                                    icon: assignedMovementStatusIcon(
+                                      assignment,
+                                      attempt,
+                                      submission,
+                                    ),
+                                    text: statusLabel,
+                                    color: statusColor,
+                                    expand: true,
+                                    alignEnd: true,
                                   ),
-                                  text: statusLabel,
-                                  color: statusColor,
-                                  expand: true,
-                                  alignEnd: true,
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 10),
-                          Text(
-                            assignment.displayTitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.cardTitle(
-                              color: context.elixTextPrimary,
+                          SizedBox(
+                            height: titleSlotHeight,
+                            child: Align(
+                              alignment: Alignment.topLeft,
+                              child: Text(
+                                assignment.displayTitle,
+                                maxLines: _assignmentTitleLines,
+                                overflow: TextOverflow.ellipsis,
+                                style: titleStyle,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 6),
-                          _IconLabel(
-                            icon: FluentIcons.contact,
-                            text: widget.showGroupName
-                                ? '${assignment.teacherDisplayName} · ${assignment.groupName}'
-                                : assignment.teacherDisplayName,
-                            color: context.elixTextSecondary,
-                            expand: true,
-                          ),
-                          if (detail != null) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              detail,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTheme.caption.copyWith(
-                                color: context.elixTextSecondary,
-                                height: 1.35,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 6,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              _IconLabel(
-                                icon: assignedMovementDueIcon(assignment),
-                                text: dueLabel,
-                                color: dueColor,
-                              ),
-                              if (hasDemoVideo)
-                                const Tooltip(
-                                  message: 'Demonstration video',
-                                  child: _ResourceIndicator(
-                                    icon: FluentIcons.video,
-                                    label: 'Video',
+                          SizedBox(
+                            height: _assignmentTeacherAvatarOuter,
+                            child: Row(
+                              children: [
+                                ExcludeSemantics(
+                                  child: _TeacherIdentityAvatar(
+                                    assignmentId: assignment.id,
+                                    displayName: assignment.teacherDisplayName,
+                                    photoUrl:
+                                        widget.item.teacherProfilePictureUrl,
                                   ),
                                 ),
-                            ],
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    widget.showGroupName
+                                        ? '${assignment.teacherDisplayName} · ${assignment.groupName}'
+                                        : assignment.teacherDisplayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTheme.caption.copyWith(
+                                      color: context.elixTextSecondary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            height: detailSlotHeight,
+                            child: Align(
+                              alignment: Alignment.topLeft,
+                              child: detail == null
+                                  ? const SizedBox.shrink()
+                                  : Text(
+                                      detail,
+                                      maxLines: _assignmentDetailLines,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: detailStyle,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: _assignmentDueRowHeight,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _IconLabel(
+                                    icon: assignedMovementDueIcon(assignment),
+                                    text: dueLabel,
+                                    color: dueColor,
+                                    expand: true,
+                                  ),
+                                ),
+                                if (hasDemoVideo) ...[
+                                  const SizedBox(width: 12),
+                                  const Tooltip(
+                                    message: 'Demonstration video',
+                                    child: _ResourceIndicator(
+                                      icon: FluentIcons.video,
+                                      label: 'Video',
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -584,20 +656,23 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
                 ),
               ),
               const SizedBox(height: 12),
-              if (canStart)
-                ElixPrimaryButton(
-                  label: assignedMovementPracticeButtonLabel(attempt),
-                  expanded: true,
-                  dense: true,
-                  icon: FluentIcons.play,
-                  onPressed: _startPractice,
-                )
-              else
-                _SecondaryAssignmentAction(
-                  label: 'View details',
-                  icon: FluentIcons.view,
-                  onPressed: _openDetails,
-                ),
+              SizedBox(
+                key: Key('assigned_movement_action_${assignment.id}'),
+                height: _assignmentActionHeight,
+                child: canStart
+                    ? ElixPrimaryButton(
+                        label: assignedMovementPracticeButtonLabel(attempt),
+                        expanded: true,
+                        dense: true,
+                        icon: FluentIcons.play,
+                        onPressed: _startPractice,
+                      )
+                    : _SecondaryAssignmentAction(
+                        label: 'View details',
+                        icon: FluentIcons.view,
+                        onPressed: _openDetails,
+                      ),
+              ),
             ],
           ),
         ),
@@ -623,6 +698,7 @@ class _SecondaryAssignmentAction extends StatelessWidget {
     final highContrast = context.isHighContrast;
     return SizedBox(
       width: double.infinity,
+      height: double.infinity,
       child: Button(
         onPressed: onPressed,
         style: ButtonStyle(
@@ -674,6 +750,55 @@ class _SecondaryAssignmentAction extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TeacherIdentityAvatar extends StatelessWidget {
+  const _TeacherIdentityAvatar({
+    required this.assignmentId,
+    required this.displayName,
+    this.photoUrl,
+  });
+
+  final String assignmentId;
+  final String displayName;
+  final String? photoUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final isDark = context.isDarkTheme;
+    const outer = _assignmentTeacherAvatarOuter;
+    final rim = highContrast ? 2.0 : 1.0;
+    final inner = outer - (rim * 2);
+    return Container(
+      width: outer,
+      height: outer,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : Color.alphaBlend(
+                  AppColors.accent.withValues(alpha: isDark ? 0.38 : 0.24),
+                  context.elixBorder.withValues(alpha: isDark ? 0.55 : 1),
+                ),
+          width: rim,
+        ),
+      ),
+      child: SizedBox(
+        width: inner,
+        height: inner,
+        child: ProfileAvatarWidget(
+          key: Key('assigned_movement_teacher_avatar_$assignmentId'),
+          radius: inner / 2,
+          showBorder: false,
+          initials: userInitials(displayName),
+          networkImageUrl: photoUrl,
         ),
       ),
     );

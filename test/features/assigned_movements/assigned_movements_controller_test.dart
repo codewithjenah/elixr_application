@@ -1,12 +1,15 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_controller.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../teacher/teacher_phase3_test_support.dart';
 
 GroupAssignment _assignment({
   required String id,
@@ -189,5 +192,141 @@ void main() {
 
     expect(controller.items, isEmpty);
     expect(controller.errorMessage, isNull);
+  });
+
+  test(
+    'assignment loading completes before teacher profile pictures arrive',
+    () async {
+      final groups = InMemoryGroupRepository();
+      addTearDown(groups.dispose);
+      groups.seedGroup(
+        const ElixrGroup(
+          id: 'g1',
+          teacherId: 'teacher-1',
+          name: 'BSHM 4A',
+          status: ElixrGroupStatus.active,
+        ),
+      );
+      groups.seedMembership(
+        _membership(groupId: 'g1', status: GroupMembershipStatus.approved),
+      );
+
+      final assignments = InMemoryClassroomAssignmentRepository();
+      addTearDown(assignments.dispose);
+      assignments.seedAssignment(_assignment(id: 'asg-a', groupId: 'g1'));
+      assignments.seedAssignment(
+        _assignment(id: 'asg-b', groupId: 'g1', teacherId: 'teacher-1'),
+      );
+
+      final profiles = FakePublicProfileRepository();
+      final controller = AssignedMovementsController(
+        traineeId: 'trainee-1',
+        groupRepository: groups,
+        assignmentRepository: assignments,
+        publicProfileRepository: profiles,
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+
+      expect(controller.loading, isFalse);
+      expect(controller.items.map((item) => item.assignment.id), [
+        'asg-a',
+        'asg-b',
+      ]);
+      expect(
+        controller.items.every((item) => item.teacherProfilePictureUrl == null),
+        isTrue,
+      );
+      expect(
+        profiles.watchedUserIds.where((id) => id == 'teacher-1').length,
+        1,
+      );
+
+      profiles.emitProfile(
+        'teacher-1',
+        const PublicProfile(
+          userId: 'teacher-1',
+          displayName: 'Grace Hopper',
+          visibility: ProfileVisibility.public,
+          profilePictureUrl: 'https://example.test/grace.png',
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        controller.items.map((item) => item.teacherProfilePictureUrl).toSet(),
+        {'https://example.test/grace.png'},
+      );
+
+      profiles.emitProfile(
+        'teacher-1',
+        const PublicProfile(
+          userId: 'teacher-1',
+          displayName: 'Grace Hopper',
+          visibility: ProfileVisibility.public,
+        ),
+      );
+      await pumpEventQueue();
+      expect(
+        controller.items.every((item) => item.teacherProfilePictureUrl == null),
+        isTrue,
+      );
+    },
+  );
+
+  test('watches each unique teacher id once across assignments', () async {
+    final groups = InMemoryGroupRepository();
+    addTearDown(groups.dispose);
+    groups.seedGroup(
+      const ElixrGroup(
+        id: 'g1',
+        teacherId: 'teacher-1',
+        name: 'BSHM 4A',
+        status: ElixrGroupStatus.active,
+      ),
+    );
+    groups.seedGroup(
+      const ElixrGroup(
+        id: 'g2',
+        teacherId: 'teacher-2',
+        name: 'BSHM 4B',
+        status: ElixrGroupStatus.active,
+      ),
+    );
+    groups.seedMembership(
+      _membership(groupId: 'g1', status: GroupMembershipStatus.approved),
+    );
+    groups.seedMembership(
+      _membership(
+        groupId: 'g2',
+        status: GroupMembershipStatus.approved,
+        teacherId: 'teacher-2',
+      ),
+    );
+
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(assignments.dispose);
+    assignments.seedAssignment(_assignment(id: 'asg-a', groupId: 'g1'));
+    assignments.seedAssignment(
+      _assignment(id: 'asg-b', groupId: 'g1', teacherId: 'teacher-1'),
+    );
+    assignments.seedAssignment(
+      _assignment(id: 'asg-c', groupId: 'g2', teacherId: 'teacher-2'),
+    );
+
+    final profiles = FakePublicProfileRepository();
+    final controller = AssignedMovementsController(
+      traineeId: 'trainee-1',
+      groupRepository: groups,
+      assignmentRepository: assignments,
+      publicProfileRepository: profiles,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    await pumpEventQueue();
+
+    expect(profiles.watchedUserIds.toSet(), {'teacher-1', 'teacher-2'});
+    expect(profiles.watchedUserIds.where((id) => id == 'teacher-1').length, 1);
+    expect(profiles.watchedUserIds.where((id) => id == 'teacher-2').length, 1);
   });
 }

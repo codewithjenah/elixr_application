@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/features/practice/just_dance/playground_session_controller.dart';
 import 'package:elixr_application/features/practice/widgets/movement_rotation_overlay.dart';
@@ -36,6 +37,7 @@ Future<void> _pumpHud(
   await tester.binding.setSurfaceSize(size);
   await tester.pumpWidget(
     FluentApp(
+      theme: AppTheme.dark,
       home: ScaffoldPage(
         content: Center(
           child: SizedBox(
@@ -114,7 +116,11 @@ void main() {
       controller.markAssessing(first);
       controller.markSuccessful(first);
       await _pumpHud(tester, controller);
+      await tester.pump(const Duration(milliseconds: 80));
       expect(find.text('Success'), findsOneWidget);
+      expect(find.text('CLEARED!'), findsOneWidget);
+      expect(find.text('PERFECT!'), findsNothing);
+      expect(find.text('GREAT!'), findsNothing);
       final second = controller.beginNextMovement()!;
       controller.markMovementPrepared(second);
       await tester.pump(const Duration(milliseconds: 2));

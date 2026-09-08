@@ -151,6 +151,7 @@ class _HeaderBackButtonState extends State<_HeaderBackButton> {
     final highContrast = context.isHighContrast;
 
     return Semantics(
+      key: const ValueKey('training-header-back'),
       button: true,
       label: 'Back',
       child: Tooltip(

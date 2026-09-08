@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
@@ -7,7 +8,10 @@ import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movement_list.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_controller.dart';
+import 'package:elixr_core/models/rubric_assessment.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -16,21 +20,26 @@ GroupAssignment _assignment({
   required String title,
   MovementOrigin origin = MovementOrigin.officialElixr,
   GroupAssignmentStatus status = GroupAssignmentStatus.active,
+  AssessmentMode? assessmentMode,
+  String teacherId = 'teacher-1',
+  String teacherDisplayName = 'James Bartender',
   String? topic,
 }) {
   return GroupAssignment(
     id: id,
-    teacherId: 'teacher-1',
+    teacherId: teacherId,
     groupId: 'group-1',
     movementId: 'official_hand_stall',
     revisionId: 'official_hand_stall_v1',
     origin: origin,
-    assessmentMode: origin == MovementOrigin.officialElixr
-        ? AssessmentMode.officialGuided
-        : AssessmentMode.teacherReviewed,
+    assessmentMode:
+        assessmentMode ??
+        (origin == MovementOrigin.officialElixr
+            ? AssessmentMode.officialGuided
+            : AssessmentMode.teacherReviewed),
     status: status,
     displayTitle: title,
-    teacherDisplayName: 'James Bartender',
+    teacherDisplayName: teacherDisplayName,
     groupName: 'BSHM-4A',
     topic: topic,
     officialMovementName: origin == MovementOrigin.officialElixr
@@ -111,6 +120,82 @@ Future<GoRouter> _pumpList(
 
 void _expectNoOverflow(WidgetTester tester) {
   expect(tester.takeException(), isNull);
+}
+
+Finder _card(String assignmentId) =>
+    find.byKey(Key('assigned_movement_card_$assignmentId'));
+
+Finder _cardAvatar(String assignmentId) =>
+    find.byKey(Key('assigned_movement_teacher_avatar_$assignmentId'));
+
+Size _cardSize(WidgetTester tester, String assignmentId) =>
+    tester.getSize(_card(assignmentId));
+
+double _actionBottom(WidgetTester tester, String assignmentId) {
+  return tester
+      .getRect(find.byKey(Key('assigned_movement_action_$assignmentId')))
+      .bottom;
+}
+
+AssignedMovementItem _teacherItem({
+  required String id,
+  required String title,
+  AssessmentMode assessmentMode = AssessmentMode.teacherReviewed,
+  AssignmentAttempt? attempt,
+  String? teacherProfilePictureUrl,
+}) {
+  return AssignedMovementItem(
+    assignment: _assignment(
+      id: id,
+      title: title,
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: assessmentMode,
+    ),
+    attempt: attempt,
+    latestSubmission: attempt,
+    teacherProfilePictureUrl: teacherProfilePictureUrl,
+  );
+}
+
+AssignmentAttempt _approvedAttempt(String assignmentId) {
+  return AssignmentAttempt(
+    id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+      assignmentId: assignmentId,
+      traineeId: 'trainee-1',
+    ),
+    traineeId: 'trainee-1',
+    teacherId: 'teacher-1',
+    groupId: 'group-1',
+    assignmentId: assignmentId,
+    movementId: 'tm1',
+    revisionId: 'rev1',
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.teacherReviewed,
+    attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+    status: AssignmentAttemptStatus.approved,
+  );
+}
+
+AssignmentAttempt _historicalAttempt(String assignmentId) {
+  return AssignmentAttempt(
+    id: 'hist-$assignmentId',
+    traineeId: 'trainee-1',
+    teacherId: 'teacher-1',
+    groupId: 'group-1',
+    assignmentId: assignmentId,
+    movementId: 'tm1',
+    revisionId: 'rev1',
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.templateScored,
+    attemptKind: AssignmentAttemptKind.templateScore,
+    status: AssignmentAttemptStatus.checked,
+    rubric: const RubricAssessment(
+      technique: 2,
+      stability: 2,
+      completion: 3,
+      propPositioning: 2,
+    ),
+  );
 }
 
 void main() {
@@ -412,5 +497,259 @@ void main() {
         findsOneWidget,
       );
     }
+  });
+
+  testWidgets(
+    '2-column Teacher-created cards share height despite different text lengths',
+    (tester) async {
+      await _pumpList(
+        tester,
+        paneWidth: 800,
+        viewSize: const Size(800, 900),
+        items: [
+          _teacherItem(id: 'short', title: 'Stall'),
+          _teacherItem(
+            id: 'long',
+            title:
+                'Very Long Teacher Created Assignment Title That Wraps Onto A Second Line',
+          ),
+        ],
+      );
+
+      expect(
+        _cardSize(tester, 'short').height,
+        _cardSize(tester, 'long').height,
+      );
+      expect(
+        _actionBottom(tester, 'short'),
+        closeTo(_actionBottom(tester, 'long'), 0.5),
+      );
+      _expectNoOverflow(tester);
+    },
+  );
+
+  testWidgets(
+    'Historical metadata does not make a Teacher-created card taller than Approved',
+    (tester) async {
+      await _pumpList(
+        tester,
+        paneWidth: 800,
+        viewSize: const Size(800, 900),
+        items: [
+          _teacherItem(
+            id: 'hist',
+            title: 'Retired template stall',
+            assessmentMode: AssessmentMode.templateScored,
+            attempt: _historicalAttempt('hist'),
+          ),
+          _teacherItem(
+            id: 'appr',
+            title: 'Approved stall',
+            attempt: _approvedAttempt('appr'),
+          ),
+        ],
+      );
+
+      expect(find.text('Historical'), findsOneWidget);
+      expect(find.text('Approved'), findsOneWidget);
+      expect(
+        find.textContaining('Automatic template assessment retired'),
+        findsOneWidget,
+      );
+      expect(
+        _cardSize(tester, 'hist').height,
+        _cardSize(tester, 'appr').height,
+      );
+      expect(
+        _actionBottom(tester, 'hist'),
+        closeTo(_actionBottom(tester, 'appr'), 0.5),
+      );
+      _expectNoOverflow(tester);
+    },
+  );
+
+  testWidgets('3-column teacher cards stay equal height and aligned', (
+    tester,
+  ) async {
+    await _pumpList(
+      tester,
+      paneWidth: 1200,
+      viewSize: const Size(1200, 900),
+      items: [
+        _teacherItem(id: 'a', title: 'Short'),
+        _teacherItem(
+          id: 'b',
+          title: 'A much longer teacher assignment title for the middle card',
+          attempt: _approvedAttempt('b'),
+        ),
+        _teacherItem(
+          id: 'c',
+          title: 'Historical wrap check',
+          assessmentMode: AssessmentMode.templateScored,
+          attempt: _historicalAttempt('c'),
+        ),
+      ],
+    );
+
+    final heightA = _cardSize(tester, 'a').height;
+    expect(_cardSize(tester, 'b').height, heightA);
+    expect(_cardSize(tester, 'c').height, heightA);
+    expect(
+      _actionBottom(tester, 'a'),
+      closeTo(_actionBottom(tester, 'c'), 0.5),
+    );
+    _expectNoOverflow(tester);
+  });
+
+  testWidgets('narrow 1-column classwork does not clip assignment cards', (
+    tester,
+  ) async {
+    await _pumpList(
+      tester,
+      paneWidth: 400,
+      viewSize: const Size(400, 1200),
+      items: [
+        _teacherItem(
+          id: 'hist',
+          title:
+              'Very Long Teacher Created Assignment Title For Overflow Checks',
+          assessmentMode: AssessmentMode.templateScored,
+          attempt: _historicalAttempt('hist'),
+        ),
+        _teacherItem(
+          id: 'appr',
+          title: 'Approved stall',
+          attempt: _approvedAttempt('appr'),
+        ),
+      ],
+    );
+
+    expect(_card('hist'), findsOneWidget);
+    expect(_card('appr'), findsOneWidget);
+    expect(find.text('James Bartender'), findsNWidgets(2));
+    _expectNoOverflow(tester);
+  });
+
+  testWidgets('teacher avatar uses public profile URL beside the name', (
+    tester,
+  ) async {
+    await _pumpList(
+      tester,
+      items: [
+        _teacherItem(
+          id: 'asg-b',
+          title: 'Basic Bottle Balances',
+          teacherProfilePictureUrl: 'https://example.test/grace.png',
+        ),
+      ],
+    );
+
+    final avatar = tester.widget<ProfileAvatarWidget>(_cardAvatar('asg-b'));
+    expect(avatar.networkImageUrl, 'https://example.test/grace.png');
+    expect(avatar.initials, 'JB');
+    expect(find.text('James Bartender'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: _card('asg-b'),
+        matching: find.byIcon(FluentIcons.assign),
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.descendant(
+        of: _card('asg-b'),
+        matching: find.byIcon(FluentIcons.contact),
+      ),
+      findsNothing,
+    );
+    _expectNoOverflow(tester);
+  });
+
+  testWidgets('teacher avatar falls back to initials without a photo', (
+    tester,
+  ) async {
+    await _pumpList(
+      tester,
+      items: [_teacherItem(id: 'asg-b', title: 'Basic Bottle Balances')],
+    );
+
+    final avatar = tester.widget<ProfileAvatarWidget>(_cardAvatar('asg-b'));
+    expect(avatar.networkImageUrl, isNull);
+    expect(avatar.initials, 'JB');
+    expect(find.text('James Bartender'), findsOneWidget);
+    _expectNoOverflow(tester);
+  });
+
+  testWidgets('broken teacher photo URL still renders the assignment card', (
+    tester,
+  ) async {
+    await _pumpList(
+      tester,
+      items: [
+        _teacherItem(
+          id: 'asg-b',
+          title: 'Basic Bottle Balances',
+          teacherProfilePictureUrl: 'https://example.test/missing.png',
+        ),
+      ],
+    );
+
+    expect(_card('asg-b'), findsOneWidget);
+    final avatar = tester.widget<ProfileAvatarWidget>(_cardAvatar('asg-b'));
+    expect(avatar.networkImageUrl, 'https://example.test/missing.png');
+    expect(find.text('James Bartender'), findsOneWidget);
+    expect(find.text('Start practice'), findsOneWidget);
+    _expectNoOverflow(tester);
+  });
+
+  testWidgets('card keyboard Enter and Space still open assignment details', (
+    tester,
+  ) async {
+    for (final entry in {
+      'asg-enter': LogicalKeyboardKey.enter,
+      'asg-space': LogicalKeyboardKey.space,
+    }.entries) {
+      await _pumpList(
+        tester,
+        items: [_teacherItem(id: entry.key, title: 'Basic Bottle Balances')],
+        includePracticeRoute: false,
+      );
+
+      final title = find.descendant(
+        of: _card(entry.key),
+        matching: find.text('Basic Bottle Balances'),
+      );
+      Focus.of(tester.element(title)).requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(entry.value);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('detail:${entry.key}'), findsOneWidget);
+    }
+  });
+
+  testWidgets('card hover does not throw or clip neighboring layout', (
+    tester,
+  ) async {
+    await _pumpList(
+      tester,
+      paneWidth: 800,
+      viewSize: const Size(800, 900),
+      items: [
+        _teacherItem(id: 'a', title: 'Short'),
+        _teacherItem(
+          id: 'b',
+          title: 'Approved stall',
+          attempt: _approvedAttempt('b'),
+        ),
+      ],
+    );
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: tester.getCenter(_card('a')));
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    expect(_cardSize(tester, 'a').height, _cardSize(tester, 'b').height);
+    _expectNoOverflow(tester);
   });
 }

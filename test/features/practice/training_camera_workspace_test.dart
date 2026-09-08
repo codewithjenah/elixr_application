@@ -117,6 +117,32 @@ class _RebuildProbe extends StatelessWidget {
 }
 
 void main() {
+  group('TrainingCameraWorkspace idle stage', () {
+    testWidgets('connected idle stage is not an empty black rectangle', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          SizedBox(
+            width: 640,
+            height: 480,
+            child: TrainingCameraWorkspace(
+              mirrored: false,
+              connectionState: WebSocketConnectionState.connected,
+              connecting: false,
+              isSessionActive: false,
+              onRetry: () {},
+              onCountdownComplete: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(const ValueKey('training-arena-idle')), findsOneWidget);
+      expect(find.text('Training Arena'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
   group('TrainingCameraWorkspace error surface', () {
     testWidgets('keeps error copy readable in light theme', (tester) async {
       await tester.pumpWidget(

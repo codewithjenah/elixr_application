@@ -12,6 +12,7 @@ import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import 'assigned_movement_list.dart';
 import 'assigned_movements_controller.dart';
@@ -50,11 +51,18 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
     if (_controller != null) return;
     final traineeId = context.read<AuthService>().currentUser?.id;
     if (traineeId == null) return;
+    PublicProfileRepository? publicProfileRepository;
+    try {
+      publicProfileRepository = context.read<PublicProfileRepository>();
+    } on ProviderNotFoundException {
+      publicProfileRepository = null;
+    }
     _controller = AssignedMovementsController(
       traineeId: traineeId,
       groupRepository: context.read<GroupRepository>(),
       assignmentRepository: context.read<ClassroomAssignmentRepository>(),
       submissionRepository: context.read<AssignmentSubmissionRepository>(),
+      publicProfileRepository: publicProfileRepository,
       filterGroupId: widget.groupId,
     )..start();
   }

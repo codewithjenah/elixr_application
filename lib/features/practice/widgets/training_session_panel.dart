@@ -83,9 +83,9 @@ class TrainingSessionPanel extends StatelessWidget {
           accent: accent,
           rankBadge: rankBadge,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         metrics,
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         _StatusSurface(
           key: const ValueKey('session-status-surface'),
           title: statusTitle,
@@ -137,31 +137,42 @@ class TrainingSessionPanel extends StatelessWidget {
             child: paddedContent,
           );
 
-    return Container(
-      key: const ValueKey('practice-session-panel'),
-      decoration: AppTheme.practicePanelDecoration(context, accent: accent),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: expandVertically ? MainAxisSize.max : MainAxisSize.min,
-        children: [
-          if (expandVertically)
-            Expanded(child: informationArea)
-          else
-            Flexible(child: informationArea),
-          Container(
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(
-                  color: context.elixBorder.withValues(alpha: 0.35),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fillHeight = expandVertically || constraints.hasBoundedHeight;
+        return Container(
+          key: const ValueKey('practice-session-panel'),
+          decoration: AppTheme.practicePanelDecoration(context, accent: accent),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: fillHeight ? MainAxisSize.max : MainAxisSize.min,
+            children: [
+              if (fillHeight)
+                Expanded(child: informationArea)
+              else
+                paddedContent,
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      accent.withValues(alpha: 0.14),
+                      Colors.transparent,
+                    ],
+                  ),
+                  border: Border(
+                    top: BorderSide(color: accent.withValues(alpha: 0.38)),
+                  ),
                 ),
+                padding: const EdgeInsets.fromLTRB(14, AppSpacing.md, 14, 14),
+                child: actionArea,
               ),
-            ),
-            padding: const EdgeInsets.fromLTRB(14, AppSpacing.sm + 2, 14, 14),
-            child: actionArea,
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -321,18 +332,55 @@ class _SetupSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionLabel(label: 'Session setup', color: context.elixTextSecondary),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+}
+
+/// Compact idle/ready brief used instead of empty metric tiles.
+class TrainingReadyBrief extends StatelessWidget {
+  const TrainingReadyBrief({
+    super.key,
+    required this.title,
+    required this.body,
+  });
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: AppTheme.practiceSectionSurface(context),
+      key: const ValueKey('session-ready-brief'),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      decoration: AppTheme.practiceSectionSurface(
+        context,
+        accent: AppColors.primary,
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionLabel(
-            label: 'Session setup',
-            color: context.elixTextSecondary,
+          Text(
+            title,
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w800,
+              color: context.elixTextPrimary,
+            ),
           ),
-          const SizedBox(height: 7),
-          child,
+          const SizedBox(height: 4),
+          Text(
+            body,
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              height: 1.35,
+            ),
+          ),
         ],
       ),
     );
@@ -556,15 +604,29 @@ class TrainingStageIndicator extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _StageStep(label: 'Camera', active: cameraActive, done: cameraDone),
-          _StageDivider(),
-          _StageStep(
-            label: 'Setup Check',
-            active: setupActive,
-            done: setupDone,
+          Expanded(
+            child: _StageStep(
+              label: 'Camera',
+              active: cameraActive,
+              done: cameraDone,
+            ),
           ),
-          _StageDivider(),
-          _StageStep(label: 'Practice', active: practiceActive, done: false),
+          const _StageDivider(),
+          Expanded(
+            child: _StageStep(
+              label: 'Setup Check',
+              active: setupActive,
+              done: setupDone,
+            ),
+          ),
+          const _StageDivider(),
+          Expanded(
+            child: _StageStep(
+              label: 'Practice',
+              active: practiceActive,
+              done: false,
+            ),
+          ),
         ],
       ),
     );
@@ -591,6 +653,9 @@ class _StageStep extends StatelessWidget {
         : context.elixTextSecondary;
     return Text(
       label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
       style: AppTheme.caption.copyWith(
         color: color,
         fontWeight: (active || done) ? FontWeight.w700 : FontWeight.w500,
@@ -600,10 +665,12 @@ class _StageStep extends StatelessWidget {
 }
 
 class _StageDivider extends StatelessWidget {
+  const _StageDivider();
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         '›',
         style: AppTheme.caption.copyWith(color: context.elixTextSecondary),

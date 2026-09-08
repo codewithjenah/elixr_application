@@ -34,6 +34,11 @@ class TrainingCameraWorkspace extends StatelessWidget {
     this.countdownActive = false,
     this.isPreparingCamera = false,
     this.accentBorder = false,
+    this.readyAura = false,
+    this.idleTitle = 'Training Arena',
+    this.idleSubtitle =
+        'Start from the session panel to activate the live feed.',
+    this.idleCaption = 'Keep your upper body, hands, and bottle visible.',
     this.overlayFeedback,
     this.showFeedbackMessage = true,
     this.overlays,
@@ -56,57 +61,76 @@ class TrainingCameraWorkspace extends StatelessWidget {
   final bool countdownActive;
   final bool isPreparingCamera;
   final bool accentBorder;
+  final bool readyAura;
+  final String idleTitle;
+  final String idleSubtitle;
+  final String idleCaption;
   final PracticeFeedback? overlayFeedback;
   final bool showFeedbackMessage;
   final Widget? overlays;
   final List<TrainingCameraStatusItem> statusItems;
 
-  static const _viewportColor = Color(0xFF0A0A0C);
   static const _radius = AppSpacing.practiceSurfaceRadius;
 
   bool get _hasFatalOrConnectionError =>
       sessionError != null || connectionState == WebSocketConnectionState.error;
 
+  Color _stageAccent() {
+    if (_hasFatalOrConnectionError) return AppColors.error;
+    if (readyAura) return AppColors.success;
+    if (countdownActive) return AppColors.primary;
+    if (isSessionActive) return AppColors.primary;
+    if (accentBorder || isPreparingCamera) return AppColors.accent;
+    return AppColors.primarySoft;
+  }
+
   Border? _viewportBorder() {
+    final accent = _stageAccent();
     if (_hasFatalOrConnectionError) {
-      return Border.all(
-        color: AppColors.error.withValues(alpha: 0.55),
-        width: 1.5,
-      );
+      return Border.all(color: accent.withValues(alpha: 0.7), width: 1.5);
     }
-    if (isSessionActive) {
-      return Border.all(
-        color: AppColors.primary.withValues(alpha: 0.5),
-        width: 1.5,
-      );
+    if (isSessionActive || readyAura || countdownActive) {
+      return Border.all(color: accent.withValues(alpha: 0.55), width: 1.5);
     }
     if (accentBorder || isPreparingCamera) {
-      return Border.all(
-        color: AppColors.accent.withValues(alpha: 0.45),
-        width: 1.5,
-      );
+      return Border.all(color: accent.withValues(alpha: 0.45), width: 1.5);
     }
     return Border.all(
-      color: const Color(0xFF2A2A32).withValues(alpha: 0.65),
+      color: const Color(0xFF3A2A55).withValues(alpha: 0.7),
       width: 1,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final accent = _stageAccent();
+    final highContrast = context.isHighContrast;
     return Semantics(
+      container: true,
+      explicitChildNodes: true,
       label: 'Camera workspace',
       child: Container(
         key: const ValueKey('practice-camera-workspace'),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(_radius),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF000000).withValues(alpha: 0.35),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
+          boxShadow: highContrast
+              ? const []
+              : [
+                  BoxShadow(
+                    color: accent.withValues(
+                      alpha: readyAura
+                          ? 0.22
+                          : (isSessionActive || countdownActive ? 0.16 : 0.1),
+                    ),
+                    blurRadius: readyAura ? 36 : 28,
+                    spreadRadius: 1,
+                  ),
+                  BoxShadow(
+                    color: const Color(0xFF000000).withValues(alpha: 0.38),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(_radius),
@@ -117,33 +141,29 @@ class TrainingCameraWorkspace extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(_radius - 1),
-              child: ColoredBox(
-                color: _viewportColor,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _buildBody(context),
-                    const _ViewportVignette(),
-                    const _CornerGuides(),
-                    ?overlays,
-                    if (statusItems.isNotEmpty && !_hasFatalOrConnectionError)
-                      Positioned(
-                        left: AppSpacing.md,
-                        right: AppSpacing.md,
-                        bottom: AppSpacing.md,
-                        child: _StatusStrip(
-                          items: statusItems.take(3).toList(),
-                        ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _ArenaAmbientFill(accent: accent, highContrast: highContrast),
+                  _buildBody(context),
+                  const _ViewportVignette(),
+                  _CornerGuides(color: accent),
+                  ?overlays,
+                  if (statusItems.isNotEmpty && !_hasFatalOrConnectionError)
+                    Positioned(
+                      left: AppSpacing.md,
+                      right: AppSpacing.md,
+                      bottom: AppSpacing.md,
+                      child: _StatusStrip(items: statusItems.take(3).toList()),
+                    ),
+                  if (countdownActive)
+                    Positioned.fill(
+                      child: GameCountdownOverlay(
+                        onComplete: onCountdownComplete,
                       ),
-                    if (countdownActive)
-                      Positioned.fill(
-                        child: GameCountdownOverlay(
-                          onComplete: onCountdownComplete,
-                        ),
-                      ),
-                    if (_hasFatalOrConnectionError) _buildErrorSurface(context),
-                  ],
-                ),
+                    ),
+                  if (_hasFatalOrConnectionError) _buildErrorSurface(context),
+                ],
               ),
             ),
           ),
@@ -212,7 +232,13 @@ class TrainingCameraWorkspace extends StatelessWidget {
     }
 
     if (connectionState == WebSocketConnectionState.connected) {
-      return _CenteredMessage(child: _IdlePreviewState());
+      return _CenteredMessage(
+        child: _IdlePreviewState(
+          title: idleTitle,
+          subtitle: idleSubtitle,
+          caption: idleCaption,
+        ),
+      );
     }
 
     return const SizedBox.shrink();
@@ -279,58 +305,112 @@ class TrainingCameraWorkspace extends StatelessWidget {
   }
 }
 
+class _ArenaAmbientFill extends StatelessWidget {
+  const _ArenaAmbientFill({required this.accent, required this.highContrast});
+
+  final Color accent;
+  final bool highContrast;
+
+  @override
+  Widget build(BuildContext context) {
+    if (highContrast) {
+      return const ColoredBox(color: Color(0xFF000000));
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: const Alignment(0, 0.18),
+          radius: 1.08,
+          colors: [
+            accent.withValues(alpha: 0.16),
+            AppColors.accent.withValues(alpha: 0.08),
+            const Color(0xFF0B0814),
+            const Color(0xFF07060C),
+          ],
+          stops: const [0.0, 0.32, 0.7, 1.0],
+        ),
+      ),
+    );
+  }
+}
+
 class _IdlePreviewState extends StatelessWidget {
+  const _IdlePreviewState({
+    required this.title,
+    required this.subtitle,
+    required this.caption,
+  });
+
+  final String title;
+  final String subtitle;
+  final String caption;
+
   @override
   Widget build(BuildContext context) {
     return Column(
+      key: const ValueKey('training-arena-idle'),
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 56,
-          height: 56,
+          width: 72,
+          height: 72,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                AppColors.primary.withValues(alpha: 0.18),
-                AppColors.accent.withValues(alpha: 0.14),
+                AppColors.primary.withValues(alpha: 0.22),
+                AppColors.accent.withValues(alpha: 0.16),
               ],
             ),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.22),
+              color: AppColors.primary.withValues(alpha: 0.28),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.18),
+                blurRadius: 22,
+              ),
+            ],
           ),
           child: Icon(
             FluentIcons.video_solid,
-            size: 28,
-            color: AppColors.primarySoft.withValues(alpha: 0.85),
+            size: 30,
+            color: AppColors.primarySoft.withValues(alpha: 0.95),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
         Text(
-          'Camera preview',
-          style: AppTheme.body.copyWith(
-            fontWeight: FontWeight.w600,
+          title,
+          style: AppTheme.sectionTitle(
+            context,
             color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Begin calibration to activate the live feed.',
-          style: AppTheme.bodySecondary.copyWith(
-            color: AppColors.textSecondary,
-          ),
+          ).copyWith(fontWeight: FontWeight.w800),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Keep your upper body, hands, and bottle visible.',
-          style: AppTheme.caption.copyWith(
-            color: AppColors.textSecondary.withValues(alpha: 0.85),
+        const SizedBox(height: 6),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Text(
+            subtitle,
+            style: AppTheme.body.copyWith(
+              color: AppColors.textPrimary.withValues(alpha: 0.9),
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
           ),
-          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 6),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: Text(
+            caption,
+            style: AppTheme.caption.copyWith(
+              color: AppColors.textSecondary.withValues(alpha: 0.9),
+            ),
+            textAlign: TextAlign.center,
+          ),
         ),
       ],
     );
@@ -394,23 +474,25 @@ class _ViewportVignette extends StatelessWidget {
 }
 
 class _CornerGuides extends StatelessWidget {
-  const _CornerGuides();
+  const _CornerGuides({required this.color});
+
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: Stack(
         children: [
-          Positioned(top: 10, left: 10, child: _bracket(Alignment.topLeft)),
-          Positioned(top: 10, right: 10, child: _bracket(Alignment.topRight)),
+          Positioned(top: 12, left: 12, child: _bracket(Alignment.topLeft)),
+          Positioned(top: 12, right: 12, child: _bracket(Alignment.topRight)),
           Positioned(
-            bottom: 10,
-            left: 10,
+            bottom: 12,
+            left: 12,
             child: _bracket(Alignment.bottomLeft),
           ),
           Positioned(
-            bottom: 10,
-            right: 10,
+            bottom: 12,
+            right: 12,
             child: _bracket(Alignment.bottomRight),
           ),
         ],
@@ -422,27 +504,37 @@ class _CornerGuides extends StatelessWidget {
     final isTop = alignment.y < 0;
     final isLeft = alignment.x < 0;
     return SizedBox(
-      width: 18,
-      height: 18,
+      width: 22,
+      height: 22,
       child: CustomPaint(
-        painter: _CornerBracketPainter(isTop: isTop, isLeft: isLeft),
+        painter: _CornerBracketPainter(
+          isTop: isTop,
+          isLeft: isLeft,
+          color: color,
+        ),
       ),
     );
   }
 }
 
 class _CornerBracketPainter extends CustomPainter {
-  _CornerBracketPainter({required this.isTop, required this.isLeft});
+  _CornerBracketPainter({
+    required this.isTop,
+    required this.isLeft,
+    required this.color,
+  });
 
   final bool isTop;
   final bool isLeft;
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = AppColors.primarySoft.withValues(alpha: 0.28)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
+      ..color = color.withValues(alpha: 0.55)
+      ..strokeWidth = 1.8
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
 
     final path = Path();
     if (isTop && isLeft) {
@@ -466,7 +558,10 @@ class _CornerBracketPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _CornerBracketPainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.isTop != isTop ||
+      oldDelegate.isLeft != isLeft;
 }
 
 class _CenteredMessage extends StatelessWidget {
@@ -559,6 +654,7 @@ class _CameraFeedSurface extends StatelessWidget {
                 bytes,
                 fit: BoxFit.contain,
                 gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) => placeholder,
               ),
             );
           },
@@ -604,6 +700,8 @@ class _MirroredCameraFeed extends StatelessWidget {
             frameBytes,
             fit: BoxFit.contain,
             gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) =>
+                const SizedBox.shrink(),
           ),
         ),
         if (overlayFeedback != null)

@@ -41,6 +41,7 @@ class MovementRotationOverlay extends StatelessWidget {
               constraints.maxWidth < 620 || constraints.maxHeight < 430;
           return Stack(
             children: [
+              _PhaseBurst(phase: controller.phase, paused: controller.isPaused),
               Positioned(
                 left: AppSpacing.md,
                 right: AppSpacing.md,
@@ -511,3 +512,135 @@ BoxDecoration _surface(Color accent) => BoxDecoration(
   ],
 );
 String _seconds(Duration value) => '${(value.inMilliseconds / 1000).ceil()}s';
+
+class _PhaseBurst extends StatefulWidget {
+  const _PhaseBurst({required this.phase, required this.paused});
+
+  final PlaygroundSessionPhase phase;
+  final bool paused;
+
+  @override
+  State<_PhaseBurst> createState() => _PhaseBurstState();
+}
+
+class _PhaseBurstState extends State<_PhaseBurst>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<double> _fade;
+  String? _headline;
+  Color _color = AppColors.primary;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 640),
+    );
+    _scale = TweenSequence<double>(
+      [
+        TweenSequenceItem(tween: Tween(begin: 0.86, end: 1.06), weight: 35),
+        TweenSequenceItem(tween: Tween(begin: 1.06, end: 1.0), weight: 25),
+        TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 40),
+      ],
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fade = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 18),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 50),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 32),
+    ]).animate(_controller);
+    _syncFromPhase(null);
+  }
+
+  @override
+  void didUpdateWidget(_PhaseBurst oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.phase != widget.phase) {
+      _syncFromPhase(oldWidget.phase);
+    }
+  }
+
+  void _syncFromPhase(PlaygroundSessionPhase? previous) {
+    if (widget.paused) return;
+    final burst = _burstFor(widget.phase);
+    if (burst == null) return;
+    _headline = burst.headline;
+    _color = burst.color;
+    _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          if (_headline == null ||
+              _controller.isDismissed ||
+              _controller.isCompleted) {
+            return const SizedBox.shrink();
+          }
+          return Center(
+            child: Opacity(
+              opacity: reduceMotion ? 1 : _fade.value,
+              child: Transform.scale(
+                scale: reduceMotion ? 1 : _scale.value,
+                child: Text(
+                  _headline!,
+                  key: const ValueKey('playground-phase-callout'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 42,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 3,
+                    color: _color,
+                    shadows: [
+                      Shadow(
+                        color: _color.withValues(alpha: 0.5),
+                        blurRadius: 24,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+({String headline, Color color})? _burstFor(PlaygroundSessionPhase phase) {
+  return switch (phase) {
+    PlaygroundSessionPhase.getReady => (
+      headline: 'GET READY',
+      color: AppColors.primary,
+    ),
+    PlaygroundSessionPhase.success => (
+      headline: 'CLEARED!',
+      color: AppColors.success,
+    ),
+    PlaygroundSessionPhase.missed => (
+      headline: 'MISSED',
+      color: AppColors.warning,
+    ),
+    PlaygroundSessionPhase.transitioning => (
+      headline: 'NEXT UP',
+      color: AppColors.accent,
+    ),
+    PlaygroundSessionPhase.idle ||
+    PlaygroundSessionPhase.preparingMovement ||
+    PlaygroundSessionPhase.assessing ||
+    PlaygroundSessionPhase.completed => null,
+  };
+}

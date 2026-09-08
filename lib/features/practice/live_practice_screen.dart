@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -37,10 +38,12 @@ import 'just_dance/playground_session_controller.dart';
 import 'just_dance/movement_setlist_dialog.dart';
 import 'practice_run_phase.dart';
 import 'submission_recording_controller.dart';
+import 'training_quit_guard.dart';
 import 'widgets/movement_rotation_overlay.dart';
 import 'widgets/readiness_checklist_panel.dart';
 import 'widgets/submission_recording_panel.dart';
 import 'widgets/training_action_area.dart';
+import 'widgets/training_arena_layout.dart';
 import 'widgets/training_camera_workspace.dart';
 import 'widgets/training_session_header.dart';
 import 'widgets/training_session_panel.dart';
@@ -61,7 +64,7 @@ class LivePracticeScreen extends StatefulWidget {
   @visibleForTesting
   final WebSocketService? websocketService;
 
-  static const cameraAspectRatio = 4 / 3;
+  static const cameraAspectRatio = TrainingArenaLayout.cameraAspectRatio;
 
   @override
   State<LivePracticeScreen> createState() => LivePracticeScreenState();
@@ -138,6 +141,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _connecting = false;
   String? _sessionError;
   bool _leaving = false;
+  bool _quitDialogOpen = false;
+  bool _stopInFlight = false;
   bool _startInFlight = false;
   bool _activityAutoStartRequested = false;
   bool _activityReservationReleased = false;
@@ -149,8 +154,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _playgroundTransitionInFlight = false;
   bool _playgroundActivationInFlight = false;
 
-  static const _wideBreakpoint = 1100.0;
-  static const _panelWidth = 370.0;
+  static const _wideBreakpoint = AppSpacing.practiceDesktopBreakpoint;
+  static const _compactBreakpoint = AppSpacing.practiceCompactBreakpoint;
+  static const _maxContentWidth = AppSpacing.practiceMaxContentWidth;
 
   @override
   void initState() {
@@ -1035,8 +1041,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   Future<void> _cancelPreActive() async {
     await _stopWebSocketSession();
     _run.cancelToIdle();
-    await _music.stop();
-    await _sfx.stop();
+    unawaited(_music.stop());
+    unawaited(_sfx.stop());
+    _commandInFlight = false;
+    _startInFlight = false;
     _playground.cancelToIdle();
     if (mounted) {
       setState(() {
@@ -1049,49 +1057,106 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _stopSession() async {
-    if (_run.isPreparingCamera ||
-        _run.isReadiness ||
-        _run.isCountdown ||
-        _run.isError) {
-      await _cancelPreActive();
-      return;
-    }
+    if (_leaving || _quitDialogOpen || _stopInFlight) return;
+    _stopInFlight = true;
+    try {
+      if (_run.isPreparingCamera ||
+          _run.isReadiness ||
+          _run.isCountdown ||
+          _run.isError) {
+        await _cancelPreActive();
+        return;
+      }
 
-    await _stopWebSocketSession();
-    _run.cancelToIdle();
-    await _music.stop();
-    await _sfx.stop();
-    _playground.cancelToIdle();
-    if (mounted) {
-      setState(() {
-        _clearFrame();
-        _latestFeedback = null;
-        _bottleDetected = false;
-        _sessionError = null;
-      });
+      await _stopWebSocketSession();
+      if (_leaving || !mounted) return;
+      _run.cancelToIdle();
+      unawaited(_music.stop());
+      unawaited(_sfx.stop());
+      _commandInFlight = false;
+      _startInFlight = false;
+      _playground.cancelToIdle();
+      if (mounted) {
+        setState(() {
+          _clearFrame();
+          _latestFeedback = null;
+          _bottleDetected = false;
+          _sessionError = null;
+        });
+      }
+    } finally {
+      _stopInFlight = false;
     }
   }
 
+  TrainingQuitCopy get _quitCopy => widget.teacherCreatedAssignment == null
+      ? TrainingQuitCopy.playground
+      : TrainingQuitCopy.assignment;
+
+  bool get _shouldConfirmAbandon => trainingShouldConfirmAbandon(
+    runPhase: _run.phase,
+    playgroundPhase: _isPlayground
+        ? _playground.phase
+        : PlaygroundSessionPhase.idle,
+    recordingPhase: _recording?.phase ?? SubmissionRecordingPhase.idle,
+  );
+
+  Future<void> _confirmAbandonThen(Future<void> Function() onConfirmed) async {
+    if (_leaving || _quitDialogOpen || _stopInFlight) return;
+    _quitDialogOpen = true;
+    try {
+      final confirmed = await showTrainingQuitDialog(context, copy: _quitCopy);
+      if (confirmed && mounted && !_leaving && !_stopInFlight) {
+        await onConfirmed();
+      }
+    } finally {
+      _quitDialogOpen = false;
+    }
+  }
+
+  Future<void> _onCancelPressed() async {
+    if (_leaving || _quitDialogOpen || _stopInFlight) return;
+    if (!_shouldConfirmAbandon) {
+      await _cancelPreActive();
+      return;
+    }
+    await _confirmAbandonThen(_cancelPreActive);
+  }
+
+  Future<void> _onBack() async {
+    if (_leaving || _stopInFlight) return;
+    if (!_shouldConfirmAbandon) {
+      await _leave();
+      return;
+    }
+    await _confirmAbandonThen(_leave);
+  }
+
   Future<void> _leave() async {
-    if (_leaving) return;
+    if (_leaving || _stopInFlight) return;
     _leaving = true;
     final router = GoRouter.of(context);
-    await _feedbackSub?.cancel();
+    final location = widget.teacherCreatedAssignment == null
+        ? AppRoutePaths.dashboard
+        : AppRoutePaths.assignmentDetail(
+            widget.teacherCreatedAssignment!.assignment.id,
+          );
+    final feedbackSub = _feedbackSub;
+    final previewSub = _previewSub;
     _feedbackSub = null;
+    _previewSub = null;
+    unawaited(feedbackSub?.cancel() ?? Future<void>.value());
+    unawaited(previewSub?.cancel() ?? Future<void>.value());
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     await _stopWebSocketSession();
     _run.cancelToIdle();
-    await _music.stop();
-    await _sfx.stop();
+    unawaited(_music.stop());
+    unawaited(_sfx.stop());
+    _commandInFlight = false;
+    _startInFlight = false;
     _playground.cancelToIdle();
-    router.go(
-      widget.teacherCreatedAssignment == null
-          ? AppRoutePaths.dashboard
-          : AppRoutePaths.assignmentDetail(
-              widget.teacherCreatedAssignment!.assignment.id,
-            ),
-    );
+    router.go(location);
   }
 
   String _formatDuration(int seconds) {
@@ -1133,171 +1198,213 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     final actionKind = _actionKind();
 
     return ElixScaffoldPage(
-      content: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl,
-            AppSpacing.md,
-            AppSpacing.xl,
-            AppSpacing.xl,
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final wide = constraints.maxWidth >= _wideBreakpoint;
-              final assignment = widget.teacherCreatedAssignment;
-              final header = TrainingSessionHeader(
-                onBack: _leave,
-                title: assignment?.title ?? 'Playground',
-                statusPill: assignment == null
-                    ? 'NO SCORING'
-                    : 'TEACHER REVIEWED',
-                statusPillColor: AppColors.primarySoft,
-                instruction: assignment == null
-                    ? 'Practice your unlocked movements in a continuous set. '
-                          'Playground sessions are not scored.'
-                    : (assignment.instructions.isEmpty
-                          ? 'Practice this Teacher Activity. Your Teacher reviews the recording.'
-                          : assignment.instructions),
-                connectionState: _ws.connectionState,
-                connecting: _connecting,
-                wideLayout: wide,
-                trailing: assignment == null
-                    ? Button(
-                        onPressed:
-                            _playground.phase == PlaygroundSessionPhase.idle ||
-                                _playground.isComplete
-                            ? _openSetlistDialog
-                            : null,
-                        child: const Text('Build Your Set'),
-                      )
-                    : null,
-              );
-              final progressionHud = assignment == null
-                  ? _PlaygroundProgressionHud(
-                      progression: context.watch<TraineeProgressionService>(),
-                    )
-                  : null;
-              final camera = TrainingCameraWorkspace(
-                frameListenable: _frameBytes,
-                mirrored: context.watch<SettingsService>().cameraMirrored,
-                connectionState: _ws.connectionState,
-                connecting: _connecting,
-                isSessionActive: isCameraLive && !_run.isPreparingCamera,
-                isPreparingCamera: _run.isPreparingCamera,
-                errorMessage: _ws.errorMessage,
-                sessionError: _sessionError ?? _run.errorMessage,
-                onRetry: _connect,
-                // The shared overlay owns countdown completion for Guided
-                // Practice and Teacher Activity only. Playground renders its
-                // controller-owned Get Ready state in MovementRotationOverlay.
-                countdownActive: !_isPlayground && _run.isCountdown,
-                onCountdownComplete: _beginSessionAfterCountdown,
-                overlayFeedback: isTrainingActive
-                    ? null
-                    : (isCameraLive ? _latestFeedback : null),
-                showFeedbackMessage: false,
-                overlays:
-                    assignment == null &&
-                        _playground.currentMovement != null &&
-                        _playground.phase != PlaygroundSessionPhase.idle
-                    ? MovementRotationOverlay(
-                        controller: _playground,
-                        onRestart: _startSession,
-                        onEditSetlist: _openSetlistDialog,
-                      )
-                    : null,
-                statusItems: [
-                  if (isTrainingActive)
-                    TrainingCameraStatusItem(
-                      label: _bottleDetected
-                          ? 'Bottle detected'
-                          : 'Searching for bottle',
-                      color: _bottleDetected
-                          ? AppColors.success
-                          : AppColors.warning,
-                    ),
-                ],
-              );
-
-              final panel = TrainingSessionPanel(
-                phase: _panelPhase(),
-                metrics: LivePracticeElapsedMetric(
-                  elapsedDisplay: _formatDuration(
-                    _recording?.phase == SubmissionRecordingPhase.recording
-                        ? _recording!.elapsedSeconds
-                        : _run.elapsedSeconds,
-                  ),
-                ),
-                statusContent:
-                    (_run.isReadiness ||
-                        (_run.isCountdown && _run.readiness.frozen))
-                    ? ReadinessChecklistPanel(
-                        items: _run.readiness.displayItems,
-                        progress: _run.readiness.stableProgress,
-                        stable: _run.readiness.stable,
-                        complete: _run.readiness.complete,
-                        frozen: _run.readiness.frozen,
-                        streamStale: _run.readiness.streamStale,
-                        recoverableMessage: _run.readiness.recoverableMessage,
-                        readyCount: _run.readiness.readyCount,
-                      )
-                    : TrainingStatusRow(
-                        detection: resolveDetectionStatus(
-                          sessionActive: isTrainingActive,
-                          bottleDetected: isTrainingActive
-                              ? _bottleDetected
+      padding: EdgeInsets.zero,
+      content: SizedBox.expand(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm + 2,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentWidth = math.min(
+                  constraints.maxWidth,
+                  _maxContentWidth,
+                );
+                final isDesktop = contentWidth >= _wideBreakpoint;
+                final isCompact =
+                    contentWidth >= _compactBreakpoint && !isDesktop;
+                final assignment = widget.teacherCreatedAssignment;
+                final header = TrainingSessionHeader(
+                  onBack: _onBack,
+                  title: assignment?.title ?? 'Playground',
+                  statusPill: assignment == null
+                      ? 'NO SCORING'
+                      : 'TEACHER REVIEWED',
+                  statusPillColor: AppColors.primarySoft,
+                  instruction: assignment == null
+                      ? 'Practice your unlocked movements in a continuous set. '
+                            'Playground sessions are not scored.'
+                      : (assignment.instructions.isEmpty
+                            ? 'Practice this Teacher Activity. Your Teacher reviews the recording.'
+                            : assignment.instructions),
+                  connectionState: _ws.connectionState,
+                  connecting: _connecting,
+                  wideLayout: isDesktop || isCompact,
+                  trailing: assignment == null
+                      ? Button(
+                          onPressed:
+                              _playground.phase ==
+                                      PlaygroundSessionPhase.idle ||
+                                  _playground.isComplete
+                              ? _openSetlistDialog
                               : null,
-                        ),
+                          child: const Text('Build Your Set'),
+                        )
+                      : null,
+                );
+                final progressionHud = assignment == null
+                    ? _PlaygroundProgressionHud(
+                        progression: context.watch<TraineeProgressionService>(),
+                      )
+                    : null;
+                final camera = TrainingCameraWorkspace(
+                  frameListenable: _frameBytes,
+                  mirrored: context.watch<SettingsService>().cameraMirrored,
+                  connectionState: _ws.connectionState,
+                  connecting: _connecting,
+                  isSessionActive: isCameraLive && !_run.isPreparingCamera,
+                  isPreparingCamera: _run.isPreparingCamera,
+                  accentBorder:
+                      _run.isPreparingCamera ||
+                      _run.isReadiness ||
+                      _run.isCountdown,
+                  readyAura:
+                      _run.readiness.stable ||
+                      _playground.phase == PlaygroundSessionPhase.success,
+                  idleTitle: assignment == null
+                      ? 'Playground Arena'
+                      : 'Practice Arena',
+                  idleSubtitle: assignment == null
+                      ? 'Press Start Playground when you are ready.'
+                      : 'Press Start assignment practice when you are ready.',
+                  idleCaption:
+                      'Keep your upper body, hands, and bottle visible.',
+                  errorMessage: _ws.errorMessage,
+                  sessionError: _sessionError ?? _run.errorMessage,
+                  onRetry: _connect,
+                  // The shared overlay owns countdown completion for Guided
+                  // Practice and Teacher Activity only. Playground renders its
+                  // controller-owned Get Ready state in MovementRotationOverlay.
+                  countdownActive: !_isPlayground && _run.isCountdown,
+                  onCountdownComplete: _beginSessionAfterCountdown,
+                  overlayFeedback: isTrainingActive
+                      ? null
+                      : (isCameraLive ? _latestFeedback : null),
+                  showFeedbackMessage: false,
+                  overlays:
+                      assignment == null &&
+                          _playground.currentMovement != null &&
+                          _playground.phase != PlaygroundSessionPhase.idle
+                      ? MovementRotationOverlay(
+                          controller: _playground,
+                          onRestart: _startSession,
+                          onEditSetlist: _openSetlistDialog,
+                        )
+                      : null,
+                  statusItems: [
+                    if (isTrainingActive)
+                      TrainingCameraStatusItem(
+                        label: _bottleDetected
+                            ? 'Bottle detected'
+                            : 'Searching for bottle',
+                        color: _bottleDetected
+                            ? AppColors.success
+                            : AppColors.warning,
                       ),
-                notice: Text(
-                  assignment == null
-                      ? 'No score or session history will be saved.'
-                      : 'Teacher-created practice is not scored and does not award XP.',
-                  style: AppTheme.bodySecondary.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                supportingContent: assignment != null && _recording != null
-                    ? SubmissionRecordingPanel(
-                        controller: _recording!,
-                        cameraReady: isTrainingActive,
-                      )
-                    : null,
-                compactStatusNote: (_sessionError ?? _run.errorMessage) != null
-                    ? Text(
-                        _sessionError ?? _run.errorMessage!,
-                        style: AppTheme.bodySecondary.copyWith(
-                          color: AppColors.error,
-                        ),
-                      )
-                    : (hasConnectionError
-                          ? Text(
-                              _ws.errorMessage ??
-                                  'Backend offline. Start the Python server first.',
-                              style: AppTheme.bodySecondary.copyWith(
-                                color: AppColors.error,
-                              ),
-                            )
-                          : null),
-                actionArea: TrainingActionArea(
-                  kind: actionKind,
-                  startLabel: assignment == null
-                      ? 'Start Playground'
-                      : (_isTeacherActivityV2
-                            ? 'Preparing attempt…'
-                            : 'Start assignment practice'),
-                  onPressed: switch (actionKind) {
-                    TrainingActionKind.finish => _stopSession,
-                    TrainingActionKind.cancel => _cancelPreActive,
-                    TrainingActionKind.retry || TrainingActionKind.start =>
-                      _ws.isConnected ? _startSession : _connect,
-                  },
-                  isLoading: _connecting || _startInFlight || _commandInFlight,
-                ),
-              );
+                  ],
+                );
 
-              if (wide) {
-                return Column(
+                final idlePanel =
+                    _run.phase == PracticeRunPhase.idle ||
+                    _run.phase == PracticeRunPhase.completed;
+                final panel = TrainingSessionPanel(
+                  phase: _panelPhase(),
+                  expandVertically: isDesktop,
+                  metrics: idlePanel
+                      ? TrainingReadyBrief(
+                          title: assignment == null
+                              ? 'Ready for Playground'
+                              : 'Ready to practice',
+                          body: assignment == null
+                              ? 'Start Playground to begin your routine. No scoring is recorded.'
+                              : 'Start assignment practice when the camera is ready. This attempt is teacher-reviewed, not scored.',
+                        )
+                      : LivePracticeElapsedMetric(
+                          elapsedDisplay: _formatDuration(
+                            _recording?.phase ==
+                                    SubmissionRecordingPhase.recording
+                                ? _recording!.elapsedSeconds
+                                : _run.elapsedSeconds,
+                          ),
+                        ),
+                  statusContent:
+                      (_run.isReadiness ||
+                          (_run.isCountdown && _run.readiness.frozen))
+                      ? ReadinessChecklistPanel(
+                          items: _run.readiness.displayItems,
+                          progress: _run.readiness.stableProgress,
+                          stable: _run.readiness.stable,
+                          complete: _run.readiness.complete,
+                          frozen: _run.readiness.frozen,
+                          streamStale: _run.readiness.streamStale,
+                          recoverableMessage: _run.readiness.recoverableMessage,
+                          readyCount: _run.readiness.readyCount,
+                        )
+                      : TrainingStatusRow(
+                          detection: resolveDetectionStatus(
+                            sessionActive: isTrainingActive,
+                            bottleDetected: isTrainingActive
+                                ? _bottleDetected
+                                : null,
+                          ),
+                        ),
+                  notice: Text(
+                    assignment == null
+                        ? 'No score or session history will be saved.'
+                        : 'Teacher-created practice is not scored and does not award XP.',
+                    style: AppTheme.bodySecondary.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                  supportingContent: assignment != null && _recording != null
+                      ? SubmissionRecordingPanel(
+                          controller: _recording!,
+                          cameraReady: isTrainingActive,
+                        )
+                      : null,
+                  compactStatusNote:
+                      (_sessionError ?? _run.errorMessage) != null
+                      ? Text(
+                          _sessionError ?? _run.errorMessage!,
+                          style: AppTheme.bodySecondary.copyWith(
+                            color: AppColors.error,
+                          ),
+                        )
+                      : (hasConnectionError
+                            ? Text(
+                                _ws.errorMessage ??
+                                    'Backend offline. Start the Python server first.',
+                                style: AppTheme.bodySecondary.copyWith(
+                                  color: AppColors.error,
+                                ),
+                              )
+                            : null),
+                  actionArea: TrainingActionArea(
+                    kind: actionKind,
+                    startLabel: assignment == null
+                        ? 'Start Playground'
+                        : (_isTeacherActivityV2
+                              ? 'Preparing attempt…'
+                              : 'Start assignment practice'),
+                    onPressed: switch (actionKind) {
+                      TrainingActionKind.finish => _stopSession,
+                      TrainingActionKind.cancel => _onCancelPressed,
+                      TrainingActionKind.retry || TrainingActionKind.start =>
+                        _ws.isConnected ? _startSession : _connect,
+                    },
+                    isLoading:
+                        actionKind == TrainingActionKind.cancel ||
+                            actionKind == TrainingActionKind.finish
+                        ? false
+                        : (_connecting || _startInFlight || _commandInFlight),
+                  ),
+                );
+
+                final body = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     header,
@@ -1306,47 +1413,32 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       progressionHud,
                     ],
                     Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              child: AspectRatio(
-                                aspectRatio:
-                                    LivePracticeScreen.cameraAspectRatio,
-                                child: camera,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.lg),
-                          SizedBox(width: _panelWidth, child: panel),
-                        ],
+                      child: LayoutBuilder(
+                        builder: (context, workspaceConstraints) {
+                          final workspace = TrainingArenaWorkspace(
+                            desktop: isDesktop,
+                            contentWidth: contentWidth,
+                            workspaceHeight: workspaceConstraints.maxHeight,
+                            camera: camera,
+                            panel: panel,
+                          );
+                          if (isDesktop) return workspace;
+                          return SingleChildScrollView(child: workspace);
+                        },
                       ),
                     ),
                   ],
                 );
-              }
 
-              return SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    header,
-                    if (progressionHud != null) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      progressionHud,
-                    ],
-                    AspectRatio(
-                      aspectRatio: LivePracticeScreen.cameraAspectRatio,
-                      child: camera,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    SizedBox(height: 320, child: panel),
-                  ],
-                ),
-              );
-            },
+                if (constraints.maxWidth <= _maxContentWidth) {
+                  return body;
+                }
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(width: _maxContentWidth, child: body),
+                );
+              },
+            ),
           ),
         ),
       ),
