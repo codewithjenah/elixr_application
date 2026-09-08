@@ -625,7 +625,7 @@ void main() {
   testWidgets('wide Official ELIXR layout places four Easy cards in one row', (
     tester,
   ) async {
-    await pumpScreen(tester, size: const Size(1600, 900));
+    await pumpScreen(tester, size: const Size(1280, 900));
 
     final grid = tester.widget<SliverGrid>(find.byType(SliverGrid).first);
     final delegate =

@@ -272,7 +272,7 @@ class _OfficialList extends StatelessWidget {
                     crossAxisCount: columns,
                     mainAxisExtent: _cardExtent(
                       context,
-                      base: 410,
+                      base: 430,
                       growth: 180,
                     ),
                     crossAxisSpacing: AppSpacing.md,
@@ -325,7 +325,7 @@ class _MyMovementsList extends StatelessWidget {
         itemCount: controller.myMovements.length,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: _gridColumnsFor(constraints.maxWidth),
-          mainAxisExtent: _cardExtent(context, base: 390, growth: 200),
+          mainAxisExtent: _cardExtent(context, base: 450, growth: 200),
           crossAxisSpacing: AppSpacing.md,
           mainAxisSpacing: AppSpacing.md,
         ),
@@ -339,9 +339,11 @@ class _MyMovementsList extends StatelessWidget {
 }
 
 int _gridColumnsFor(double availableWidth) {
-  if (availableWidth >= 1400) return 4;
-  if (availableWidth >= 1050) return 3;
-  if (availableWidth >= 760) return 2;
+  // Four compact catalog cards fit comfortably in the Teacher workspace at
+  // normal 1920px desktop widths after the persistent sidebar is accounted for.
+  if (availableWidth >= 1100) return 4;
+  if (availableWidth >= 850) return 3;
+  if (availableWidth >= 620) return 2;
   return 1;
 }
 
