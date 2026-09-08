@@ -19,6 +19,13 @@ import '../movements_presentation.dart';
 const _kCardRadius = 20.0;
 const _kHeroHeight = 176.0;
 
+class _MysteryState {
+  const _MysteryState({required this.isLocked, this.unlockLevel});
+
+  final bool isLocked;
+  final int? unlockLevel;
+}
+
 class MovementCard extends StatefulWidget {
   const MovementCard({
     super.key,
@@ -110,6 +117,35 @@ class _MovementCardState extends State<MovementCard>
       tutorialCompleted: tutorial.isInitialized
           ? tutorial.hasCompletedLesson(widget.movement.name, prop)
           : null,
+    );
+  }
+
+  /// A movement identity is hidden only when every catalog-supported prop is
+  /// personally locked. Missing or loading providers deliberately retain the
+  /// normal card so they cannot briefly conceal or reveal content incorrectly.
+  _MysteryState _mysteryState() {
+    if (!_enabled || _supportedProps.isEmpty) {
+      return const _MysteryState(isLocked: false);
+    }
+    final accesses = [
+      for (final prop in _supportedProps) _accessFor(prop),
+    ];
+    if (accesses.any((access) => access != ProgressionAccessResult.personalLocked)) {
+      return const _MysteryState(isLocked: false);
+    }
+    final levels = [
+      for (final prop in _supportedProps)
+        requiredLevelFor(
+          PracticeVariant(
+            movementName: widget.movement.name,
+            trainingProp: prop,
+          ),
+        ),
+    ].whereType<int>();
+    if (levels.isEmpty) return const _MysteryState(isLocked: false);
+    return _MysteryState(
+      isLocked: true,
+      unlockLevel: levels.reduce((first, next) => first < next ? first : next),
     );
   }
 
@@ -240,7 +276,8 @@ class _MovementCardState extends State<MovementCard>
   @override
   Widget build(BuildContext context) {
     final singleAccess = _hasPropChoice ? null : _accessFor(_singleProp);
-    final interactive = _enabled;
+    final mystery = _mysteryState();
+    final interactive = _enabled && !mystery.isLocked;
     final cardInteractive =
         interactive && !_hasPropChoice && _canActivate(singleAccess);
     final isDark = context.isDarkTheme;
@@ -257,7 +294,9 @@ class _MovementCardState extends State<MovementCard>
           button: cardInteractive,
           enabled: interactive,
           label:
-              '${widget.movement.name}. $_statusLabel. $statsLabel. ${_actionLabel(context)}',
+              mystery.isLocked
+                  ? 'Mystery movement. Locked. Unlocks at Level ${mystery.unlockLevel}.'
+                  : '${widget.movement.name}. $_statusLabel. $statsLabel. ${_actionLabel(context)}',
           child: FocusableActionDetector(
             enabled: cardInteractive,
             onShowFocusHighlight: _setFocused,
@@ -368,12 +407,23 @@ class _MovementCardState extends State<MovementCard>
                       borderRadius: BorderRadius.circular(_kCardRadius),
                       child: Opacity(
                         opacity: _enabled || highContrast ? 1 : 0.58,
-                        child: _buildTileLayout(
-                          context,
-                          pinActions: constraints.hasBoundedHeight,
-                          revealMetadata: alwaysRevealMetadata,
-                          interactionValue: t,
-                        ),
+                        child: mystery.isLocked
+                            ? ExcludeSemantics(
+                                child: _buildTileLayout(
+                                  context,
+                                  pinActions: constraints.hasBoundedHeight,
+                                  revealMetadata: alwaysRevealMetadata,
+                                  interactionValue: t,
+                                  mystery: mystery,
+                                ),
+                              )
+                            : _buildTileLayout(
+                                context,
+                                pinActions: constraints.hasBoundedHeight,
+                                revealMetadata: alwaysRevealMetadata,
+                                interactionValue: t,
+                                mystery: mystery,
+                              ),
                       ),
                     ),
                   );
@@ -402,11 +452,12 @@ class _MovementCardState extends State<MovementCard>
     required bool pinActions,
     required bool revealMetadata,
     required double interactionValue,
+    required _MysteryState mystery,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildHero(context, interactionValue),
+        _buildHero(context, interactionValue, mystery),
         if (pinActions)
           Expanded(
             child: _buildCardBody(
@@ -414,6 +465,7 @@ class _MovementCardState extends State<MovementCard>
               pinActions: true,
               revealMetadata: revealMetadata,
               interactionValue: interactionValue,
+              mystery: mystery,
             ),
           )
         else
@@ -422,14 +474,35 @@ class _MovementCardState extends State<MovementCard>
             pinActions: false,
             revealMetadata: revealMetadata,
             interactionValue: interactionValue,
+            mystery: mystery,
           ),
       ],
     );
   }
 
-  Widget _buildHero(BuildContext context, double interactionValue) {
+  Widget _buildHero(
+    BuildContext context,
+    double interactionValue,
+    _MysteryState mystery,
+  ) {
     final highContrast = context.isHighContrast;
     final reduceMotion = _reduceMotion;
+    final artwork = Transform.translate(
+      offset: Offset(0, reduceMotion ? 0 : -3 * interactionValue),
+      child: Transform.scale(
+        scale: reduceMotion ? 1 : 1 + (0.055 * interactionValue),
+        alignment: Alignment.bottomCenter,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: MovementImage(
+            movementName: widget.movement.name,
+            size: 154,
+            paddingFactor: 0.01,
+            alignment: Alignment.bottomCenter,
+          ),
+        ),
+      ),
+    );
     return SizedBox(
       height: _kHeroHeight,
       child: Stack(
@@ -461,22 +534,49 @@ class _MovementCardState extends State<MovementCard>
               ),
             ),
           ),
-          Transform.translate(
-            offset: Offset(0, reduceMotion ? 0 : -3 * interactionValue),
-            child: Transform.scale(
-              scale: reduceMotion ? 1 : 1 + (0.055 * interactionValue),
-              alignment: Alignment.bottomCenter,
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: MovementImage(
-                  movementName: widget.movement.name,
-                  size: 154,
-                  paddingFactor: 0.01,
-                  alignment: Alignment.bottomCenter,
+          ExcludeSemantics(
+            child: mystery.isLocked
+                ? ImageFiltered(
+                    imageFilter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: Opacity(opacity: 0.16, child: artwork),
+                  )
+                : artwork,
+          ),
+          if (mystery.isLocked)
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    const Color(0xFF120A22).withValues(alpha: 0.60),
+                    const Color(0xFF241036).withValues(alpha: 0.76),
+                  ],
+                ),
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      FluentIcons.lock,
+                      size: 28,
+                      color: Colors.white.withValues(alpha: 0.90),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      'MYSTERY MOVEMENT',
+                      style: TextStyle(
+                        fontSize: 10,
+                        letterSpacing: 1.1,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white.withValues(alpha: 0.92),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ),
           if (!highContrast && !reduceMotion)
             IgnorePointer(
               child: Opacity(
@@ -500,8 +600,10 @@ class _MovementCardState extends State<MovementCard>
             top: 12,
             right: 12,
             child: _StatusBadge(
-              label: _statusLabel,
-              color: _statusColor(context),
+              label: mystery.isLocked ? 'LOCKED' : _statusLabel,
+              color: mystery.isLocked
+                  ? context.elixTextSecondary
+                  : _statusColor(context),
             ),
           ),
         ],
@@ -514,6 +616,7 @@ class _MovementCardState extends State<MovementCard>
     required bool pinActions,
     required bool revealMetadata,
     required double interactionValue,
+    required _MysteryState mystery,
   }) {
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -524,9 +627,19 @@ class _MovementCardState extends State<MovementCard>
             context,
             revealMetadata: revealMetadata,
             interactionValue: interactionValue,
+            mystery: mystery,
           ),
           if (pinActions) const Spacer() else const SizedBox(height: 16),
-          if (_hasPropChoice && _enabled)
+          if (mystery.isLocked)
+            _ActionButton(
+              label: 'Unlocks at Level ${mystery.unlockLevel}',
+              enabled: false,
+              accent: _accent,
+              fullWidth: true,
+              active: false,
+              reduceMotion: _reduceMotion,
+            )
+          else if (_hasPropChoice && _enabled)
             _buildPropChoiceActions(context)
           else
             _ActionButton(
@@ -546,7 +659,35 @@ class _MovementCardState extends State<MovementCard>
     BuildContext context, {
     required bool revealMetadata,
     required double interactionValue,
+    required _MysteryState mystery,
   }) {
+    if (mystery.isLocked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '???',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Reach Level ${mystery.unlockLevel} to reveal this movement',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: context.elixTextSecondary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      );
+    }
     final metadata = _buildMetadata(context);
     final visible = revealMetadata || _hovered || _focused;
     return Column(
