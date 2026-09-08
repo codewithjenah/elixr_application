@@ -13,6 +13,7 @@ import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/profile_visit.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
+import '../../services/trainee_progression_service.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_section.dart';
 import 'profile_route_args.dart';
@@ -370,6 +371,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           movementNames:
                               controller.summary?.completedMovementNames ??
                               const [],
+                          identityPolicy: _isTeacherViewer
+                              ? CompletedMovementsIdentityPolicy.authorizedFull
+                              : CompletedMovementsIdentityPolicy.viewerRelative,
+                          viewerLevel: _isTeacherViewer
+                              ? null
+                              : Provider.of<TraineeProgressionService?>(
+                                  context,
+                                )?.currentLevelOrNull,
                         ),
                         visitors: showOwnerUi
                             ? ProfileVisitorsSection(

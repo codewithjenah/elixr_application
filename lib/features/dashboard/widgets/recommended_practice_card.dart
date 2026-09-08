@@ -209,10 +209,13 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                     ),
                     const SizedBox(width: AppSpacing.md),
                     SizedBox(
-                      width: 176,
+                      width: 236,
                       child: Text(
                         '“Small steps create big progress.”',
                         textAlign: TextAlign.center,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
                         style: AppTheme.supporting(
                           color: context.elixTextSecondary,
                         ).copyWith(fontStyle: FontStyle.italic),

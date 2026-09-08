@@ -56,6 +56,7 @@ class LeaderboardRankRow extends StatefulWidget {
     this.period = LeaderboardPeriod.allTime,
     this.showDivider = false,
     this.onTap,
+    this.nowUtc,
   });
 
   final int rank;
@@ -65,6 +66,7 @@ class LeaderboardRankRow extends StatefulWidget {
   final LeaderboardPeriod period;
   final bool showDivider;
   final VoidCallback? onTap;
+  final DateTime? nowUtc;
 
   @override
   State<LeaderboardRankRow> createState() => _LeaderboardRankRowState();
@@ -79,6 +81,10 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
     final metrics = LeaderboardPresentation.metricsFor(
       widget.entry,
       widget.period,
+    );
+    final lastActive = LeaderboardPresentation.lastActiveStatus(
+      lastActiveAt: widget.entry.lastActiveAt,
+      nowUtc: (widget.nowUtc ?? DateTime.now()).toUtc(),
     );
     final interactive = widget.onTap != null;
 
@@ -97,7 +103,8 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
             button: interactive,
             label:
                 'Rank ${widget.rank}, ${widget.entry.displayName}, '
-                '${metrics.xp} XP',
+                '${metrics.xp} XP'
+                '${lastActive == null ? '' : ', $lastActive'}',
             child: FocusableActionDetector(
               enabled: interactive,
               mouseCursor: interactive
@@ -171,6 +178,7 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                                 isCurrentUser: widget.isCurrentUser,
                                 profilePictureUrl: widget.profilePictureUrl,
                                 metrics: metrics,
+                                lastActive: lastActive,
                               );
                             }
 
@@ -187,6 +195,7 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                                 entry: widget.entry,
                                 isCurrentUser: widget.isCurrentUser,
                                 profilePictureUrl: widget.profilePictureUrl,
+                                lastActive: lastActive,
                               ),
                               sessions: Text(
                                 '${metrics.sessionsCompleted}',
@@ -305,11 +314,13 @@ class _PlayerCell extends StatelessWidget {
     required this.entry,
     required this.isCurrentUser,
     this.profilePictureUrl,
+    this.lastActive,
   });
 
   final LeaderboardEntry entry;
   final bool isCurrentUser;
   final String? profilePictureUrl;
+  final String? lastActive;
 
   @override
   Widget build(BuildContext context) {
@@ -350,6 +361,19 @@ class _PlayerCell extends StatelessWidget {
                   color: context.elixTextSecondary,
                 ),
               ),
+              if (lastActive != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  lastActive!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -365,6 +389,7 @@ class _CompactRankRow extends StatelessWidget {
     required this.isCurrentUser,
     required this.profilePictureUrl,
     required this.metrics,
+    this.lastActive,
   });
 
   final int rank;
@@ -372,6 +397,7 @@ class _CompactRankRow extends StatelessWidget {
   final bool isCurrentUser;
   final String? profilePictureUrl;
   final LeaderboardPeriodMetrics metrics;
+  final String? lastActive;
 
   @override
   Widget build(BuildContext context) {
@@ -427,6 +453,19 @@ class _CompactRankRow extends StatelessWidget {
                   color: context.elixTextSecondary,
                 ),
               ),
+              if (lastActive != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  lastActive!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

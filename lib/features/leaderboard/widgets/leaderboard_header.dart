@@ -12,21 +12,23 @@ class LeaderboardHeader extends StatelessWidget {
   const LeaderboardHeader({
     super.key,
     required this.onRefresh,
-    this.period = LeaderboardPeriod.allTime,
+    this.period = LeaderboardPeriod.thisMonth,
     this.onPeriodChanged,
     this.refreshEnabled = true,
+    this.nowUtc,
   });
 
   final LeaderboardPeriod period;
   final ValueChanged<LeaderboardPeriod>? onPeriodChanged;
   final VoidCallback onRefresh;
   final bool refreshEnabled;
+  final DateTime? nowUtc;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final title = _LeaderboardTitle(period: period);
+        final title = _LeaderboardTitle(period: period, nowUtc: nowUtc);
         final selector = LeaderboardPeriodSelector(
           period: period,
           onChanged: onPeriodChanged,
@@ -69,16 +71,18 @@ class LeaderboardHeader extends StatelessWidget {
 }
 
 class _LeaderboardTitle extends StatelessWidget {
-  const _LeaderboardTitle({required this.period});
+  const _LeaderboardTitle({required this.period, this.nowUtc});
 
   final LeaderboardPeriod period;
+  final DateTime? nowUtc;
 
   @override
   Widget build(BuildContext context) {
+    final clock = (nowUtc ?? DateTime.now()).toUtc();
     return ElixEditorialHeader(
       heading: 'Leaderboard',
       eyebrow: 'COMMUNITY',
-      subtitle: LeaderboardPresentation.periodSubtitle(period),
+      subtitle: LeaderboardPresentation.headerSubtitle(period, nowUtc: clock),
       leading: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(

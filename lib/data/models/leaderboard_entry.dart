@@ -29,6 +29,7 @@ class LeaderboardEntry {
     this.profilePictureUrl,
     this.equippedBorderId,
     this.lastSessionAt,
+    this.lastActiveAt,
     this.updatedAt,
   });
 
@@ -72,7 +73,15 @@ class LeaderboardEntry {
   /// source of truth for avatar chrome.
   final String? equippedBorderId;
 
+  /// Timestamp of the player's last completed practice session. This is not
+  /// last-online metadata; presence uses [lastActiveAt].
   final String? lastSessionAt;
+
+  /// Last time the authenticated owner successfully entered or foregrounded
+  /// ELIXR. Independent of [lastSessionAt] and [updatedAt]. Absent on legacy
+  /// documents.
+  final DateTime? lastActiveAt;
+
   final String? updatedAt;
 
   int get level => GamificationRules.levelForXp(totalXp);
@@ -127,6 +136,7 @@ class LeaderboardEntry {
       profilePictureUrl: profilePictureUrl,
       equippedBorderId: equippedBorderId,
       lastSessionAt: lastSessionAt,
+      lastActiveAt: lastActiveAt,
       updatedAt: updatedAt,
     );
   }
@@ -221,6 +231,7 @@ class LeaderboardEntry {
       profilePictureUrl: _readProfilePictureUrl(map['profile_picture_url']),
       equippedBorderId: _readEquippedBorderId(map['equipped_border_id']),
       lastSessionAt: _readTimestampString(map['last_session_at']),
+      lastActiveAt: _readTimestamp(map['last_active_at']),
       updatedAt: _readTimestampString(map['updated_at']),
     );
   }
@@ -258,6 +269,25 @@ class LeaderboardEntry {
     if (value is double) return value;
     if (value is int) return value.toDouble();
     if (value is num) return value.toDouble();
+    return null;
+  }
+
+  static DateTime? _readTimestamp(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value.toUtc();
+    if (value is String) {
+      final parsed = DateTime.tryParse(value.trim());
+      return parsed?.toUtc();
+    }
+    try {
+      final toDate = (value as dynamic).toDate;
+      if (toDate is Function) {
+        final date = toDate() as DateTime?;
+        return date?.toUtc();
+      }
+    } catch (_) {
+      // Fall through for malformed maps in unit tests.
+    }
     return null;
   }
 

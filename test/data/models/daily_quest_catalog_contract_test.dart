@@ -145,4 +145,40 @@ void main() {
       expect(maxDailyQuestXp, 70);
     },
   );
+
+  test('every quest minimumLevel is at least 1', () {
+    for (final quest in questCatalog) {
+      expect(quest.minimumLevel, greaterThanOrEqualTo(1), reason: quest.id);
+    }
+  });
+
+  test(
+    'progression-sensitive quest minimum levels match feasibility boundaries',
+    () {
+      const expected = <String, int>{
+        'session_count_1': 1,
+        'duration_10min': 1,
+        'score_70': 1,
+        'two_movements': 2,
+        'practice_easy_movement': 1,
+        'use_shaker': 6,
+        'session_count_3': 1,
+        'duration_20min': 1,
+        'score_85': 1,
+        'sessions_above_70_x2': 1,
+        'three_movements': 3,
+        'practice_medium_movement': 5,
+        'distinct_props_2': 6,
+        'session_count_5': 1,
+        'duration_30min': 1,
+        'score_95': 1,
+        'practice_hard_movement': 13,
+        'use_bottle_and_shaker_combo': 16,
+      };
+      expect(questCatalog.map((q) => q.id).toSet(), expected.keys.toSet());
+      for (final quest in questCatalog) {
+        expect(quest.minimumLevel, expected[quest.id], reason: quest.id);
+      }
+    },
+  );
 }

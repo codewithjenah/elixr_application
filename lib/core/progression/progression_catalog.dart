@@ -197,3 +197,29 @@ List<PracticeVariant> allPersonallyLevelUnlockedVariants(int level) {
       if (level >= milestone.requiredLevel) milestone.variant,
   ];
 }
+
+/// Earliest personal level that reveals [movementName]'s identity.
+///
+/// Dual-prop movements use the minimum required level across official
+/// variants. Unknown names return null (fail closed).
+int? earliestRequiredLevelForMovement(String movementName) {
+  int? earliest;
+  for (final milestone in progressionMilestones) {
+    if (milestone.variant.movementName != movementName) continue;
+    final required = milestone.requiredLevel;
+    if (earliest == null || required < earliest) {
+      earliest = required;
+    }
+  }
+  return earliest;
+}
+
+/// Whether a trainee at [currentLevel] may see [movementName]'s identity.
+///
+/// Unresolved [currentLevel] and unknown movements fail closed.
+bool isMovementIdentityRevealed(String movementName, int? currentLevel) {
+  if (currentLevel == null) return false;
+  final required = earliestRequiredLevelForMovement(movementName);
+  if (required == null) return false;
+  return currentLevel >= required;
+}

@@ -1,6 +1,7 @@
+import '../../core/utils/manila_day.dart';
+import '../../core/utils/user_name.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/leaderboard_period.dart';
-import '../../core/utils/user_name.dart';
 
 typedef LeaderboardPeriodMetrics = ({
   int xp,
@@ -25,7 +26,7 @@ abstract final class LeaderboardPresentation {
   static String periodTopThreeHeading(LeaderboardPeriod period) {
     return switch (period) {
       LeaderboardPeriod.today => "Today's top 3",
-      LeaderboardPeriod.thisMonth => "This month's top 3",
+      LeaderboardPeriod.thisMonth => 'Current Season top 3',
       LeaderboardPeriod.allTime => 'All-time top 3',
     };
   }
@@ -93,5 +94,108 @@ abstract final class LeaderboardPresentation {
   }) {
     if (isCurrentUser) return currentUserProfilePictureUrl?.trim();
     return entry.profilePictureUrl?.trim();
+  }
+
+  static const _fullMonthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  static const _shortMonthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  static const lastActiveRecentlyWindow = Duration(minutes: 10);
+
+  static String headerSubtitle(
+    LeaderboardPeriod period, {
+    required DateTime nowUtc,
+  }) {
+    if (period == LeaderboardPeriod.thisMonth) {
+      return seasonStatusText(nowUtc: nowUtc);
+    }
+    return periodSubtitle(period);
+  }
+
+  static String seasonName({required DateTime nowUtc}) {
+    final key = ManilaDay.monthKeyFor(nowUtc);
+    final month = int.parse(key.substring(4, 6));
+    return '${_fullMonthNames[month - 1]} Season';
+  }
+
+  static DateTime nextSeasonStartUtc(DateTime nowUtc) {
+    final key = ManilaDay.monthKeyFor(nowUtc);
+    final year = int.parse(key.substring(0, 4));
+    final month = int.parse(key.substring(4, 6));
+    final nextCivil = month == 12
+        ? DateTime.utc(year + 1, 1, 1)
+        : DateTime.utc(year, month + 1, 1);
+    return nextCivil.subtract(const Duration(hours: 8));
+  }
+
+  static String seasonResetText({required DateTime nowUtc}) {
+    final remaining = nextSeasonStartUtc(nowUtc).difference(nowUtc.toUtc());
+    if (remaining.inDays >= 1) return 'Resets in ${remaining.inDays}d';
+    if (remaining.inHours >= 1) return 'Resets in ${remaining.inHours}h';
+    final minutes = remaining.inMinutes < 1 ? 1 : remaining.inMinutes;
+    return 'Resets in ${minutes}m';
+  }
+
+  static String seasonStatusText({required DateTime nowUtc}) {
+    return '${seasonName(nowUtc: nowUtc)} • ${seasonResetText(nowUtc: nowUtc)}';
+  }
+
+  /// Relative last-active label. Returns null when the timestamp is missing
+  /// or in the future so the UI never fabricates an "Online" heartbeat.
+  static String? lastActiveStatus({
+    required DateTime? lastActiveAt,
+    required DateTime nowUtc,
+  }) {
+    if (lastActiveAt == null) return null;
+    final last = lastActiveAt.toUtc();
+    final now = nowUtc.toUtc();
+    if (last.isAfter(now)) return null;
+
+    final elapsed = now.difference(last);
+    if (elapsed < lastActiveRecentlyWindow) return 'Active recently';
+    if (elapsed.inMinutes < 60) return 'Last active ${elapsed.inMinutes}m ago';
+
+    final lastDay = ManilaDay.dayKeyFor(last);
+    final nowDay = ManilaDay.dayKeyFor(now);
+    if (lastDay == nowDay) {
+      return 'Last active ${elapsed.inHours}h ago';
+    }
+
+    final yesterday = ManilaDay.addCalendarDays(nowDay, -1);
+    if (lastDay == yesterday) return 'Last active yesterday';
+
+    final civil = ManilaDay.civilDateFromDayKey(lastDay);
+    final monthLabel = _shortMonthNames[civil.month - 1];
+    final nowCivil = ManilaDay.civilDateFromDayKey(ManilaDay.dayKeyFor(now));
+    if (civil.year == nowCivil.year) {
+      return 'Last active $monthLabel ${civil.day}';
+    }
+    return 'Last active $monthLabel ${civil.day}, ${civil.year}';
   }
 }

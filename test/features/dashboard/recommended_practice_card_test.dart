@@ -111,6 +111,13 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Practice this'), findsOneWidget);
+      final quote = tester.widget<Text>(
+        find.text('“Small steps create big progress.”'),
+      );
+      expect(quote.maxLines, 1);
+      expect(quote.softWrap, isFalse);
+      expect(quote.overflow, TextOverflow.ellipsis);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('recommended practiced movement shows recent rubric average', (

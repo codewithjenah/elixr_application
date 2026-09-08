@@ -56,6 +56,7 @@ service cloud.firestore {
         'average_score',
         'best_score',
         'last_session_at',
+        'last_active_at',
         'updated_at',
         'last_awarded_session_id',
         'quest_xp',
@@ -585,6 +586,7 @@ service cloud.firestore {
         && isScore(data.best_score)
         && data.last_awarded_session_id is string
         && data.last_awarded_session_id.size() > 0
+        && !data.keys().hasAny(['last_active_at'])
         && data.keys().hasAll([
           'user_id',
           'display_name',
@@ -666,6 +668,27 @@ service cloud.firestore {
     function periodAggregatesUnchanged() {
       return !request.resource.data.diff(resource.data).affectedKeys()
         .hasAny(periodLeaderboardKeys());
+    }
+
+    function lastActiveUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['last_active_at']);
+    }
+
+    function validLastActiveUpdate() {
+      return resource.data.user_id == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['last_active_at'])
+        && request.resource.data.last_active_at is timestamp
+        && request.resource.data.last_active_at == request.time
+        && (
+          !resource.data.keys().hasAny(['last_active_at'])
+          || (
+            resource.data.last_active_at is timestamp
+            && request.time
+              >= resource.data.last_active_at + duration.value(10, 'm')
+          )
+        );
     }
 
     function dailySessionAggregateReset(score, createdAt) {
@@ -1022,6 +1045,7 @@ service cloud.firestore {
     function validPublicProfileMetadataUpdate() {
       return resource.data.user_id == request.auth.uid
         && aggregatesUnchanged()
+        && lastActiveUnchanged()
         && equippedBorderUnchanged()
         && request.resource.data.display_name is string
         && request.resource.data.display_name.size() > 0
@@ -1036,6 +1060,7 @@ service cloud.firestore {
       let nextBorder = equippedBorderOf(request.resource.data);
       return resource.data.user_id == request.auth.uid
         && aggregatesUnchanged()
+        && lastActiveUnchanged()
         && profilePictureUnchanged()
         && nextBorder is string
         && (
@@ -1194,6 +1219,7 @@ service cloud.firestore {
         && request.resource.data.best_score == resource.data.best_score
         && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
         && request.resource.data.last_session_at == resource.data.last_session_at
+        && lastActiveUnchanged()
         && equippedBorderUnchanged()
         && request.resource.data.total_xp
            == request.resource.data.sessions_completed * 25 + questXpOf(request.resource.data)
@@ -1408,6 +1434,8 @@ service cloud.firestore {
     }
 
     // Public aggregate rankings. Authenticated read; own-document writes only.
+    // last_active_at is optional presence metadata, distinct from
+    // last_session_at (completed practice) and updated_at (any owner write).
     // Limitation: a modified client that still satisfies the XP-arithmetic
     // invariants (session award = +25/+1 session, quest claim = fixed
     // catalog XP backed by a freshly-created claim marker) can inflate its
@@ -1438,6 +1466,7 @@ service cloud.firestore {
               )
               || validPublicProfileMetadataUpdate()
               || validEquippedBorderUpdate()
+              || validLastActiveUpdate()
             )
           )
         );

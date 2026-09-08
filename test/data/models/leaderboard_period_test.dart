@@ -8,7 +8,8 @@ void main() {
       expect(LeaderboardPeriod.today.selectorLabel, 'Today');
       expect(LeaderboardPeriod.today.xpHeading, 'XP today');
       expect(LeaderboardPeriod.today.xpField, 'daily_xp');
-      expect(LeaderboardPeriod.thisMonth.selectorLabel, 'This month');
+      expect(LeaderboardPeriod.thisMonth.selectorLabel, 'Current Season');
+      expect(LeaderboardPeriod.thisMonth.xpHeading, 'Season XP');
       expect(LeaderboardPeriod.thisMonth.bestScoreField, 'monthly_best_score');
       expect(LeaderboardPeriod.allTime.selectorLabel, 'All time');
       expect(LeaderboardPeriod.allTime.xpField, 'total_xp');
@@ -26,4 +27,19 @@ void main() {
     expect(LeaderboardPeriod.thisMonth.keyFor(afterBoundary), '202608');
     expect(LeaderboardPeriod.allTime.keyFor(afterBoundary), isNull);
   });
+
+  test(
+    'Current Season uses the Manila monthly key and rolls at month start',
+    () {
+      final lateSeptember = DateTime.utc(2026, 9, 30, 15, 59, 59);
+      final octoberStart = DateTime.utc(2026, 9, 30, 16);
+
+      expect(LeaderboardPeriod.thisMonth.keyFor(lateSeptember), '202609');
+      expect(LeaderboardPeriod.thisMonth.keyFor(octoberStart), '202610');
+      expect(LeaderboardPeriod.thisMonth.keyField, 'monthly_key');
+      expect(LeaderboardPeriod.thisMonth.xpField, 'monthly_xp');
+      expect(LeaderboardPeriod.today.keyFor(octoberStart), '20261001');
+      expect(LeaderboardPeriod.allTime.keyFor(octoberStart), isNull);
+    },
+  );
 }

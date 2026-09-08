@@ -127,10 +127,10 @@ class _MovementCardState extends State<MovementCard>
     if (!_enabled || _supportedProps.isEmpty) {
       return const _MysteryState(isLocked: false);
     }
-    final accesses = [
-      for (final prop in _supportedProps) _accessFor(prop),
-    ];
-    if (accesses.any((access) => access != ProgressionAccessResult.personalLocked)) {
+    final accesses = [for (final prop in _supportedProps) _accessFor(prop)];
+    if (accesses.any(
+      (access) => access != ProgressionAccessResult.personalLocked,
+    )) {
       return const _MysteryState(isLocked: false);
     }
     final levels = [
@@ -293,10 +293,9 @@ class _MovementCardState extends State<MovementCard>
         final card = Semantics(
           button: cardInteractive,
           enabled: interactive,
-          label:
-              mystery.isLocked
-                  ? 'Mystery movement. Locked. Unlocks at Level ${mystery.unlockLevel}.'
-                  : '${widget.movement.name}. $_statusLabel. $statsLabel. ${_actionLabel(context)}',
+          label: mystery.isLocked
+              ? 'Mystery movement. Locked. Unlocks at Level ${mystery.unlockLevel}.'
+              : '${widget.movement.name}. $_statusLabel. $statsLabel. ${_actionLabel(context)}',
           child: FocusableActionDetector(
             enabled: cardInteractive,
             onShowFocusHighlight: _setFocused,

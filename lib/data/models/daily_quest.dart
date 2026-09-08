@@ -23,6 +23,12 @@ extension QuestTierXp on QuestTier {
     QuestTier.medium => 15,
     QuestTier.hard => 20,
   };
+
+  String get label => switch (this) {
+    QuestTier.easy => 'Easy',
+    QuestTier.medium => 'Medium',
+    QuestTier.hard => 'Hard',
+  };
 }
 
 /// Current progress toward a quest's target, plus whether it is complete.
@@ -47,6 +53,7 @@ class QuestDefinition {
     required this.title,
     required this.category,
     required this.tier,
+    required this.minimumLevel,
     required this.evaluate,
   });
 
@@ -54,6 +61,13 @@ class QuestDefinition {
   final String title;
   final QuestCategory category;
   final QuestTier tier;
+
+  /// Lowest personal progression level at which this quest may appear on a
+  /// newly generated board. Tutorial completion is a separate practice
+  /// prerequisite and is not encoded here. Client-side relevance only —
+  /// Firestore still validates catalog id, tier, XP, and category caps.
+  final int minimumLevel;
+
   final QuestEvaluator evaluate;
 
   int get xp => tier.xp;
@@ -120,6 +134,9 @@ QuestProgress _capAtOne(int count) =>
 /// by `test/data/models/daily_quest_catalog_contract_test.dart` — security
 /// rules cannot import Dart source, so this list and the rules' catalog
 /// tables are two independent sources of truth that must be edited together.
+///
+/// [QuestDefinition.minimumLevel] is board-generation relevance only and is
+/// intentionally not duplicated in security rules.
 final List<QuestDefinition> questCatalog = [
   // ---- Easy (10 XP) ----
   QuestDefinition(
@@ -127,6 +144,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete 1 Practice Session',
     category: QuestCategory.sessionCount,
     tier: QuestTier.easy,
+    minimumLevel: 1,
     evaluate: (sessions) => QuestProgress(current: sessions.length, target: 1),
   ),
   QuestDefinition(
@@ -134,6 +152,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Practice for 10 Minutes Total',
     category: QuestCategory.duration,
     tier: QuestTier.easy,
+    minimumLevel: 1,
     evaluate: (sessions) =>
         QuestProgress(current: _totalDurationSeconds(sessions), target: 600),
   ),
@@ -142,6 +161,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Reach Competent in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.easy,
+    minimumLevel: 1,
     evaluate: (sessions) =>
         QuestProgress(current: _bestRubricTotal(sessions), target: 7),
   ),
@@ -150,6 +170,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Practice 2 Different Movements',
     category: QuestCategory.movementVariety,
     tier: QuestTier.easy,
+    minimumLevel: 2,
     evaluate: (sessions) =>
         QuestProgress(current: _distinctMovementCount(sessions), target: 2),
   ),
@@ -158,6 +179,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete an Easy-Difficulty Session',
     category: QuestCategory.movementDifficulty,
     tier: QuestTier.easy,
+    minimumLevel: 1,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithDifficulty(sessions, 'easy')),
   ),
@@ -166,6 +188,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Use the Cocktail Shaker',
     category: QuestCategory.propUsage,
     tier: QuestTier.easy,
+    minimumLevel: 6,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithProp(sessions, TrainingProp.shaker)),
   ),
@@ -176,6 +199,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete 3 Practice Sessions',
     category: QuestCategory.sessionCount,
     tier: QuestTier.medium,
+    minimumLevel: 1,
     evaluate: (sessions) => QuestProgress(current: sessions.length, target: 3),
   ),
   QuestDefinition(
@@ -183,6 +207,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Practice for 20 Minutes Total',
     category: QuestCategory.duration,
     tier: QuestTier.medium,
+    minimumLevel: 1,
     evaluate: (sessions) =>
         QuestProgress(current: _totalDurationSeconds(sessions), target: 1200),
   ),
@@ -191,6 +216,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Reach Proficient in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.medium,
+    minimumLevel: 1,
     evaluate: (sessions) =>
         QuestProgress(current: _bestRubricTotal(sessions), target: 10),
   ),
@@ -199,6 +225,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Competent in 2 Sessions',
     category: QuestCategory.scoreCount,
     tier: QuestTier.medium,
+    minimumLevel: 1,
     evaluate: (sessions) => QuestProgress(
       current: _sessionsAtOrAboveRubricTotal(sessions, 7),
       target: 2,
@@ -209,6 +236,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Practice 3 Different Movements',
     category: QuestCategory.movementVariety,
     tier: QuestTier.medium,
+    minimumLevel: 3,
     evaluate: (sessions) =>
         QuestProgress(current: _distinctMovementCount(sessions), target: 3),
   ),
@@ -217,6 +245,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete a Medium-Difficulty Session',
     category: QuestCategory.movementDifficulty,
     tier: QuestTier.medium,
+    minimumLevel: 5,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithDifficulty(sessions, 'medium')),
   ),
@@ -225,6 +254,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Use 2 Different Props Today',
     category: QuestCategory.propUsage,
     tier: QuestTier.medium,
+    minimumLevel: 6,
     evaluate: (sessions) =>
         QuestProgress(current: _distinctPropCount(sessions), target: 2),
   ),
@@ -235,6 +265,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete 5 Practice Sessions',
     category: QuestCategory.sessionCount,
     tier: QuestTier.hard,
+    minimumLevel: 1,
     evaluate: (sessions) => QuestProgress(current: sessions.length, target: 5),
   ),
   QuestDefinition(
@@ -242,6 +273,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Practice for 30 Minutes Total',
     category: QuestCategory.duration,
     tier: QuestTier.hard,
+    minimumLevel: 1,
     evaluate: (sessions) =>
         QuestProgress(current: _totalDurationSeconds(sessions), target: 1800),
   ),
@@ -250,6 +282,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Reach Mastered in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.hard,
+    minimumLevel: 1,
     evaluate: (sessions) =>
         QuestProgress(current: _bestRubricTotal(sessions), target: 12),
   ),
@@ -258,6 +291,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete a Hard-Difficulty Session',
     category: QuestCategory.movementDifficulty,
     tier: QuestTier.hard,
+    minimumLevel: 13,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithDifficulty(sessions, 'hard')),
   ),
@@ -266,6 +300,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete a Bottle + Shaker Combo Session',
     category: QuestCategory.propUsage,
     tier: QuestTier.hard,
+    minimumLevel: 16,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithProp(sessions, TrainingProp.bottleAndShaker)),
   ),

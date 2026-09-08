@@ -19,7 +19,7 @@ class LeaderboardListController extends ChangeNotifier {
   LeaderboardListController({
     LeaderboardPageFetcher? fetchPage,
     LeaderboardPeriodPageFetcher? fetchPageForPeriod,
-    LeaderboardPeriod initialPeriod = LeaderboardPeriod.allTime,
+    LeaderboardPeriod initialPeriod = LeaderboardPeriod.thisMonth,
   }) : _fetchPage = _resolveFetcher(fetchPage, fetchPageForPeriod),
        _period = initialPeriod;
 

@@ -87,6 +87,27 @@ class DashboardTopPerformance extends StatelessWidget {
                 ),
               ],
             ),
+          if (!context.isHighContrast) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Semantics(
+                image: true,
+                label: 'Better bartenders, brighter tomorrows',
+                child: SizedBox(
+                  width: 166,
+                  height: 66,
+                  child: Image.asset(
+                    'assets/slogan_3.png',
+                    key: const ValueKey('dashboard-top-performance-slogan'),
+                    fit: BoxFit.contain,
+                    alignment: Alignment.centerRight,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

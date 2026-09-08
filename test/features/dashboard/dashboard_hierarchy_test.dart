@@ -202,6 +202,81 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'trainee hero keeps the slogan with an expanded-sidebar-width recommendation',
+    (tester) async {
+      await _setSurface(tester, const Size(850, 800));
+      final recommendation = buildTrainingRecommendation(
+        sessions: const [],
+        movements: movementCatalog,
+        readyPracticeVariantFor: (movement) => movement.name == 'Normal Grip'
+            ? const PracticeVariant(
+                movementName: 'Normal Grip',
+                trainingProp: TrainingProp.bottle,
+              )
+            : null,
+      );
+
+      await tester.pumpWidget(
+        _app(
+          SizedBox(
+            width: 850,
+            child: DashboardHero(
+              firstName: 'Ada',
+              greeting: 'Good Morning',
+              sessionCount: 3,
+              recommendation: recommendation,
+            ),
+          ),
+          size: const Size(850, 800),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('dashboard-hero-slogan')),
+        findsOneWidget,
+      );
+      final heroSlogan = tester.widget<Image>(
+        find.byKey(const ValueKey('dashboard-hero-slogan')),
+      );
+      expect((heroSlogan.image as AssetImage).assetName, 'assets/slogan_2.png');
+      expect(heroSlogan.fit, BoxFit.contain);
+      expect(find.text('Practice Normal Grip'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'trainee hero keeps fallback CTAs overflow-free at expanded-sidebar width',
+    (tester) async {
+      await _setSurface(tester, const Size(850, 800));
+      await tester.pumpWidget(
+        _app(
+          const SizedBox(
+            width: 850,
+            child: DashboardHero(
+              firstName: 'Ada',
+              greeting: 'Good Evening',
+              sessionCount: 1,
+              recommendation: null,
+            ),
+          ),
+          size: const Size(850, 800),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('dashboard-hero-slogan')),
+        findsOneWidget,
+      );
+      expect(find.text('Start Recommended Practice'), findsOneWidget);
+      expect(find.text('Explore Movements'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('high contrast trainee hero drops banner art', (tester) async {
     await _setSurface(tester, const Size(1100, 800));
     await tester.pumpWidget(
@@ -246,7 +321,7 @@ void main() {
       find.text('Keep going. Every pour builds a better you.'),
       findsOneWidget,
     );
-    expect(find.text('Search movements or lessons…'), findsOneWidget);
+    expect(find.text('Search movements or lessons…'), findsNothing);
     expect(find.byIcon(FluentIcons.ringer), findsOneWidget);
     expect(
       find.byKey(const ValueKey('dashboard-header-slogan')),
@@ -257,6 +332,73 @@ void main() {
     );
     expect((headerSlogan.image as AssetImage).assetName, 'assets/slogan_1.png');
   });
+
+  testWidgets('dashboard bell opens its notification panel in place', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    await tester.pumpWidget(
+      _app(
+        const SizedBox(
+          width: 1100,
+          child: DashboardHeader(firstName: 'Ada', greeting: 'Good Morning'),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('dashboard-header-notifications')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.byKey(const ValueKey('dashboard-notifications-flyout')),
+      findsOneWidget,
+    );
+    expect(find.text('Notifications'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'light dashboard header keeps the notification and slogan transparent',
+    (tester) async {
+      await _setSurface(tester, const Size(1100, 800));
+      await tester.pumpWidget(
+        _app(
+          const SizedBox(
+            width: 1100,
+            child: DashboardHeader(firstName: 'Ada', greeting: 'Good Morning'),
+          ),
+          theme: AppTheme.light,
+        ),
+      );
+
+      expect(find.text('Search movements or lessons…'), findsNothing);
+      expect(
+        find.ancestor(
+          of: find.byKey(const ValueKey('dashboard-header-slogan')),
+          matching: find.byType(DecoratedBox),
+        ),
+        findsNothing,
+      );
+      final notificationFinder = find.byKey(
+        const ValueKey('dashboard-header-notifications'),
+      );
+      final notification = tester.widget<AnimatedContainer>(
+        find.descendant(
+          of: notificationFinder,
+          matching: find.byType(AnimatedContainer),
+        ),
+      );
+      final decoration = notification.decoration! as BoxDecoration;
+      expect(
+        decoration.color,
+        tester.element(notificationFinder).elixCardSurface,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('dashboard header keeps the slogan in a narrowed workspace', (
     tester,
@@ -369,6 +511,15 @@ void main() {
 
     expect(find.text('Top Performance'), findsOneWidget);
     expect(find.text('Normal Grip'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('dashboard-top-performance-slogan')),
+      findsOneWidget,
+    );
+    final slogan = tester.widget<Image>(
+      find.byKey(const ValueKey('dashboard-top-performance-slogan')),
+    );
+    expect((slogan.image as AssetImage).assetName, 'assets/slogan_3.png');
+    expect(slogan.fit, BoxFit.contain);
     final record = tester.widget<RichText>(
       find.byWidgetPredicate(
         (widget) =>
@@ -475,6 +626,24 @@ void main() {
         find.byKey(const Key('teacher_dashboard_to_review')),
         findsOneWidget,
       );
+      await _setSurface(tester, const Size(420, 800));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.highContrastDark,
+          home: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthService>.value(value: auth),
+              Provider<GroupRepository>.value(value: groups),
+            ],
+            child: const TeacherDashboardScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Work to review'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

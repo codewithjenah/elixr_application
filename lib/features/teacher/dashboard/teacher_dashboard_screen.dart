@@ -10,10 +10,10 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/utils/user_name.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
-import '../../../core/widgets/elix_stat_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -139,95 +139,48 @@ class _DashboardBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasData =
         controller.activeGroupCount > 0 || controller.memberships.isNotEmpty;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 960;
-        final gettingStarted = _GettingStartedModel.from(
-          controller: controller,
-          analyticsController: analyticsController,
-          activityController: activityController,
-        );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _TeacherCommandHeader(teacher: teacher),
-            const SizedBox(height: AppSpacing.lg),
-            if (wide)
-              Row(
-                children: [
-                  Expanded(
-                    child: ElixStatCard(
-                      label: 'Active classrooms',
-                      value: '${controller.activeGroupCount}',
-                      icon: FluentIcons.people,
-                      highlighted: true,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: ElixStatCard(
-                      label: 'Students',
-                      value: '${controller.approvedStudentCount}',
-                      icon: FluentIcons.contact,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: ElixStatCard(
-                      label: 'Pending requests',
-                      value: '${controller.pendingRequestCount}',
-                      icon: FluentIcons.inbox,
-                    ),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1240),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 960;
+            final gettingStarted = _GettingStartedModel.from(
+              controller: controller,
+              analyticsController: analyticsController,
+              activityController: activityController,
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _TeacherCommandHeader(teacher: teacher),
+                const SizedBox(height: AppSpacing.lg),
+                _TeacherKpiGrid(
+                  controller: controller,
+                  reviewCount: activityController?.pendingReviewCount ?? 0,
+                  activityLoading: activityController?.loading ?? false,
+                  wide: wide,
+                ),
+                if (gettingStarted != null &&
+                    gettingStarted.step !=
+                        _GettingStartedStep.reviewSubmission) ...[
+                  const SizedBox(height: AppSpacing.xl),
+                  _GettingStartedCard(model: gettingStarted),
+                ],
+                if (hasData) ...[
+                  const SizedBox(height: AppSpacing.xl),
+                  _DashboardContent(
+                    controller: controller,
+                    analyticsController: analyticsController,
+                    activityController: activityController,
+                    wide: wide,
                   ),
                 ],
-              )
-            else
-              Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.md,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 200),
-                    child: ElixStatCard(
-                      label: 'Active classrooms',
-                      value: '${controller.activeGroupCount}',
-                      icon: FluentIcons.people,
-                      highlighted: true,
-                    ),
-                  ),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 200),
-                    child: ElixStatCard(
-                      label: 'Students',
-                      value: '${controller.approvedStudentCount}',
-                      icon: FluentIcons.contact,
-                    ),
-                  ),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 200),
-                    child: ElixStatCard(
-                      label: 'Pending requests',
-                      value: '${controller.pendingRequestCount}',
-                      icon: FluentIcons.inbox,
-                    ),
-                  ),
-                ],
-              ),
-            if (gettingStarted != null) ...[
-              const SizedBox(height: AppSpacing.xl),
-              _GettingStartedCard(model: gettingStarted),
-            ],
-            if (hasData) ...[
-              if (analyticsController != null) ...[
-                const SizedBox(height: AppSpacing.xl),
-                TeacherAnalyticsSummary(controller: analyticsController!),
               ],
-              const SizedBox(height: AppSpacing.xl),
-              _DashboardWorkspace(controller: controller, wide: wide),
-            ],
-          ],
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -292,14 +245,14 @@ class _TeacherCommandHeader extends StatelessWidget {
             runSpacing: AppSpacing.sm,
             children: [
               FilledButton(
-                key: const Key('teacher_dashboard_open_classrooms'),
-                onPressed: () => context.go(AppRoutePaths.teacherGroups),
-                child: const Text('Open Classrooms'),
-              ),
-              Button(
                 key: const Key('teacher_dashboard_to_review'),
                 onPressed: () => context.go(AppRoutePaths.teacherToReview),
                 child: const Text('Review Work'),
+              ),
+              Button(
+                key: const Key('teacher_dashboard_open_classrooms'),
+                onPressed: () => context.go(AppRoutePaths.teacherGroups),
+                child: const Text('Classrooms'),
               ),
             ],
           );
@@ -325,9 +278,174 @@ class _TeacherCommandHeader extends StatelessWidget {
   }
 }
 
-class _DashboardWorkspace extends StatelessWidget {
-  const _DashboardWorkspace({required this.controller, required this.wide});
+class _TeacherKpiGrid extends StatelessWidget {
+  const _TeacherKpiGrid({
+    required this.controller,
+    required this.reviewCount,
+    required this.activityLoading,
+    required this.wide,
+  });
+
   final TeacherDashboardController controller;
+  final int reviewCount;
+  final bool activityLoading;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    final metrics = [
+      _DashboardMetric(
+        label: 'Work to review',
+        value: activityLoading ? '—' : '$reviewCount',
+        icon: FluentIcons.review_request_solid,
+        tone: context.elixColors.brandPrimary,
+        emphasis: true,
+        onTap: () => context.go(AppRoutePaths.teacherToReview),
+      ),
+      _DashboardMetric(
+        label: 'Pending requests',
+        value: '${controller.pendingRequestCount}',
+        icon: FluentIcons.people_add,
+        tone: context.elixColors.warning,
+        onTap: () => context.go(AppRoutePaths.teacherGroups),
+      ),
+      _DashboardMetric(
+        label: 'Active classrooms',
+        value: '${controller.activeGroupCount}',
+        icon: FluentIcons.education,
+        tone: context.elixColors.brandSecondary,
+      ),
+      _DashboardMetric(
+        label: 'Students',
+        value: '${controller.approvedStudentCount}',
+        icon: FluentIcons.contact,
+        tone: context.elixColors.success,
+      ),
+    ];
+    return wide
+        ? Row(
+            children: [
+              for (var index = 0; index < metrics.length; index++) ...[
+                Expanded(child: _DashboardMetricCard(metric: metrics[index])),
+                if (index < metrics.length - 1)
+                  const SizedBox(width: AppSpacing.sm),
+              ],
+            ],
+          )
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth < 470 ? 1 : 2;
+              final cardWidth =
+                  (constraints.maxWidth - (columns - 1) * AppSpacing.sm) /
+                  columns;
+              return Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  for (final metric in metrics)
+                    SizedBox(
+                      width: cardWidth,
+                      child: _DashboardMetricCard(metric: metric),
+                    ),
+                ],
+              );
+            },
+          );
+  }
+}
+
+class _DashboardMetric {
+  const _DashboardMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.tone,
+    this.emphasis = false,
+    this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color tone;
+  final bool emphasis;
+  final VoidCallback? onTap;
+}
+
+class _DashboardMetricCard extends StatelessWidget {
+  const _DashboardMetricCard({required this.metric});
+
+  final _DashboardMetric metric;
+
+  @override
+  Widget build(BuildContext context) {
+    final card = ElixPanelCard(
+      accent: metric.tone,
+      showAccentBar: metric.emphasis,
+      variant: metric.emphasis
+          ? ElixPanelVariant.hero
+          : ElixPanelVariant.normal,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: context.isHighContrast
+                  ? Colors.transparent
+                  : metric.tone.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(metric.icon, color: metric.tone, size: 18),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  metric.value,
+                  style: AppTheme.cardTitle(color: context.elixTextPrimary),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  metric.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    final onTap = metric.onTap;
+    return onTap == null
+        ? card
+        : ElixHoverSurface(
+            semanticLabel: '${metric.label}: ${metric.value}',
+            borderRadius: 18,
+            onTap: onTap,
+            child: card,
+          );
+  }
+}
+
+class _DashboardContent extends StatelessWidget {
+  const _DashboardContent({
+    required this.controller,
+    required this.analyticsController,
+    required this.activityController,
+    required this.wide,
+  });
+
+  final TeacherDashboardController controller;
+  final TeacherAnalyticsController? analyticsController;
+  final TeacherActivityController? activityController;
   final bool wide;
 
   @override
@@ -347,56 +465,276 @@ class _DashboardWorkspace extends StatelessWidget {
             )
           : Column(
               children: [
-                for (final summary in controller.groupSummaries)
+                for (final summary in controller.groupSummaries.take(4))
                   _GroupOverviewRow(summary: summary),
               ],
             ),
     );
-    final attention = _WorkspaceSection(
-      heading: 'Needs attention',
-      eyebrow: 'INBOX',
-      subtitle: 'Pending join requests need a decision.',
-      child: controller.pendingQueue.isEmpty
-          ? Row(
-              children: [
-                Icon(FluentIcons.completed, color: context.elixColors.success),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    'You are all caught up.',
-                    style: AppTheme.body.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            )
-          : Column(
-              children: [
-                for (final membership in controller.pendingQueue)
-                  _PendingRequestRow(membership: membership),
-              ],
-            ),
+    final main = Column(
+      children: [
+        if (analyticsController != null)
+          TeacherAnalyticsSummary(controller: analyticsController!),
+        if (analyticsController != null) const SizedBox(height: AppSpacing.lg),
+        groups,
+      ],
+    );
+    final rail = Column(
+      children: [
+        _NeedsAttentionCard(
+          controller: controller,
+          activityController: activityController,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _ActivityPreview(activityController: activityController),
+      ],
     );
     if (!wide) {
       return Column(
         children: [
-          groups,
+          rail,
           const SizedBox(height: AppSpacing.lg),
-          attention,
+          main,
         ],
       );
     }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(flex: 3, child: groups),
+        Expanded(flex: 3, child: main),
         const SizedBox(width: AppSpacing.lg),
-        Expanded(flex: 2, child: attention),
+        Expanded(flex: 2, child: rail),
       ],
     );
   }
 }
+
+class _NeedsAttentionCard extends StatelessWidget {
+  const _NeedsAttentionCard({
+    required this.controller,
+    required this.activityController,
+  });
+
+  final TeacherDashboardController controller;
+  final TeacherActivityController? activityController;
+
+  @override
+  Widget build(BuildContext context) {
+    final activityLoading = activityController?.loading ?? false;
+    final reviewCount = activityController?.pendingReviewCount ?? 0;
+    return _WorkspaceSection(
+      heading: 'Needs attention',
+      eyebrow: 'PRIORITY QUEUE',
+      subtitle: activityLoading
+          ? 'Loading the latest review activity.'
+          : reviewCount > 0 || controller.pendingQueue.isNotEmpty
+          ? 'Start with the work waiting on you.'
+          : 'Nothing is waiting for a decision.',
+      child: Column(
+        children: [
+          if (activityLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: ProgressBar(),
+            )
+          else
+            ElixHoverSurface(
+              semanticLabel: '$reviewCount items of work to review',
+              borderRadius: 14,
+              onTap: () => context.go(AppRoutePaths.teacherToReview),
+              child: ElixPanelCard(
+                accent: context.elixColors.brandPrimary,
+                showAccentBar: reviewCount > 0,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(
+                  children: [
+                    Icon(
+                      reviewCount > 0
+                          ? FluentIcons.review_request_solid
+                          : FluentIcons.completed_solid,
+                      color: reviewCount > 0
+                          ? context.elixColors.brandPrimary
+                          : context.elixColors.success,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        reviewCount == 0
+                            ? 'Review queue is clear'
+                            : '$reviewCount ${reviewCount == 1 ? 'submission is' : 'submissions are'} ready to review',
+                        style: AppTheme.body.copyWith(
+                          color: context.elixTextPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const Icon(FluentIcons.chevron_right, size: 12),
+                  ],
+                ),
+              ),
+            ),
+          if (controller.pendingQueue.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            for (final membership in controller.pendingQueue.take(3))
+              _PendingRequestRow(membership: membership),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityPreview extends StatelessWidget {
+  const _ActivityPreview({required this.activityController});
+
+  final TeacherActivityController? activityController;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = activityController;
+    final loading = controller?.loading ?? false;
+    final activities = controller?.activities.take(3).toList() ?? const [];
+    return _WorkspaceSection(
+      heading: 'Recent activity',
+      eyebrow: 'NOTIFICATIONS',
+      subtitle: loading
+          ? 'Loading recent classroom activity.'
+          : controller == null
+          ? 'Activity will appear as classrooms become active.'
+          : '${controller.unreadCount} unread notification${controller.unreadCount == 1 ? '' : 's'}',
+      action: Button(
+        onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
+        child: const Text('View all'),
+      ),
+      child: loading
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: ProgressBar(),
+            )
+          : controller?.hasStreamError == true
+          ? Row(
+              children: [
+                Icon(FluentIcons.warning, color: context.elixColors.warning),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Activity could not be refreshed.',
+                    style: AppTheme.supporting(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : activities.isEmpty
+          ? Text(
+              'No new classroom activity yet.',
+              style: AppTheme.supporting(color: context.elixTextSecondary),
+            )
+          : Column(
+              children: [
+                for (final activity in activities)
+                  _ActivityPreviewRow(
+                    activity: activity,
+                    controller: controller!,
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _ActivityPreviewRow extends StatelessWidget {
+  const _ActivityPreviewRow({required this.activity, required this.controller});
+
+  final TeacherActivity activity;
+  final TeacherActivityController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final actor = activity.actorDisplayName;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: ElixHoverSurface(
+        semanticLabel: activity.title,
+        borderRadius: 12,
+        onTap: () async {
+          await controller.markRead(activity);
+          if (context.mounted) context.push(activity.destination);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              actor == null
+                  ? Icon(_activityIcon(activity.type), size: 18)
+                  : ProfileAvatarWidget(
+                      radius: 17,
+                      showBorder: false,
+                      initials: userInitials(actor),
+                      networkImageUrl: activity.actorProfilePictureUrl,
+                    ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      activity.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextPrimary,
+                        fontWeight: activity.isRead
+                            ? FontWeight.w600
+                            : FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      activity.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      formatElixrDateTime(activity.occurredAt),
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!activity.isRead)
+                Container(
+                  width: 7,
+                  height: 7,
+                  margin: const EdgeInsets.only(top: 5, left: AppSpacing.xs),
+                  decoration: BoxDecoration(
+                    color: context.elixColors.brandPrimary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+IconData _activityIcon(TeacherActivityType type) => switch (type) {
+  TeacherActivityType.joinRequest => FluentIcons.people_add,
+  TeacherActivityType.newSubmission => FluentIcons.upload,
+  TeacherActivityType.retryResubmission => FluentIcons.refresh,
+  TeacherActivityType.message => FluentIcons.chat,
+  TeacherActivityType.upcomingDeadline => FluentIcons.calendar,
+  TeacherActivityType.movementCompleted => FluentIcons.completed,
+};
 
 class _WorkspaceSection extends StatelessWidget {
   const _WorkspaceSection({

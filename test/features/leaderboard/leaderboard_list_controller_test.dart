@@ -696,19 +696,19 @@ void main() {
     });
 
     test(
-      'defaults to all time and switches the persistent controller',
+      'defaults to Current Season and switches the persistent controller',
       () async {
         final periodFake = FakePeriodPages([
-          page([e('all-time', 300)]),
+          page([e('season', 80)]),
           page([e('today', 25)]),
         ]);
         controller = LeaderboardListController(
           fetchPageForPeriod: periodFake.fetch,
         );
 
-        expect(controller.period, LeaderboardPeriod.allTime);
+        expect(controller.period, LeaderboardPeriod.thisMonth);
         await controller.loadInitial();
-        expect(controller.entries.single.userId, 'all-time');
+        expect(controller.entries.single.userId, 'season');
 
         final switching = controller.setPeriod(LeaderboardPeriod.today);
         expect(controller.period, LeaderboardPeriod.today);
@@ -718,7 +718,7 @@ void main() {
 
         expect(controller.entries.single.userId, 'today');
         expect(periodFake.calls.map((call) => call.period), [
-          LeaderboardPeriod.allTime,
+          LeaderboardPeriod.thisMonth,
           LeaderboardPeriod.today,
         ]);
       },
@@ -739,9 +739,9 @@ void main() {
 
         final staleLoad = controller.loadInitial();
         await pumpEventQueue();
-        await controller.setPeriod(LeaderboardPeriod.thisMonth);
+        await controller.setPeriod(LeaderboardPeriod.allTime);
 
-        expect(controller.period, LeaderboardPeriod.thisMonth);
+        expect(controller.period, LeaderboardPeriod.allTime);
         expect(controller.entries.single.userId, 'fresh-month');
         staleGate.complete();
         await staleLoad;
@@ -784,17 +784,17 @@ void main() {
 
     test('selecting the active period is a no-op', () async {
       final periodFake = FakePeriodPages([
-        page([e('all-time', 300)]),
+        page([e('season', 80)]),
       ]);
       controller = LeaderboardListController(
         fetchPageForPeriod: periodFake.fetch,
       );
 
       await controller.loadInitial();
-      await controller.setPeriod(LeaderboardPeriod.allTime);
+      await controller.setPeriod(LeaderboardPeriod.thisMonth);
 
       expect(periodFake.calls, hasLength(1));
-      expect(controller.entries.single.userId, 'all-time');
+      expect(controller.entries.single.userId, 'season');
     });
   });
 }

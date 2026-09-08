@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
+import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
@@ -16,6 +18,8 @@ import 'package:elixr_application/data/repositories/in_memory_teacher_movement_r
 import 'package:elixr_application/features/teacher/movements/teacher_movement_builder_dialog.dart';
 import 'package:elixr_application/features/teacher/movements/teacher_movements_controller.dart';
 import 'package:elixr_application/features/teacher/movements/teacher_movements_screen.dart';
+import 'package:elixr_application/features/learning/movement_lesson_content.dart';
+import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
@@ -70,6 +74,16 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
       safetyGuidance: safetyGuidance,
       assessment: assessment,
     );
+  }
+}
+
+class _TrackingTutorialProgress extends TutorialProgressService {
+  var completeLessonCalls = 0;
+
+  @override
+  Future<bool> completeLesson(String movement, TrainingProp prop) async {
+    completeLessonCalls++;
+    return true;
   }
 }
 
@@ -163,22 +177,33 @@ void main() {
   Future<void> pumpScreen(
     WidgetTester tester, {
     bool disableAnimations = false,
+    Size size = const Size(1280, 900),
+    TextScaler? textScaler,
+    TutorialProgressService? tutorialProgress,
+    bool startController = true,
   }) async {
-    await controller.start();
+    if (startController) await controller.start();
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.physicalSize = size;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
       MultiProvider(
-        providers: [Provider<GroupRepository>.value(value: groups)],
+        providers: [
+          Provider<GroupRepository>.value(value: groups),
+          if (tutorialProgress != null)
+            ChangeNotifierProvider<TutorialProgressService>.value(
+              value: tutorialProgress,
+            ),
+        ],
         child: FluentApp(
           theme: AppTheme.dark,
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(disableAnimations: disableAnimations),
+            data: MediaQuery.of(context).copyWith(
+              disableAnimations: disableAnimations,
+              textScaler: textScaler ?? MediaQuery.textScalerOf(context),
+            ),
             child: child!,
           ),
           home: TeacherMovementsScreen(controller: controller),
@@ -555,15 +580,184 @@ void main() {
   );
 
   testWidgets(
-    'movement list clips cards below the persistent curriculum tabs',
+    'movement grid clips cards below the persistent curriculum tabs',
     (tester) async {
       await pumpScreen(tester);
 
-      final list = tester.widget<ListView>(find.byType(ListView).first);
+      final list = tester.widget<CustomScrollView>(
+        find.byType(CustomScrollView),
+      );
 
       expect(list.clipBehavior, Clip.hardEdge);
     },
   );
+
+  testWidgets('Official ELIXR grid adapts without desktop overflow', (
+    tester,
+  ) async {
+    final sizes = [
+      const Size(1366, 768),
+      const Size(1280, 720),
+      const Size(760, 780),
+    ];
+    for (var index = 0; index < sizes.length; index++) {
+      await pumpScreen(tester, size: sizes[index], startController: index == 0);
+
+      expect(find.byType(SliverGrid), findsAtLeastNWidgets(1));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets('movement grids expand cards for large desktop text', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      size: const Size(1280, 720),
+      textScaler: const TextScaler.linear(1.5),
+    );
+
+    final officialGrid = tester.widget<SliverGrid>(find.byType(SliverGrid));
+    final officialDelegate =
+        officialGrid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+    expect(officialDelegate.mainAxisExtent, greaterThan(410));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('keyboard focus gives an Official ELIXR card a visible border', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    final guide = find.byKey(const Key('teacher_movement_guide_Normal Grip'));
+    final card = find.byWidgetPredicate(
+      (widget) =>
+          widget is Focus &&
+          widget.key == const Key('teacher_movement_card_official_Normal Grip'),
+    );
+
+    Focus.of(tester.element(guide)).requestFocus();
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<Focus>(card).focusNode!.hasFocus, isTrue);
+    final animatedCard = tester.widget<AnimatedContainer>(
+      find.descendant(of: card, matching: find.byType(AnimatedContainer)).first,
+    );
+    final border =
+        (animatedCard.decoration! as BoxDecoration).border! as Border;
+    expect(border.top.color, AppColors.success);
+    expect(border.top.width, 2);
+  });
+
+  testWidgets('View guide uses the canonical trainee lesson content', (
+    tester,
+  ) async {
+    final movement = movementCatalog.first;
+    final lesson = MovementLesson.forMovement(movement);
+    await pumpScreen(tester);
+
+    await tester.tap(
+      find.byKey(const Key('teacher_movement_guide_Normal Grip')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Normal Grip guide'), findsOneWidget);
+    expect(find.text('How to perform it'), findsOneWidget);
+    expect(find.text(lesson.objective), findsOneWidget);
+    expect(find.text(lesson.successTarget), findsOneWidget);
+    expect(find.text(lesson.commonMistake), findsOneWidget);
+    for (final step in lesson.steps) {
+      expect(find.text(step), findsOneWidget);
+    }
+
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(find.text('Normal Grip guide'), findsNothing);
+  });
+
+  testWidgets('guide shows safety where the canonical lesson provides it', (
+    tester,
+  ) async {
+    final movement = movementCatalog.firstWhere(
+      (movement) => movement.name == 'Hand Stall',
+    );
+    final lesson = MovementLesson.forMovement(movement);
+    await pumpScreen(tester);
+    final guide = find.byKey(const Key('teacher_movement_guide_Hand Stall'));
+    await tester.scrollUntilVisible(
+      guide,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(guide);
+    await tester.pumpAndSettle();
+    await tester.tap(guide);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Practice safely'), findsOneWidget);
+    expect(find.text(lesson.safetyNote!), findsOneWidget);
+  });
+
+  testWidgets('guide remains usable at a compact desktop width', (
+    tester,
+  ) async {
+    await pumpScreen(tester, size: const Size(760, 720));
+    final guide = find.byKey(const Key('teacher_movement_guide_Normal Grip'));
+    // The compact shell reserves a bottom command area; move the first card's
+    // controls into the actual hit-testable viewport, not merely its bounds.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -180));
+    await tester.pumpAndSettle();
+    await tester.tap(guide);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Normal Grip guide'), findsOneWidget);
+    expect(find.text('How to perform it'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opening the teacher guide never completes a trainee lesson', (
+    tester,
+  ) async {
+    final tutorials = _TrackingTutorialProgress();
+    await pumpScreen(tester, tutorialProgress: tutorials);
+
+    await tester.tap(
+      find.byKey(const Key('teacher_movement_guide_Normal Grip')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    expect(tutorials.completeLessonCalls, 0);
+  });
+
+  testWidgets('guide Assign to class opens the shared assignment composer', (
+    tester,
+  ) async {
+    groups.seedGroup(
+      const ElixrGroup(
+        id: 'active-guide-group',
+        teacherId: 'teacher-1',
+        name: 'Active Class',
+        status: ElixrGroupStatus.active,
+      ),
+    );
+    await pumpScreen(tester);
+    await tester.tap(
+      find.byKey(const Key('teacher_movement_guide_Normal Grip')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('teacher_movement_guide_assign_Normal Grip')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('teacher_assignment_movement_title')),
+      findsOneWidget,
+    );
+    expect(find.text('Normal Grip'), findsAtLeastNWidgets(1));
+  });
 
   testWidgets(
     'Official movement Assign to class opens the shared studio and filters classes',

@@ -2,33 +2,84 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/progression/progression_catalog.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/locked_movement_mark.dart';
 import '../../../core/widgets/movement_image.dart';
 import 'profile_section_card.dart';
 
+/// How completed-movement identities are presented on a given surface.
+enum CompletedMovementsIdentityPolicy {
+  /// Teacher/admin: show every recognized completed movement.
+  authorizedFull,
+
+  /// Trainee surfaces: hide identities the viewer has not personally revealed.
+  viewerRelative,
+}
+
 class CompletedMovementsSection extends StatelessWidget {
-  const CompletedMovementsSection({super.key, required this.movementNames});
+  const CompletedMovementsSection({
+    super.key,
+    required this.movementNames,
+    required this.identityPolicy,
+    this.viewerLevel,
+  });
 
   final List<String> movementNames;
+  final CompletedMovementsIdentityPolicy identityPolicy;
+
+  /// Viewer's personal level. Required for [viewerRelative]; ignored otherwise.
+  /// Null means progression is still resolving.
+  final int? viewerLevel;
 
   @override
   Widget build(BuildContext context) {
-    // Older session history is intentionally retained, but retired movement
-    // names must not appear in the current profile completion summary.
-    final visibleMovementNames = _currentMovementNames(movementNames);
+    final recognized = _currentMovementNames(movementNames);
+    final loading =
+        identityPolicy == CompletedMovementsIdentityPolicy.viewerRelative &&
+        viewerLevel == null;
+
+    if (loading) {
+      return ProfileSectionCard(
+        title: 'Completed Movements',
+        child: Semantics(
+          label: 'Loading completed movements',
+          child: Text(
+            'Checking completed movements…',
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final revealed = <String>[];
+    var hiddenCount = 0;
+    if (identityPolicy == CompletedMovementsIdentityPolicy.authorizedFull) {
+      revealed.addAll(recognized);
+    } else {
+      for (final name in recognized) {
+        if (isMovementIdentityRevealed(name, viewerLevel)) {
+          revealed.add(name);
+        } else {
+          hiddenCount++;
+        }
+      }
+    }
 
     return ProfileSectionCard(
       title: 'Completed Movements',
-      trailing: visibleMovementNames.isEmpty
+      trailing: recognized.isEmpty
           ? null
           : Text(
-              '${visibleMovementNames.length}',
+              '${recognized.length}',
               style: AppTheme.caption.copyWith(
                 color: context.elixTextSecondary,
                 fontWeight: FontWeight.w700,
               ),
             ),
-      child: visibleMovementNames.isEmpty
+      child: recognized.isEmpty
           ? Text(
               'No completed movements yet.',
               style: AppTheme.bodySecondary.copyWith(
@@ -46,10 +97,15 @@ class CompletedMovementsSection extends StatelessWidget {
                   spacing: gap,
                   runSpacing: gap,
                   children: [
-                    for (final name in visibleMovementNames)
+                    for (final name in revealed)
                       SizedBox(
                         width: tileWidth,
                         child: _MovementTile(name: name),
+                      ),
+                    if (hiddenCount > 0)
+                      SizedBox(
+                        width: tileWidth,
+                        child: _LockedSummaryTile(count: hiddenCount),
                       ),
                   ],
                 );
@@ -128,6 +184,54 @@ class _MovementTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LockedSummaryTile extends StatelessWidget {
+  const _LockedSummaryTile({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = MovementSpoilerCopy.hiddenCompletedCount(count);
+    return Semantics(
+      label: label,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm + 2,
+          vertical: AppSpacing.sm + 2,
+        ),
+        decoration: BoxDecoration(
+          color: context.elixBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: context.isHighContrast
+                ? context.elixBorder
+                : context.elixBorder.withValues(alpha: 0.4),
+            width: context.isHighContrast ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            LockedMovementMark(size: 28, accent: context.elixTextSecondary),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

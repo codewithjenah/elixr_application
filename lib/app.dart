@@ -67,7 +67,7 @@ class ElixrApp extends StatefulWidget {
   State<ElixrApp> createState() => _ElixrAppState();
 }
 
-class _ElixrAppState extends State<ElixrApp> {
+class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   late final AuthService _authService;
   late final BackendService _backendService;
   late final SettingsService _settingsService;
@@ -88,6 +88,7 @@ class _ElixrAppState extends State<ElixrApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _backendService = widget.backendService ?? BackendService();
     _publicProfileRepository = PublicProfileRepository();
     _leaderboardRepository = LeaderboardRepository();
@@ -121,7 +122,15 @@ class _ElixrAppState extends State<ElixrApp> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _authService.touchLeaderboardPresence();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _backendService.dispose();
     _cameraDeviceService.dispose();
     _joinLinkService.dispose();

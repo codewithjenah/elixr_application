@@ -37,6 +37,10 @@ class DashboardHero extends StatelessWidget {
   /// Prefer the named "Practice …" label when the hero content is wide enough.
   static const double _fullPrimaryLabelBreakpoint = 560;
 
+  /// Smallest hero width that preserves the 226px slogan reservation while
+  /// leaving enough room for readable, stacked CTA content.
+  static const double _sloganVisibilityBreakpoint = 840;
+
   /// Banner art is ~16:9; a taller hero on wide layouts avoids cropping the subject.
   static const double _bannerWidthToHeight = 3.4;
   static const double _minImageLedHeight = 280.0;
@@ -96,7 +100,9 @@ class DashboardHero extends StatelessWidget {
     final highContrast = context.isHighContrast;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final showSlogan = constraints.maxWidth >= 900 && !highContrast;
+        final showSlogan =
+            constraints.maxWidth >= _sloganVisibilityBreakpoint &&
+            !highContrast;
         final minImageLedHeight = (constraints.maxWidth / _bannerWidthToHeight)
             .clamp(_minImageLedHeight, _maxBannerHeight);
 

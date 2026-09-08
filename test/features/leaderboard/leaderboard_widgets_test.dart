@@ -36,6 +36,7 @@ LeaderboardEntry entry({
   int monthlyBest = 0,
   String? profilePictureUrl,
   String? equippedBorderId,
+  DateTime? lastActiveAt,
 }) {
   return LeaderboardEntry(
     userId: id,
@@ -57,6 +58,7 @@ LeaderboardEntry entry({
     monthlyBestScore: monthlyBest,
     profilePictureUrl: profilePictureUrl,
     equippedBorderId: equippedBorderId,
+    lastActiveAt: lastActiveAt,
   );
 }
 
@@ -179,7 +181,7 @@ void main() {
 
         expect(find.text('All-time rankings by total XP.'), findsOneWidget);
         expect(find.text('Today'), findsOneWidget);
-        expect(find.text('This month'), findsOneWidget);
+        expect(find.text('Current Season'), findsOneWidget);
         expect(find.text('All time'), findsOneWidget);
         expect(find.text('All Time'), findsNothing);
         expect(find.byIcon(FluentIcons.clock), findsOneWidget);
@@ -190,6 +192,26 @@ void main() {
         expect(selected, LeaderboardPeriod.today);
       },
     );
+
+    testWidgets('Current Season header shows Manila reset caption', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1200, 300));
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardHeader(
+            period: LeaderboardPeriod.thisMonth,
+            nowUtc: DateTime.utc(2026, 9, 8, 11, 20),
+            onPeriodChanged: (_) {},
+            onRefresh: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('September Season • Resets in 22d'), findsOneWidget);
+      expect(find.text('Current Season'), findsOneWidget);
+    });
 
     testWidgets('period buttons support keyboard activation', (tester) async {
       await setSurface(tester, const Size(1200, 300));
@@ -219,6 +241,7 @@ void main() {
         wrap(
           LeaderboardHeader(
             period: LeaderboardPeriod.thisMonth,
+            nowUtc: DateTime.utc(2026, 9, 8, 11, 20),
             onPeriodChanged: (_) {},
             onRefresh: () {},
           ),
@@ -227,7 +250,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Rankings based on XP earned this month.'),
+        find.text('September Season • Resets in 22d'),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
@@ -816,7 +839,33 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('rank row without equipped border still renders safely', (
+    testWidgets('rank row shows relative last-active under the player name', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(900, 400));
+      final now = DateTime.utc(2026, 9, 8, 12);
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardRankRow(
+            rank: 4,
+            entry: entry(
+              id: '4',
+              name: 'Active player',
+              xp: 180,
+              lastActiveAt: now.subtract(const Duration(minutes: 18)),
+            ),
+            isCurrentUser: false,
+            nowUtc: now,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Last active 18m ago'), findsOneWidget);
+      expect(find.textContaining('Online'), findsNothing);
+    });
+
+    testWidgets('rank row without last-active stays compatible', (
       tester,
     ) async {
       await setSurface(tester, const Size(1200, 800));
@@ -873,7 +922,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('XP this month'), findsOneWidget);
+      expect(find.text('Season XP'), findsOneWidget);
       expect(find.text('125 XP'), findsOneWidget);
       expect(find.text('5'), findsOneWidget);
       expect(find.text('950 XP'), findsNothing);

@@ -9,11 +9,12 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_app_logo.dart';
 import '../../core/widgets/elix_primary_button.dart';
-import '../../core/widgets/elix_scaffold_page.dart';
 
-/// The short branded hand-off shown while Firebase establishes the first
-/// auth state. The animation is intentionally self-contained: it can loop
-/// while startup is slow without changing the app's auth or routing state.
+/// The branded hand-off shown while Firebase establishes the first auth state.
+///
+/// The entrance is deliberately one-shot. When startup takes longer, only the
+/// atmosphere and the small status treatment continue so the screen settles
+/// rather than replaying the brand reveal.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({
     super.key,
@@ -34,109 +35,103 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
+  static const _entryDuration = Duration(milliseconds: 1320);
+  static const _exitDuration = Duration(milliseconds: 220);
+  static const _ambientDuration = Duration(seconds: 8);
+
   late final AnimationController _entryController;
   late final AnimationController _ambientController;
-  late final AnimationController _shimmerController;
-  late final AnimationController _pulseController;
+  late final AnimationController _exitController;
   late final Animation<double> _logoScale;
   late final Animation<double> _logoOpacity;
-  late final Animation<double> _orbitScale;
-  late final Animation<double> _orbitOpacity;
+  late final Animation<double> _haloOpacity;
+  late final Animation<double> _haloScale;
   late final Animation<double> _titleOpacity;
   late final Animation<double> _taglineOpacity;
   late final Animation<double> _loaderOpacity;
   late final Animation<Offset> _titleSlide;
   late final Animation<Offset> _taglineSlide;
-  late final Animation<double> _pulseScale;
 
-  bool _animationDone = false;
+  bool _entryComplete = false;
   bool _completionScheduled = false;
+  bool _didFinish = false;
   bool? _reduceMotion;
+  int _finishGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _entryController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: _entryDuration,
     );
     _ambientController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 14),
+      duration: _ambientDuration,
     );
-    _shimmerController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    );
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3200),
-    );
+    _exitController = AnimationController(vsync: this, duration: _exitDuration);
 
     _logoScale =
         TweenSequence<double>([
           TweenSequenceItem(
             tween: Tween<double>(
-              begin: 0.82,
-              end: 1.035,
+              begin: 0.9,
+              end: 1.018,
             ).chain(CurveTween(curve: Curves.easeOutCubic)),
-            weight: 76,
+            weight: 84,
           ),
           TweenSequenceItem(
             tween: Tween<double>(
-              begin: 1.035,
+              begin: 1.018,
               end: 1,
             ).chain(CurveTween(curve: Curves.easeOut)),
-            weight: 24,
+            weight: 16,
           ),
         ]).animate(
           CurvedAnimation(
             parent: _entryController,
-            curve: const Interval(0, 0.62),
+            curve: const Interval(0.08, 0.56),
           ),
         );
     _logoOpacity = CurvedAnimation(
       parent: _entryController,
-      curve: const Interval(0, 0.3, curve: Curves.easeOut),
+      curve: const Interval(0.06, 0.28, curve: Curves.easeOut),
     );
-    _orbitScale = Tween<double>(begin: 0.72, end: 1).animate(
+    _haloOpacity = CurvedAnimation(
+      parent: _entryController,
+      curve: const Interval(0.12, 0.48, curve: Curves.easeOutCubic),
+    );
+    _haloScale = Tween<double>(begin: 0.84, end: 1).animate(
       CurvedAnimation(
         parent: _entryController,
-        curve: const Interval(0.02, 0.7, curve: Curves.easeOutCubic),
+        curve: const Interval(0.1, 0.52, curve: Curves.easeOutCubic),
       ),
-    );
-    _orbitOpacity = CurvedAnimation(
-      parent: _entryController,
-      curve: const Interval(0.02, 0.42, curve: Curves.easeOut),
     );
     _titleOpacity = CurvedAnimation(
       parent: _entryController,
-      curve: const Interval(0.28, 0.64, curve: Curves.easeOut),
+      curve: const Interval(0.44, 0.7, curve: Curves.easeOut),
     );
-    _titleSlide = Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero)
+    _titleSlide = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
         .animate(
           CurvedAnimation(
             parent: _entryController,
-            curve: const Interval(0.28, 0.68, curve: Curves.easeOutCubic),
+            curve: const Interval(0.42, 0.72, curve: Curves.easeOutCubic),
           ),
         );
     _taglineOpacity = CurvedAnimation(
       parent: _entryController,
-      curve: const Interval(0.52, 0.86, curve: Curves.easeOut),
+      curve: const Interval(0.62, 0.84, curve: Curves.easeOut),
     );
     _taglineSlide =
-        Tween<Offset>(begin: const Offset(0, 0.18), end: Offset.zero).animate(
+        Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
           CurvedAnimation(
             parent: _entryController,
-            curve: const Interval(0.52, 0.9, curve: Curves.easeOutCubic),
+            curve: const Interval(0.6, 0.86, curve: Curves.easeOutCubic),
           ),
         );
     _loaderOpacity = CurvedAnimation(
       parent: _entryController,
-      curve: const Interval(0.7, 1, curve: Curves.easeOut),
-    );
-    _pulseScale = Tween<double>(begin: 1, end: 1.035).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+      curve: const Interval(0.72, 1, curve: Curves.easeOut),
     );
   }
 
@@ -149,21 +144,20 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (reduceMotion) {
       _ambientController.stop();
-      _shimmerController.stop();
-      _pulseController.stop();
       _entryController.stop();
       _entryController.value = 1;
-      _animationDone = true;
+      _entryComplete = true;
       _tryFinish();
       return;
     }
 
-    if (!_ambientController.isAnimating) _ambientController.repeat();
-    if (!_shimmerController.isAnimating) _shimmerController.repeat();
-    if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
-    if (!_animationDone) {
+    if (!_ambientController.isAnimating) {
+      _ambientController.repeat(reverse: true);
+    }
+    if (!_entryComplete) {
       _entryController.forward().then((_) {
-        if (mounted) setState(() => _animationDone = true);
+        if (!mounted) return;
+        setState(() => _entryComplete = true);
         _tryFinish();
       });
     }
@@ -172,203 +166,163 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void didUpdateWidget(SplashScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.startupError == null && widget.startupError != null) {
+      _cancelScheduledFinish();
+      return;
+    }
     if ((!oldWidget.authReady && widget.authReady) ||
         (oldWidget.startupError != null && widget.startupError == null)) {
       _tryFinish();
     }
   }
 
+  void _cancelScheduledFinish() {
+    if (!_completionScheduled || _didFinish) return;
+    _finishGeneration++;
+    _completionScheduled = false;
+    _exitController.reset();
+  }
+
   void _tryFinish() {
-    if (_animationDone &&
-        widget.authReady &&
-        widget.startupError == null &&
-        !_completionScheduled) {
-      _completionScheduled = true;
-      Future.delayed(
-        ElixMotion.duration(context, const Duration(milliseconds: 500)),
-        () {
-          if (mounted) widget.onFinished();
-        },
-      );
+    if (_didFinish ||
+        _completionScheduled ||
+        !_entryComplete ||
+        !widget.authReady ||
+        widget.startupError != null) {
+      return;
     }
+
+    _completionScheduled = true;
+    final generation = ++_finishGeneration;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _completeFinish(generation);
+      return;
+    }
+    _exitController.forward(from: 0).then((_) => _completeFinish(generation));
+  }
+
+  void _completeFinish(int generation) {
+    if (!mounted ||
+        _didFinish ||
+        generation != _finishGeneration ||
+        !widget.authReady ||
+        widget.startupError != null) {
+      return;
+    }
+    _didFinish = true;
+    widget.onFinished();
   }
 
   @override
   void dispose() {
     _entryController.dispose();
     _ambientController.dispose();
-    _shimmerController.dispose();
-    _pulseController.dispose();
+    _exitController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
-    final isDark = context.isDarkTheme;
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
-    final compactSplash = MediaQuery.sizeOf(context).height < 560;
+    final compact = MediaQuery.sizeOf(context).height < 560;
 
-    return ElixScaffoldPage(
-      padding: EdgeInsets.zero,
-      content: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (!highContrast)
-            CustomPaint(
-              painter: _SplashDotGridPainter(
-                color: AppColors.primary.withValues(
-                  alpha: isDark ? 0.035 : 0.05,
-                ),
-              ),
-            ),
-          if (!highContrast)
-            _buildAmbientBackdrop(context, reducedMotion: reducedMotion),
-          Center(
-            child: AnimatedBuilder(
-              animation: Listenable.merge([
-                _entryController,
-                _ambientController,
-                _shimmerController,
-                _pulseController,
-              ]),
-              builder: (context, _) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildLogoMark(context),
-                    SizedBox(
-                      height: compactSplash ? AppSpacing.md : AppSpacing.lg,
-                    ),
-                    SlideTransition(
-                      position: _titleSlide,
-                      child: FadeTransition(
-                        opacity: _titleOpacity,
-                        child: _buildTitle(context),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    SlideTransition(
-                      position: _taglineSlide,
-                      child: FadeTransition(
-                        opacity: _taglineOpacity,
-                        child: Text(
-                          AppConstants.appTagline,
-                          style: AppTheme.bodySecondary.copyWith(
-                            color: context.elixTextSecondary,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          _buildLoader(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAmbientBackdrop(
-    BuildContext context, {
-    required bool reducedMotion,
-  }) {
     return AnimatedBuilder(
-      animation: reducedMotion
-          ? const AlwaysStoppedAnimation(0)
-          : _ambientController,
-      builder: (context, _) {
-        final t = _ambientController.value * 2 * math.pi;
-        return Stack(
-          children: [
-            _orb(
-              dx: math.sin(t) * 40,
-              dy: math.cos(t) * 60,
-              alignment: const Alignment(-0.86, -0.72),
-              size: 360,
-              color: AppColors.primary.withValues(alpha: 0.14),
-            ),
-            _orb(
-              dx: math.cos(t) * 52,
-              dy: math.sin(t) * 42,
-              alignment: const Alignment(0.9, 0.82),
-              size: 400,
-              color: AppColors.primarySoft.withValues(alpha: 0.11),
-            ),
-            _orb(
-              dx: math.sin(t + 1.5) * 34,
-              dy: math.cos(t + 1.5) * 34,
-              alignment: const Alignment(0.82, -0.9),
-              size: 300,
-              color: AppColors.accent.withValues(alpha: 0.14),
-            ),
-            IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment.center,
-                    radius: 0.9,
-                    colors: [
-                      Colors.transparent,
-                      (context.isDarkTheme ? Colors.black : Colors.white)
-                          .withValues(alpha: 0.16),
-                    ],
-                    stops: const [0.46, 1],
-                  ),
-                ),
-                child: const SizedBox.expand(),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _orb({
-    required double dx,
-    required double dy,
-    required Alignment alignment,
-    required double size,
-    required Color color,
-  }) {
-    return Align(
-      alignment: alignment,
-      child: Transform.translate(
-        offset: Offset(dx, dy),
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [color, color.withValues(alpha: 0)],
-            ),
-          ),
+      animation: _exitController,
+      child: _buildContent(
+        context,
+        highContrast: highContrast,
+        reducedMotion: reducedMotion,
+        compact: compact,
+      ),
+      builder: (context, child) => Opacity(
+        opacity: 1 - _exitController.value,
+        child: Transform.scale(
+          scale: 1 - (_exitController.value * 0.012),
+          child: child,
         ),
       ),
     );
   }
 
-  Widget _buildLogoMark(BuildContext context) {
+  Widget _buildContent(
+    BuildContext context, {
+    required bool highContrast,
+    required bool reducedMotion,
+    required bool compact,
+  }) {
+    final colors = context.elixColors;
+    return ColoredBox(
+      color: colors.canvas,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (!highContrast)
+            const RepaintBoundary(
+              child: CustomPaint(painter: _SplashTexturePainter()),
+            ),
+          if (!highContrast)
+            RepaintBoundary(
+              child: _AmbientBackdrop(
+                animation: reducedMotion
+                    ? const AlwaysStoppedAnimation(0.5)
+                    : _ambientController,
+              ),
+            ),
+          Padding(
+            padding: EdgeInsets.only(
+              left: AppSpacing.lg,
+              right: AppSpacing.lg,
+              bottom: compact ? 104 : 126,
+            ),
+            child: Center(child: _buildBrandLockup(context, compact: compact)),
+          ),
+          _buildStatus(context, highContrast: highContrast),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBrandLockup(BuildContext context, {required bool compact}) {
+    return AnimatedBuilder(
+      animation: _entryController,
+      builder: (context, _) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildLogoMark(context, compact: compact),
+          SizedBox(height: compact ? AppSpacing.md : AppSpacing.lg),
+          SlideTransition(
+            position: _titleSlide,
+            child: FadeTransition(
+              opacity: _titleOpacity,
+              child: _buildWordmark(context),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SlideTransition(
+            position: _taglineSlide,
+            child: FadeTransition(
+              opacity: _taglineOpacity,
+              child: Text(
+                AppConstants.appTagline,
+                textAlign: TextAlign.center,
+                style: AppTheme.bodySecondary.copyWith(
+                  color: context.elixTextSecondary,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogoMark(BuildContext context, {required bool compact}) {
     final highContrast = context.isHighContrast;
     final height = MediaQuery.sizeOf(context).height;
-    final markSize = height < 480
-        ? 150.0
-        : height < 560
-        ? 174.0
-        : 210.0;
-    final logoSize = markSize * 0.6;
-    final shimmer = _shimmerController.value;
-    final glowPhase = (math.sin(shimmer * 2 * math.pi) + 1) / 2;
-    final glowColor = Color.lerp(
-      AppColors.primary,
-      AppColors.accent,
-      glowPhase * 0.55,
-    )!;
+    final markSize = height < 480 ? 144.0 : (compact ? 166.0 : 204.0);
+    final logoSize = markSize * 0.55;
 
     return FadeTransition(
       opacity: _logoOpacity,
@@ -381,59 +335,59 @@ class _SplashScreenState extends State<SplashScreen>
             alignment: Alignment.center,
             children: [
               if (!highContrast)
-                Opacity(
-                  opacity: _orbitOpacity.value,
+                FadeTransition(
+                  opacity: _haloOpacity,
                   child: Transform.scale(
-                    scale: _orbitScale.value,
-                    child: CustomPaint(
-                      size: Size.square(markSize),
-                      painter: _SplashOrbitPainter(
-                        rotation: _ambientController.value,
-                        shimmer: shimmer,
-                        primary: AppColors.primary,
-                        secondary: AppColors.accent,
+                    scale: _haloScale.value,
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        size: Size.square(markSize),
+                        painter: _SplashHaloPainter(
+                          primary: AppColors.primary,
+                          secondary: AppColors.accent,
+                        ),
                       ),
                     ),
                   ),
                 ),
               if (!highContrast)
                 Container(
-                  width: markSize * 0.705,
-                  height: markSize * 0.705,
+                  width: markSize * 0.78,
+                  height: markSize * 0.78,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        glowColor.withValues(alpha: 0.16),
-                        glowColor.withValues(alpha: 0),
+                        AppColors.primary.withValues(alpha: 0.18),
+                        AppColors.accent.withValues(alpha: 0.07),
+                        Colors.transparent,
                       ],
+                      stops: const [0, 0.48, 1],
                     ),
                   ),
                 ),
-              Container(
-                width: logoSize,
-                height: logoSize,
+              DecoratedBox(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(logoSize * 0.23),
                   boxShadow: highContrast
                       ? const []
                       : [
                           BoxShadow(
-                            color: glowColor.withValues(
-                              alpha: 0.18 + glowPhase * 0.14,
-                            ),
-                            blurRadius: 34,
-                            spreadRadius: -2,
+                            color: AppColors.primary.withValues(alpha: 0.24),
+                            blurRadius: 32,
+                            spreadRadius: -3,
                             offset: const Offset(0, 10),
+                          ),
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: 0.12),
+                            blurRadius: 52,
+                            spreadRadius: -10,
                           ),
                         ],
                 ),
-                child: Transform.scale(
-                  scale: _pulseScale.value,
-                  child: ElixAppLogo(
-                    size: logoSize,
-                    borderRadius: logoSize * 0.23,
-                  ),
+                child: ElixAppLogo(
+                  size: logoSize,
+                  borderRadius: logoSize * 0.23,
                 ),
               ),
             ],
@@ -443,57 +397,102 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _buildTitle(BuildContext context) {
-    final shimmer = _shimmerController.value;
-    final highlight = (1 - (shimmer - 0.5).abs() * 2).clamp(0.0, 1.0);
-    final color = context.isHighContrast
-        ? context.elixColors.brandPrimary
-        : Color.lerp(AppColors.primary, AppColors.primarySoft, highlight)!;
-
-    return Text(
-      AppConstants.appName,
-      style:
-          AppTheme.brandTitle(
-            fontSize: ElixTypography.isCompact(context) ? 40 : 52,
-            color: color,
-          ).copyWith(
-            letterSpacing: 8,
-            shadows: context.isHighContrast
-                ? null
-                : [
-                    Shadow(
-                      color: AppColors.primary.withValues(
-                        alpha: 0.16 + highlight * 0.14,
-                      ),
-                      blurRadius: 18,
-                    ),
-                  ],
-          ),
-    );
+  Widget _buildWordmark(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final style =
+        AppTheme.brandTitle(
+          fontSize: ElixTypography.isCompact(context) ? 40 : 52,
+          color: highContrast ? context.elixTextPrimary : AppColors.textPrimary,
+        ).copyWith(
+          letterSpacing: ElixTypography.isCompact(context) ? 6.5 : 8,
+          shadows: highContrast
+              ? null
+              : [
+                  Shadow(
+                    color: AppColors.primary.withValues(alpha: 0.22),
+                    blurRadius: 18,
+                  ),
+                ],
+        );
+    return Text(AppConstants.appName, style: style);
   }
 
-  Widget _buildLoader(BuildContext context) {
-    final highContrast = context.isHighContrast;
+  Widget _buildStatus(BuildContext context, {required bool highContrast}) {
+    final error = widget.startupError;
     return Positioned(
-      bottom: AppSpacing.xxl,
       left: AppSpacing.lg,
       right: AppSpacing.lg,
+      bottom: AppSpacing.xl,
       child: SafeArea(
         top: false,
-        child: FadeTransition(
-          opacity: _loaderOpacity,
-          child: widget.startupError == null
-              ? _buildPreparingLoader(context, highContrast: highContrast)
-              : _buildFailureLoader(context, highContrast: highContrast),
+        child: Center(
+          child: error == null
+              ? FadeTransition(
+                  opacity: _loaderOpacity,
+                  child: _PreparingStatus(
+                    authReady: widget.authReady,
+                    highContrast: highContrast,
+                    animation: _ambientController,
+                  ),
+                )
+              : _FailureStatus(
+                  message: error,
+                  onRetry: widget.onRetry,
+                  highContrast: highContrast,
+                ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildPreparingLoader(
-    BuildContext context, {
-    required bool highContrast,
-  }) {
+class _AmbientBackdrop extends StatelessWidget {
+  const _AmbientBackdrop({required this.animation});
+
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        final breath = 0.88 + (animation.value * 0.12);
+        return IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.08),
+                radius: 0.72,
+                colors: [
+                  AppColors.primary.withValues(alpha: 0.14 * breath),
+                  AppColors.accent.withValues(alpha: 0.065 * breath),
+                  Colors.transparent,
+                ],
+                stops: const [0, 0.46, 1],
+              ),
+            ),
+            child: const SizedBox.expand(),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PreparingStatus extends StatelessWidget {
+  const _PreparingStatus({
+    required this.authReady,
+    required this.highContrast,
+    required this.animation,
+  });
+
+  final bool authReady;
+  final bool highContrast;
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -501,56 +500,47 @@ class _SplashScreenState extends State<SplashScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 6,
-              height: 6,
+              width: 5,
+              height: 5,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: highContrast
-                    ? context.elixTextPrimary
-                    : AppColors.primary,
-                boxShadow: highContrast
-                    ? const []
-                    : [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.7),
-                          blurRadius: 10,
-                        ),
-                      ],
+                color: highContrast ? colors.textPrimary : AppColors.primary,
               ),
             ),
             const SizedBox(width: AppSpacing.xs),
             Text(
-              widget.authReady ? 'READY TO TRAIN' : 'PREPARING YOUR SESSION',
+              authReady ? 'READY TO TRAIN' : 'PREPARING YOUR SESSION',
               style: AppTheme.eyebrow(
                 color: context.elixTextSecondary,
-              ).copyWith(fontSize: 10, letterSpacing: 1.8),
+              ).copyWith(fontSize: 10, letterSpacing: 1.6),
             ),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
-        SizedBox(
-          width: 224,
-          height: 4,
-          child: AnimatedBuilder(
-            animation: _shimmerController,
-            builder: (context, _) => CustomPaint(
-              painter: _SplashProgressPainter(
-                progress: _shimmerController.value,
-                trackColor: context.elixBorder.withValues(
-                  alpha: highContrast ? 1 : 0.55,
+        RepaintBoundary(
+          child: SizedBox(
+            width: 188,
+            height: 3,
+            child: AnimatedBuilder(
+              animation: animation,
+              builder: (context, _) => CustomPaint(
+                painter: _SplashProgressPainter(
+                  progress: animation.value,
+                  trackColor: colors.borderSubtle.withValues(
+                    alpha: highContrast ? 1 : 0.62,
+                  ),
+                  primary: highContrast
+                      ? colors.textPrimary
+                      : AppColors.primary,
+                  secondary: highContrast
+                      ? colors.textPrimary
+                      : AppColors.primarySoft,
                 ),
-                primary: highContrast
-                    ? context.elixTextPrimary
-                    : AppColors.primary,
-                secondary: highContrast
-                    ? context.elixTextPrimary
-                    : AppColors.primarySoft,
-                highContrast: highContrast,
               ),
             ),
           ),
         ),
-        if (!widget.authReady) ...[
+        if (!authReady) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
             'Preparing your session…',
@@ -560,12 +550,22 @@ class _SplashScreenState extends State<SplashScreen>
       ],
     );
   }
+}
 
-  Widget _buildFailureLoader(
-    BuildContext context, {
-    required bool highContrast,
-  }) {
-    final errorColor = context.elixColors.error;
+class _FailureStatus extends StatelessWidget {
+  const _FailureStatus({
+    required this.message,
+    required this.onRetry,
+    required this.highContrast,
+  });
+
+  final String message;
+  final VoidCallback? onRetry;
+  final bool highContrast;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 420),
       child: Column(
@@ -576,7 +576,7 @@ class _SplashScreenState extends State<SplashScreen>
             children: [
               Icon(
                 FluentIcons.status_circle_error_x,
-                color: highContrast ? context.elixTextPrimary : errorColor,
+                color: highContrast ? colors.textPrimary : colors.error,
                 size: 15,
               ),
               const SizedBox(width: AppSpacing.xs),
@@ -584,19 +584,19 @@ class _SplashScreenState extends State<SplashScreen>
                 'SESSION PREPARATION FAILED',
                 style: AppTheme.eyebrow(
                   color: context.elixTextSecondary,
-                ).copyWith(fontSize: 10, letterSpacing: 1.8),
+                ).copyWith(fontSize: 10, letterSpacing: 1.6),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            widget.startupError!,
+            message,
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
-          if (widget.onRetry != null) ...[
+          if (onRetry != null) ...[
             const SizedBox(height: AppSpacing.sm),
             ElixPrimaryButton(
               key: const Key('splash_retry_button'),
@@ -604,7 +604,7 @@ class _SplashScreenState extends State<SplashScreen>
               icon: FluentIcons.refresh,
               expanded: false,
               dense: true,
-              onPressed: widget.onRetry,
+              onPressed: onRetry,
             ),
           ],
         ],
@@ -613,90 +613,72 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-/// A thin orbit system turns the logo into a focal point without competing
-/// with it. The rotation is ambient and never affects startup state.
-class _SplashOrbitPainter extends CustomPainter {
-  const _SplashOrbitPainter({
-    required this.rotation,
-    required this.shimmer,
-    required this.primary,
-    required this.secondary,
-  });
+/// A static fine texture keeps the large desktop canvas from feeling empty.
+class _SplashTexturePainter extends CustomPainter {
+  const _SplashTexturePainter();
 
-  final double rotation;
-  final double shimmer;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = AppColors.primary.withValues(alpha: 0.025);
+    const spacing = 32.0;
+    for (var x = spacing / 2; x < size.width; x += spacing) {
+      for (var y = spacing / 2; y < size.height; y += spacing) {
+        canvas.drawCircle(Offset(x, y), 0.7, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SplashTexturePainter oldDelegate) => false;
+}
+
+/// The halo forms once with the logo; it is intentionally not an orbiting UI
+/// control or an indefinitely rotating decoration.
+class _SplashHaloPainter extends CustomPainter {
+  const _SplashHaloPainter({required this.primary, required this.secondary});
+
   final Color primary;
   final Color secondary;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final baseRadius = math.min(size.width, size.height) * 0.31;
-    final rotationAngle = rotation * math.pi * 2;
-    final shimmerAngle = shimmer * math.pi * 2;
-
-    final innerRing = Paint()
-      ..color = primary.withValues(alpha: 0.2)
+    final radius = math.min(size.width, size.height) * 0.36;
+    final subtleRing = Paint()
+      ..color = secondary.withValues(alpha: 0.2)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
-    canvas.drawCircle(center, baseRadius, innerRing);
-
-    final outerRing = Paint()
-      ..color = secondary.withValues(alpha: 0.13)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawCircle(center, baseRadius * 1.34, outerRing);
+    canvas.drawCircle(center, radius, subtleRing);
 
     final brightArc = Paint()
-      ..color = Color.lerp(primary, secondary, 0.35)!.withValues(alpha: 0.86)
+      ..color = primary.withValues(alpha: 0.76)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = 2.2;
+      ..strokeWidth = 1.6;
     canvas.drawArc(
-      Rect.fromCircle(center: center, radius: baseRadius * 1.34),
-      rotationAngle - 0.75,
-      1.05,
+      Rect.fromCircle(center: center, radius: radius),
+      -2.28,
+      1.18,
       false,
       brightArc,
     );
-
     final quietArc = Paint()
-      ..color = primary.withValues(alpha: 0.44)
+      ..color = secondary.withValues(alpha: 0.48)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = 1.5;
+      ..strokeWidth = 1.2;
     canvas.drawArc(
-      Rect.fromCircle(center: center, radius: baseRadius),
-      -rotationAngle + shimmerAngle + 1.9,
-      0.62,
+      Rect.fromCircle(center: center, radius: radius * 1.24),
+      0.72,
+      0.86,
       false,
       quietArc,
     );
-
-    final particlePaint = Paint()..style = PaintingStyle.fill;
-    for (var index = 0; index < 3; index++) {
-      final angle = rotationAngle + shimmerAngle * 0.3 + index * 2.1;
-      final radius = baseRadius * (index.isEven ? 1.34 : 1);
-      particlePaint.color = (index == 0 ? primary : secondary).withValues(
-        alpha: index == 0 ? 0.9 : 0.42,
-      );
-      canvas.drawCircle(
-        Offset(
-          center.dx + math.cos(angle) * radius,
-          center.dy + math.sin(angle) * radius,
-        ),
-        index == 0 ? 2.5 : 1.6,
-        particlePaint,
-      );
-    }
   }
 
   @override
-  bool shouldRepaint(covariant _SplashOrbitPainter oldDelegate) =>
-      oldDelegate.rotation != rotation ||
-      oldDelegate.shimmer != shimmer ||
-      oldDelegate.primary != primary ||
-      oldDelegate.secondary != secondary;
+  bool shouldRepaint(covariant _SplashHaloPainter oldDelegate) =>
+      oldDelegate.primary != primary || oldDelegate.secondary != secondary;
 }
 
 class _SplashProgressPainter extends CustomPainter {
@@ -705,14 +687,12 @@ class _SplashProgressPainter extends CustomPainter {
     required this.trackColor,
     required this.primary,
     required this.secondary,
-    required this.highContrast,
   });
 
   final double progress;
   final Color trackColor;
   final Color primary;
   final Color secondary;
-  final bool highContrast;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -722,34 +702,22 @@ class _SplashProgressPainter extends CustomPainter {
     );
     canvas.drawRRect(track, Paint()..color = trackColor);
 
-    final segmentWidth = size.width * 0.42;
-    final segmentLeft = (progress * (size.width + segmentWidth)) - segmentWidth;
+    final segmentWidth = size.width * 0.3;
+    final left = (progress * (size.width + segmentWidth)) - segmentWidth;
     final segment = Rect.fromLTWH(
-      segmentLeft,
+      left,
       0,
       segmentWidth,
       size.height,
     ).intersect(Offset.zero & size);
     if (segment.isEmpty) return;
-
-    final segmentRRect = RRect.fromRectAndRadius(
-      segment,
-      const Radius.circular(3),
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(segment, const Radius.circular(3)),
+      Paint()
+        ..shader = LinearGradient(
+          colors: [primary.withValues(alpha: 0), primary, secondary],
+        ).createShader(segment),
     );
-    final segmentPaint = Paint()
-      ..shader = LinearGradient(
-        colors: [primary.withValues(alpha: 0), primary, secondary, primary],
-      ).createShader(segment);
-    canvas.drawRRect(segmentRRect, segmentPaint);
-
-    if (!highContrast) {
-      canvas.drawRRect(
-        segmentRRect,
-        Paint()
-          ..color = primary.withValues(alpha: 0.3)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
-      );
-    }
   }
 
   @override
@@ -757,30 +725,5 @@ class _SplashProgressPainter extends CustomPainter {
       oldDelegate.progress != progress ||
       oldDelegate.trackColor != trackColor ||
       oldDelegate.primary != primary ||
-      oldDelegate.secondary != secondary ||
-      oldDelegate.highContrast != highContrast;
-}
-
-/// Dot-grid background matching [AuthScaffold]'s visual density.
-class _SplashDotGridPainter extends CustomPainter {
-  const _SplashDotGridPainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    const spacing = 28.0;
-    const radius = 1.0;
-
-    for (var x = 0.0; x < size.width; x += spacing) {
-      for (var y = 0.0; y < size.height; y += spacing) {
-        canvas.drawCircle(Offset(x, y), radius, paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SplashDotGridPainter oldDelegate) =>
-      oldDelegate.color != color;
+      oldDelegate.secondary != secondary;
 }

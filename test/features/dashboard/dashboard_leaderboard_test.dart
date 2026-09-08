@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/leaderboard_award_plan.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/leaderboard_period.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_leaderboard.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_panel_card.dart';
@@ -20,6 +21,12 @@ LeaderboardEntry _entry(String id, String name, int xp, {int bestScore = 90}) {
     scoreSum: bestScore.toDouble(),
     averageScore: bestScore.toDouble(),
     bestScore: bestScore,
+    monthlyKey: '202609',
+    monthlyXp: xp,
+    monthlySessionsCompleted: xp ~/ 25,
+    monthlyScoreSum: bestScore.toDouble(),
+    monthlyAverageScore: bestScore.toDouble(),
+    monthlyBestScore: bestScore,
   );
 }
 
@@ -27,9 +34,15 @@ class _FakeLeaderboardRepository extends LeaderboardRepository {
   _FakeLeaderboardRepository(this.topPlayers);
 
   final List<LeaderboardEntry> topPlayers;
+  LeaderboardPeriod? watchedPeriod;
 
   @override
-  Stream<List<LeaderboardEntry>> watchTopPlayers({int limit = 10}) {
+  Stream<List<LeaderboardEntry>> watchTopPlayers({
+    int limit = 10,
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
+    DateTime? nowUtc,
+  }) {
+    watchedPeriod = period;
     return Stream.value(topPlayers.take(limit).toList(growable: false));
   }
 
@@ -87,7 +100,29 @@ void main() {
     expect(find.text('Bob'), findsOneWidget);
     expect(find.text('Cara'), findsOneWidget);
     expect(find.text('View leaderboard'), findsOneWidget);
+    expect(find.text('Current Season'), findsOneWidget);
     expect(find.textContaining('Best '), findsNothing);
+  });
+
+  testWidgets('preview subscribes to Current Season standings', (tester) async {
+    await _setSurface(tester);
+    final repository = _FakeLeaderboardRepository(entries);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: DashboardLeaderboard(
+            currentUserId: 'viewer',
+            displayName: 'Viewer User',
+            repository: repository,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.watchedPeriod, LeaderboardPeriod.thisMonth);
   });
 
   testWidgets('YOU badge shows for current user in Top 3', (tester) async {
@@ -162,7 +197,7 @@ void main() {
 
     expect(router.state.uri.path, '/profile/p1');
     expect(receivedArgs?.entry?.userId, 'p1');
-    expect(receivedArgs?.rank, 1);
+    expect(receivedArgs?.rank, isNull);
   });
 
   testWidgets('View leaderboard goes to /leaderboard', (tester) async {
@@ -250,7 +285,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final pill = find.widgetWithText(DashboardPill, 'All Time');
+    final pill = find.widgetWithText(DashboardPill, 'Current Season');
     final link = find.widgetWithText(HyperlinkButton, 'View leaderboard');
 
     expect(tester.getCenter(pill).dy, closeTo(tester.getCenter(link).dy, 0.01));

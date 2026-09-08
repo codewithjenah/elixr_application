@@ -24,6 +24,7 @@ import 'package:elixr_application/features/profile/widgets/profile_stats_section
 import 'package:elixr_application/features/profile/widgets/teacher_profile_state.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -150,7 +151,11 @@ class _FakeLeaderboardRepository extends LeaderboardRepository {
   final List<LeaderboardEntry> topPlayers;
 
   @override
-  Stream<List<LeaderboardEntry>> watchTopPlayers({int limit = 10}) {
+  Stream<List<LeaderboardEntry>> watchTopPlayers({
+    int limit = 10,
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
+    DateTime? nowUtc,
+  }) {
     return Stream.value(topPlayers.take(limit).toList(growable: false));
   }
 
@@ -359,6 +364,7 @@ void main() {
       final controller = LeaderboardListController(
         fetchPage: ({startAfter}) async =>
             LeaderboardPage(entries: entries, nextCursor: null, hasMore: false),
+        initialPeriod: LeaderboardPeriod.allTime,
       );
       final auth = _testAuth();
 
@@ -469,7 +475,7 @@ void main() {
       expect(router.state.uri.path, '/profile/p1');
       expect(router.canPop(), isTrue);
       expect(receivedArgs?.entry?.userId, 'p1');
-      expect(receivedArgs?.rank, 1);
+      expect(receivedArgs?.rank, isNull);
     });
 
     testWidgets('View leaderboard still uses go replacement', (tester) async {
@@ -821,8 +827,13 @@ void main() {
       );
 
       await tester.pumpWidget(
-        ChangeNotifierProvider<AuthService>.value(
-          value: auth,
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthService>.value(value: auth),
+            ChangeNotifierProvider<TraineeProgressionService>(
+              create: (_) => TraineeProgressionService.ready(),
+            ),
+          ],
           child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
         ),
       );
@@ -836,11 +847,9 @@ void main() {
       expect(find.text('Practice History'), findsNothing);
       expect(find.text('Achievements'), findsOneWidget);
       expect(find.text('Completed Movements'), findsOneWidget);
-      expect(find.text('Hand Stall'), findsOneWidget);
-      expect(
-        find.bySemanticsLabel('Movement image: Hand Stall'),
-        findsOneWidget,
-      );
+      expect(find.text('Hand Stall'), findsNothing);
+      expect(find.bySemanticsLabel('Movement image: Hand Stall'), findsNothing);
+      expect(find.text('1 locked movement'), findsOneWidget);
       expect(find.text('First Steps'), findsOneWidget);
     });
 

@@ -348,6 +348,7 @@ class AuthService extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
+    _scheduleLeaderboardPresenceTouch();
   }
 
   void _failInitialization(Object error, StackTrace stackTrace) {
@@ -451,6 +452,7 @@ class AuthService extends ChangeNotifier {
     }
 
     _scheduleClaimedAchievementProjectionSync();
+    _scheduleLeaderboardPresenceTouch();
   }
 
   /// Explicit Teacher registration. Seeds the public-profile identity root
@@ -492,6 +494,7 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     await _seedNewAccountPublicProfile(user);
+    _scheduleLeaderboardPresenceTouch();
   }
 
   Future<void> login({required String email, required String password}) async {
@@ -521,6 +524,7 @@ class AuthService extends ChangeNotifier {
     await _refreshEmailVerificationState();
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
+    _scheduleLeaderboardPresenceTouch();
   }
 
   Future<void> signInWithGoogle() async {
@@ -553,6 +557,7 @@ class AuthService extends ChangeNotifier {
     await _refreshEmailVerificationState();
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
+    _scheduleLeaderboardPresenceTouch();
   }
 
   /// Validates the shared Teacher registration gate before the user chooses
@@ -615,6 +620,7 @@ class AuthService extends ChangeNotifier {
     await _refreshProviderKinds();
     await _refreshEmailVerificationState();
     notifyListeners();
+    _scheduleLeaderboardPresenceTouch();
   }
 
   Future<void> completeGoogleProfile({
@@ -659,6 +665,7 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     await _seedNewAccountPublicProfile(user);
     _scheduleClaimedAchievementProjectionSync();
+    _scheduleLeaderboardPresenceTouch();
   }
 
   /// Completes Google onboarding as a Teacher. The repository performs the
@@ -708,6 +715,7 @@ class AuthService extends ChangeNotifier {
     }
     notifyListeners();
     await _seedNewAccountPublicProfile(user);
+    _scheduleLeaderboardPresenceTouch();
   }
 
   Future<void> cancelGoogleOnboarding() async {
@@ -796,6 +804,36 @@ class AuthService extends ChangeNotifier {
     if (!_emailVerificationWatchActive) {
       await _stopEmailCallbackServer();
     }
+  }
+
+  /// Best-effort last-active write for an existing leaderboard document.
+  ///
+  /// Never fails authentication or creates a ranking row. Safe to call from
+  /// successful auth restore/login and from application foreground resume.
+  void touchLeaderboardPresence() {
+    _scheduleLeaderboardPresenceTouch();
+  }
+
+  void _scheduleLeaderboardPresenceTouch() {
+    final userId = _currentUser?.id?.trim();
+    if (userId == null || userId.isEmpty) return;
+
+    final repository = _leaderboardRepository;
+    if (repository == null) return;
+
+    unawaited(() async {
+      try {
+        await repository.touchLastActive(userId: userId);
+      } catch (error, stackTrace) {
+        if (kDebugMode) {
+          debugPrint(
+            'Leaderboard last-active touch failed: '
+            'userId=$userId error=$error',
+          );
+          debugPrint('$stackTrace');
+        }
+      }
+    }());
   }
 
   /// Best-effort owner-side repair of missing public achievement projections.

@@ -10,6 +10,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/leaderboard_award_plan.dart';
 import '../../../data/models/leaderboard_entry.dart';
+import '../../../data/models/leaderboard_period.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
 import '../../leaderboard/widgets/leaderboard_identity.dart';
@@ -96,7 +97,7 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
 
   void _subscribe() {
     _topSub = _repository
-        .watchTopPlayers(limit: 3)
+        .watchTopPlayers(limit: 3, period: LeaderboardPeriod.thisMonth)
         .listen(
           (players) {
             if (!mounted) return;
@@ -125,7 +126,13 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
   void _openProfile(LeaderboardEntry entry, int rank) {
     context.push(
       '/profile/${entry.userId}',
-      extra: ProfileRouteArgs(entry: entry, rank: rank),
+      extra: ProfileRouteArgs(
+        entry: entry,
+        rank: LeaderboardPresentation.profileRankForNavigation(
+          period: LeaderboardPeriod.thisMonth,
+          selectedPeriodRank: rank,
+        ),
+      ),
     );
   }
 
@@ -236,7 +243,7 @@ class _LeaderboardHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final actionItems = <Widget>[
       const DashboardPill(
-        text: 'All Time',
+        text: 'Current Season',
         color: AppColors.warning,
         compact: true,
       ),
@@ -252,7 +259,10 @@ class _LeaderboardHeader extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const ElixSectionHeader(heading: 'Top Players'),
+              const ElixSectionHeader(
+                heading: 'Top Players',
+                subtitle: 'Current Season standings',
+              ),
               const SizedBox(height: AppSpacing.sm),
               Wrap(
                 spacing: AppSpacing.sm,
@@ -277,7 +287,12 @@ class _LeaderboardHeader extends StatelessWidget {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Expanded(child: ElixSectionHeader(heading: 'Top Players')),
+            const Expanded(
+              child: ElixSectionHeader(
+                heading: 'Top Players',
+                subtitle: 'Current Season standings',
+              ),
+            ),
             const SizedBox(width: AppSpacing.md),
             actions,
           ],
@@ -309,6 +324,10 @@ class _PlayerSpotlight extends StatelessWidget {
     final pictureUrl = isYou
         ? currentUserProfilePictureUrl
         : entry.profilePictureUrl;
+    final seasonXp = LeaderboardPresentation.metricsFor(
+      entry,
+      LeaderboardPeriod.thisMonth,
+    ).xp;
 
     return DashboardHoverSurface(
       onTap: onTap,
@@ -392,7 +411,7 @@ class _PlayerSpotlight extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${entry.totalXp} XP',
+                        '$seasonXp XP',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -443,6 +462,10 @@ class _PlayerRow extends StatelessWidget {
         ? (currentUserProfilePictureUrl ?? entry.profilePictureUrl)
         : entry.profilePictureUrl;
     final avatarSize = spotlight ? 40.0 : 34.0;
+    final seasonXp = LeaderboardPresentation.metricsFor(
+      entry,
+      LeaderboardPeriod.thisMonth,
+    ).xp;
 
     return DashboardHoverSurface(
       onTap: onTap,
@@ -509,7 +532,7 @@ class _PlayerRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Lv. ${entry.level} · ${entry.totalXp} XP',
+                    'Lv. ${entry.level} · $seasonXp XP',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

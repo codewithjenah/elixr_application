@@ -8,19 +8,20 @@ enum LeaderboardPeriod {
 
   String get selectorLabel => switch (this) {
     LeaderboardPeriod.today => 'Today',
-    LeaderboardPeriod.thisMonth => 'This month',
+    LeaderboardPeriod.thisMonth => 'Current Season',
     LeaderboardPeriod.allTime => 'All time',
   };
 
   String get subtitle => switch (this) {
     LeaderboardPeriod.today => 'Rankings based on XP earned today.',
-    LeaderboardPeriod.thisMonth => 'Rankings based on XP earned this month.',
+    LeaderboardPeriod.thisMonth =>
+      'Season rankings based on XP earned this month.',
     LeaderboardPeriod.allTime => 'All-time rankings by total XP.',
   };
 
   String get xpHeading => switch (this) {
     LeaderboardPeriod.today => 'XP today',
-    LeaderboardPeriod.thisMonth => 'XP this month',
+    LeaderboardPeriod.thisMonth => 'Season XP',
     LeaderboardPeriod.allTime => 'Total XP',
   };
 

@@ -227,6 +227,93 @@ void main() {
       expect(entry.metricsFor(LeaderboardPeriod.allTime).bestScore, 99);
     });
 
+    test('parses last_active_at independently of last_session_at', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'last_session_at': '2026-09-01T10:00:00.000Z',
+        'last_active_at': '2026-09-08T08:00:00.000Z',
+        'updated_at': '2026-09-07T12:00:00.000Z',
+      });
+
+      expect(entry, isNotNull);
+      expect(entry!.lastActiveAt, DateTime.utc(2026, 9, 8, 8));
+      expect(entry.lastSessionAt, '2026-09-01T10:00:00.000Z');
+      expect(entry.updatedAt, '2026-09-07T12:00:00.000Z');
+    });
+
+    test('missing last_active_at remains backward compatible', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'last_session_at': '2026-09-01T10:00:00.000Z',
+      });
+
+      expect(entry, isNotNull);
+      expect(entry!.lastActiveAt, isNull);
+      expect(entry.lastSessionAt, isNotNull);
+    });
+
+    test('malformed last_active_at fails safely without rejecting the row', () {
+      final garbage = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'last_active_at': 'not-a-timestamp',
+      });
+      expect(garbage, isNotNull);
+      expect(garbage!.lastActiveAt, isNull);
+
+      final wrongType = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'last_active_at': 42,
+      });
+      expect(wrongType, isNotNull);
+      expect(wrongType!.lastActiveAt, isNull);
+    });
+
+    test(
+      'Manila month rollover zeros Current Season XP without touching lifetime',
+      () {
+        const player = LeaderboardEntry(
+          userId: 'season-player',
+          displayName: 'Season Player',
+          totalXp: 500,
+          sessionsCompleted: 16,
+          scoreSum: 1200,
+          averageScore: 75,
+          bestScore: 99,
+          monthlyKey: '202609',
+          monthlyXp: 175,
+          monthlySessionsCompleted: 6,
+          monthlyScoreSum: 510,
+          monthlyAverageScore: 85,
+          monthlyBestScore: 94,
+        );
+
+        final octoberStart = DateTime.utc(2026, 9, 30, 16);
+        final resolved = player.resolvedForPeriod(
+          LeaderboardPeriod.thisMonth,
+          nowUtc: octoberStart,
+        );
+
+        expect(resolved.monthlyXp, 0);
+        expect(resolved.monthlySessionsCompleted, 0);
+        expect(resolved.totalXp, 500);
+        expect(resolved.sessionsCompleted, 16);
+        expect(resolved.xpFor(LeaderboardPeriod.allTime), 500);
+        expect(resolved.xpFor(LeaderboardPeriod.thisMonth), 0);
+        expect(
+          LeaderboardPeriod.thisMonth.keyFor(octoberStart),
+          isNot(player.monthlyKey),
+        );
+      },
+    );
+
     test('legacy documents default all period metrics to zero', () {
       final entry = LeaderboardEntry.tryFromMap({
         'user_id': 'legacy',

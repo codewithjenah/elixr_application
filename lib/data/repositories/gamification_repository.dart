@@ -23,9 +23,12 @@ import '../models/session.dart';
 /// stamped by the Firestore server and cannot be spoofed by the client).
 class GamificationRepository {
   GamificationRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _injectedFirestore = firestore;
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _injectedFirestore;
+
+  FirebaseFirestore get _firestore =>
+      _injectedFirestore ?? FirebaseFirestore.instance;
 
   DocumentReference<Map<String, dynamic>> _boardRef(String boardId) =>
       _firestore.collection(FirestoreCollections.dailyQuestBoards).doc(boardId);
@@ -39,9 +42,14 @@ class GamificationRepository {
   /// Returns today's (Manila calendar day) board for [userId], creating it
   /// deterministically on first access. Never mutates `quest_ids`/`day_key`/
   /// `day_start` once created — a repeated call on the same real day always
-  /// returns the same board.
+  /// returns the same board, even if [currentLevel] has increased since.
+  ///
+  /// [currentLevel] is the already-resolved personal progression level used
+  /// only when creating a new board. Callers must not invent a default
+  /// Level 1 while personal progression is still loading.
   Future<DailyQuestBoard> getOrCreateDailyBoard({
     required String userId,
+    required int currentLevel,
     DateTime? nowUtc,
   }) async {
     final now = (nowUtc ?? DateTime.now()).toUtc();
@@ -56,7 +64,11 @@ class GamificationRepository {
         if (existing != null) return existing;
       }
 
-      final questIds = generateDailyQuestIds(userId: userId, dayKey: dayKey);
+      final questIds = generateDailyQuestIds(
+        userId: userId,
+        dayKey: dayKey,
+        currentLevel: currentLevel,
+      );
       final board = DailyQuestBoard(
         userId: userId,
         dayKey: dayKey,

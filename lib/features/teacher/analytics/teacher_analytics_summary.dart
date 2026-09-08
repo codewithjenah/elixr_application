@@ -98,7 +98,7 @@ class _SummaryHeader extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.sm),
             Text(
-              'This Week',
+              'Class performance',
               style: AppTheme.headingMedium.copyWith(
                 color: context.elixTextPrimary,
               ),
@@ -107,7 +107,7 @@ class _SummaryHeader extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'A quick look at your classes this week.',
+          'This week at a glance: scores, practice, and completed assignments.',
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
       ],
@@ -216,7 +216,7 @@ class _ScoreProgressChart extends StatelessWidget {
         ? (buckets.length / 4).ceilToDouble()
         : 1.0;
     return Semantics(
-      label: 'Score progress chart on a 0 to 12 scale',
+      label: _scoreChartSummary(buckets),
       child: LineChart(
         LineChartData(
           minY: 0,
@@ -292,8 +292,9 @@ class _PracticeByClassroomChart extends StatelessWidget {
           current > comparison.sessionCount ? current : comparison.sessionCount,
     );
     final maxY = ((highest + 3) ~/ 4 * 4).toDouble();
+    final labelInterval = active.length > 4 ? (active.length / 4).ceil() : 1;
     return Semantics(
-      label: 'Practice by classroom chart',
+      label: _practiceChartSummary(active),
       child: BarChart(
         BarChartData(
           minY: 0,
@@ -339,6 +340,10 @@ class _PracticeByClassroomChart extends StatelessWidget {
                 getTitlesWidget: (value, _) {
                   final index = value.toInt();
                   if (index < 0 || index >= active.length) {
+                    return const SizedBox.shrink();
+                  }
+                  if (index % labelInterval != 0 &&
+                      index != active.length - 1) {
                     return const SizedBox.shrink();
                   }
                   return _AxisLabel(_shortLabel(active[index].group.name));
@@ -424,6 +429,20 @@ class _AxisLabel extends StatelessWidget {
 
 String _shortLabel(String value) =>
     value.length > 10 ? '${value.substring(0, 9)}…' : value;
+
+String _scoreChartSummary(List<AnalyticsTrendBucket> buckets) {
+  final values = [
+    for (final bucket in buckets)
+      if (bucket.averageScore case final score?)
+        '${bucket.label}: ${score.toStringAsFixed(1)} out of 12',
+  ];
+  return values.isEmpty
+      ? 'Score progress chart. No scored practice yet.'
+      : 'Score progress chart on a 0 to 12 scale. ${values.join('; ')}.';
+}
+
+String _practiceChartSummary(List<GroupComparison> comparisons) =>
+    'Practice by classroom chart. ${comparisons.map((comparison) => '${comparison.group.name}: ${comparison.sessionCount} sessions').join('; ')}.';
 
 class _ChartEmptyState extends StatelessWidget {
   const _ChartEmptyState({required this.message});

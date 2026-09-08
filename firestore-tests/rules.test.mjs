@@ -2353,6 +2353,205 @@ describe('leaderboard daily/monthly period aggregates', () => {
   });
 });
 
+describe('leaderboard last_active_at', () => {
+  test('owner can write a server-timestamp last-active update', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    const db = aliceDb();
+    const before = await getDoc(doc(db, 'leaderboard', 'alice'));
+    const previousUpdatedAt = before.data().updated_at;
+    const previousSessionAt = before.data().last_session_at;
+
+    await assertSucceeds(
+      updateDoc(doc(db, 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+      }),
+    );
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().total_xp, 25);
+    assert.equal(after.data().sessions_completed, 1);
+    assert.equal(after.data().updated_at.toMillis(), previousUpdatedAt.toMillis());
+    assert.equal(after.data().last_session_at.toMillis(), previousSessionAt.toMillis());
+    assert.ok(after.data().last_active_at);
+  });
+
+  test('another user cannot update last_active_at', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    await assertFails(
+      updateDoc(doc(bobDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('owner cannot backdate or forward-date last_active_at', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      updateDoc(doc(db, 'leaderboard', 'alice'), {
+        last_active_at: Timestamp.fromDate(new Date('2020-01-01T00:00:00.000Z')),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'leaderboard', 'alice'), {
+        last_active_at: Timestamp.fromDate(new Date('2099-01-01T00:00:00.000Z')),
+      }),
+    );
+  });
+
+  test('last-active update cannot alter XP', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+        total_xp: 999,
+      }),
+    );
+  });
+
+  test('last-active update cannot alter monthly or daily aggregates', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          monthly_key: '202609',
+          monthly_xp: 25,
+          daily_key: '20260908',
+          daily_xp: 25,
+        }),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+        monthly_xp: 999,
+        monthly_key: '202610',
+        daily_xp: 50,
+      }),
+    );
+  });
+
+  test('last-active update cannot alter quest XP', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { total_xp: 35, quest_xp: 10 }),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+        quest_xp: 99,
+        total_xp: 124,
+      }),
+    );
+  });
+
+  test('last-active update cannot alter identity, cosmetics, or session awards', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      updateDoc(doc(db, 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+        display_name: 'Hacked',
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+        equipped_border_id: 'starter_glow',
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+        last_awarded_session_id: 'forged',
+      }),
+    );
+  });
+
+  test('cannot create a last-active-only leaderboard document', async () => {
+    await assertFails(
+      setDoc(doc(aliceDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('public-profile update still succeeds when last_active_at is present', async () => {
+    const existingActive = Timestamp.fromDate(new Date('2026-09-01T00:00:00.000Z'));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { last_active_at: existingActive }),
+      );
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        { display_name: 'Alice Updated' },
+        { merge: true },
+      ),
+    );
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().display_name, 'Alice Updated');
+    assert.equal(after.data().total_xp, 25);
+    assert.equal(after.data().last_active_at.toMillis(), existingActive.toMillis());
+  });
+
+  test('owner cannot refresh last_active_at within 10 minutes', async () => {
+    const recent = Timestamp.fromDate(new Date(Date.now() - 60 * 1000));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { last_active_at: recent }),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('owner can refresh last_active_at after 10 minutes', async () => {
+    const stale = Timestamp.fromDate(new Date(Date.now() - 11 * 60 * 1000));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { last_active_at: stale }),
+      );
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(aliceDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+      }),
+    );
+  });
+});
+
 describe('achievement claims + user cosmetics + equipped borders', () => {
   function achievementClaimPayload(userId, achievementId, rewardBorderId) {
     return {

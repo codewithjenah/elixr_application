@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -151,8 +152,26 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
   }
 }
 
+class _RecordingLeaderboardRepository extends LeaderboardRepository {
+  int touchCalls = 0;
+  final touchedUserIds = <String>[];
+  Object? touchError;
+
+  @override
+  Future<bool> touchLastActive({
+    required String userId,
+    DateTime? nowUtc,
+  }) async {
+    touchCalls++;
+    touchedUserIds.add(userId);
+    if (touchError != null) throw touchError!;
+    return true;
+  }
+}
+
 void main() {
   tearDown(PublicProfileRepository.clearAchievementSyncInFlightForTest);
+  tearDown(LeaderboardRepository.clearLastActiveTouchForTest);
 
   test('initialization triggers best-effort projection sync', () async {
     final profiles = _RecordingPublicProfileRepository();
@@ -309,5 +328,67 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(profiles.syncCalls, 0);
+  });
+
+  test('initialization touches last-active for a restored user', () async {
+    final leaderboard = _RecordingLeaderboardRepository();
+    final auth = AuthService(
+      repository: _FakeAuthRepository(persisted: _user()),
+      leaderboardRepository: leaderboard,
+      awaitInitialAuthState: () async {},
+    );
+
+    await auth.initialize();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(leaderboard.touchCalls, 1);
+    expect(leaderboard.touchedUserIds, ['u1']);
+    expect(auth.isAuthenticated, isTrue);
+  });
+
+  test('login touches last-active for the authenticated user', () async {
+    final leaderboard = _RecordingLeaderboardRepository();
+    final auth = AuthService(
+      repository: _FakeAuthRepository(loginUser: _user()),
+      leaderboardRepository: leaderboard,
+      awaitInitialAuthState: () async {},
+    );
+
+    await auth.login(email: 'ada@example.com', password: 'secret');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(leaderboard.touchCalls, 1);
+    expect(leaderboard.touchedUserIds.single, 'u1');
+  });
+
+  test('presence touch failure does not fail authentication', () async {
+    final leaderboard = _RecordingLeaderboardRepository()
+      ..touchError = Exception('firestore unavailable');
+    final auth = AuthService(
+      repository: _FakeAuthRepository(loginUser: _user()),
+      leaderboardRepository: leaderboard,
+      awaitInitialAuthState: () async {},
+    );
+
+    await auth.login(email: 'ada@example.com', password: 'secret');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(auth.isAuthenticated, isTrue);
+    expect(auth.currentUser?.id, 'u1');
+    expect(leaderboard.touchCalls, 1);
+  });
+
+  test('missing user id does not start a presence touch', () async {
+    final leaderboard = _RecordingLeaderboardRepository();
+    final auth = AuthService(
+      repository: _FakeAuthRepository(persisted: _user(id: null)),
+      leaderboardRepository: leaderboard,
+      awaitInitialAuthState: () async {},
+    );
+
+    await auth.initialize();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(leaderboard.touchCalls, 0);
   });
 }

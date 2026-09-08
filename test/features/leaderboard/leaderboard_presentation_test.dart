@@ -96,7 +96,7 @@ void main() {
       );
       expect(
         LeaderboardPresentation.periodSubtitle(LeaderboardPeriod.thisMonth),
-        'Rankings based on XP earned this month.',
+        'Season rankings based on XP earned this month.',
       );
       expect(
         LeaderboardPresentation.periodSubtitle(LeaderboardPeriod.allTime),
@@ -104,7 +104,7 @@ void main() {
       );
       expect(
         LeaderboardPeriod.values.map(LeaderboardPresentation.periodXpHeading),
-        ['XP today', 'XP this month', 'Total XP'],
+        ['XP today', 'Season XP', 'Total XP'],
       );
     });
 
@@ -165,6 +165,126 @@ void main() {
         ),
         isNull,
       );
+    });
+
+    test('period labels treat thisMonth as Current Season', () {
+      expect(
+        LeaderboardPresentation.periodLabel(LeaderboardPeriod.today),
+        'Today',
+      );
+      expect(
+        LeaderboardPresentation.periodLabel(LeaderboardPeriod.thisMonth),
+        'Current Season',
+      );
+      expect(
+        LeaderboardPresentation.periodLabel(LeaderboardPeriod.allTime),
+        'All time',
+      );
+      expect(
+        LeaderboardPresentation.periodTopThreeHeading(
+          LeaderboardPeriod.thisMonth,
+        ),
+        'Current Season top 3',
+      );
+    });
+
+    test('season name and reset boundary use Asia/Manila month start', () {
+      final now = DateTime.utc(2026, 9, 8, 11, 20);
+      expect(
+        LeaderboardPresentation.seasonName(nowUtc: now),
+        'September Season',
+      );
+      expect(
+        LeaderboardPresentation.nextSeasonStartUtc(now),
+        DateTime.utc(2026, 9, 30, 16),
+      );
+      expect(
+        LeaderboardPresentation.seasonResetText(nowUtc: now),
+        'Resets in 22d',
+      );
+      expect(
+        LeaderboardPresentation.seasonStatusText(nowUtc: now),
+        'September Season • Resets in 22d',
+      );
+    });
+
+    test('season reset text uses hours and minutes near the boundary', () {
+      expect(
+        LeaderboardPresentation.seasonResetText(
+          nowUtc: DateTime.utc(2026, 9, 30, 10),
+        ),
+        'Resets in 6h',
+      );
+      expect(
+        LeaderboardPresentation.seasonResetText(
+          nowUtc: DateTime.utc(2026, 9, 30, 15, 40),
+        ),
+        'Resets in 20m',
+      );
+    });
+
+    test('relative last-active formatting uses injected now', () {
+      final now = DateTime.utc(2026, 9, 8, 12);
+
+      expect(
+        LeaderboardPresentation.lastActiveStatus(
+          lastActiveAt: now.subtract(const Duration(minutes: 4)),
+          nowUtc: now,
+        ),
+        'Active recently',
+      );
+      expect(
+        LeaderboardPresentation.lastActiveStatus(
+          lastActiveAt: now.subtract(const Duration(minutes: 18)),
+          nowUtc: now,
+        ),
+        'Last active 18m ago',
+      );
+      expect(
+        LeaderboardPresentation.lastActiveStatus(
+          lastActiveAt: now.subtract(const Duration(hours: 3)),
+          nowUtc: now,
+        ),
+        'Last active 3h ago',
+      );
+      expect(
+        LeaderboardPresentation.lastActiveStatus(
+          lastActiveAt: DateTime.utc(2026, 9, 7, 10),
+          nowUtc: now,
+        ),
+        'Last active yesterday',
+      );
+      expect(
+        LeaderboardPresentation.lastActiveStatus(
+          lastActiveAt: DateTime.utc(2026, 9, 4, 9),
+          nowUtc: now,
+        ),
+        'Last active Sep 4',
+      );
+      expect(
+        LeaderboardPresentation.lastActiveStatus(
+          lastActiveAt: null,
+          nowUtc: now,
+        ),
+        isNull,
+      );
+      expect(
+        LeaderboardPresentation.lastActiveStatus(
+          lastActiveAt: now.add(const Duration(minutes: 2)),
+          nowUtc: now,
+        ),
+        isNull,
+      );
+    });
+
+    test('last-active status never claims Online from a timestamp', () {
+      final now = DateTime.utc(2026, 9, 8, 12);
+      final status = LeaderboardPresentation.lastActiveStatus(
+        lastActiveAt: now.subtract(const Duration(seconds: 5)),
+        nowUtc: now,
+      );
+      expect(status, isNot(contains('Online')));
+      expect(status, 'Active recently');
     });
   });
 }

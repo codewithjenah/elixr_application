@@ -169,4 +169,41 @@ void main() {
       isNull,
     );
   });
+
+  group('movement identity reveal', () {
+    test('single-prop reveal uses that movement\'s milestone level', () {
+      expect(earliestRequiredLevelForMovement('Normal Grip'), 1);
+      expect(earliestRequiredLevelForMovement("Bartender's Grip"), 2);
+      expect(earliestRequiredLevelForMovement('Claw Grip'), 4);
+      expect(earliestRequiredLevelForMovement('Bottle in a tin'), 16);
+
+      expect(isMovementIdentityRevealed('Normal Grip', 1), isTrue);
+      expect(isMovementIdentityRevealed("Bartender's Grip", 1), isFalse);
+      expect(isMovementIdentityRevealed("Bartender's Grip", 2), isTrue);
+    });
+
+    test('dual-prop movement uses the earliest official variant level', () {
+      expect(earliestRequiredLevelForMovement('Hand Stall'), 5);
+      expect(earliestRequiredLevelForMovement('One Finger Stall'), 7);
+      expect(earliestRequiredLevelForMovement('Elbow Stall'), 11);
+    });
+
+    test('movement remains hidden below the earliest threshold', () {
+      expect(isMovementIdentityRevealed('Hand Stall', 4), isFalse);
+      expect(isMovementIdentityRevealed('One Finger Stall', 6), isFalse);
+    });
+
+    test('movement becomes revealed at the exact earliest threshold', () {
+      expect(isMovementIdentityRevealed('Hand Stall', 5), isTrue);
+      expect(isMovementIdentityRevealed('Hand Stall', 6), isTrue);
+      expect(isMovementIdentityRevealed('One Finger Stall', 7), isTrue);
+    });
+
+    test('unknown movement and unresolved level fail closed', () {
+      expect(earliestRequiredLevelForMovement('Unknown Move'), isNull);
+      expect(isMovementIdentityRevealed('Unknown Move', 16), isFalse);
+      expect(isMovementIdentityRevealed('Hand Stall', null), isFalse);
+      expect(isMovementIdentityRevealed('Normal Grip', null), isFalse);
+    });
+  });
 }

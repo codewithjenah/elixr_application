@@ -16,6 +16,7 @@ import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import '../../services/trainee_progression_service.dart';
 import 'training_recommendation.dart';
 import 'widgets/movement_mastery_section.dart';
 import 'widgets/progress_overview_stats.dart';
@@ -236,6 +237,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     const SizedBox(height: AppSpacing.xl),
                     MovementMasterySection(
                       masteries: _trainingRecommendation?.masteries ?? const [],
+                      traineeLevel: Provider.of<TraineeProgressionService?>(
+                        context,
+                      )?.currentLevelOrNull,
                     ),
                     const SizedBox(height: AppSpacing.xl),
                     if (_stats!.totalSessions == 0)

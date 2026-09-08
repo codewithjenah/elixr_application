@@ -12,6 +12,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_stat_card.dart';
+import '../../core/widgets/locked_movement_mark.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/training_prop.dart';
@@ -632,6 +633,24 @@ class _LessonCardState extends State<_LessonCard> {
   @override
   Widget build(BuildContext context) {
     final movement = widget.movement;
+    final progression = Provider.of<TraineeProgressionService?>(
+      context,
+      listen: true,
+    );
+    final traineeLevel = progression?.currentLevelOrNull;
+    if (traineeLevel == null) {
+      return _LessonCardSkeleton(difficulty: movement.difficulty);
+    }
+    if (!isMovementIdentityRevealed(movement.name, traineeLevel)) {
+      return _LockedLessonCard(
+        difficulty: movement.difficulty,
+        unlockLevel: earliestRequiredLevelForMovement(movement.name),
+      );
+    }
+    return _buildRevealedCard(context, movement);
+  }
+
+  Widget _buildRevealedCard(BuildContext context, Movement movement) {
     final props = movement.supportedProps;
     final difficultyColor = switch (movement.difficulty) {
       'Easy' => AppColors.success,
@@ -772,6 +791,172 @@ class _LessonCardState extends State<_LessonCard> {
                   ),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LessonCardSkeleton extends StatelessWidget {
+  const _LessonCardSkeleton({required this.difficulty});
+
+  final String difficulty;
+
+  @override
+  Widget build(BuildContext context) {
+    final difficultyColor = switch (difficulty) {
+      'Easy' => AppColors.success,
+      'Medium' => AppColors.warning,
+      _ => AppColors.primary,
+    };
+    final fill = context.isHighContrast
+        ? context.elixBorder
+        : difficultyColor.withValues(alpha: context.isDarkTheme ? 0.16 : 0.10);
+    return Semantics(
+      label: 'Loading movement lesson',
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 156),
+        decoration: AppTheme.panelDecoration(context),
+        clipBehavior: Clip.antiAlias,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(width: 116, color: fill),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _DifficultyBadge(
+                        difficulty: difficulty,
+                        color: difficultyColor,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Container(
+                        height: 14,
+                        width: 140,
+                        decoration: BoxDecoration(
+                          color: fill,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 10,
+                        width: 200,
+                        decoration: BoxDecoration(
+                          color: fill,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LockedLessonCard extends StatelessWidget {
+  const _LockedLessonCard({
+    required this.difficulty,
+    required this.unlockLevel,
+  });
+
+  final String difficulty;
+  final int? unlockLevel;
+
+  @override
+  Widget build(BuildContext context) {
+    final difficultyColor = switch (difficulty) {
+      'Easy' => AppColors.success,
+      'Medium' => AppColors.warning,
+      _ => AppColors.primary,
+    };
+    final requiredLevel = unlockLevel;
+    return Semantics(
+      container: true,
+      button: false,
+      label: MovementSpoilerCopy.semanticsLabel(unlockLevel: requiredLevel),
+      child: ExcludeSemantics(
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 156),
+          decoration: AppTheme.panelDecoration(context),
+          clipBehavior: Clip.antiAlias,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: 116,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        difficultyColor.withValues(alpha: 0.14),
+                        AppColors.accent.withValues(alpha: 0.08),
+                      ],
+                    ),
+                    border: Border(
+                      right: BorderSide(
+                        color: difficultyColor.withValues(alpha: 0.18),
+                      ),
+                    ),
+                  ),
+                  child: Center(
+                    child: LockedMovementMark(
+                      size: 72,
+                      accent: difficultyColor,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _DifficultyBadge(
+                          difficulty: difficulty,
+                          color: difficultyColor,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          MovementSpoilerCopy.lockedMovement,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.body.copyWith(
+                            color: context.elixTextPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (requiredLevel != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            MovementSpoilerCopy.unlocksAtLevel(requiredLevel),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

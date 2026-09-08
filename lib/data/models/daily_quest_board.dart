@@ -86,15 +86,8 @@ class DailyQuestBoard {
 // Dart-side source of truth for tier/category membership; only
 // firestore.rules (which cannot import Dart) needs its own copy, guarded by
 // the contract test.
-List<String> _idsWithTier(QuestTier tier) =>
-    questCatalog.where((q) => q.tier == tier).map((q) => q.id).toList();
-
 Set<String> _idsWithCategory(QuestCategory category) =>
     questCatalog.where((q) => q.category == category).map((q) => q.id).toSet();
-
-final _easyIds = _idsWithTier(QuestTier.easy);
-final _mediumIds = _idsWithTier(QuestTier.medium);
-final _hardIds = _idsWithTier(QuestTier.hard);
 
 final _sessionCountIds = _idsWithCategory(QuestCategory.sessionCount);
 final _durationIds = _idsWithCategory(QuestCategory.duration);
@@ -106,7 +99,20 @@ typedef _TierCombo = ({
   String hard,
 });
 
-List<_TierCombo>? _validCombosCache;
+final Map<int, List<_TierCombo>> _validCombosByLevel = {};
+
+/// Clamps a trainee level for board generation: below 1 behaves as Level 1,
+/// Level 16+ uses the full eligible pool.
+int effectiveQuestGenerationLevel(int currentLevel) {
+  if (currentLevel < 1) return 1;
+  if (currentLevel > 16) return 16;
+  return currentLevel;
+}
+
+List<String> _idsWithTierAtLevel(QuestTier tier, int level) => questCatalog
+    .where((q) => q.tier == tier && q.minimumLevel <= level)
+    .map((q) => q.id)
+    .toList();
 
 int _categoryConflictCount(List<String> ids, Set<String> category) =>
     ids.where(category.contains).length;
@@ -122,15 +128,19 @@ bool _isValidCombo(
       _categoryConflictCount(all, _scoreThresholdIds) <= 1;
 }
 
-List<_TierCombo> _buildValidCombos() {
+List<_TierCombo> _buildValidCombos({
+  required List<String> easyIds,
+  required List<String> mediumIds,
+  required List<String> hardIds,
+}) {
   final combos = <_TierCombo>[];
-  for (var i = 0; i < _easyIds.length; i++) {
-    for (var j = i + 1; j < _easyIds.length; j++) {
-      final easyPair = [_easyIds[i], _easyIds[j]];
-      for (var k = 0; k < _mediumIds.length; k++) {
-        for (var l = k + 1; l < _mediumIds.length; l++) {
-          final mediumPair = [_mediumIds[k], _mediumIds[l]];
-          for (final hard in _hardIds) {
+  for (var i = 0; i < easyIds.length; i++) {
+    for (var j = i + 1; j < easyIds.length; j++) {
+      final easyPair = [easyIds[i], easyIds[j]];
+      for (var k = 0; k < mediumIds.length; k++) {
+        for (var l = k + 1; l < mediumIds.length; l++) {
+          final mediumPair = [mediumIds[k], mediumIds[l]];
+          for (final hard in hardIds) {
             if (_isValidCombo(easyPair, mediumPair, hard)) {
               combos.add((
                 easyPair: easyPair,
@@ -146,7 +156,15 @@ List<_TierCombo> _buildValidCombos() {
   return combos;
 }
 
-List<_TierCombo> _validCombos() => _validCombosCache ??= _buildValidCombos();
+List<_TierCombo> _validCombosForLevel(int level) {
+  return _validCombosByLevel.putIfAbsent(level, () {
+    return _buildValidCombos(
+      easyIds: _idsWithTierAtLevel(QuestTier.easy, level),
+      mediumIds: _idsWithTierAtLevel(QuestTier.medium, level),
+      hardIds: _idsWithTierAtLevel(QuestTier.hard, level),
+    );
+  });
+}
 
 /// Deterministic, restart-safe 32-bit-masked djb2-style hash. Never uses
 /// `Object.hashCode` (not guaranteed stable across runs) or `dart:math`
@@ -160,21 +178,30 @@ int stableHash32(String input) {
 }
 
 /// Deterministically picks 5 quest ids for [userId] on the Manila calendar
-/// day identified by [dayKey]: exactly 2 easy + 2 medium + 1 hard, at most
-/// one quest per conflicting category (session count / duration / single
-/// score threshold), ordered so the first 3 are exactly one easy + one
-/// medium + one hard (the "active" slots) and the last 2 are the reserve
+/// day identified by [dayKey] at [currentLevel]: exactly 2 easy + 2 medium
+/// + 1 hard, at most one quest per conflicting category (session count /
+/// duration / single score threshold), ordered so the first 3 are exactly
+/// Easy → Medium → Hard (the "active" slots) and the last 2 are the reserve
 /// easy/medium (never an arbitrary rotation of the whole board).
 ///
-/// Same (userId, dayKey) always yields the same 5 ids, in the same order,
+/// Only quests whose [QuestDefinition.minimumLevel] is at or below the
+/// effective trainee level are candidates. Same (userId, dayKey,
+/// effective level) always yields the same 5 ids, in the same order,
 /// across restarts. Different users typically yield different boards on
 /// the same day.
 List<String> generateDailyQuestIds({
   required String userId,
   required String dayKey,
+  required int currentLevel,
 }) {
-  final combos = _validCombos();
-  final seed = '$userId|$dayKey';
+  final effectiveLevel = effectiveQuestGenerationLevel(currentLevel);
+  final combos = _validCombosForLevel(effectiveLevel);
+  if (combos.isEmpty) {
+    throw StateError(
+      'No valid daily quest board exists for level $effectiveLevel',
+    );
+  }
+  final seed = '$userId|$dayKey|$effectiveLevel';
   final comboIndex = stableHash32(seed) % combos.length;
   final combo = combos[comboIndex];
 

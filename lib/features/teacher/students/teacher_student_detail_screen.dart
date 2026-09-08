@@ -439,6 +439,7 @@ class _ProfileHighlights extends StatelessWidget {
             final movements = CompletedMovementsSection(
               movementNames:
                   controller.summary?.completedMovementNames ?? const [],
+              identityPolicy: CompletedMovementsIdentityPolicy.authorizedFull,
             );
             if (constraints.maxWidth < 760) {
               return Column(

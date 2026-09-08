@@ -96,11 +96,101 @@ class LeaderboardRepository {
   @visibleForTesting
   static void clearSyncInFlightForTest() => _syncInFlight.clear();
 
-  Stream<List<LeaderboardEntry>> watchTopPlayers({int limit = 10}) {
-    return _firestore
-        .collection(FirestoreCollections.leaderboard)
-        .orderBy('total_xp', descending: true)
-        .orderBy('best_score', descending: true)
+  static final Map<String, DateTime> _lastActiveWriteAt = {};
+  static final Map<String, Future<bool>> _lastActiveInFlight = {};
+
+  @visibleForTesting
+  static void clearLastActiveTouchForTest() {
+    _lastActiveWriteAt.clear();
+    _lastActiveInFlight.clear();
+  }
+
+  /// Updates `last_active_at` on the caller's existing leaderboard document.
+  ///
+  /// No-ops when the document does not exist, so login never creates a
+  /// zero-XP ranking row. Rate-limited to at most one successful write per
+  /// user per [LeaderboardPresencePolicy.minInterval]. Never mutates XP,
+  /// session, period, quest, identity, or cosmetic fields, and does not
+  /// touch `updated_at`.
+  Future<bool> touchLastActive({required String userId, DateTime? nowUtc}) {
+    final trimmed = userId.trim();
+    if (trimmed.isEmpty) return Future<bool>.value(false);
+
+    final existing = _lastActiveInFlight[trimmed];
+    if (existing != null) return existing;
+
+    final future = _touchLastActiveImpl(userId: trimmed, nowUtc: nowUtc)
+        .whenComplete(() {
+          _lastActiveInFlight.remove(trimmed);
+        });
+    _lastActiveInFlight[trimmed] = future;
+    return future;
+  }
+
+  Future<bool> _touchLastActiveImpl({
+    required String userId,
+    DateTime? nowUtc,
+  }) async {
+    final now = (nowUtc ?? DateTime.now()).toUtc();
+    final lastWrite = _lastActiveWriteAt[userId];
+    if (!LeaderboardPresencePolicy.shouldWrite(
+      documentExists: true,
+      nowUtc: now,
+      lastWriteUtc: lastWrite,
+    )) {
+      return false;
+    }
+
+    try {
+      final ref = _firestore
+          .collection(FirestoreCollections.leaderboard)
+          .doc(userId);
+      final snap = await ref.get();
+      final exists = snap.exists && snap.data() != null;
+      if (!LeaderboardPresencePolicy.shouldWrite(
+        documentExists: exists,
+        nowUtc: now,
+        lastWriteUtc: lastWrite,
+      )) {
+        // Rate-limit missing-document gets as well as successful writes so
+        // login/resume cannot poll Firestore every foreground event.
+        _lastActiveWriteAt[userId] = now;
+        return false;
+      }
+
+      await ref.update(
+        LeaderboardPresencePolicy.buildUpdate(FieldValue.serverTimestamp()),
+      );
+      _lastActiveWriteAt[userId] = now;
+      return true;
+    } on FirebaseException catch (error, stackTrace) {
+      if (error.code == 'not-found') {
+        _lastActiveWriteAt[userId] = now;
+        return false;
+      }
+      _logError('touchLastActive', error, stackTrace, userId: userId);
+      return false;
+    } catch (error, stackTrace) {
+      _logError('touchLastActive', error, stackTrace, userId: userId);
+      return false;
+    }
+  }
+
+  Stream<List<LeaderboardEntry>> watchTopPlayers({
+    int limit = 10,
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
+    DateTime? nowUtc,
+  }) {
+    final periodKey = period.keyFor((nowUtc ?? DateTime.now()).toUtc());
+    Query<Map<String, dynamic>> query = _firestore.collection(
+      FirestoreCollections.leaderboard,
+    );
+    if (periodKey != null) {
+      query = query.where(period.keyField!, isEqualTo: periodKey);
+    }
+    return query
+        .orderBy(period.xpField, descending: true)
+        .orderBy(period.bestScoreField, descending: true)
         .orderBy(FieldPath.documentId)
         .limit(limit)
         .snapshots()
@@ -109,7 +199,7 @@ class LeaderboardRepository {
               .map((doc) => LeaderboardEntry.tryFromMap(doc.data(), id: doc.id))
               .whereType<LeaderboardEntry>()
               .toList(growable: true);
-          sortLeaderboardEntries(entries);
+          sortLeaderboardEntries(entries, period: period);
           return List<LeaderboardEntry>.unmodifiable(entries);
         });
   }
@@ -779,6 +869,25 @@ class LeaderboardRepository {
       ' error=$error',
     );
     debugPrint('$stackTrace');
+  }
+}
+
+/// Client-side last-active write policy. Ranking fields are never included.
+abstract final class LeaderboardPresencePolicy {
+  static const Duration minInterval = Duration(minutes: 10);
+
+  static bool shouldWrite({
+    required bool documentExists,
+    required DateTime nowUtc,
+    DateTime? lastWriteUtc,
+  }) {
+    if (!documentExists) return false;
+    if (lastWriteUtc == null) return true;
+    return nowUtc.toUtc().difference(lastWriteUtc.toUtc()) >= minInterval;
+  }
+
+  static Map<String, dynamic> buildUpdate(Object serverTimestamp) {
+    return {'last_active_at': serverTimestamp};
   }
 }
 

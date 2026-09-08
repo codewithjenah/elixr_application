@@ -591,7 +591,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(find.byKey(const Key('teacher_activity_unread_filter')));
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('You are all caught up'), findsOneWidget);
