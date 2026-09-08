@@ -903,8 +903,15 @@ async function abandonTeacherActivityAttemptHandler(request, response, {
       if (!stateSnapshot.exists || stateSnapshot.get('active_attempt_id') !== body.attempt_id) {
         return {alreadyReleased: true};
       }
+      // A submission can commit before the document trigger clears the active
+      // lock. Never turn that historical submitted attempt back into a draft
+      // during this short window; only an active in-progress reservation is
+      // releasable. A consumed in-progress reservation remains releasable and
+      // its consumed_count is intentionally left untouched below.
       if (!attemptSnapshot.exists || attemptSnapshot.get('trainee_id') !== uid ||
           attemptSnapshot.get('assignment_id') !== body.assignment_id ||
+          attemptSnapshot.get('attempt_kind') !== 'teacher_review_submission' ||
+          attemptSnapshot.get('status') !== 'in_progress' ||
           !attemptSnapshot.get('activity_assessment_snapshot')) {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }

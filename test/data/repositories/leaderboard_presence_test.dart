@@ -73,6 +73,33 @@ void main() {
       );
     });
 
+    test('suppresses only a permission denial explained by a recent write', () {
+      expect(
+        LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
+          documentExists: true,
+          nowUtc: now,
+          persistedLastActiveAt: now.subtract(const Duration(minutes: 1)),
+        ),
+        isTrue,
+      );
+      expect(
+        LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
+          documentExists: true,
+          nowUtc: now,
+          persistedLastActiveAt: now.subtract(const Duration(minutes: 10)),
+        ),
+        isFalse,
+      );
+      expect(
+        LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
+          documentExists: false,
+          nowUtc: now,
+          persistedLastActiveAt: now.subtract(const Duration(minutes: 1)),
+        ),
+        isFalse,
+      );
+    });
+
     test('rate-limits repeated touches within 10 minutes', () {
       expect(
         LeaderboardPresencePolicy.shouldWrite(

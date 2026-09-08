@@ -2192,6 +2192,26 @@ test('consuming then abandoning keeps the finite attempt counted', async () => {
   assert.notEqual(recovered.body.attempt.id, reserved.body.attempt.id);
 });
 
+test('abandon never rewrites a submitted attempt while its active lock is pending cleanup', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const reserved = await invokeReserve(database, 'activity-open-1');
+  const attemptPath = `assignment_attempts/${reserved.body.attempt.id}`;
+  database.docs.set(attemptPath, {
+    ...database.docs.get(attemptPath),
+    status: 'submitted',
+  });
+
+  const response = await invokeAbandon(database, reserved.body.attempt.id);
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.body, {error: 'forbidden'});
+  assert.equal(database.docs.get(attemptPath).status, 'submitted');
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').active_attempt_id,
+    reserved.body.attempt.id,
+  );
+});
+
 test('Teacher Activity reservation stays exhausted after consumed attempts', async () => {
   const database = fakeTeacherActivityAttemptDatabase();
   for (const requestId of ['activity-open-1', 'activity-open-2']) {

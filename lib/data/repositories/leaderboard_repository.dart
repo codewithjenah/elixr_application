@@ -133,6 +133,9 @@ class LeaderboardRepository {
   }) async {
     final now = (nowUtc ?? DateTime.now()).toUtc();
     final lastWrite = _lastActiveWriteAt[userId];
+    final ref = _firestore
+        .collection(FirestoreCollections.leaderboard)
+        .doc(userId);
     if (!LeaderboardPresencePolicy.shouldWrite(
       documentExists: true,
       nowUtc: now,
@@ -142,9 +145,6 @@ class LeaderboardRepository {
     }
 
     try {
-      final ref = _firestore
-          .collection(FirestoreCollections.leaderboard)
-          .doc(userId);
       final snap = await ref.get();
       final data = snap.data();
       final exists = snap.exists && data != null;
@@ -175,10 +175,27 @@ class LeaderboardRepository {
         return false;
       }
       if (error.code == 'permission-denied') {
-        // Another valid write, or the persisted 10-minute guard, rejected
-        // this best-effort presence touch. Do not spam or affect XP.
-        _lastActiveWriteAt[userId] = now;
-        return false;
+        // A second process can update last_active_at after our document read
+        // and before update(). Suppress only that expected timing race; other
+        // permission failures still surface through the repository diagnostic.
+        try {
+          final afterDenied = await ref.get();
+          final persistedLastActiveAt =
+              LeaderboardPresencePolicy.persistedLastActiveAt(
+                afterDenied.data()?['last_active_at'],
+              );
+          if (LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
+            documentExists: afterDenied.exists,
+            nowUtc: now,
+            persistedLastActiveAt: persistedLastActiveAt,
+          )) {
+            _lastActiveWriteAt[userId] = now;
+            return false;
+          }
+        } on FirebaseException {
+          // Preserve the original denial below when its confirmation read is
+          // also rejected or unavailable.
+        }
       }
       _logError('touchLastActive', error, stackTrace, userId: userId);
       return false;
@@ -909,6 +926,19 @@ abstract final class LeaderboardPresencePolicy {
 
   static Map<String, dynamic> buildUpdate(Object serverTimestamp) {
     return {'last_active_at': serverTimestamp};
+  }
+
+  /// A presence update can race a valid update from another app instance. Once
+  /// the follow-up read observes a server timestamp inside the same interval,
+  /// the denial is expected. Other denials must remain diagnosable.
+  static bool shouldSuppressPermissionDenied({
+    required bool documentExists,
+    required DateTime nowUtc,
+    required DateTime? persistedLastActiveAt,
+  }) {
+    return documentExists &&
+        persistedLastActiveAt != null &&
+        nowUtc.toUtc().difference(persistedLastActiveAt.toUtc()) < minInterval;
   }
 
   static DateTime? _mostRecent(DateTime? left, DateTime? right) {
