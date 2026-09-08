@@ -3,8 +3,6 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
-import 'package:elixr_application/data/models/training_prop.dart';
-import 'package:elixr_application/features/assigned_movements/assigned_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/widgets/training_session_header.dart';
 import 'package:elixr_application/features/practice/widgets/training_session_panel.dart';
@@ -164,39 +162,6 @@ void main() {
     );
     final decoration = badge.decoration! as BoxDecoration;
     expect(decoration.boxShadow, isEmpty);
-  });
-
-  testWidgets('assigned practice prop picker uses compact editorial heading', (
-    tester,
-  ) async {
-    await _setSurface(tester, const Size(1100, 800));
-    await tester.pumpWidget(
-      _app(
-        AssignedPracticePropPicker(
-          movementName: 'Hand Stall',
-          selectedProp: TrainingProp.bottle,
-          supportedProps: const [TrainingProp.bottle, TrainingProp.shaker],
-          onPropChanged: (_) {},
-          onStart: () {},
-          onBack: () {},
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.byType(ElixEditorialHeader), findsOneWidget);
-    final editorial = tester.widget<ElixEditorialHeader>(
-      find.byType(ElixEditorialHeader),
-    );
-    expect(editorial.variant, ElixEditorialHeaderVariant.compact);
-
-    final heading = tester.widget<Text>(find.text('Hand Stall'));
-    expect(heading.style!.fontSize, 24);
-    expect(heading.style!.fontFamily, ElixTypography.fontFamily);
-
-    expect(find.text('Training prop'), findsOneWidget);
-    expect(find.text('Start guided practice'), findsOneWidget);
-    expect(find.text('Back'), findsOneWidget);
   });
 
   testWidgets('live practice elapsed readout uses metric type scale', (

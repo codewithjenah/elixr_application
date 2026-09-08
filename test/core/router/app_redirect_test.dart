@@ -46,6 +46,8 @@ AppRedirectState _state({
   bool hasCompletedLesson = true,
   int? currentLevel = 16,
   bool hasPendingGoogleProfile = false,
+  String? practiceProp = 'bottle',
+  String practiceMovement = 'Hand Stall',
 }) {
   return AppRedirectState(
     isLoading: isLoading,
@@ -55,9 +57,9 @@ AppRedirectState _state({
     location: location,
     hasPendingJoinCode: hasPendingJoinCode,
     tutorialInitialized: tutorialInitialized,
-    practiceMovement: 'Hand Stall',
+    practiceMovement: practiceMovement,
     practiceDifficulty: 'Easy',
-    practiceProp: 'bottle',
+    practiceProp: practiceProp,
     hasCompletedLesson: (_, _) => hasCompletedLesson,
     currentLevel: currentLevel,
     hasPendingGoogleProfile: hasPendingGoogleProfile,
@@ -484,6 +486,54 @@ void main() {
         ),
       ),
       '/learn/movement/Hand%20Stall?difficulty=Easy&prop=bottle',
+    );
+  });
+
+  test(
+    'trainee practice fails closed for missing or malformed exact props',
+    () {
+      for (final prop in <String?>[null, 'garbage']) {
+        expect(
+          resolveAppRedirect(
+            _state(
+              user: _trainee(),
+              location: AppRoutePaths.practice,
+              practiceProp: prop,
+            ),
+          ),
+          AppRoutePaths.movements,
+          reason: 'prop: $prop',
+        );
+      }
+    },
+  );
+
+  test('trainee practice fails closed for unsupported exact variants', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.practice,
+          practiceMovement: 'Normal Grip',
+          practiceProp: 'shaker',
+        ),
+      ),
+      AppRoutePaths.movements,
+    );
+  });
+
+  test('trainee practice preserves the exact Shaker lesson route', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.practice,
+          practiceProp: 'shaker',
+          hasCompletedLesson: false,
+          currentLevel: 16,
+        ),
+      ),
+      '/learn/movement/Hand%20Stall?difficulty=Easy&prop=shaker',
     );
   });
 

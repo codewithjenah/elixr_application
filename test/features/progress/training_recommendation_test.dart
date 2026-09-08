@@ -1,7 +1,9 @@
 import 'package:elixr_application/core/constants/movements.dart';
+import 'package:elixr_application/core/progression/practice_variant.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/progress/training_recommendation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -541,25 +543,25 @@ void main() {
       expect(mastery.recentAverageRubric, inInclusiveRange(0, 12));
     });
 
-    test('canRecommendPractice excludes ineligible movements from Start Practice', () {
-      final sessions = [
-        _session(
-          movementName: 'Normal Grip',
-          rubricTotal: 8,
-          createdAt: _iso(2026, 1, 1),
-        ),
-      ];
-      final result = buildTrainingRecommendation(
-        sessions: sessions,
-        movements: movementCatalog,
-        canRecommendPractice: (movement) => movement.name == 'Claw Grip',
-      );
-      expect(result.recommended.movement.name, 'Claw Grip');
-      expect(
-        result.reason,
-        isNot(contains('Complete an unlocked lesson')),
-      );
-    });
+    test(
+      'canRecommendPractice excludes ineligible movements from Start Practice',
+      () {
+        final sessions = [
+          _session(
+            movementName: 'Normal Grip',
+            rubricTotal: 8,
+            createdAt: _iso(2026, 1, 1),
+          ),
+        ];
+        final result = buildTrainingRecommendation(
+          sessions: sessions,
+          movements: movementCatalog,
+          canRecommendPractice: (movement) => movement.name == 'Claw Grip',
+        );
+        expect(result.recommended.movement.name, 'Claw Grip');
+        expect(result.reason, isNot(contains('Complete an unlocked lesson')));
+      },
+    );
 
     test('empty canRecommendPractice pool uses fallback copy', () {
       final result = buildTrainingRecommendation(
@@ -582,6 +584,49 @@ void main() {
       );
       expect(result.hasRunnablePractice, isTrue);
       expect(result.recommended.movement.name, 'Claw Grip');
+    });
+
+    test('retains the exact personally-ready Shaker variant', () {
+      final result = buildTrainingRecommendation(
+        sessions: const [],
+        movements: movementCatalog,
+        readyPracticeVariantFor: (movement) => movement.name == 'Hand Stall'
+            ? const PracticeVariant(
+                movementName: 'Hand Stall',
+                trainingProp: TrainingProp.shaker,
+              )
+            : null,
+      );
+
+      expect(result.recommended.movement.name, 'Hand Stall');
+      expect(result.recommendedVariant?.trainingProp, TrainingProp.shaker);
+    });
+
+    test('uses supported-prop order when more than one variant is ready', () {
+      final result = buildTrainingRecommendation(
+        sessions: const [],
+        movements: movementCatalog,
+        readyPracticeVariantFor: (movement) {
+          if (movement.name != 'Hand Stall') return null;
+          return PracticeVariant(
+            movementName: movement.name,
+            trainingProp: movement.supportedProps.first,
+          );
+        },
+      );
+
+      expect(result.recommendedVariant?.trainingProp, TrainingProp.bottle);
+    });
+
+    test('no ready variants exposes no runnable exact recommendation', () {
+      final result = buildTrainingRecommendation(
+        sessions: const [],
+        movements: movementCatalog,
+        readyPracticeVariantFor: (_) => null,
+      );
+
+      expect(result.hasRunnablePractice, isFalse);
+      expect(result.recommendedVariant, isNull);
     });
   });
 }

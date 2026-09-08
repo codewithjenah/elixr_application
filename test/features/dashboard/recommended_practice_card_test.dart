@@ -1,8 +1,10 @@
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/progression/practice_variant.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_hero.dart';
 import 'package:elixr_application/features/dashboard/widgets/recommended_practice_card.dart';
 import 'package:elixr_application/features/progress/training_recommendation.dart';
@@ -14,6 +16,10 @@ TrainingRecommendation _recommendationFor(List<Session> sessions) {
   return buildTrainingRecommendation(
     sessions: sessions,
     movements: movementCatalog,
+    readyPracticeVariantFor: (movement) => PracticeVariant(
+      movementName: movement.name,
+      trainingProp: movement.supportedProps.first,
+    ),
   );
 }
 
@@ -142,6 +148,10 @@ void main() {
           ),
         ],
         movements: movements,
+        readyPracticeVariantFor: (movement) => PracticeVariant(
+          movementName: movement.name,
+          trainingProp: TrainingProp.bottle,
+        ),
       );
 
       await tester.pumpWidget(
@@ -208,7 +218,7 @@ void main() {
       expect(navigated, hasLength(1));
       expect(
         navigated.single,
-        '/practice?movement=Normal%20Grip&difficulty=Easy',
+        '/practice?movement=Normal%20Grip&difficulty=Easy&prop=bottle',
       );
     });
 
@@ -332,7 +342,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         navigated.single,
-        '/practice?movement=Normal%20Grip&difficulty=Easy',
+        '/practice?movement=Normal%20Grip&difficulty=Easy&prop=bottle',
       );
 
       router.go('/dashboard');
@@ -423,22 +433,22 @@ void main() {
       final recommendation = _recommendationFor(const []);
       expect(
         DashboardHero.practiceRouteFor(recommendation),
-        '/practice?movement=Normal%20Grip&difficulty=Easy',
+        '/practice?movement=Normal%20Grip&difficulty=Easy&prop=bottle',
       );
       expect(DashboardHero.practiceRouteFor(null), '/movements');
     });
 
-    test('practiceRouteFor avoids practice when recommendation is not runnable', () {
-      final recommendation = buildTrainingRecommendation(
-        sessions: const [],
-        movements: movementCatalog,
-        canRecommendPractice: (_) => false,
-      );
-      expect(recommendation.hasRunnablePractice, isFalse);
-      expect(
-        DashboardHero.practiceRouteFor(recommendation),
-        '/movements',
-      );
-    });
+    test(
+      'practiceRouteFor avoids practice when recommendation is not runnable',
+      () {
+        final recommendation = buildTrainingRecommendation(
+          sessions: const [],
+          movements: movementCatalog,
+          canRecommendPractice: (_) => false,
+        );
+        expect(recommendation.hasRunnablePractice, isFalse);
+        expect(DashboardHero.practiceRouteFor(recommendation), '/movements');
+      },
+    );
   });
 }

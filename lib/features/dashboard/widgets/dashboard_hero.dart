@@ -48,10 +48,14 @@ class DashboardHero extends StatelessWidget {
 
   static String practiceRouteFor(TrainingRecommendation? recommendation) {
     final mastery = recommendation?.recommended;
-    if (mastery == null) return '/movements';
-    if (!recommendation!.hasRunnablePractice) return '/movements';
-    final encoded = Uri.encodeComponent(mastery.movement.name);
-    return '/practice?movement=$encoded&difficulty=${mastery.movement.difficulty}';
+    final variant = recommendation?.recommendedVariant;
+    if (mastery == null ||
+        variant == null ||
+        !recommendation!.hasRunnablePractice) {
+      return '/movements';
+    }
+    final encoded = Uri.encodeComponent(variant.movementName);
+    return '/practice?movement=$encoded&difficulty=${mastery.movement.difficulty}&prop=${variant.trainingProp.protocolValue}';
   }
 
   void _startRecommended(BuildContext context) {

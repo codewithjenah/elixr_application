@@ -9,7 +9,6 @@ import '../../core/constants/movements.dart';
 import '../../core/progression/assignment_prop_resolution.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assessment_mode.dart';
 import '../../data/models/assignment_attempt.dart';
@@ -374,62 +373,6 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
                 ),
               ),
       ),
-    );
-  }
-}
-
-/// Prop choice shown before official guided practice when more than one
-/// training prop is supported. Start still mounts [PracticeScreen].
-class AssignedPracticePropPicker extends StatelessWidget {
-  const AssignedPracticePropPicker({
-    super.key,
-    required this.movementName,
-    required this.selectedProp,
-    required this.supportedProps,
-    required this.onPropChanged,
-    required this.onStart,
-    required this.onBack,
-  });
-
-  final String movementName;
-  final TrainingProp selectedProp;
-  final List<TrainingProp> supportedProps;
-  final ValueChanged<TrainingProp> onPropChanged;
-  final VoidCallback onStart;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        ElixEditorialHeader(
-          heading: movementName,
-          variant: ElixEditorialHeaderVariant.compact,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        InfoLabel(
-          label: 'Training prop',
-          child: ComboBox<TrainingProp>(
-            value: selectedProp,
-            items: [
-              for (final prop in supportedProps)
-                ComboBoxItem(value: prop, child: Text(prop.displayLabel)),
-            ],
-            onChanged: (value) {
-              if (value == null) return;
-              onPropChanged(value);
-            },
-          ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        FilledButton(
-          onPressed: onStart,
-          child: const Text('Start guided practice'),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Button(onPressed: onBack, child: const Text('Back')),
-      ],
     );
   }
 }

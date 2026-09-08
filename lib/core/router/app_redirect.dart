@@ -32,7 +32,7 @@ class AppRedirectState {
   final bool tutorialInitialized;
   final String practiceMovement;
   final String practiceDifficulty;
-  final String practiceProp;
+  final String? practiceProp;
   final bool Function(String movement, TrainingProp prop) hasCompletedLesson;
 
   /// Already-resolved trainee level. Null means personal XP is still loading.
@@ -154,7 +154,8 @@ String? _redirectAuthenticatedTrainee({
 
   if (location == AppRoutePaths.practice) {
     final movement = state.practiceMovement;
-    final prop = TrainingProp.fromProtocolValue(state.practiceProp);
+    final prop = TrainingProp.tryParseStrict(state.practiceProp);
+    if (prop == null) return AppRoutePaths.movements;
     final variant = PracticeVariant(movementName: movement, trainingProp: prop);
     final access = evaluatePersonal(
       variant: variant,

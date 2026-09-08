@@ -113,13 +113,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final recommendation = buildTrainingRecommendation(
         sessions: sessions,
         movements: movementCatalog,
-        canRecommendPractice: (movement) {
+        readyPracticeVariantFor: (movement) {
           final progression = context.read<TraineeProgressionService>();
           final tutorials = context.read<TutorialProgressService>();
           if (!progression.isReady || !tutorials.isInitialized) {
-            return false;
+            return null;
           }
-          return movement.supportedProps.any((prop) {
+          for (final prop in movement.supportedProps) {
             final access = evaluatePersonal(
               variant: PracticeVariant(
                 movementName: movement.name,
@@ -131,8 +131,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 prop,
               ),
             );
-            return access == ProgressionAccessResult.personalReady;
-          });
+            if (access == ProgressionAccessResult.personalReady) {
+              return PracticeVariant(
+                movementName: movement.name,
+                trainingProp: prop,
+              );
+            }
+          }
+          return null;
         },
       );
       setState(() {

@@ -1155,8 +1155,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                     : 'TEACHER REVIEWED',
                 statusPillColor: AppColors.primarySoft,
                 instruction: assignment == null
-                    ? 'Follow the set, or freestyle — nothing is scored or '
-                          'locked.'
+                    ? 'Practice your unlocked movements in a continuous set. '
+                          'Playground sessions are not scored.'
                     : (assignment.instructions.isEmpty
                           ? 'Practice this Teacher Activity. Your Teacher reviews the recording.'
                           : assignment.instructions),

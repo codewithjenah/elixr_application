@@ -1,4 +1,5 @@
 import '../../core/constants/movements.dart';
+import '../../core/progression/practice_variant.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
@@ -59,6 +60,7 @@ class TrainingRecommendation {
     required this.reason,
     required this.masteries,
     this.hasRunnablePractice = true,
+    this.recommendedVariant,
   });
 
   final MovementMastery recommended;
@@ -71,6 +73,10 @@ class TrainingRecommendation {
   ///
   /// UI must not expose Start Practice / Practice this for a non-runnable target.
   final bool hasRunnablePractice;
+
+  /// Exact, already-authorized variant for the recommended practice CTA.
+  /// Null when no personally-ready variant is available.
+  final PracticeVariant? recommendedVariant;
 }
 
 const _difficultyOrder = <String, int>{'Easy': 0, 'Medium': 1, 'Hard': 2};
@@ -87,6 +93,7 @@ TrainingRecommendation buildTrainingRecommendation({
   required List<Session> sessions,
   required List<Movement> movements,
   bool Function(Movement movement)? canRecommendPractice,
+  PracticeVariant? Function(Movement movement)? readyPracticeVariantFor,
 }) {
   final enabledMovements = <({Movement movement, int catalogIndex})>[];
   for (var i = 0; i < movements.length; i++) {
@@ -110,14 +117,24 @@ TrainingRecommendation buildTrainingRecommendation({
       ),
   ];
 
-  final eligible = canRecommendPractice == null
+  final readyVariants = <MovementMastery, PracticeVariant>{};
+  for (final mastery in masteries) {
+    final variant = readyPracticeVariantFor?.call(mastery.movement);
+    if (variant != null) {
+      readyVariants[mastery] = variant;
+    }
+  }
+  final eligible = readyPracticeVariantFor != null
+      ? readyVariants.keys.toList()
+      : canRecommendPractice == null
       ? masteries
       : [
           for (final mastery in masteries)
             if (canRecommendPractice(mastery.movement)) mastery,
         ];
-  final hasRunnablePractice =
-      canRecommendPractice == null || eligible.isNotEmpty;
+  final hasRunnablePractice = readyPracticeVariantFor != null
+      ? eligible.isNotEmpty
+      : canRecommendPractice == null || eligible.isNotEmpty;
   final recommended = eligible.isEmpty
       ? masteries.first
       : _selectRecommendation(eligible, sessions.isEmpty);
@@ -130,6 +147,7 @@ TrainingRecommendation buildTrainingRecommendation({
     reason: reason,
     masteries: masteries,
     hasRunnablePractice: hasRunnablePractice,
+    recommendedVariant: readyVariants[recommended],
   );
 }
 
@@ -294,7 +312,10 @@ MovementMastery _selectRecommendation(
 MovementMastery _firstEnabledEasy(List<MovementMastery> masteries) {
   final easy = masteries.where((m) => m.movement.difficulty == 'Easy').toList()
     ..sort((a, b) => a.catalogIndex.compareTo(b.catalogIndex));
-  return easy.first;
+  if (easy.isNotEmpty) return easy.first;
+  final ordered = List<MovementMastery>.from(masteries)
+    ..sort(_compareMasteryPriority);
+  return ordered.first;
 }
 
 int _compareMasteryPriority(MovementMastery a, MovementMastery b) {

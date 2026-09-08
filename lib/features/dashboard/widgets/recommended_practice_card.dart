@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/progression/practice_variant.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../movements/movements_presentation.dart';
@@ -26,10 +27,10 @@ class RecommendedPracticeCard extends StatefulWidget {
 }
 
 class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
-  void _practiceNow(MovementMastery mastery) {
-    final encoded = Uri.encodeComponent(mastery.movement.name);
+  void _practiceNow(PracticeVariant variant, String difficulty) {
+    final encoded = Uri.encodeComponent(variant.movementName);
     context.go(
-      '/practice?movement=$encoded&difficulty=${mastery.movement.difficulty}',
+      '/practice?movement=$encoded&difficulty=$difficulty&prop=${variant.trainingProp.protocolValue}',
     );
   }
 
@@ -56,7 +57,9 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
     }
 
     final mastery = recommendation.recommended;
-    final runnable = recommendation.hasRunnablePractice;
+    final runnable =
+        recommendation.hasRunnablePractice &&
+        recommendation.recommendedVariant != null;
     final movement = mastery.movement;
     final accent = difficultyAccentColor(movement.difficulty);
     final statusLabel = masteryStatusLabel(mastery.status);
@@ -148,7 +151,10 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
               );
               final action = Button(
                 onPressed: runnable
-                    ? () => _practiceNow(mastery)
+                    ? () => _practiceNow(
+                        recommendation.recommendedVariant!,
+                        movement.difficulty,
+                      )
                     : _openMovements,
                 style: ButtonStyle(
                   padding: WidgetStateProperty.all(

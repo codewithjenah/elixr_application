@@ -86,9 +86,7 @@ class AppRouter {
                 state.uri.queryParameters['movement'] ?? 'Hand Stall',
             practiceDifficulty:
                 state.uri.queryParameters['difficulty'] ?? 'Easy',
-            practiceProp: TrainingProp.fromProtocolValue(
-              state.uri.queryParameters['prop'],
-            ).protocolValue,
+            practiceProp: state.uri.queryParameters['prop'],
             hasCompletedLesson: tutorialProgress.hasCompletedLesson,
             currentLevel: traineeProgression.currentLevelOrNull,
             hasPendingGoogleProfile: authService.hasPendingGoogleProfile,
@@ -158,14 +156,19 @@ class AppRouter {
         ),
         GoRoute(
           path: AppRoutePaths.practice,
+          redirect: (context, state) =>
+              TrainingProp.tryParseStrict(state.uri.queryParameters['prop']) ==
+                  null
+              ? AppRoutePaths.movements
+              : null,
           pageBuilder: (context, state) {
             final movement =
                 state.uri.queryParameters['movement'] ?? 'Hand Stall';
             final difficulty =
                 state.uri.queryParameters['difficulty'] ?? 'Easy';
-            final prop = TrainingProp.fromProtocolValue(
+            final prop = TrainingProp.tryParseStrict(
               state.uri.queryParameters['prop'],
-            );
+            )!;
             return fadeTransitionPage(
               key: ValueKey(
                 'practice:$movement|$difficulty|${prop.protocolValue}',
@@ -282,13 +285,20 @@ class AppRouter {
             ),
             GoRoute(
               path: '/learn/movement/:movementName',
+              redirect: (context, state) =>
+                  TrainingProp.tryParseStrict(
+                        state.uri.queryParameters['prop'],
+                      ) ==
+                      null
+                  ? AppRoutePaths.learn
+                  : null,
               pageBuilder: (context, state) {
                 final movement = state.pathParameters['movementName'] ?? '';
                 final difficulty =
                     state.uri.queryParameters['difficulty'] ?? 'Easy';
-                final prop = TrainingProp.fromProtocolValue(
+                final prop = TrainingProp.tryParseStrict(
                   state.uri.queryParameters['prop'],
-                );
+                )!;
                 final assignmentId = state.uri.queryParameters['assignmentId']
                     ?.trim();
                 return fadeTransitionPage(
