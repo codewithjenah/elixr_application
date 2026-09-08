@@ -64,7 +64,9 @@ void main() {
   testWidgets('trainee sidebar identifies the trainee workspace', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    // A 960px-tall Windows window can be roughly this logical height under
+    // common display scaling. The slogan must not be gated out at this size.
+    await tester.binding.setSurfaceSize(const Size(1280, 760));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final auth = AuthService(
@@ -91,6 +93,7 @@ void main() {
 
     expect(find.text('Trainee Workspace'), findsOneWidget);
     expect(find.text('Flair Training'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }
 

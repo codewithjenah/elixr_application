@@ -1,5 +1,3 @@
-import 'package:elixr_application/core/constants/app_colors.dart';
-import 'package:elixr_application/core/constants/app_constants.dart';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
@@ -9,6 +7,7 @@ import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/repositories/progress_repository.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_hero.dart';
+import 'package:elixr_application/features/dashboard/widgets/dashboard_header.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_top_performance.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_training_overview.dart';
 import 'package:elixr_application/features/dashboard/widgets/recommended_practice_card.dart';
@@ -135,19 +134,10 @@ Widget _app(
   );
 }
 
-TextSpan _headlineSpan(WidgetTester tester, String plain) {
-  final heading = tester.widget<Text>(
-    find.byWidgetPredicate(
-      (widget) => widget is Text && widget.textSpan?.toPlainText() == plain,
-    ),
-  );
-  return heading.textSpan! as TextSpan;
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('trainee hero keeps the tagline on one smaller desktop line', (
+  testWidgets('trainee hero promotes today recommended movement', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -168,46 +158,20 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(ElixEditorialHeader), findsOneWidget);
-    expect(
-      find.text(AppConstants.appTagline, findRichText: true),
-      findsOneWidget,
-    );
-    expect(find.text('Good Morning, Ada', findRichText: true), findsOneWidget);
-    expect(
-      find.text('Build consistency, one movement at a time.'),
-      findsOneWidget,
-    );
+    expect(find.text('✦  PRACTICE TODAY'), findsOneWidget);
+    expect(find.text('Master'), findsOneWidget);
+    expect(find.text('Normal Grip'), findsOneWidget);
+    expect(find.text('Build control. Move with confidence.'), findsOneWidget);
     expect(find.text('3 sessions completed'), findsOneWidget);
-
-    final span = _headlineSpan(tester, AppConstants.appTagline);
-    expect(span.style!.fontSize, 44);
-    expect(span.style!.color, Colors.white);
-    expect((span.children!.last as TextSpan).style!.color, AppColors.primary);
-    expect(
-      tester
-          .widget<Text>(
-            find.byWidgetPredicate(
-              (widget) =>
-                  widget is Text &&
-                  widget.textSpan?.toPlainText() == AppConstants.appTagline,
-            ),
-          )
-          .maxLines,
-      1,
+    expect(find.byKey(const ValueKey('dashboard-hero-slogan')), findsOneWidget);
+    final heroSlogan = tester.widget<Image>(
+      find.byKey(const ValueKey('dashboard-hero-slogan')),
     );
-
-    final greeting = tester.widget<RichText>(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is RichText &&
-            widget.text.toPlainText() == 'Good Morning, Ada',
-      ),
-    );
-    expect(greeting.text.style!.fontSize, 16);
+    expect((heroSlogan.image as AssetImage).assetName, 'assets/slogan_2.png');
+    expect(heroSlogan.fit, BoxFit.contain);
   });
 
-  testWidgets('trainee hero uses a smaller compact one-line headline', (
+  testWidgets('trainee hero remains overflow-free at compact width', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 800));
@@ -229,21 +193,11 @@ void main() {
     );
     await tester.pump();
 
-    final span = _headlineSpan(tester, AppConstants.appTagline);
-    expect(span.style!.fontSize, 36);
-    expect(
-      tester
-          .widget<Text>(
-            find.byWidgetPredicate(
-              (widget) =>
-                  widget is Text &&
-                  widget.textSpan?.toPlainText() == AppConstants.appTagline,
-            ),
-          )
-          .maxLines,
-      1,
-    );
+    expect(find.text('Master'), findsOneWidget);
+    expect(find.text('Normal Grip'), findsOneWidget);
     expect(find.text('1 session completed'), findsOneWidget);
+    expect(find.byKey(const ValueKey('dashboard-hero-slogan')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('high contrast trainee hero drops banner art', (tester) async {
@@ -267,8 +221,61 @@ void main() {
     await tester.pump();
 
     expect(find.byType(Image), findsNothing);
-    expect(find.byType(ElixEditorialHeader), findsOneWidget);
+    expect(find.text('Master'), findsOneWidget);
+    expect(find.text('Normal Grip'), findsOneWidget);
     expect(find.text('Start Recommended Practice'), findsOneWidget);
+  });
+
+  testWidgets('dashboard header separates welcome copy from quick actions', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    await tester.pumpWidget(
+      _app(
+        const SizedBox(
+          width: 1100,
+          child: DashboardHeader(firstName: 'Ada', greeting: 'Good Morning'),
+        ),
+      ),
+    );
+
+    expect(find.text('Good Morning, Ada 👋'), findsOneWidget);
+    expect(
+      find.text('Keep going. Every pour builds a better you.'),
+      findsOneWidget,
+    );
+    expect(find.text('Search movements or lessons…'), findsOneWidget);
+    expect(find.byIcon(FluentIcons.ringer), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('dashboard-header-slogan')),
+      findsOneWidget,
+    );
+    final headerSlogan = tester.widget<Image>(
+      find.byKey(const ValueKey('dashboard-header-slogan')),
+    );
+    expect((headerSlogan.image as AssetImage).assetName, 'assets/slogan_1.png');
+  });
+
+  testWidgets('dashboard header keeps the slogan in a narrowed workspace', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(420, 600));
+    await tester.pumpWidget(
+      _app(
+        const SizedBox(
+          width: 420,
+          child: DashboardHeader(firstName: 'Ada', greeting: 'Good Morning'),
+        ),
+        size: const Size(420, 600),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('dashboard-header-slogan')),
+      findsOneWidget,
+    );
+    expect(find.text('Search movements or lessons…'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('training overview numbers use the large metric scale', (

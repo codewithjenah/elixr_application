@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../movements/movements_presentation.dart';
@@ -68,57 +69,147 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
         children: [
           const ElixEyebrow(label: "COACH'S FOCUS"),
           const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      movement.name,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: context.elixTextPrimary,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 520;
+              final recommendationCopy = Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.13),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.26),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
+                    child: const Icon(
+                      FluentIcons.bullseye_target,
+                      size: 21,
+                      color: AppColors.primarySoft,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _InfoChip(label: movement.difficulty, color: accent),
-                        _InfoChip(
-                          label: statusLabel,
-                          color: context.elixTextSecondary,
+                        Text(
+                          movement.name,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: context.elixTextPrimary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        _InfoChip(
-                          label: 'Recent: $recentLabel',
-                          color: context.elixTextSecondary,
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _InfoChip(
+                              label: movement.difficulty,
+                              color: accent,
+                            ),
+                            _InfoChip(
+                              label: statusLabel,
+                              color: context.elixTextSecondary,
+                            ),
+                            _InfoChip(
+                              label: 'Recent: $recentLabel',
+                              color: context.elixTextSecondary,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          recommendation.reason,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: context.elixTextSecondary,
+                            height: 1.35,
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      recommendation.reason,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.elixTextSecondary,
-                        height: 1.35,
+                  ),
+                ],
+              );
+              final action = Button(
+                onPressed: () => _practiceNow(mastery),
+                style: ButtonStyle(
+                  padding: WidgetStateProperty.all(
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  ),
+                  backgroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.isHovered) {
+                      return AppColors.primary.withValues(alpha: 0.20);
+                    }
+                    return AppColors.primary.withValues(alpha: 0.10);
+                  }),
+                  shape: WidgetStateProperty.all(
+                    RoundedRectangleBorder(
+                      side: BorderSide(
+                        color: AppColors.primary.withValues(alpha: 0.72),
                       ),
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Practice this'),
+                    SizedBox(width: 8),
+                    Icon(FluentIcons.chevron_right, size: 11),
                   ],
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              HyperlinkButton(
-                onPressed: () => _practiceNow(mastery),
-                child: const Text('Practice this'),
-              ),
-            ],
+              );
+
+              if (compact) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    recommendationCopy,
+                    const SizedBox(height: 12),
+                    action,
+                  ],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: recommendationCopy),
+                  const SizedBox(width: AppSpacing.md),
+                  if (constraints.maxWidth >= 760) ...[
+                    Container(
+                      width: 1,
+                      height: 72,
+                      color: context.elixBorder.withValues(alpha: 0.65),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: 176,
+                      child: Text(
+                        '“Small steps create big progress.”',
+                        textAlign: TextAlign.center,
+                        style: AppTheme.supporting(
+                          color: context.elixTextSecondary,
+                        ).copyWith(fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                  ],
+                  action,
+                ],
+              );
+            },
           ),
         ],
       ),

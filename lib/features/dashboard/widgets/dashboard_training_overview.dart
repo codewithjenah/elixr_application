@@ -87,10 +87,10 @@ class DashboardTrainingOverview extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (var i = 0; i < metrics.length; i++) ...[
-                        if (i > 0) const _MetricDivider(vertical: true),
+                        if (i > 0) const SizedBox(width: 10),
                         Expanded(
                           flex: metrics[i].flexibleValue ? 14 : 10,
-                          child: _MetricZone(data: metrics[i]),
+                          child: _MetricZone(data: metrics[i], boxed: true),
                         ),
                       ],
                     ],
@@ -177,9 +177,10 @@ class _MetricDivider extends StatelessWidget {
 }
 
 class _MetricZone extends StatelessWidget {
-  const _MetricZone({required this.data});
+  const _MetricZone({required this.data, this.boxed = false});
 
   final _MetricData data;
+  final bool boxed;
 
   @override
   Widget build(BuildContext context) {
@@ -188,8 +189,26 @@ class _MetricZone extends StatelessWidget {
         ? AppTheme.cardTitle(color: context.elixTextPrimary)
         : AppTheme.metric(context, color: context.elixTextPrimary);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: boxed ? 13 : 4,
+        vertical: boxed ? 12 : 2,
+      ),
+      decoration: boxed
+          ? BoxDecoration(
+              color: context.isHighContrast
+                  ? context.elixCardSurface
+                  : Colors.white.withValues(
+                      alpha: context.isDarkTheme ? 0.025 : 0.55,
+                    ),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: context.isHighContrast
+                    ? context.elixBorder
+                    : data.accent.withValues(alpha: 0.17),
+              ),
+            )
+          : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

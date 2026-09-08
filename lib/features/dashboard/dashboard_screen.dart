@@ -21,6 +21,7 @@ import '../trainee/activity_center/trainee_activity_controller.dart';
 import '../progress/training_recommendation.dart';
 import '../training/training_view.dart';
 import 'widgets/dashboard_calendar_card.dart';
+import 'widgets/dashboard_header.dart';
 import 'widgets/dashboard_panel_card.dart';
 import 'widgets/dashboard_hero.dart';
 import 'widgets/dashboard_leaderboard.dart';
@@ -250,8 +251,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     final mainColumn = _MainColumn(
-      firstName: firstName,
-      greeting: _timeGreeting(),
       stats: _stats,
       sessionsThisWeek: _sessionsThisWeek,
       weeklyTrendPercent: _weeklyTrendPercent,
@@ -287,27 +286,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= _wideBreakpoint;
-                    if (wide) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: mainColumn),
-                          const SizedBox(width: 18),
-                          SizedBox(width: _railWidth, child: rightRail),
-                        ],
-                      );
-                    }
-                    return Column(
-                      children: [
-                        mainColumn,
-                        const SizedBox(height: 18),
-                        rightRail,
-                      ],
-                    );
-                  },
+                child: Column(
+                  children: [
+                    DashboardHeader(
+                      firstName: firstName,
+                      greeting: _timeGreeting(),
+                    ),
+                    const SizedBox(height: 20),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final wide = constraints.maxWidth >= _wideBreakpoint;
+                        if (wide) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: mainColumn),
+                              const SizedBox(width: 18),
+                              SizedBox(width: _railWidth, child: rightRail),
+                            ],
+                          );
+                        }
+                        return Column(
+                          children: [
+                            mainColumn,
+                            const SizedBox(height: 18),
+                            rightRail,
+                          ],
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -320,8 +328,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 class _MainColumn extends StatelessWidget {
   const _MainColumn({
-    required this.firstName,
-    required this.greeting,
     required this.stats,
     required this.sessionsThisWeek,
     required this.weeklyTrendPercent,
@@ -332,8 +338,6 @@ class _MainColumn extends StatelessWidget {
     this.profilePictureUrl,
   });
 
-  final String firstName;
-  final String greeting;
   final ProgressStats? stats;
   final int sessionsThisWeek;
   final int? weeklyTrendPercent;
@@ -349,8 +353,6 @@ class _MainColumn extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         DashboardHero(
-          firstName: firstName,
-          greeting: greeting,
           sessionCount: stats?.totalSessions ?? 0,
           recommendation: trainingRecommendation,
         ),

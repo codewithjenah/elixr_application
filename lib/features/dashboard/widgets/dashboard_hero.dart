@@ -2,10 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
-import '../../../core/widgets/elix_editorial_header.dart';
 import '../../progress/training_recommendation.dart';
 
 const _pink = AppColors.primary;
@@ -17,14 +15,16 @@ const _pink = AppColors.primary;
 class DashboardHero extends StatelessWidget {
   const DashboardHero({
     super.key,
-    required this.firstName,
-    required this.greeting,
+    this.firstName,
+    this.greeting,
     required this.sessionCount,
     required this.recommendation,
   });
 
-  final String firstName;
-  final String greeting;
+  /// Retained for source compatibility; the greeting now lives in the
+  /// dashboard header so the hero can focus on the recommended movement.
+  final String? firstName;
+  final String? greeting;
   final int sessionCount;
   final TrainingRecommendation? recommendation;
 
@@ -67,6 +67,9 @@ class DashboardHero extends StatelessWidget {
     return 'Practice $name';
   }
 
+  String get _movementName =>
+      recommendation?.recommended.movement.name ?? 'Normal Grip';
+
   /// Prefer the named practice label when it fits; otherwise use the short fallback.
   String _primaryLabelFor(double contentWidth) {
     final full = _fullPrimaryLabel;
@@ -83,6 +86,7 @@ class DashboardHero extends StatelessWidget {
     final highContrast = context.isHighContrast;
     return LayoutBuilder(
       builder: (context, constraints) {
+        final showSlogan = constraints.maxWidth >= 900 && !highContrast;
         final minImageLedHeight = (constraints.maxWidth / _bannerWidthToHeight)
             .clamp(_minImageLedHeight, _maxBannerHeight);
 
@@ -144,8 +148,33 @@ class DashboardHero extends StatelessWidget {
                     ),
                   ),
                 ],
+                if (showSlogan)
+                  Positioned(
+                    right: 18,
+                    top: 62,
+                    height: 154,
+                    width: 194,
+                    child: Semantics(
+                      image: true,
+                      label: 'Discipline creates freedom',
+                      child: Image.asset(
+                        'assets/slogan_2.png',
+                        key: const ValueKey('dashboard-hero-slogan'),
+                        // Contain keeps the full three-line artwork visible;
+                        // cover would crop the first and last letters.
+                        fit: BoxFit.contain,
+                        alignment: Alignment.center,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ),
+                  ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(28, 26, 28, 26),
+                  padding: EdgeInsets.fromLTRB(
+                    28,
+                    26,
+                    showSlogan ? 226 : 28,
+                    26,
+                  ),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final contentWidth = constraints.maxWidth;
@@ -165,58 +194,58 @@ class DashboardHero extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              RichText(
-                                text: TextSpan(
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    height: 1.2,
-                                    fontWeight: FontWeight.w600,
-                                    color: onPhoto
-                                        ? const Color(0xB3FFFFFF)
-                                        : context.elixTextSecondary,
+                              Text(
+                                '✦  PRACTICE TODAY',
+                                style: AppTheme.eyebrow(
+                                  color: onPhoto
+                                      ? AppColors.primarySoft
+                                      : context.elixColors.brandPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 7),
+                              Text(
+                                'Master',
+                                style: AppTheme.pageTitle(
+                                  context,
+                                  color: onPhoto
+                                      ? Colors.white
+                                      : context.elixTextPrimary,
+                                ).copyWith(height: 1),
+                              ),
+                              const SizedBox(height: 2),
+                              if (highContrast)
+                                Text(
+                                  _movementName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTheme.pageTitle(
+                                    context,
+                                    color: context.elixTextPrimary,
+                                  ).copyWith(height: 1.05),
+                                )
+                              else
+                                ShaderMask(
+                                  blendMode: BlendMode.srcIn,
+                                  shaderCallback: (bounds) =>
+                                      const LinearGradient(
+                                        colors: [
+                                          AppColors.primary,
+                                          AppColors.accentSoft,
+                                        ],
+                                      ).createShader(bounds),
+                                  child: Text(
+                                    _movementName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTheme.pageTitle(
+                                      context,
+                                      color: Colors.white,
+                                    ).copyWith(height: 1.05),
                                   ),
-                                  children: [
-                                    TextSpan(text: '$greeting, '),
-                                    TextSpan(
-                                      text: firstName,
-                                      style: TextStyle(
-                                        color: onPhoto
-                                            ? AppColors.primarySoft.withValues(
-                                                alpha: 0.92,
-                                              )
-                                            : context.elixColors.brandPrimary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerLeft,
-                                child: ElixEditorialHeader(
-                                  heading: AppConstants.appTaglineHeading,
-                                  accentHeading:
-                                      AppConstants.appTaglineAccentHeading,
-                                  variant: ElixEditorialHeaderVariant.hero,
-                                  headingColor: onPhoto ? Colors.white : null,
-                                  headingTextStyle:
-                                      AppTheme.displayHero(
-                                        context,
-                                        color: onPhoto ? Colors.white : null,
-                                      ).copyWith(
-                                        fontSize:
-                                            ElixTypography.isCompact(context)
-                                            ? 36
-                                            : 44,
-                                      ),
-                                  headingMaxLines: 1,
-                                ),
-                              ),
                               const SizedBox(height: 8),
                               Text(
-                                'Build consistency, one movement at a time.',
+                                'Build control. Move with confidence.',
                                 style: TextStyle(
                                   fontSize: 13,
                                   height: 1.35,
@@ -225,9 +254,9 @@ class DashboardHero extends StatelessWidget {
                                       : context.elixTextSecondary,
                                 ),
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 11),
                               _SessionStatusChip(sessionCount: sessionCount),
-                              const SizedBox(height: 17),
+                              const SizedBox(height: 20),
                               _HeroCtaRow(
                                 inline: inlineCtas,
                                 stretchWhenStacked: stretchStacked,
@@ -307,38 +336,15 @@ class _SessionStatusChip extends StatelessWidget {
 
   final int sessionCount;
 
-  String get _label {
-    final unit = sessionCount == 1 ? 'session' : 'sessions';
-    return '$sessionCount $unit completed';
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            FluentIcons.timer,
-            size: 11,
-            color: Colors.white.withValues(alpha: 0.72),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            _label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.78),
-            ),
-          ),
-        ],
+    final unit = sessionCount == 1 ? 'session' : 'sessions';
+    return Text(
+      '$sessionCount $unit completed',
+      style: TextStyle(
+        fontSize: 10.5,
+        fontWeight: FontWeight.w600,
+        color: Colors.white.withValues(alpha: 0.68),
       ),
     );
   }
