@@ -213,26 +213,31 @@ class SettingsStatusBanner extends StatelessWidget {
     super.key,
     required this.message,
     this.isError = true,
+    this.isSuccess = false,
   });
 
   final String message;
   final bool isError;
+  final bool isSuccess;
 
   @override
   Widget build(BuildContext context) {
     final color = isError
         ? context.elixColors.error
+        : isSuccess
+        ? context.elixColors.success
         : context.elixColors.warning;
+    final icon = isError
+        ? FluentIcons.error_badge
+        : isSuccess
+        ? FluentIcons.completed_solid
+        : FluentIcons.warning;
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.sm),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            isError ? FluentIcons.error_badge : FluentIcons.warning,
-            size: 14,
-            color: color,
-          ),
+          Icon(icon, size: 14, color: color),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(

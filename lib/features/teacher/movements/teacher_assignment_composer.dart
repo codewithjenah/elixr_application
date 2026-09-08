@@ -383,6 +383,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   late final TextEditingController _safetyGuidanceController;
   late final TextEditingController _topicController;
   late final TextEditingController _rosterSearchController;
+  late final TextEditingController _materialLinkController;
+  late final TextEditingController _materialLinkNameController;
   final _editorScrollController = ScrollController();
   late ElixrGroup? _selectedGroup;
   late Movement? _selectedOfficialMovement;
@@ -424,7 +426,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   TeacherActivityVideoMetadata? _demonstrationVideo;
   List<_CustomCriterionDraft> _customCriteria = [];
   final List<_QueuedMaterialDraft> _queuedMaterials = [];
+  List<ActivityLearningMaterial> _persistedMaterials = const [];
+  final Set<String> _materialsMarkedForRemoval = <String>{};
+  bool _loadingPersistedMaterials = false;
+  String? _persistedMaterialsError;
   GroupAssignment? _createdAssignment;
+  GroupAssignment? _savedEditAssignment;
 
   bool get _isEditing => widget.existingAssignment != null;
   GroupAssignment? get _editingAssignment => widget.existingAssignment;
@@ -433,9 +440,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _editingAssignment!.isTeacherCreated &&
       _editingAssignment!.activityAssessment != null &&
       !_editingAssignment!.gradingLocked;
-  String? get _persistedAssignmentId =>
-      _editingAssignment?.id ?? _createdAssignment?.id;
-
   bool get _hasMovementOverride =>
       _isEditing ||
       widget.officialMovement != null ||
@@ -625,6 +629,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     );
     _topicController = TextEditingController(text: existing?.topic ?? '');
     _rosterSearchController = TextEditingController();
+    _materialLinkController = TextEditingController();
+    _materialLinkNameController = TextEditingController();
     _selectedGroup = existing == null
         ? widget.lockedGroup ?? _firstActiveGroup()
         : _groupFor(existing) ?? widget.lockedGroup ?? _firstActiveGroup();
@@ -653,6 +659,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _maxScoreController.text = '${existing.maxScore ?? 100}';
       _initializeEditAssessment(existing);
       if (_audienceType.isTargeted) unawaited(_watchRosterForSelectedGroup());
+      unawaited(_loadPersistedMaterials());
       return;
     }
     if (_classroomScoped) {
@@ -870,6 +877,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
     _topicController.dispose();
     _rosterSearchController.dispose();
+    _materialLinkController.dispose();
+    _materialLinkNameController.dispose();
     _editorScrollController.dispose();
     super.dispose();
   }
@@ -1123,7 +1132,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const SizedBox(height: AppSpacing.md),
           const _AutomaticScoringCard(),
         ],
-        if (!_isEditing &&
+        if ((!_isEditing || _canEditTeacherActivity) &&
             ((_isTeacherCreated && _hasValidTeacherMovement) ||
                 _selectedOfficialMovement != null)) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -1337,15 +1346,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   Widget _buildLearningMaterials(BuildContext context) {
     final repository = widget.materialRepository;
-    final assignmentId = _persistedAssignmentId;
-    if (_isEditing && repository != null && assignmentId != null) {
-      return ActivityLearningMaterialsPanel(
-        key: const Key('teacher_assignment_persisted_materials'),
-        assignmentId: assignmentId,
-        repository: repository,
-        filePicker: widget.materialFilePicker,
-      );
-    }
     if (repository == null) {
       return Text(
         'Learning materials are unavailable right now.',
@@ -1358,29 +1358,107 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          _createdAssignment == null
-              ? 'Add links or files now. They will be saved when this assignment is created.'
+          _isEditing
+              ? 'Add, replace, or remove supporting resources. Changes are saved with this assignment.'
+              : _createdAssignment == null
+              ? 'Add optional links or files now. They will be saved when this assignment is created.'
               : 'This assignment was created. Resolve any remaining materials before leaving.',
           style: AppTheme.bodySecondary.copyWith(
             color: context.elixTextSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
-        Button(
-          key: const Key('teacher_assignment_add_material'),
-          onPressed: _submitting ? null : _showAddQueuedMaterialMenu,
-          child: const Text('Add material'),
+        _ComposerField(
+          label: 'PDF / file',
+          hint:
+              'Optional · PDF, image, or MP4 video within the existing size limits.',
+          child: Button(
+            key: const Key('teacher_assignment_choose_material_file'),
+            onPressed: _submitting ? null : _queueFile,
+            child: const Text('Choose PDF / file'),
+          ),
         ),
+        const SizedBox(height: AppSpacing.md),
+        _ComposerField(
+          label: 'Resource link',
+          hint: 'Optional · paste a supported HTTP or HTTPS link.',
+          child: TextBox(
+            key: const Key('teacher_assignment_material_link_url'),
+            controller: _materialLinkController,
+            enabled: !_submitting,
+            placeholder: 'https://example.com/resource',
+            onChanged: (_) => setState(() => _validationError = null),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _ComposerField(
+          label: 'Link label',
+          hint: 'Optional · a short label helps trainees know what to open.',
+          child: Row(
+            children: [
+              Expanded(
+                child: TextBox(
+                  key: const Key('teacher_assignment_material_link_name'),
+                  controller: _materialLinkNameController,
+                  enabled: !_submitting,
+                  maxLength: 120,
+                  placeholder: 'For example: Grip guide',
+                  onChanged: (_) => setState(() => _validationError = null),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Button(
+                key: const Key('teacher_assignment_add_material_link'),
+                onPressed: _submitting ? null : _queueLink,
+                child: const Text('Add link'),
+              ),
+            ],
+          ),
+        ),
+        if (_isEditing && _loadingPersistedMaterials) ...[
+          const SizedBox(height: AppSpacing.md),
+          const ProgressRing(),
+        ],
+        if (_isEditing && _persistedMaterialsError != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          _InlineMaterialError(
+            message: _persistedMaterialsError!,
+            onRetry: _submitting ? null : _loadPersistedMaterials,
+          ),
+        ],
+        if (_isEditing &&
+            !_loadingPersistedMaterials &&
+            _persistedMaterialsError == null &&
+            _persistedMaterials.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text('Current materials', style: AppTheme.body),
+          for (final material in _persistedMaterials)
+            _PersistedMaterialRow(
+              material: material,
+              markedForRemoval: _materialsMarkedForRemoval.contains(
+                material.id,
+              ),
+              enabled: !_submitting,
+              onRemove: () =>
+                  setState(() => _materialsMarkedForRemoval.add(material.id)),
+              onRestore: () => setState(
+                () => _materialsMarkedForRemoval.remove(material.id),
+              ),
+            ),
+        ],
         if (_queuedMaterials.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
+          Text('New materials', style: AppTheme.body),
           for (final material in _queuedMaterials)
             _QueuedMaterialRow(
               material: material,
               canRemove: !_submitting && !material.isPersisted,
               onRemove: () => setState(() => _queuedMaterials.remove(material)),
             ),
-        ] else ...[
-          const SizedBox(height: AppSpacing.sm),
+        ] else if ((!_isEditing || _persistedMaterials.isEmpty) &&
+            !_loadingPersistedMaterials &&
+            _persistedMaterialsError == null) ...[
+          const SizedBox(height: AppSpacing.md),
           Text(
             'No materials added yet.',
             style: AppTheme.bodySecondary.copyWith(
@@ -1392,140 +1470,22 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     );
   }
 
-  Future<void> _showAddQueuedMaterialMenu() async {
-    final type = await showDialog<ActivityLearningMaterialType>(
-      context: context,
-      builder: (dialogContext) => ContentDialog(
-        title: const Text('Add material'),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Choose a supporting file or a safe web link.'),
-              const SizedBox(height: AppSpacing.sm),
-              for (final type in ActivityLearningMaterialType.values)
-                Button(
-                  onPressed: () => Navigator.pop(dialogContext, type),
-                  child: Row(
-                    children: [
-                      Icon(activityLearningMaterialIcon(type), size: 16),
-                      const SizedBox(width: AppSpacing.sm),
-                      Text(activityLearningMaterialTypeLabel(type)),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          Button(
-            key: const Key('teacher_assignment_cancel_add_material'),
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || type == null) return;
-    if (type == ActivityLearningMaterialType.link) {
-      await _showQueueLinkDialog();
-    } else {
-      await _queueFile(type);
-    }
-  }
-
-  Future<void> _showQueueLinkDialog() async {
-    final name = TextEditingController();
-    final url = TextEditingController();
-    String? error;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => ContentDialog(
-          title: const Text('Add link'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InfoLabel(
-                  label: 'Display name',
-                  child: TextBox(
-                    key: const Key('teacher_assignment_material_link_name'),
-                    controller: name,
-                    maxLength: 120,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                InfoLabel(
-                  label: 'URL',
-                  child: TextBox(
-                    key: const Key('teacher_assignment_material_link_url'),
-                    controller: url,
-                    placeholder: 'https://example.com',
-                  ),
-                ),
-                if (error != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    error!,
-                    style: AppTheme.caption.copyWith(color: AppColors.error),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            Button(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: const Key('teacher_assignment_confirm_material_link'),
-              onPressed: () {
-                final parsed = Uri.tryParse(url.text.trim());
-                if (name.text.trim().isEmpty ||
-                    parsed == null ||
-                    !parsed.hasAuthority ||
-                    (parsed.scheme != 'http' && parsed.scheme != 'https') ||
-                    parsed.userInfo.isNotEmpty) {
-                  setDialogState(
-                    () => error = 'Enter a name and an HTTP or HTTPS URL.',
-                  );
-                  return;
-                }
-                setState(
-                  () => _queuedMaterials.add(
-                    _QueuedMaterialDraft.link(
-                      displayName: name.text.trim(),
-                      url: parsed,
-                    ),
-                  ),
-                );
-                Navigator.pop(dialogContext);
-              },
-              child: const Text('Add link'),
-            ),
-          ],
-        ),
-      ),
-    );
-    name.dispose();
-    url.dispose();
-  }
-
-  Future<void> _queueFile(ActivityLearningMaterialType type) async {
-    final config = activityLearningMaterialFileConfig(type);
+  Future<void> _queueFile() async {
     final selected = await widget.materialFilePicker(
-      acceptedTypeGroups: [config.group],
+      acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'Learning materials',
+          extensions: ['pdf', 'jpg', 'jpeg', 'png', 'mp4'],
+        ),
+      ],
     );
     if (!mounted || selected == null) return;
     try {
       final file = File(selected.path);
       final stat = await file.stat();
       final lowerName = selected.name.toLowerCase();
+      final type = _materialTypeForFileName(lowerName);
+      final config = activityLearningMaterialFileConfig(type);
       if (stat.type != FileSystemEntityType.file || stat.size < 1) {
         throw const FormatException('Choose a non-empty file.');
       }
@@ -1538,6 +1498,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         throw FormatException(
           '${activityLearningMaterialTypeLabel(type)} files must be ${activityLearningMaterialSizeLabel(config.maximumBytes)} or smaller.',
         );
+      }
+      if (_queuedMaterials.any(
+        (item) => item.file?.path.toLowerCase() == file.path.toLowerCase(),
+      )) {
+        throw const FormatException('That file is already queued.');
       }
       setState(
         () => _queuedMaterials.add(
@@ -1558,6 +1523,83 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       setState(() => _validationError = error.message);
     } on FileSystemException {
       setState(() => _validationError = 'The selected file could not be read.');
+    }
+  }
+
+  ActivityLearningMaterialType _materialTypeForFileName(String fileName) {
+    for (final type in const [
+      ActivityLearningMaterialType.pdf,
+      ActivityLearningMaterialType.image,
+      ActivityLearningMaterialType.video,
+    ]) {
+      if (activityLearningMaterialFileConfig(
+        type,
+      ).extensions.any((extension) => fileName.endsWith('.$extension'))) {
+        return type;
+      }
+    }
+    throw const FormatException('Choose a supported PDF, image, or MP4 file.');
+  }
+
+  void _queueLink() {
+    final parsed = Uri.tryParse(_materialLinkController.text.trim());
+    if (parsed == null ||
+        !parsed.hasAuthority ||
+        (parsed.scheme != 'http' && parsed.scheme != 'https') ||
+        parsed.userInfo.isNotEmpty) {
+      setState(
+        () => _validationError = 'Enter a valid HTTP or HTTPS resource link.',
+      );
+      return;
+    }
+    if (_queuedMaterials.any((item) => item.url == parsed)) {
+      setState(
+        () => _validationError = 'That resource link is already queued.',
+      );
+      return;
+    }
+    final label = _materialLinkNameController.text.trim();
+    setState(() {
+      _queuedMaterials.add(
+        _QueuedMaterialDraft.link(
+          displayName: label.isEmpty ? _defaultLinkLabel(parsed) : label,
+          url: parsed,
+        ),
+      );
+      _materialLinkController.clear();
+      _materialLinkNameController.clear();
+      _validationError = null;
+    });
+  }
+
+  String _defaultLinkLabel(Uri url) {
+    final segments = url.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .toList(growable: false);
+    return segments.isEmpty ? url.host : segments.last;
+  }
+
+  Future<void> _loadPersistedMaterials() async {
+    final repository = widget.materialRepository;
+    final assignmentId = _editingAssignment?.id;
+    if (!_isEditing || repository == null || assignmentId == null) return;
+    setState(() {
+      _loadingPersistedMaterials = true;
+      _persistedMaterialsError = null;
+    });
+    try {
+      final materials = await repository.list(assignmentId: assignmentId);
+      if (!mounted) return;
+      setState(() {
+        _persistedMaterials = materials;
+        _loadingPersistedMaterials = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingPersistedMaterials = false;
+        _persistedMaterialsError = 'Learning materials could not be loaded.';
+      });
     }
   }
 
@@ -2732,13 +2774,16 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _validationError = null;
     });
     try {
-      if (assignment.isTeacherCreated && _customizeActivity) {
+      final savedAssignment = _savedEditAssignment;
+      if (savedAssignment == null &&
+          assignment.isTeacherCreated &&
+          _customizeActivity) {
         final assessment = _activityAssessment;
         final requiredProp = assignment.allowedProp;
         if (assessment == null || requiredProp == null) {
           throw const ClassroomException(ClassroomError.invalidState);
         }
-        await widget.creationService.assignmentRepository
+        _savedEditAssignment = await widget.creationService.assignmentRepository
             .updateTeacherActivityAssignment(
               teacherId: widget.teacherId,
               assignmentId: assignment.id,
@@ -2753,8 +2798,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               attemptPolicy: _attemptPolicy,
               requiredProp: requiredProp,
             );
-      } else {
-        await widget.creationService.assignmentRepository
+      } else if (savedAssignment == null) {
+        _savedEditAssignment = await widget.creationService.assignmentRepository
             .updateAssignmentSettings(
               teacherId: widget.teacherId,
               assignmentId: assignment.id,
@@ -2764,6 +2809,17 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                   : null,
               topic: _topicController.text.trim(),
             );
+      }
+      final materialsSaved = await _persistQueuedMaterials(assignment.id);
+      final removalsSaved = await _removeMarkedMaterials(assignment.id);
+      if (!materialsSaved || !removalsSaved) {
+        if (!mounted) return;
+        setState(() {
+          _submitting = false;
+          _validationError =
+              'Assignment changes were saved, but some learning material changes need to be retried.';
+        });
+        return;
       }
       if (pageContext.mounted) Navigator.pop(pageContext, true);
     } on ClassroomException catch (error) {
@@ -2782,6 +2838,30 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         });
       }
     }
+  }
+
+  Future<bool> _removeMarkedMaterials(String assignmentId) async {
+    final repository = widget.materialRepository;
+    if (_materialsMarkedForRemoval.isEmpty) return true;
+    if (repository == null) return false;
+    final removals = _materialsMarkedForRemoval.toList(growable: false);
+    var allRemoved = true;
+    for (final materialId in removals) {
+      try {
+        await repository.remove(
+          assignmentId: assignmentId,
+          materialId: materialId,
+        );
+        _materialsMarkedForRemoval.remove(materialId);
+        _persistedMaterials = _persistedMaterials
+            .where((material) => material.id != materialId)
+            .toList(growable: false);
+      } catch (_) {
+        allRemoved = false;
+      }
+    }
+    if (mounted) setState(() {});
+    return allRemoved;
   }
 }
 
@@ -2845,13 +2925,15 @@ class _QueuedMaterialRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final detail = switch (material.status) {
-      _QueuedMaterialStatus.queued =>
-        'Queued — saves when the assignment is created',
+    final status = switch (material.status) {
+      _QueuedMaterialStatus.queued => 'Queued — saves with this assignment',
       _QueuedMaterialStatus.saving => 'Saving…',
       _QueuedMaterialStatus.persisted => 'Saved',
       _QueuedMaterialStatus.failed => material.message ?? 'Could not be saved.',
     };
+    final metadata = material.type == ActivityLearningMaterialType.link
+        ? material.url.toString()
+        : '${activityLearningMaterialTypeLabel(material.type)} · ${activityLearningMaterialSizeLabel(material.sizeBytes)}';
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.xs),
       child: Container(
@@ -2870,7 +2952,7 @@ class _QueuedMaterialRow extends StatelessWidget {
                 children: [
                   Text(material.displayName, overflow: TextOverflow.ellipsis),
                   Text(
-                    detail,
+                    '$metadata · $status',
                     style: AppTheme.caption.copyWith(
                       color: material.status == _QueuedMaterialStatus.failed
                           ? AppColors.error
@@ -2889,6 +2971,92 @@ class _QueuedMaterialRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PersistedMaterialRow extends StatelessWidget {
+  const _PersistedMaterialRow({
+    required this.material,
+    required this.markedForRemoval,
+    required this.enabled,
+    required this.onRemove,
+    required this.onRestore,
+  });
+
+  final ActivityLearningMaterial material;
+  final bool markedForRemoval;
+  final bool enabled;
+  final VoidCallback onRemove;
+  final VoidCallback onRestore;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: AppSpacing.xs),
+    child: Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: context.elixCardSurface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: markedForRemoval
+              ? context.elixColors.warning
+              : context.elixBorder,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(activityLearningMaterialIcon(material.type), size: 16),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(material.displayName, overflow: TextOverflow.ellipsis),
+                Text(
+                  markedForRemoval
+                      ? 'Will be removed when you save changes'
+                      : '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}',
+                  style: AppTheme.caption.copyWith(
+                    color: markedForRemoval
+                        ? context.elixColors.warning
+                        : context.elixTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Button(
+            onPressed: enabled
+                ? (markedForRemoval ? onRestore : onRemove)
+                : null,
+            child: Text(markedForRemoval ? 'Keep' : 'Remove'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _InlineMaterialError extends StatelessWidget {
+  const _InlineMaterialError({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function()? onRetry;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          message,
+          style: AppTheme.caption.copyWith(color: AppColors.error),
+        ),
+      ),
+      Button(
+        onPressed: onRetry == null ? null : () => unawaited(onRetry!()),
+        child: const Text('Retry'),
+      ),
+    ],
+  );
 }
 
 class _CustomCriterionDraft {

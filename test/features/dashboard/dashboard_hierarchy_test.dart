@@ -609,6 +609,8 @@ void main() {
       expect(find.text('Students'), findsOneWidget);
       expect(find.text('Pending requests'), findsOneWidget);
       expect(find.text('Your classrooms'), findsOneWidget);
+      expect(find.text('Needs attention'), findsOneWidget);
+      expect(find.text('Recent activity'), findsOneWidget);
       expect(find.text('No pending requests'), findsOneWidget);
       expect(find.text('Open classroom'), findsOneWidget);
       expect(find.textContaining('roster'), findsNothing);

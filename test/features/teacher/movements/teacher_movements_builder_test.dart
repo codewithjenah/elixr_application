@@ -635,6 +635,25 @@ void main() {
       tester.getTopLeft(find.text('Normal Grip')).dy,
       closeTo(tester.getTopLeft(find.text('Claw Grip')).dy, 1),
     );
+    expect(
+      tester
+          .getTopLeft(
+            find.byKey(
+              const Key('teacher_movement_assign_official_Normal Grip'),
+            ),
+          )
+          .dy,
+      closeTo(
+        tester
+            .getTopLeft(
+              find.byKey(
+                const Key('teacher_movement_assign_official_Claw Grip'),
+              ),
+            )
+            .dy,
+        1,
+      ),
+    );
   });
 
   testWidgets('keyboard focus gives an Official ELIXR card a visible border', (
@@ -681,8 +700,17 @@ void main() {
     for (final step in lesson.steps) {
       expect(find.text(step), findsOneWidget);
     }
+    final dialog = tester.widget<ContentDialog>(find.byType(ContentDialog));
+    expect(dialog.constraints.maxWidth, greaterThan(1200));
+    expect(
+      find.descendant(
+        of: find.byType(ContentDialog),
+        matching: find.byType(ScrollConfiguration),
+      ),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.text('Close'));
+    await tester.tap(find.byKey(const Key('teacher_movement_guide_close')));
     await tester.pumpAndSettle();
     expect(find.text('Normal Grip guide'), findsNothing);
   });
@@ -737,38 +765,10 @@ void main() {
       find.byKey(const Key('teacher_movement_guide_Normal Grip')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Close'));
+    await tester.tap(find.byKey(const Key('teacher_movement_guide_close')));
     await tester.pumpAndSettle();
 
     expect(tutorials.completeLessonCalls, 0);
-  });
-
-  testWidgets('guide Assign to class opens the shared assignment composer', (
-    tester,
-  ) async {
-    groups.seedGroup(
-      const ElixrGroup(
-        id: 'active-guide-group',
-        teacherId: 'teacher-1',
-        name: 'Active Class',
-        status: ElixrGroupStatus.active,
-      ),
-    );
-    await pumpScreen(tester);
-    await tester.tap(
-      find.byKey(const Key('teacher_movement_guide_Normal Grip')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const Key('teacher_movement_guide_assign_Normal Grip')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const Key('teacher_assignment_movement_title')),
-      findsOneWidget,
-    );
-    expect(find.text('Normal Grip'), findsAtLeastNWidgets(1));
   });
 
   testWidgets(
@@ -841,7 +841,36 @@ void main() {
     expect(find.byKey(const Key('teacher_assignment_max_score')), findsNothing);
   });
 
-  testWidgets('Official ELIXR card lifts on hover', (tester) async {
+  testWidgets('Teacher Activity actions use a consistent primary hierarchy', (
+    tester,
+  ) async {
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'Balance the tin upright.',
+      requiredProp: TrainingProp.bottle,
+    );
+    await pumpScreen(tester);
+    await tester.tap(find.text('My activities').last);
+    await tester.pumpAndSettle();
+
+    final edit = find.text('Edit');
+    final delete = find.text('Delete');
+    final assign = find.byKey(
+      Key('teacher_movement_assign_custom_${movement.id}'),
+    );
+    expect(tester.getCenter(edit).dy, closeTo(tester.getCenter(delete).dy, 1));
+    expect(
+      tester.getCenter(delete).dx - tester.getCenter(edit).dx,
+      lessThan(150),
+    );
+    expect(tester.getCenter(assign).dy, greaterThan(tester.getCenter(edit).dy));
+    expect(tester.getRect(assign).width, greaterThan(200));
+  });
+
+  testWidgets('Official ELIXR card uses a simple hover highlight', (
+    tester,
+  ) async {
     await pumpScreen(tester);
     final title = find.text('Normal Grip');
     final before = tester.getTopLeft(title);
@@ -852,7 +881,7 @@ void main() {
     await mouse.moveTo(tester.getCenter(title));
     await tester.pumpAndSettle();
 
-    expect(tester.getTopLeft(title).dy, lessThan(before.dy));
+    expect(tester.getTopLeft(title).dy, before.dy);
   });
 
   testWidgets('Official ELIXR hover does not lift when motion is reduced', (

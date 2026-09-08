@@ -48,7 +48,7 @@ class TeacherAnalyticsSummary extends StatelessWidget {
               else ...[
                 _SummaryMetrics(snapshot: snapshot),
                 if (snapshot != null) ...[
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.md),
                   _DashboardCharts(snapshot: snapshot),
                 ],
               ],
@@ -121,43 +121,11 @@ class _DashboardCharts extends StatelessWidget {
   final AnalyticsSnapshot snapshot;
 
   @override
-  Widget build(BuildContext context) {
-    final charts = [
-      _AnalyticsChartPanel(
-        title: 'Score progress',
-        description: 'Average practice score over time.',
-        child: _ScoreProgressChart(buckets: snapshot.trendBuckets),
-      ),
-      _AnalyticsChartPanel(
-        title: 'Practice by classroom',
-        description: 'Practice sessions recorded this week.',
-        child: _PracticeByClassroomChart(
-          comparisons: snapshot.groupComparisons,
-        ),
-      ),
-    ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= 760) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: charts[0]),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(child: charts[1]),
-            ],
-          );
-        }
-        return Column(
-          children: [
-            charts[0],
-            const SizedBox(height: AppSpacing.md),
-            charts[1],
-          ],
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => _AnalyticsChartPanel(
+    title: 'Score progress',
+    description: 'Average practice score over time.',
+    child: _ScoreProgressChart(buckets: snapshot.trendBuckets),
+  );
 }
 
 class _AnalyticsChartPanel extends StatelessWidget {
@@ -191,7 +159,7 @@ class _AnalyticsChartPanel extends StatelessWidget {
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.md),
-        SizedBox(height: 190, child: child),
+        SizedBox(height: 132, child: child),
       ],
     ),
   );
@@ -273,107 +241,6 @@ class _ScoreProgressChart extends StatelessWidget {
   }
 }
 
-class _PracticeByClassroomChart extends StatelessWidget {
-  const _PracticeByClassroomChart({required this.comparisons});
-
-  final List<GroupComparison> comparisons;
-
-  @override
-  Widget build(BuildContext context) {
-    final active = comparisons
-        .where((comparison) => comparison.sessionCount > 0)
-        .toList(growable: false);
-    if (active.isEmpty) {
-      return _ChartEmptyState(message: 'No practice activity yet.');
-    }
-    final highest = active.fold<int>(
-      0,
-      (current, comparison) =>
-          current > comparison.sessionCount ? current : comparison.sessionCount,
-    );
-    final maxY = ((highest + 3) ~/ 4 * 4).toDouble();
-    final labelInterval = active.length > 4 ? (active.length / 4).ceil() : 1;
-    return Semantics(
-      label: _practiceChartSummary(active),
-      child: BarChart(
-        BarChartData(
-          minY: 0,
-          maxY: maxY,
-          alignment: BarChartAlignment.spaceAround,
-          gridData: _horizontalGrid(context),
-          borderData: FlBorderData(show: false),
-          barTouchData: BarTouchData(
-            touchTooltipData: BarTouchTooltipData(
-              getTooltipColor: (_) => context.elixPanelSurface,
-              getTooltipItem: (group, _, rod, _) {
-                final comparison = active[group.x];
-                return BarTooltipItem(
-                  '${comparison.group.name}\n${comparison.sessionCount} sessions',
-                  TextStyle(
-                    color: context.elixTextPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                );
-              },
-            ),
-          ),
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 28,
-                interval: maxY <= 8 ? 2 : (maxY / 4).ceilToDouble(),
-                getTitlesWidget: (value, _) =>
-                    _AxisLabel(value.toInt().toString()),
-              ),
-            ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 36,
-                getTitlesWidget: (value, _) {
-                  final index = value.toInt();
-                  if (index < 0 || index >= active.length) {
-                    return const SizedBox.shrink();
-                  }
-                  if (index % labelInterval != 0 &&
-                      index != active.length - 1) {
-                    return const SizedBox.shrink();
-                  }
-                  return _AxisLabel(_shortLabel(active[index].group.name));
-                },
-              ),
-            ),
-          ),
-          barGroups: [
-            for (var index = 0; index < active.length; index++)
-              BarChartGroupData(
-                x: index,
-                barRods: [
-                  BarChartRodData(
-                    toY: active[index].sessionCount.toDouble(),
-                    color: context.elixColors.brandSecondary,
-                    width: active.length > 8 ? 12 : 20,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(4),
-                    ),
-                  ),
-                ],
-              ),
-          ],
-        ),
-        duration: Duration.zero,
-      ),
-    );
-  }
-}
-
 FlGridData _horizontalGrid(BuildContext context) => FlGridData(
   drawVerticalLine: false,
   getDrawingHorizontalLine: (_) =>
@@ -440,9 +307,6 @@ String _scoreChartSummary(List<AnalyticsTrendBucket> buckets) {
       ? 'Score progress chart. No scored practice yet.'
       : 'Score progress chart on a 0 to 12 scale. ${values.join('; ')}.';
 }
-
-String _practiceChartSummary(List<GroupComparison> comparisons) =>
-    'Practice by classroom chart. ${comparisons.map((comparison) => '${comparison.group.name}: ${comparison.sessionCount} sessions').join('; ')}.';
 
 class _ChartEmptyState extends StatelessWidget {
   const _ChartEmptyState({required this.message});
@@ -515,12 +379,6 @@ class _SummaryMetrics extends StatelessWidget {
         color: context.elixColors.milestone,
       ),
       _SummaryMetricData(
-        label: 'Practice per student',
-        value: snapshot?.averagePracticeSessions?.toStringAsFixed(1) ?? '—',
-        icon: FluentIcons.repeat_all,
-        color: context.elixColors.brandSecondary,
-      ),
-      _SummaryMetricData(
         label: 'Assignments completed',
         value: snapshot?.completionRate == null
             ? '—'
@@ -528,18 +386,10 @@ class _SummaryMetrics extends StatelessWidget {
         icon: FluentIcons.completed,
         color: context.elixColors.success,
       ),
-      _SummaryMetricData(
-        label: 'Change from last week',
-        value: snapshot?.improvement == null
-            ? '—'
-            : _signed(snapshot!.improvement!),
-        icon: FluentIcons.trending12,
-        color: _changeColor(context, snapshot?.improvement),
-      ),
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720;
+        final wide = constraints.maxWidth >= 460;
         final children = [
           for (final value in values) _SummaryMetric(data: value),
         ];
@@ -547,19 +397,19 @@ class _SummaryMetrics extends StatelessWidget {
           return Row(
             children: [
               for (var index = 0; index < children.length; index++) ...[
-                if (index > 0) const SizedBox(width: AppSpacing.lg),
+                if (index > 0) const SizedBox(width: AppSpacing.md),
                 Expanded(child: children[index]),
               ],
             ],
           );
         }
         return Wrap(
-          spacing: AppSpacing.lg,
+          spacing: AppSpacing.md,
           runSpacing: AppSpacing.md,
           children: [
             for (final child in children)
               ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 160, maxWidth: 260),
+                constraints: const BoxConstraints(minWidth: 160, maxWidth: 280),
                 child: child,
               ),
           ],
@@ -570,13 +420,6 @@ class _SummaryMetrics extends StatelessWidget {
 
   static String _score(double? value) =>
       value == null ? '—' : '${value.toStringAsFixed(1)} / 12';
-  static String _signed(double value) =>
-      '${value >= 0 ? '+' : ''}${value.toStringAsFixed(1)}';
-
-  static Color _changeColor(BuildContext context, double? value) {
-    if (value == null) return context.elixTextSecondary;
-    return value >= 0 ? context.elixColors.success : context.elixColors.error;
-  }
 }
 
 class _SummaryMetricData {
@@ -602,7 +445,7 @@ class _SummaryMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     return Container(
-      constraints: const BoxConstraints(minHeight: 102),
+      constraints: const BoxConstraints(minHeight: 72),
       padding: const EdgeInsets.all(AppSpacing.sm),
       decoration: BoxDecoration(
         color: highContrast
@@ -615,7 +458,7 @@ class _SummaryMetric extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(data.icon, size: 16, color: data.color),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm),
           Text(
             data.value,
             style: AppTheme.cardTitle(color: context.elixTextPrimary),

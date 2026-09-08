@@ -184,6 +184,24 @@ void main() {
     expect(find.byIcon(FluentIcons.cancel), findsOneWidget);
   });
 
+  testWidgets('Teacher Settings hosts the shared About and Contact pages', (
+    tester,
+  ) async {
+    await pumpSettings(tester, initialSection: SettingsSection.about);
+
+    expect(find.text('Jenah Ambagan'), findsOneWidget);
+    expect(find.text('Venice Bumagat'), findsOneWidget);
+    expect(find.text('Practice'), findsNothing);
+
+    await tester.tap(find.text('Contact & Feedback'));
+    await tester.pump();
+
+    expect(find.text('elixr.org@gmail.com'), findsOneWidget);
+    expect(find.text('Report a bug'), findsNWidgets(2));
+    expect(find.text('Send feedback'), findsNWidgets(2));
+    expect(find.text('Practice'), findsNothing);
+  });
+
   testWidgets('Teacher can select and clear any available profile frame', (
     tester,
   ) async {

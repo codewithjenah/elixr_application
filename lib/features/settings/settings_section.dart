@@ -1,7 +1,15 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 /// Top-level Settings navigation sections.
-enum SettingsSection { accountProfile, security, appearance, practice, privacy }
+enum SettingsSection {
+  accountProfile,
+  security,
+  appearance,
+  practice,
+  privacy,
+  about,
+  contactFeedback,
+}
 
 /// Which role the Settings surface is being shown for.
 enum SettingsAudience { trainee, teacher }
@@ -19,6 +27,8 @@ List<SettingsSection> settingsSectionsFor(SettingsAudience audience) {
       SettingsSection.security,
       SettingsSection.appearance,
       SettingsSection.privacy,
+      SettingsSection.about,
+      SettingsSection.contactFeedback,
     ],
   };
 }
@@ -49,6 +59,8 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => 'Appearance',
     SettingsSection.practice => 'Practice',
     SettingsSection.privacy => 'Privacy',
+    SettingsSection.about => 'About',
+    SettingsSection.contactFeedback => 'Contact & Feedback',
   };
 
   String get description => switch (this) {
@@ -61,6 +73,9 @@ extension SettingsSectionX on SettingsSection {
       'Camera, mirroring, Live Practice setlist, pace, and music.',
     SettingsSection.privacy =>
       'Control who can see your detailed player profile activity.',
+    SettingsSection.about => 'Learn about ELIXR and the team behind it.',
+    SettingsSection.contactFeedback =>
+      'Report issues, share feedback, or contact the ELIXR team.',
   };
 
   IconData get icon => switch (this) {
@@ -69,5 +84,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => FluentIcons.color,
     SettingsSection.practice => FluentIcons.video,
     SettingsSection.privacy => FluentIcons.shield,
+    SettingsSection.about => FluentIcons.info,
+    SettingsSection.contactFeedback => FluentIcons.mail,
   };
 }

@@ -11,6 +11,7 @@ import 'package:elixr_application/data/repositories/profile_image_repository.dar
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/settings/settings_screen.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
+import 'package:elixr_application/features/settings/sections/contact_feedback_section.dart';
 import 'package:elixr_application/features/settings/widgets/practice_preferences_controller.dart';
 import 'package:elixr_application/features/settings/widgets/profile_frame_selector.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -217,6 +218,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  SettingsScreen settingsScreen(SettingsSection initialSection) {
+    return SettingsScreen(
+      initialSection: initialSection,
+      watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+      watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+      equipBorder: ({required userId, required borderId}) async =>
+          const EquipBorderResult.alreadyEquipped(),
+    );
+  }
+
   testWidgets('wide layout shows sidebar and section content', (tester) async {
     await setSurface(tester, const Size(1400, 900));
 
@@ -239,6 +250,8 @@ void main() {
     expect(find.text('Account & Profile'), findsOneWidget);
     expect(find.text('Security'), findsWidgets);
     expect(find.text('Practice'), findsOneWidget);
+    expect(find.text('About'), findsOneWidget);
+    expect(find.text('Contact & Feedback'), findsOneWidget);
     expect(find.text('Teacher Access'), findsNothing);
     expect(find.text('TRAINEE WORKSPACE'), findsOneWidget);
   });
@@ -289,12 +302,14 @@ void main() {
     expect(find.text('Update password'), findsOneWidget);
   });
 
-  test('teacher audience omits Practice and Teacher Access', () {
+  test('section lists and parsing include About and Contact & Feedback', () {
     expect(settingsSectionsFor(SettingsAudience.teacher), [
       SettingsSection.accountProfile,
       SettingsSection.security,
       SettingsSection.appearance,
       SettingsSection.privacy,
+      SettingsSection.about,
+      SettingsSection.contactFeedback,
     ]);
     expect(
       settingsSectionsFor(SettingsAudience.trainee),
@@ -308,11 +323,16 @@ void main() {
       SettingsSection.accountProfile,
     );
     expect(tryParseSettingsSection('privacy'), SettingsSection.privacy);
+    expect(tryParseSettingsSection('about'), SettingsSection.about);
+    expect(
+      tryParseSettingsSection('contactFeedback'),
+      SettingsSection.contactFeedback,
+    );
     expect(tryParseSettingsSection('nope'), isNull);
   });
 
   testWidgets(
-    'teacher audience shows Account, Security, Appearance, Privacy only',
+    'teacher audience shows the shared About and Contact pages without Practice',
     (tester) async {
       await setSurface(tester, const Size(1400, 900));
 
@@ -337,6 +357,8 @@ void main() {
       expect(find.text('Security'), findsWidgets);
       expect(find.text('Appearance'), findsWidgets);
       expect(find.text('Privacy'), findsWidgets);
+      expect(find.text('About'), findsOneWidget);
+      expect(find.text('Contact & Feedback'), findsOneWidget);
       expect(find.text('Practice'), findsNothing);
       expect(find.text('Teacher Access'), findsNothing);
       expect(find.text('TEACHER WORKSPACE'), findsOneWidget);
@@ -353,6 +375,94 @@ void main() {
       expect(find.textContaining('practice session'), findsNothing);
     },
   );
+
+  testWidgets('About content is available at wide and narrow Settings widths', (
+    tester,
+  ) async {
+    for (final size in [const Size(1400, 900), const Size(720, 600)]) {
+      await setSurface(tester, size);
+      await tester.pumpWidget(wrap(settingsScreen(SettingsSection.about)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Jenah Ambagan'), findsOneWidget);
+      expect(find.text('Nicole Manaloto'), findsOneWidget);
+      expect(find.text('Jiro Gonzales'), findsOneWidget);
+      expect(find.text('Venice Bumagat'), findsOneWidget);
+      expect(find.text('Co-founder & Developer'), findsNWidgets(4));
+      expect(
+        find.textContaining('computer vision-based flairtending training'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('navigation opens the separate Contact & Feedback page', (
+    tester,
+  ) async {
+    await setSurface(tester, const Size(1400, 900));
+    await tester.pumpWidget(wrap(settingsScreen(SettingsSection.about)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.text('Contact & Feedback'));
+    await tester.pump();
+
+    expect(find.text(ContactFeedbackActions.email), findsOneWidget);
+    expect(find.text('Report a bug'), findsNWidgets(2));
+    expect(find.text('Send feedback'), findsNWidgets(2));
+    expect(find.text('Copy email address'), findsOneWidget);
+    expect(find.text('Jenah Ambagan'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Contact & Feedback copies email through its isolated writer', (
+    tester,
+  ) async {
+    String? copied;
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: SingleChildScrollView(
+            child: ContactFeedbackSection(
+              launchEmail: (_) async => true,
+              copyToClipboard: (value) async => copied = value,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('contact_feedback_copy_email')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(copied, ContactFeedbackActions.email);
+    expect(find.text('Email copied'), findsOneWidget);
+  });
+
+  test('Contact & Feedback email actions build safe mailto destinations', () {
+    expect(ContactFeedbackActions.bugReportUri.scheme, 'mailto');
+    expect(
+      ContactFeedbackActions.bugReportUri.path,
+      ContactFeedbackActions.email,
+    );
+    expect(
+      ContactFeedbackActions.bugReportUri.queryParameters['subject'],
+      ContactFeedbackActions.bugReportSubject,
+    );
+    expect(ContactFeedbackActions.feedbackUri.scheme, 'mailto');
+    expect(
+      ContactFeedbackActions.feedbackUri.path,
+      ContactFeedbackActions.email,
+    );
+    expect(
+      ContactFeedbackActions.feedbackUri.queryParameters['subject'],
+      ContactFeedbackActions.feedbackSubject,
+    );
+  });
 
   test('practice controller dirty and save round-trip', () async {
     final controller = PracticePreferencesController(settingsService);

@@ -223,60 +223,68 @@ class _OfficialList extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
             4,
-            AppSpacing.lg,
+            0,
             AppSpacing.lg,
           ),
           child: CustomScrollView(
             clipBehavior: Clip.hardEdge,
             slivers: [
               for (final difficulty in difficulties) ...[
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.only(
-                      top: AppSpacing.sm,
-                      bottom: AppSpacing.md,
+                SliverPadding(
+                  padding: const EdgeInsets.only(right: AppSpacing.lg),
+                  sliver: SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: AppSpacing.sm,
+                        bottom: AppSpacing.md,
+                      ),
+                      child: _DifficultyHeading(
+                        difficulty: difficulty,
+                        count: controller.officialCatalog
+                            .where(
+                              (movement) => movement.difficulty == difficulty,
+                            )
+                            .length,
+                      ),
                     ),
-                    child: _DifficultyHeading(
-                      difficulty: difficulty,
-                      count: controller.officialCatalog
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.only(right: AppSpacing.lg),
+                  sliver: SliverGrid(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final movement = controller.officialCatalog
+                            .where((item) => item.difficulty == difficulty)
+                            .elementAt(index);
+                        return _OfficialMovementCard(
+                          movement: movement,
+                          busy: controller.busy,
+                          onViewGuide: () =>
+                              _showMovementGuide(context, movement),
+                          onAssign: () => _showAssignToClass(
+                            context,
+                            controller,
+                            official: movement,
+                          ),
+                        );
+                      },
+                      childCount: controller.officialCatalog
                           .where(
                             (movement) => movement.difficulty == difficulty,
                           )
                           .length,
                     ),
-                  ),
-                ),
-                SliverGrid(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final movement = controller.officialCatalog
-                          .where((item) => item.difficulty == difficulty)
-                          .elementAt(index);
-                      return _OfficialMovementCard(
-                        movement: movement,
-                        busy: controller.busy,
-                        onViewGuide: () =>
-                            _showMovementGuide(context, controller, movement),
-                        onAssign: () => _showAssignToClass(
-                          context,
-                          controller,
-                          official: movement,
-                        ),
-                      );
-                    },
-                    childCount: controller.officialCatalog
-                        .where((movement) => movement.difficulty == difficulty)
-                        .length,
-                  ),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    mainAxisExtent: _cardExtent(
-                      context,
-                      base: 430,
-                      growth: 180,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      mainAxisExtent: _cardExtent(
+                        context,
+                        base: 430,
+                        growth: 180,
+                      ),
+                      crossAxisSpacing: AppSpacing.md,
+                      mainAxisSpacing: AppSpacing.md,
                     ),
-                    crossAxisSpacing: AppSpacing.md,
-                    mainAxisSpacing: AppSpacing.md,
                   ),
                 ),
                 const SliverToBoxAdapter(
@@ -438,7 +446,7 @@ class _OfficialMovementCard extends StatelessWidget {
                     accent: accent,
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  details,
+                  Expanded(child: details),
                   const SizedBox(height: AppSpacing.md),
                   actions,
                 ],
@@ -592,7 +600,7 @@ class _CustomMovementCard extends StatelessWidget {
                     accent: AppColors.accent,
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  details,
+                  Expanded(child: details),
                   const SizedBox(height: AppSpacing.md),
                   actions,
                 ],
@@ -685,37 +693,47 @@ class _CustomMovementActions extends StatelessWidget {
         style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
       );
     }
-    return Wrap(
-      alignment: WrapAlignment.end,
-      spacing: AppSpacing.sm,
-      runSpacing: AppSpacing.sm,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Button(
-          onPressed: controller.busy
-              ? null
-              : () => _showCreateOrEditMovement(
-                  context,
-                  controller,
-                  existing: movement,
-                ),
-          child: const Text('Edit'),
+        Row(
+          children: [
+            Button(
+              onPressed: controller.busy
+                  ? null
+                  : () => _showCreateOrEditMovement(
+                      context,
+                      controller,
+                      existing: movement,
+                    ),
+              child: const Text('Edit'),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Tooltip(
+              message: canDelete
+                  ? 'Permanently delete this unused movement.'
+                  : 'This movement is used by an assignment and cannot be deleted.',
+              child: Button(
+                onPressed: controller.busy || !canDelete
+                    ? null
+                    : () =>
+                          _confirmDeleteMovement(context, controller, movement),
+                child: const Text('Delete'),
+              ),
+            ),
+          ],
         ),
-        FilledButton(
-          key: Key('teacher_movement_assign_custom_${movement.id}'),
-          onPressed: controller.busy
-              ? null
-              : () => _showAssignToClass(context, controller, custom: movement),
-          child: const Text('Assign to class'),
-        ),
-        Tooltip(
-          message: canDelete
-              ? 'Permanently delete this unused movement.'
-              : 'This movement is used by an assignment and cannot be deleted.',
-          child: Button(
-            onPressed: controller.busy || !canDelete
+        const SizedBox(height: AppSpacing.sm),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            key: Key('teacher_movement_assign_custom_${movement.id}'),
+            onPressed: controller.busy
                 ? null
-                : () => _confirmDeleteMovement(context, controller, movement),
-            child: const Text('Delete'),
+                : () =>
+                      _showAssignToClass(context, controller, custom: movement),
+            child: const Text('Assign to class'),
           ),
         ),
       ],
@@ -921,7 +939,6 @@ Future<void> _showAssignToClass(
 /// It deliberately has no progression-service dependency or completion action.
 Future<void> _showMovementGuide(
   BuildContext context,
-  TeacherMovementsController controller,
   Movement movement,
 ) async {
   final lesson = MovementLesson.forMovement(movement);
@@ -929,124 +946,133 @@ Future<void> _showMovementGuide(
     context: context,
     builder: (dialogContext) {
       final screen = MediaQuery.sizeOf(dialogContext);
-      final wide = screen.width >= 980;
+      // Keep enough horizontal room for the upcoming instructional video while
+      // still leaving a clear margin around the dialog on smaller windows.
+      final dialogWidth = (screen.width - 48).clamp(320.0, 1440.0).toDouble();
       return ContentDialog(
-        title: Text('${movement.name} guide'),
+        constraints: BoxConstraints(maxWidth: dialogWidth),
+        title: Row(
+          children: [
+            Expanded(child: Text('${movement.name} guide')),
+            Tooltip(
+              message: 'Close guide',
+              child: Semantics(
+                label: 'Close guide',
+                button: true,
+                child: IconButton(
+                  key: const Key('teacher_movement_guide_close'),
+                  icon: const Icon(FluentIcons.chrome_close),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+              ),
+            ),
+          ],
+        ),
         content: SizedBox(
-          width: wide ? 980 : screen.width - 96,
-          height: screen.height * 0.64,
-          child: SingleChildScrollView(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final twoColumn = constraints.maxWidth >= 760;
-                final overview = _GuideOverview(
-                  movement: movement,
-                  lesson: lesson,
-                );
-                final technique = _GuidePanel(
-                  eyebrow: 'TECHNIQUE',
-                  title: 'How to perform it',
-                  icon: FluentIcons.number_sequence,
-                  accent: difficultyAccentColor(movement.difficulty),
-                  child: Column(
+          width: dialogWidth,
+          height: screen.height * 0.70,
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(
+              dialogContext,
+            ).copyWith(scrollbars: false),
+            child: SingleChildScrollView(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final twoColumn = constraints.maxWidth >= 760;
+                  final overview = _GuideOverview(
+                    movement: movement,
+                    lesson: lesson,
+                  );
+                  final technique = _GuidePanel(
+                    eyebrow: 'TECHNIQUE',
+                    title: 'How to perform it',
+                    icon: FluentIcons.number_sequence,
+                    accent: difficultyAccentColor(movement.difficulty),
+                    child: Column(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < lesson.steps.length;
+                          index++
+                        )
+                          _GuideStep(
+                            number: index + 1,
+                            text: lesson.steps[index],
+                          ),
+                      ],
+                    ),
+                  );
+                  final supporting = [
+                    _GuidePanel(
+                      eyebrow: 'SUCCESS TARGET',
+                      title: 'What good looks like',
+                      icon: FluentIcons.completed,
+                      accent: AppColors.success,
+                      child: Text(lesson.successTarget, style: AppTheme.body),
+                    ),
+                    _GuidePanel(
+                      eyebrow: 'AVOID THIS',
+                      title: 'Common mistake',
+                      icon: FluentIcons.error_badge,
+                      accent: AppColors.warning,
+                      child: Text(lesson.commonMistake, style: AppTheme.body),
+                    ),
+                    if (lesson.safetyNote != null)
+                      _GuidePanel(
+                        eyebrow: 'SAFETY',
+                        title: 'Practice safely',
+                        icon: FluentIcons.shield,
+                        accent: AppColors.error,
+                        child: Text(lesson.safetyNote!, style: AppTheme.body),
+                      ),
+                  ];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (var index = 0; index < lesson.steps.length; index++)
-                        _GuideStep(
-                          number: index + 1,
-                          text: lesson.steps[index],
+                      if (twoColumn)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(flex: 2, child: overview),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(flex: 3, child: technique),
+                          ],
+                        )
+                      else ...[
+                        overview,
+                        const SizedBox(height: AppSpacing.md),
+                        technique,
+                      ],
+                      const SizedBox(height: AppSpacing.md),
+                      if (twoColumn)
+                        Wrap(
+                          spacing: AppSpacing.md,
+                          runSpacing: AppSpacing.md,
+                          children: [
+                            for (final panel in supporting)
+                              SizedBox(
+                                width:
+                                    (constraints.maxWidth - AppSpacing.md) / 2,
+                                child: panel,
+                              ),
+                          ],
+                        )
+                      else
+                        Column(
+                          children: [
+                            for (final panel in supporting) ...[
+                              panel,
+                              const SizedBox(height: AppSpacing.md),
+                            ],
+                          ],
                         ),
                     ],
-                  ),
-                );
-                final supporting = [
-                  _GuidePanel(
-                    eyebrow: 'SUCCESS TARGET',
-                    title: 'What good looks like',
-                    icon: FluentIcons.completed,
-                    accent: AppColors.success,
-                    child: Text(lesson.successTarget, style: AppTheme.body),
-                  ),
-                  _GuidePanel(
-                    eyebrow: 'AVOID THIS',
-                    title: 'Common mistake',
-                    icon: FluentIcons.error_badge,
-                    accent: AppColors.warning,
-                    child: Text(lesson.commonMistake, style: AppTheme.body),
-                  ),
-                  if (lesson.safetyNote != null)
-                    _GuidePanel(
-                      eyebrow: 'SAFETY',
-                      title: 'Practice safely',
-                      icon: FluentIcons.shield,
-                      accent: AppColors.error,
-                      child: Text(lesson.safetyNote!, style: AppTheme.body),
-                    ),
-                ];
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (twoColumn)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: overview),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(flex: 6, child: technique),
-                        ],
-                      )
-                    else ...[
-                      overview,
-                      const SizedBox(height: AppSpacing.md),
-                      technique,
-                    ],
-                    const SizedBox(height: AppSpacing.md),
-                    if (twoColumn)
-                      Wrap(
-                        spacing: AppSpacing.md,
-                        runSpacing: AppSpacing.md,
-                        children: [
-                          for (final panel in supporting)
-                            SizedBox(
-                              width: (constraints.maxWidth - AppSpacing.md) / 2,
-                              child: panel,
-                            ),
-                        ],
-                      )
-                    else
-                      Column(
-                        children: [
-                          for (final panel in supporting) ...[
-                            panel,
-                            const SizedBox(height: AppSpacing.md),
-                          ],
-                        ],
-                      ),
-                  ],
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
-          ),
-          FilledButton(
-            key: Key('teacher_movement_guide_assign_${movement.name}'),
-            onPressed: controller.busy
-                ? null
-                : () async {
-                    Navigator.of(dialogContext).pop();
-                    await _showAssignToClass(
-                      context,
-                      controller,
-                      official: movement,
-                    );
-                  },
-            child: const Text('Assign to class'),
-          ),
-        ],
       );
     },
   );
@@ -1300,10 +1326,12 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
             final t = Curves.easeOutCubic.transform(
               _interactionController.value,
             );
-            final lift = reduceMotion ? 0.0 : 6 * t;
-            final scale = reduceMotion ? 1.0 : 1 + (0.008 * t);
             final highContrastSurface = Color.alphaBlend(
               widget.accent.withValues(alpha: isDark ? 0.20 : 0.14),
+              baseSurface,
+            );
+            final hoverSurface = Color.alphaBlend(
+              widget.accent.withValues(alpha: (isDark ? 0.16 : 0.08) * t),
               baseSurface,
             );
             return AnimatedContainer(
@@ -1311,39 +1339,8 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
                   ? Duration.zero
                   : const Duration(milliseconds: 90),
               curve: Curves.easeOut,
-              transformAlignment: Alignment.center,
-              transform: Matrix4.identity()
-                ..translateByDouble(0, -lift, 0, 1)
-                ..scaleByDouble(scale, scale, scale, 1),
               decoration: BoxDecoration(
-                color: highContrast ? highContrastSurface : null,
-                gradient: highContrast
-                    ? null
-                    : LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color.alphaBlend(
-                            widget.accent.withValues(
-                              alpha: (isDark ? 0.18 : 0.11) + (0.04 * t),
-                            ),
-                            baseSurface,
-                          ),
-                          Color.alphaBlend(
-                            AppColors.accent.withValues(
-                              alpha: isDark ? 0.08 : 0.045,
-                            ),
-                            baseSurface,
-                          ),
-                          Color.alphaBlend(
-                            widget.accent.withValues(
-                              alpha: isDark ? 0.10 : 0.06,
-                            ),
-                            baseSurface,
-                          ),
-                        ],
-                        stops: const [0, 0.55, 1],
-                      ),
+                color: highContrast ? highContrastSurface : hoverSurface,
                 borderRadius: BorderRadius.circular(_radius),
                 border: Border.all(
                   color: highContrast
@@ -1353,7 +1350,7 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
                       : Color.lerp(
                           context.elixBorder,
                           widget.accent,
-                          0.22 + (0.48 * t),
+                          0.22 + (0.28 * t),
                         )!,
                   width: highContrast || _focused ? 2 : 1,
                 ),
@@ -1364,15 +1361,8 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
                           color: const Color(
                             0xFF000000,
                           ).withValues(alpha: isDark ? 0.42 : 0.12),
-                          blurRadius: 14 + (10 * t),
-                          offset: Offset(0, 7 + (4 * t)),
-                        ),
-                        BoxShadow(
-                          color: widget.accent.withValues(
-                            alpha: (isDark ? 0.22 : 0.13) * t,
-                          ),
-                          blurRadius: 28,
-                          spreadRadius: -6,
+                          blurRadius: 14,
+                          offset: const Offset(0, 7),
                         ),
                       ],
               ),

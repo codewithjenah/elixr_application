@@ -155,6 +155,8 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
 class _MaterialRepository implements ActivityLearningMaterialRepository {
   final List<String> listedAssignmentIds = [];
   final List<String> linkedAssignmentIds = [];
+  final List<String> removedMaterialIds = [];
+  List<ActivityLearningMaterial> materials = const [];
   bool failList = false;
 
   @override
@@ -193,7 +195,7 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   Future<List<ActivityLearningMaterial>> list({required String assignmentId}) {
     listedAssignmentIds.add(assignmentId);
     if (failList) return Future.error(StateError('material load failed'));
-    return Future.value(const []);
+    return Future.value(materials);
   }
 
   @override
@@ -204,7 +206,12 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   Future<void> remove({
     required String assignmentId,
     required String materialId,
-  }) => throw UnimplementedError();
+  }) async {
+    removedMaterialIds.add(materialId);
+    materials = materials
+        .where((material) => material.id != materialId)
+        .toList();
+  }
 
   @override
   Future<void> uploadStagedFile({
@@ -440,6 +447,7 @@ void main() {
     required TeacherAssignmentCreationService creationService,
     Movement? officialMovement,
     TeacherMovement? teacherCreatedMovement,
+    GroupAssignment? existingAssignment,
     List<ElixrGroup> availableGroups = const [group],
     ElixrGroup? lockedGroup,
     ActivityLearningMaterialRepository? materialRepository,
@@ -462,6 +470,7 @@ void main() {
           creationService: creationService,
           officialMovement: officialMovement,
           teacherCreatedMovement: teacherCreatedMovement,
+          existingAssignment: existingAssignment,
           materialRepository: materialRepository,
         ),
       ),
@@ -509,47 +518,230 @@ void main() {
     expect(assignments.teacherCreatedCalls, 0);
   });
 
-  testWidgets('pre-save learning materials can queue and save a link', (
+  testWidgets(
+    'learning materials are inline, optional, and queue a valid link',
+    (tester) async {
+      final materials = _MaterialRepository();
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+        materialRepository: materials,
+      );
+
+      expect(
+        find.byKey(const Key('teacher_assignment_choose_material_file')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_material_link_url')),
+        findsOneWidget,
+      );
+      expect(find.text('Add material'), findsNothing);
+      await tester.enterText(
+        find.byKey(const Key('teacher_assignment_material_link_name')),
+        'Grip guide',
+      );
+      await tester.enterText(
+        find.byKey(const Key('teacher_assignment_material_link_url')),
+        'https://example.com/grip',
+      );
+      final addLink = find.byKey(
+        const Key('teacher_assignment_add_material_link'),
+      );
+      await tester.ensureVisible(addLink);
+      await tester.tap(addLink);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Grip guide'), findsOneWidget);
+      expect(materials.linkedAssignmentIds, isEmpty);
+      final publish = find.byKey(const Key('teacher_assignment_publish_now'));
+      await tester.ensureVisible(publish);
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+
+      expect(assignments.officialCalls, 1);
+      expect(materials.linkedAssignmentIds, [
+        assignments.assignments.values.single.id,
+      ]);
+    },
+  );
+
+  testWidgets('an invalid inline resource link is rejected before publishing', (
     tester,
   ) async {
-    final materials = _MaterialRepository();
     await pumpComposer(
       tester,
       creationService: service(),
       officialMovement: movementCatalog.first,
+      materialRepository: _MaterialRepository(),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('teacher_assignment_material_link_url')),
+      'file:///not-a-resource',
+    );
+    final addLink = find.byKey(
+      const Key('teacher_assignment_add_material_link'),
+    );
+    await tester.ensureVisible(addLink);
+    await tester.tap(addLink);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.text('Enter a valid HTTP or HTTPS resource link.'),
+      findsOneWidget,
+    );
+    expect(find.text('No materials added yet.'), findsOneWidget);
+  });
+
+  testWidgets('edit preloads activity configuration and existing materials', (
+    tester,
+  ) async {
+    final activity = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Recorded tin balance',
+      instructions: 'Keep the tin upright.',
+      requiredProp: TrainingProp.bottle,
+      assessment: TeacherActivityAssessmentConfig(
+        readiness: const TeacherActivityReadinessSpec(),
+        rubric: TeacherActivityRubric.builtIn(
+          TeacherActivityRubricTemplate.controlConsistency,
+          50,
+        ),
+        recordingDurationSeconds: 45,
+      ),
+    );
+    final assignment = await service().create(
+      group: group,
+      teacherCreatedMovement: activity,
+      maxScore: 50,
+      activityAssessment: TeacherActivityAssessmentConfig(
+        readiness: const TeacherActivityReadinessSpec(),
+        rubric: TeacherActivityRubric.builtIn(
+          TeacherActivityRubricTemplate.controlConsistency,
+          50,
+        ),
+        recordingDurationSeconds: 45,
+      ),
+      displayTitle: 'Balance recording',
+      displayInstructions: 'Keep the tin upright.',
+    );
+    final materials = _MaterialRepository()
+      ..materials = [
+        ActivityLearningMaterial(
+          id: 'material-1',
+          assignmentId: assignment.id,
+          type: ActivityLearningMaterialType.pdf,
+          displayName: 'Balance guide.pdf',
+          sizeBytes: 1024,
+        ),
+      ];
+
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: assignment,
       materialRepository: materials,
     );
 
-    final add = find.byKey(const Key('teacher_assignment_add_material'));
-    await tester.ensureVisible(add);
-    await tester.tap(add);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Link').last);
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('teacher_assignment_material_link_name')),
-      'Grip guide',
+    expect(materials.listedAssignmentIds, [assignment.id]);
+    expect(find.text('Balance guide.pdf'), findsOneWidget);
+    expect(
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('teacher_assignment_recording_duration')),
+          )
+          .value,
+      45,
     );
-    await tester.enterText(
-      find.byKey(const Key('teacher_assignment_material_link_url')),
-      'https://example.com/grip',
+    expect(
+      tester
+          .widget<TextBox>(find.byKey(const Key('teacher_assignment_title')))
+          .controller!
+          .text,
+      'Balance recording',
     );
-    await tester.tap(
-      find.byKey(const Key('teacher_assignment_confirm_material_link')),
+  });
+
+  testWidgets('edit changes recording duration without recreating assignment', (
+    tester,
+  ) async {
+    final activity = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Recorded tin balance',
+      instructions: 'Keep the tin upright.',
+      requiredProp: TrainingProp.bottle,
     );
+    final assignment = await service().create(
+      group: group,
+      teacherCreatedMovement: activity,
+      displayTitle: 'Balance recording',
+      displayInstructions: 'Keep the tin upright.',
+    );
+
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: assignment,
+      materialRepository: _MaterialRepository(),
+    );
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_recording_duration')),
+        )
+        .onChanged!(60);
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_save_changes')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_changes')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Grip guide'), findsOneWidget);
-    expect(materials.linkedAssignmentIds, isEmpty);
-    final publish = find.byKey(const Key('teacher_assignment_publish_now'));
-    await tester.ensureVisible(publish);
-    await tester.tap(publish);
+    final saved = await assignments.getAssignment(assignmentId: assignment.id);
+    expect(assignments.teacherCreatedCalls, 1);
+    expect(saved?.id, assignment.id);
+    expect(saved?.activityAssessment?.recordingDurationSeconds, 60);
+    expect(saved?.configurationRevision, assignment.configurationRevision + 1);
+  });
+
+  testWidgets('edit removes an existing material only when changes are saved', (
+    tester,
+  ) async {
+    final assignment = await service().create(
+      group: group,
+      officialMovement: movementCatalog.first,
+    );
+    final materials = _MaterialRepository()
+      ..materials = [
+        ActivityLearningMaterial(
+          id: 'material-1',
+          assignmentId: assignment.id,
+          type: ActivityLearningMaterialType.link,
+          displayName: 'Safety reference',
+          externalUrl: Uri.parse('https://example.com/safety'),
+        ),
+      ];
+
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: assignment,
+      materialRepository: materials,
+    );
+    final remove = find.widgetWithText(Button, 'Remove');
+    await tester.ensureVisible(remove);
+    await tester.tap(remove);
+    await tester.pump();
+    expect(materials.removedMaterialIds, isEmpty);
+    expect(find.text('Will be removed when you save changes'), findsOneWidget);
+
+    final save = find.byKey(const Key('teacher_assignment_save_changes'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
     await tester.pumpAndSettle();
 
-    expect(assignments.officialCalls, 1);
-    expect(materials.linkedAssignmentIds, [
-      assignments.assignments.values.single.id,
-    ]);
+    expect(materials.removedMaterialIds, ['material-1']);
   });
 
   testWidgets(

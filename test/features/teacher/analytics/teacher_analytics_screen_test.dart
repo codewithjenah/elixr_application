@@ -179,7 +179,7 @@ void main() {
     },
   );
 
-  testWidgets('dashboard summary shows concise charts from its snapshot', (
+  testWidgets('dashboard summary shows a compact analytics preview', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1100, 900));
@@ -199,11 +199,11 @@ void main() {
     await tester.pump();
 
     expect(find.text('Score progress'), findsOneWidget);
-    expect(find.text('Practice by classroom'), findsOneWidget);
     expect(find.text('Average practice score over time.'), findsOneWidget);
-    expect(find.text('Practice sessions recorded this week.'), findsOneWidget);
+    expect(find.text('Class average score'), findsOneWidget);
+    expect(find.text('Assignments completed'), findsOneWidget);
     expect(find.byType(LineChart), findsOneWidget);
-    expect(find.byType(BarChart), findsOneWidget);
+    expect(find.byType(BarChart), findsNothing);
     expect(find.byKey(const Key('teacher_analytics_refresh')), findsOneWidget);
     expect(
       find.byKey(const Key('teacher_analytics_view_analytics')),
@@ -233,7 +233,6 @@ void main() {
     await tester.pump();
 
     expect(find.text('No scored practice yet.'), findsOneWidget);
-    expect(find.text('No practice activity yet.'), findsOneWidget);
     expect(find.byType(LineChart), findsNothing);
     expect(tester.takeException(), isNull);
   });

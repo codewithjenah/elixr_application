@@ -10,7 +10,9 @@ import '../../services/auth_service.dart';
 import '../../services/settings_service.dart';
 import '../teacher/teacher_privacy_section.dart';
 import 'sections/account_profile_section.dart';
+import 'sections/about_section.dart';
 import 'sections/appearance_section.dart';
+import 'sections/contact_feedback_section.dart';
 import 'sections/practice_section.dart';
 import 'sections/privacy_section.dart';
 import 'sections/security_section.dart';
@@ -671,6 +673,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           isActive: _section == SettingsSection.privacy,
           publicProfileRepository: widget.publicProfileRepository,
         );
+      case SettingsSection.about:
+        return const AboutSection();
+      case SettingsSection.contactFeedback:
+        return const ContactFeedbackSection();
     }
   }
 }

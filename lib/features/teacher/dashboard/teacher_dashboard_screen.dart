@@ -137,45 +137,42 @@ class _DashboardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasData =
-        controller.activeGroupCount > 0 || controller.memberships.isNotEmpty;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1240),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 960;
+            // Keep the rail visible at medium desktop widths. The dashboard
+            // cards are designed for this split; only narrow windows become a
+            // single document column.
+            final wide = constraints.maxWidth >= 760;
             final gettingStarted = _GettingStartedModel.from(
               controller: controller,
               analyticsController: analyticsController,
               activityController: activityController,
             );
+            final onboarding = gettingStarted?.isEarlyOnboarding == true
+                ? gettingStarted
+                : null;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _TeacherCommandHeader(teacher: teacher),
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(height: AppSpacing.md),
                 _TeacherKpiGrid(
                   controller: controller,
                   reviewCount: activityController?.pendingReviewCount ?? 0,
                   activityLoading: activityController?.loading ?? false,
                   wide: wide,
                 ),
-                if (gettingStarted != null &&
-                    gettingStarted.step !=
-                        _GettingStartedStep.reviewSubmission) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  _GettingStartedCard(model: gettingStarted),
-                ],
-                if (hasData) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  _DashboardContent(
-                    controller: controller,
-                    analyticsController: analyticsController,
-                    activityController: activityController,
-                    wide: wide,
-                  ),
-                ],
+                const SizedBox(height: AppSpacing.md),
+                _DashboardContent(
+                  controller: controller,
+                  analyticsController: analyticsController,
+                  activityController: activityController,
+                  gettingStarted: onboarding,
+                  wide: wide,
+                ),
               ],
             );
           },
@@ -197,7 +194,7 @@ class _TeacherCommandHeader extends StatelessWidget {
     return ElixPanelCard(
       accent: context.elixColors.brandPrimary,
       showAccentBar: true,
-      variant: ElixPanelVariant.hero,
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 650;
@@ -205,7 +202,7 @@ class _TeacherCommandHeader extends StatelessWidget {
             children: [
               ProfileAvatarWidget(
                 key: const Key('teacher_dashboard_avatar'),
-                radius: 28,
+                radius: 22,
                 networkImageUrl: teacher?.profilePictureUrl,
                 legacyLocalPath: teacher?.profilePicturePath,
                 initials: userInitials(displayName),
@@ -217,21 +214,15 @@ class _TeacherCommandHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const ElixEyebrow(label: 'TODAY'),
-                    const SizedBox(height: AppSpacing.xs),
                     Text(
                       'Welcome back, $displayName',
-                      style: AppTheme.sectionTitle(
-                        context,
-                        color: context.elixTextPrimary,
-                      ),
+                      style: AppTheme.cardTitle(color: context.elixTextPrimary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: AppSpacing.xs),
                     Text(
-                      'Check classrooms, review student work, and keep your classes organized.',
-                      style: AppTheme.supporting(
+                      'Your classroom overview for today.',
+                      style: AppTheme.caption.copyWith(
                         color: context.elixTextSecondary,
                       ),
                     ),
@@ -382,22 +373,19 @@ class _DashboardMetricCard extends StatelessWidget {
     final card = ElixPanelCard(
       accent: metric.tone,
       showAccentBar: metric.emphasis,
-      variant: metric.emphasis
-          ? ElixPanelVariant.hero
-          : ElixPanelVariant.normal,
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.sm),
       child: Row(
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: context.isHighContrast
                   ? Colors.transparent
                   : metric.tone.withValues(alpha: 0.13),
               borderRadius: BorderRadius.circular(11),
             ),
-            child: Icon(metric.icon, color: metric.tone, size: 18),
+            child: Icon(metric.icon, color: metric.tone, size: 16),
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
@@ -440,12 +428,14 @@ class _DashboardContent extends StatelessWidget {
     required this.controller,
     required this.analyticsController,
     required this.activityController,
+    required this.gettingStarted,
     required this.wide,
   });
 
   final TeacherDashboardController controller;
   final TeacherAnalyticsController? analyticsController;
   final TeacherActivityController? activityController;
+  final _GettingStartedModel? gettingStarted;
   final bool wide;
 
   @override
@@ -465,17 +455,21 @@ class _DashboardContent extends StatelessWidget {
             )
           : Column(
               children: [
-                for (final summary in controller.groupSummaries.take(4))
+                for (final summary in controller.groupSummaries.take(3))
                   _GroupOverviewRow(summary: summary),
               ],
             ),
     );
     final main = Column(
       children: [
-        if (analyticsController != null)
+        if (gettingStarted != null) _GettingStartedCard(model: gettingStarted!),
+        if (gettingStarted != null && controller.activeGroupCount > 0)
+          const SizedBox(height: AppSpacing.md),
+        if (analyticsController != null && controller.activeGroupCount > 0)
           TeacherAnalyticsSummary(controller: analyticsController!),
-        if (analyticsController != null) const SizedBox(height: AppSpacing.lg),
-        groups,
+        if (analyticsController != null && controller.activeGroupCount > 0)
+          const SizedBox(height: AppSpacing.md),
+        if (controller.activeGroupCount > 0) groups,
       ],
     );
     final rail = Column(
@@ -484,7 +478,7 @@ class _DashboardContent extends StatelessWidget {
           controller: controller,
           activityController: activityController,
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.md),
         _ActivityPreview(activityController: activityController),
       ],
     );
@@ -492,7 +486,7 @@ class _DashboardContent extends StatelessWidget {
       return Column(
         children: [
           rail,
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.md),
           main,
         ],
       );
@@ -529,6 +523,10 @@ class _NeedsAttentionCard extends StatelessWidget {
           : reviewCount > 0 || controller.pendingQueue.isNotEmpty
           ? 'Start with the work waiting on you.'
           : 'Nothing is waiting for a decision.',
+      action: Button(
+        onPressed: () => context.go(AppRoutePaths.teacherToReview),
+        child: const Text('Review work'),
+      ),
       child: Column(
         children: [
           if (activityLoading)
@@ -574,7 +572,7 @@ class _NeedsAttentionCard extends StatelessWidget {
             ),
           if (controller.pendingQueue.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
-            for (final membership in controller.pendingQueue.take(3))
+            for (final membership in controller.pendingQueue.take(2))
               _PendingRequestRow(membership: membership),
           ],
         ],
@@ -592,7 +590,7 @@ class _ActivityPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = activityController;
     final loading = controller?.loading ?? false;
-    final activities = controller?.activities.take(3).toList() ?? const [];
+    final activities = controller?.activities.take(2).toList() ?? const [];
     return _WorkspaceSection(
       heading: 'Recent activity',
       eyebrow: 'NOTIFICATIONS',
@@ -785,7 +783,7 @@ class _GroupOverviewRow extends StatelessWidget {
             ? context.elixColors.warning
             : context.elixColors.brandPrimary,
         showAccentBar: hasPending,
-        padding: const EdgeInsets.all(AppSpacing.md),
+        padding: const EdgeInsets.all(AppSpacing.sm),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final compact = constraints.maxWidth < 520;
@@ -793,8 +791,8 @@ class _GroupOverviewRow extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: context.elixColors.brandPrimary.withValues(
                       alpha: context.isHighContrast ? 0 : 0.14,
@@ -803,11 +801,11 @@ class _GroupOverviewRow extends StatelessWidget {
                   ),
                   child: Icon(
                     FluentIcons.education,
-                    size: 20,
+                    size: 16,
                     color: context.elixColors.brandPrimary,
                   ),
                 ),
-                const SizedBox(width: AppSpacing.md),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,7 +837,7 @@ class _GroupOverviewRow extends StatelessWidget {
                   ? '${summary.pendingCount} waiting to join'
                   : 'No pending requests',
             );
-            final action = FilledButton(
+            final action = Button(
               onPressed: () => context.go(AppRoutePaths.teacherGroups),
               child: const Text('Open classroom'),
             );
@@ -849,7 +847,7 @@ class _GroupOverviewRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   identity,
-                  const SizedBox(height: AppSpacing.md),
+                  const SizedBox(height: AppSpacing.sm),
                   Wrap(
                     spacing: AppSpacing.sm,
                     runSpacing: AppSpacing.sm,
@@ -923,6 +921,16 @@ class _GettingStartedModel {
   final String actionLabel;
   final String route;
   final IconData icon;
+
+  /// Later workflow prompts already have dedicated dashboard destinations:
+  /// review work belongs in Needs attention and assignments in Classrooms.
+  /// Keep this compact helper limited to genuine first-time setup.
+  bool get isEarlyOnboarding => switch (step) {
+    _GettingStartedStep.createClassroom ||
+    _GettingStartedStep.inviteStudents ||
+    _GettingStartedStep.approveStudent => true,
+    _ => false,
+  };
 
   static _GettingStartedModel? from({
     required TeacherDashboardController controller,
@@ -1047,20 +1055,16 @@ class _GettingStartedCard extends StatelessWidget {
       key: const Key('teacher_getting_started'),
       accent: context.elixColors.brandPrimary,
       showAccentBar: true,
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 700;
           final copy = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const ElixEyebrow(label: 'GETTING STARTED'),
-              const SizedBox(height: AppSpacing.xs),
               Text(
                 model.title,
-                style: AppTheme.sectionTitle(
-                  context,
-                  color: context.elixTextPrimary,
-                ),
+                style: AppTheme.cardTitle(color: context.elixTextPrimary),
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
