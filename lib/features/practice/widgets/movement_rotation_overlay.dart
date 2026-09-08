@@ -5,15 +5,14 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../movements/movements_presentation.dart';
-import '../just_dance/movement_rotation_controller.dart';
+import '../just_dance/playground_session_controller.dart';
 
 /// Compact "Just Dance"-style rotation prompt shown in a corner of the
-/// camera view. Purely visual: no scoring, no pass/fail state, no gating of
-/// the underlying freeform session.
+/// camera view. Progress is assessment time; completion is CV-authoritative.
 class MovementRotationOverlay extends StatelessWidget {
   const MovementRotationOverlay({super.key, required this.controller});
 
-  final MovementRotationController controller;
+  final PlaygroundSessionController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -96,24 +95,24 @@ class MovementRotationOverlay extends StatelessWidget {
                     children: [
                       _RotationIconButton(
                         icon: FluentIcons.previous,
-                        tooltip: 'Previous movement',
-                        onPressed: controller.skipPrevious,
+                        tooltip: 'Previous movement unavailable during routine',
+                        onPressed: null,
                       ),
                       _RotationIconButton(
-                        icon: controller.isRunning
-                            ? FluentIcons.pause
-                            : FluentIcons.play,
-                        tooltip: controller.isRunning
-                            ? 'Pause rotation'
-                            : 'Resume rotation',
-                        onPressed: controller.isRunning
-                            ? controller.pause
-                            : controller.resume,
+                        icon: controller.isPaused
+                            ? FluentIcons.play
+                            : FluentIcons.pause,
+                        tooltip: controller.isPaused
+                            ? 'Resume routine'
+                            : 'Pause routine',
+                        onPressed: controller.isPaused
+                            ? controller.resume
+                            : controller.pause,
                       ),
                       _RotationIconButton(
                         icon: FluentIcons.next,
-                        tooltip: 'Next movement',
-                        onPressed: controller.skipNext,
+                        tooltip: 'Skip movement',
+                        onPressed: controller.requestNext,
                       ),
                     ],
                   ),
@@ -136,7 +135,7 @@ class _RotationIconButton extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {

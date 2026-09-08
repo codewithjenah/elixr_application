@@ -313,31 +313,32 @@ void main() {
     },
   );
 
-  testWidgets('Free Practice overlapping Start still sends one prepare', (
-    tester,
-  ) async {
-    await pumpScreen(tester);
+  testWidgets(
+    'Playground overlapping Start prepares its first official movement',
+    (tester) async {
+      await pumpScreen(tester);
 
-    expect(find.text('Playground'), findsOneWidget);
-    expect(find.text('Start Playground'), findsOneWidget);
-    expect(find.text('Free Practice'), findsNothing);
-    final cameraBox = tester.renderObject<RenderBox>(
-      find.byKey(const ValueKey('practice-camera-workspace')),
-    );
-    expect(cameraBox.size.aspectRatio, closeTo(4 / 3, 0.01));
+      expect(find.text('Playground'), findsOneWidget);
+      expect(find.text('Start Playground'), findsOneWidget);
+      expect(find.text('Free Practice'), findsNothing);
+      final cameraBox = tester.renderObject<RenderBox>(
+        find.byKey(const ValueKey('practice-camera-workspace')),
+      );
+      expect(cameraBox.size.aspectRatio, closeTo(4 / 3, 0.01));
 
-    screenKey.currentState!.debugStartSession();
-    screenKey.currentState!.debugStartSession();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 20));
-    await tester.pump(const Duration(milliseconds: 20));
-    await tester.pump();
-    expect(ws.beginCalls, 1);
-    expect(ws.preparePayloads, hasLength(1));
-    expect(ws.preparePayloads.single['movement'], 'Free Practice');
-    ws.acceptPrepare();
-    await tester.pump();
-  });
+      screenKey.currentState!.debugStartSession();
+      screenKey.currentState!.debugStartSession();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pump();
+      expect(ws.beginCalls, 1);
+      expect(ws.preparePayloads, hasLength(1));
+      expect(ws.preparePayloads.single['movement'], 'Normal Grip');
+      ws.acceptPrepare();
+      await tester.pump();
+    },
+  );
 
   testWidgets(
     'assignment initialization permission denial does not prepare the camera',

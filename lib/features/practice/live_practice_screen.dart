@@ -27,7 +27,7 @@ import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
-import 'just_dance/movement_rotation_controller.dart';
+import 'just_dance/playground_session_controller.dart';
 import 'just_dance/movement_setlist_dialog.dart';
 import 'practice_run_phase.dart';
 import 'submission_recording_controller.dart';
@@ -121,7 +121,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
-  late final MovementRotationController _rotation;
+  late final PlaygroundSessionController _playground;
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   StreamSubscription<PreviewFrame>? _previewSub;
@@ -139,6 +139,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   /// True while a WebSocket prepare/activate command is awaiting ack.
   bool _commandInFlight = false;
+  bool _playgroundTransitionInFlight = false;
+  bool _playgroundActivationInFlight = false;
 
   static const _wideBreakpoint = 1100.0;
   static const _panelWidth = 370.0;
@@ -149,10 +151,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _ownsWebSocket = widget.websocketService == null;
     _ws = widget.websocketService ?? WebSocketService();
     final settings = context.read<SettingsService>();
-    _rotation = MovementRotationController(
+    _playground = PlaygroundSessionController(
       movements: _resolveMovements(settings.justDanceMovementNames),
-      intervalSeconds: settings.justDanceIntervalSeconds,
+      assessmentDuration: Duration(seconds: settings.justDanceIntervalSeconds),
     );
+    _playground.addListener(_onPlaygroundChanged);
     _ws.addListener(_onWsStateChanged);
     _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
@@ -196,7 +199,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _frameBytes.dispose();
     _music.dispose();
     _sfx.dispose();
-    _rotation.dispose();
+    _playground.removeListener(_onPlaygroundChanged);
+    _playground.dispose();
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     _run.dispose();
@@ -228,15 +232,45 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     final saved = await MovementSetlistDialog.show(context);
     if (saved != true || !mounted) return;
     final settings = context.read<SettingsService>();
-    _rotation.updateSetlist(
+    _playground.updateSetlist(
       _resolveMovements(settings.justDanceMovementNames),
-      intervalSeconds: settings.justDanceIntervalSeconds,
     );
+  }
+
+  bool get _isPlayground => widget.teacherCreatedAssignment == null;
+
+  void _onPlaygroundChanged() {
+    if (!mounted || !_isPlayground) return;
+    if (_playground.isPaused) {
+      _run.pauseElapsed();
+    } else {
+      _run.resumeElapsed();
+    }
+    setState(() {});
+    if (_playground.activationDue && !_playgroundActivationInFlight) {
+      unawaited(_activatePlaygroundMovement(_playground.generation));
+    }
+    if ((_playground.phase == PlaygroundSessionPhase.success ||
+            _playground.phase == PlaygroundSessionPhase.missed) &&
+        !_playgroundTransitionInFlight) {
+      unawaited(_advancePlaygroundRoutine());
+    }
   }
 
   void _onWsStateChanged() {
     if (!mounted) return;
     setState(() {});
+    if (_isPlayground &&
+        !_ws.isConnected &&
+        _playground.phase != PlaygroundSessionPhase.idle &&
+        !_playground.isComplete) {
+      _playground.cancelToIdle();
+      _run.cancelToIdle();
+      setState(
+        () => _sessionError = 'Backend connection lost. Restart the routine.',
+      );
+      return;
+    }
     final isActivity =
         widget.teacherCreatedAssignment?.assignment.activityAssessment != null;
     if (isActivity &&
@@ -295,7 +329,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: false,
       );
       if (startCountdown) {
-        if (_isTeacherActivityV2) {
+        if (_isPlayground) {
+          _playground.markMovementPrepared(_playground.generation);
+        } else if (_isTeacherActivityV2) {
           _run.enterReadiness();
           unawaited(_beginActivityReadiness());
         } else {
@@ -316,7 +352,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     if (feedback.isSessionFatal) {
       _music.stop();
       _sfx.stop();
-      _rotation.stop();
+      _playground.cancelToIdle();
       _run.onPreviewFeedback(
         hasJpegFrame: false,
         isFatal: true,
@@ -341,7 +377,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: false,
       );
       if (startCountdown) {
-        if (_isTeacherActivityV2) {
+        if (_isPlayground) {
+          _playground.markMovementPrepared(_playground.generation);
+        } else if (_isTeacherActivityV2) {
           _run.enterReadiness();
           unawaited(_beginActivityReadiness());
         } else {
@@ -383,6 +421,14 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     if (!_run.isTrainingActive) return;
 
     _publishFrame(feedback.frameJpegBytes);
+    if (_isPlayground &&
+        _playground.isAssessing &&
+        feedback.isSessionEvaluating &&
+        feedback.sessionId == _ws.currentSessionId &&
+        feedback.movement == _playground.currentMovement?.name &&
+        feedback.holdConfirmed) {
+      _playground.markSuccessful(_playground.generation);
+    }
     final visibleChanged =
         _bottleDetected != feedback.bottleDetected ||
         !feedback.freePracticeVisibleEquals(_latestFeedback) ||
@@ -617,6 +663,18 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _clearFrame();
     _latestFeedback = null;
     _bottleDetected = false;
+    if (assignment == null) {
+      final generation = _playground.start();
+      if (generation == null) {
+        setState(() {
+          _sessionError =
+              'Build a set with at least one official movement first.';
+        });
+        return;
+      }
+      await _preparePlaygroundMovement(generation, settings);
+      return;
+    }
     _ws.beginPracticeAttempt();
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
@@ -632,13 +690,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       final ack = await _ws.sendPrepare(
         movement: TeacherCreatedAssignmentPractice.backendMovementName,
         difficulty: 'Easy',
-        prop: assignment?.prop ?? TrainingProp.bottle,
+        prop: assignment.prop,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
             : null,
-        allowSubmissionRecording: assignment != null,
-        readinessSpec: assignment?.assignment.activityAssessment?.readiness,
+        allowSubmissionRecording: true,
+        readinessSpec: assignment.assignment.activityAssessment?.readiness,
       );
       if (!mounted || _leaving) return;
       if (!_run.isPreparingCamera) return;
@@ -683,6 +741,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   void _onPreparationTimeout() {
     if (!mounted) return;
+    if (_isPlayground) _playground.cancelToIdle();
     unawaited(_stopWebSocketSession());
     unawaited(_music.stop());
     unawaited(_sfx.stop());
@@ -690,6 +749,145 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _sessionError = _run.errorMessage;
       _clearFrame();
     });
+  }
+
+  Future<void> _preparePlaygroundMovement(
+    int generation,
+    SettingsService settings,
+  ) async {
+    if (!mounted || _leaving || generation != _playground.generation) return;
+    final movement = _playground.currentMovement;
+    if (movement == null) return;
+    _ws.beginPracticeAttempt();
+    _run.beginPreparing(onTimeout: _onPreparationTimeout);
+    final runGeneration = _run.lifecycleGeneration;
+    final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
+    if (!mounted ||
+        _leaving ||
+        generation != _playground.generation ||
+        runGeneration != _run.lifecycleGeneration ||
+        !_run.isPreparingCamera) {
+      return;
+    }
+    _commandInFlight = true;
+    try {
+      final ack = await _ws.sendPrepare(
+        movement: movement.name,
+        difficulty: movement.difficulty,
+        prop: TrainingProp.bottle,
+        cameraDeviceId: cameraDeviceId,
+        legacyCameraIndex: cameraDeviceId == null
+            ? settings.pendingLegacyCameraIndex
+            : null,
+      );
+      if (!mounted ||
+          generation != _playground.generation ||
+          runGeneration != _run.lifecycleGeneration ||
+          !_run.isPreparingCamera) {
+        return;
+      }
+      if (!ack.accepted) {
+        final message =
+            ack.message ??
+            ack.errorCode ??
+            'Movement preparation was rejected.';
+        _run.onPreviewFeedback(
+          hasJpegFrame: false,
+          isFatal: true,
+          fatalMessage: message,
+        );
+        _playground.cancelToIdle();
+        unawaited(_stopWebSocketSession());
+        setState(() => _sessionError = message);
+      }
+    } catch (error) {
+      if (!mounted || generation != _playground.generation) return;
+      final message = livePracticePrepareFailureMessage(error);
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: message,
+      );
+      _playground.cancelToIdle();
+      unawaited(_stopWebSocketSession());
+      setState(() => _sessionError = message);
+    } finally {
+      _commandInFlight = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _activatePlaygroundMovement(int generation) async {
+    if (_playgroundActivationInFlight ||
+        !mounted ||
+        generation != _playground.generation ||
+        !_playground.activationDue ||
+        _playground.isPaused) {
+      return;
+    }
+    _playgroundActivationInFlight = true;
+    _run.enterCountdown();
+    try {
+      final ack = await _ws.sendActivate();
+      if (!mounted ||
+          generation != _playground.generation ||
+          !_run.isCountdown) {
+        return;
+      }
+      if (!ack.accepted) {
+        final message =
+            ack.message ?? ack.errorCode ?? 'Movement activation was rejected.';
+        _run.onPreviewFeedback(
+          hasJpegFrame: false,
+          isFatal: true,
+          fatalMessage: message,
+        );
+        _playground.cancelToIdle();
+        unawaited(_stopWebSocketSession());
+        setState(() => _sessionError = message);
+        return;
+      }
+      if (!_playground.markAssessing(generation)) return;
+      _run.enterActive();
+      final settings = context.read<SettingsService>();
+      await _music.setVolume(
+        settings.soundEnabled ? settings.musicVolume : 0.0,
+      );
+      _music.start(resolveTrack(settings.selectedMusicTrackId));
+    } catch (_) {
+      if (!mounted || generation != _playground.generation) return;
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: 'Movement activation failed. Try starting again.',
+      );
+      _playground.cancelToIdle();
+      unawaited(_stopWebSocketSession());
+      setState(
+        () => _sessionError = 'Movement activation failed. Try starting again.',
+      );
+    } finally {
+      _playgroundActivationInFlight = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _advancePlaygroundRoutine() async {
+    if (_playgroundTransitionInFlight || !_isPlayground) return;
+    _playgroundTransitionInFlight = true;
+    final nextGeneration = _playground.beginNextMovement();
+    await _stopWebSocketSession();
+    _run.cancelToIdle();
+    if (nextGeneration == null) {
+      await _music.stop();
+    } else if (mounted && !_leaving) {
+      await _preparePlaygroundMovement(
+        nextGeneration,
+        context.read<SettingsService>(),
+      );
+    }
+    _playgroundTransitionInFlight = false;
+    if (mounted) setState(() {});
   }
 
   Future<void> _beginSessionAfterCountdown() async {
@@ -731,9 +929,6 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       final volume = settings.soundEnabled ? settings.musicVolume : 0.0;
       await _music.setVolume(volume);
       _music.start(track);
-      if (widget.teacherCreatedAssignment == null) {
-        _rotation.start();
-      }
       if (_isTeacherActivityV2) {
         await _recording?.beginActivityRecordingNow();
       }
@@ -763,7 +958,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
-    _rotation.stop();
+    _playground.cancelToIdle();
     if (mounted) {
       setState(() {
         _clearFrame();
@@ -787,7 +982,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
-    _rotation.stop();
+    _playground.cancelToIdle();
     if (mounted) {
       setState(() {
         _clearFrame();
@@ -810,7 +1005,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
-    _rotation.stop();
+    _playground.cancelToIdle();
     router.go(
       widget.teacherCreatedAssignment == null
           ? AppRoutePaths.dashboard
@@ -910,8 +1105,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                     ? null
                     : (isCameraLive ? _latestFeedback : null),
                 showFeedbackMessage: false,
-                overlays: isTrainingActive && assignment == null
-                    ? MovementRotationOverlay(controller: _rotation)
+                overlays:
+                    assignment == null &&
+                        _playground.currentMovement != null &&
+                        !_playground.isComplete &&
+                        _playground.phase != PlaygroundSessionPhase.idle
+                    ? MovementRotationOverlay(controller: _playground)
                     : null,
                 statusItems: [
                   if (isTrainingActive)
