@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const {Timestamp} = require('firebase-admin/firestore');
+const {Timestamp, FieldValue} = require('firebase-admin/firestore');
 
 const {
   archivedConversationId,
@@ -35,6 +35,9 @@ const {
   syncActivityMaterialAccess,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,
+  reserveTeacherActivityAttemptHandler,
+  consumeTeacherActivityAttemptHandler,
+  abandonTeacherActivityAttemptHandler,
   normalizeSearchText,
   sanitizeDirectoryDocuments,
   sanitizedResult,
@@ -1966,3 +1969,273 @@ test('Learning Material projection sync does not publish a stale deleting materi
   assert.equal(writes.some((id) => id.includes('material-b')), true);
   assert.deepEqual(state.revoked_material_ids, []);
 });
+
+function isFieldDelete(value) {
+  return typeof value?.isEqual === 'function' && value.isEqual(FieldValue.delete());
+}
+
+function applyPatch(existing, data, {merge = false} = {}) {
+  const next = merge ? {...(existing || {})} : {...data};
+  if (!merge) {
+    for (const [key, value] of Object.entries(data)) {
+      if (isFieldDelete(value)) delete next[key];
+      else next[key] = value;
+    }
+    return next;
+  }
+  for (const [key, value] of Object.entries(data)) {
+    if (isFieldDelete(value)) delete next[key];
+    else next[key] = value;
+  }
+  return next;
+}
+
+function fakeTeacherActivityAttemptDatabase({
+  assignmentOverrides = {},
+  userOverrides = {},
+  membershipOverrides = {},
+  state = null,
+  attempts = {},
+} = {}) {
+  const assignment = {
+    teacher_id: 'teacher',
+    group_id: 'g1',
+    movement_id: 'movement-1',
+    revision_id: 'revision-1',
+    origin: 'teacher_created',
+    assessment_mode: 'teacher_reviewed',
+    status: 'active',
+    audience_type: 'entire_class',
+    max_score: 50,
+    attempt_policy: {type: 'finite', maximum_attempts: 2},
+    activity_assessment: updateAssessment(),
+    configuration_revision: 1,
+    ...assignmentOverrides,
+  };
+  const docs = new Map([
+    ['group_assignments/assignment-1', assignment],
+    ['users/trainee', {
+      role: 'Trainee', lifecycle_state: 'active', ...userOverrides,
+    }],
+    ['group_memberships/g1_trainee', {
+      group_id: 'g1', teacher_id: 'teacher', status: 'approved', ...membershipOverrides,
+    }],
+  ]);
+  if (state) docs.set('assignment_attempt_states/assignment-1__trainee', state);
+  for (const [id, data] of Object.entries(attempts)) {
+    docs.set(`assignment_attempts/${id}`, data);
+  }
+
+  const snapshot = (path, id) => {
+    const data = docs.get(path);
+    return {
+      id,
+      exists: Boolean(data),
+      data: () => data,
+      get: (field) => data?.[field],
+    };
+  };
+  const makeRef = (path, id) => ({
+    path,
+    id,
+    collection(name) {
+      return {
+        doc(childId) {
+          return makeRef(`${path}/${name}/${childId}`, childId);
+        },
+      };
+    },
+    async get() {
+      return snapshot(path, id);
+    },
+  });
+
+  return {
+    docs,
+    collection(name) {
+      return {
+        doc(id) {
+          return makeRef(`${name}/${id}`, id);
+        },
+      };
+    },
+    async runTransaction(callback) {
+      return callback({
+        async get(ref) {
+          return snapshot(ref.path, ref.id);
+        },
+        create(ref, data) {
+          if (docs.has(ref.path)) {
+            const error = new Error('already-exists');
+            error.code = 6;
+            throw error;
+          }
+          docs.set(ref.path, {...data});
+        },
+        set(ref, data, options = {}) {
+          docs.set(ref.path, applyPatch(docs.get(ref.path), data, {
+            merge: options.merge === true,
+          }));
+        },
+        update(ref, data) {
+          const existing = docs.get(ref.path);
+          if (!existing) {
+            const error = new Error('not-found');
+            error.code = 5;
+            throw error;
+          }
+          docs.set(ref.path, applyPatch(existing, data, {merge: true}));
+        },
+      });
+    },
+  };
+}
+
+function activityAttemptRequest(body) {
+  return {method: 'POST', body};
+}
+
+async function invokeReserve(database, requestId = 'activity-open-1') {
+  const response = fakeResponse();
+  await reserveTeacherActivityAttemptHandler(
+    activityAttemptRequest({assignment_id: 'assignment-1', request_id: requestId}),
+    response,
+    {authenticate: async () => 'trainee', databaseFactory: () => database},
+  );
+  return response;
+}
+
+async function invokeConsume(database, attemptId) {
+  const response = fakeResponse();
+  await consumeTeacherActivityAttemptHandler(
+    activityAttemptRequest({assignment_id: 'assignment-1', attempt_id: attemptId}),
+    response,
+    {authenticate: async () => 'trainee', databaseFactory: () => database},
+  );
+  return response;
+}
+
+async function invokeAbandon(database, attemptId) {
+  const response = fakeResponse();
+  await abandonTeacherActivityAttemptHandler(
+    activityAttemptRequest({assignment_id: 'assignment-1', attempt_id: attemptId}),
+    response,
+    {authenticate: async () => 'trainee', databaseFactory: () => database},
+  );
+  return response;
+}
+
+test('Teacher Activity reservation succeeds when no attempt is active', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const response = await invokeReserve(database);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.reused, false);
+  assert.equal(response.body.attempt.status, 'in_progress');
+  const state = database.docs.get('assignment_attempt_states/assignment-1__trainee');
+  assert.equal(state.consumed_count, 0);
+  assert.equal(state.active_attempt_id, response.body.attempt.id);
+  assert.equal(state.active_consumed, false);
+});
+
+test('Teacher Activity reservation reuses the same request id', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const first = await invokeReserve(database, 'activity-open-1');
+  const second = await invokeReserve(database, 'activity-open-1');
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.body.reused, true);
+  assert.equal(second.body.attempt.id, first.body.attempt.id);
+});
+
+test('Teacher Activity reservation rejects a conflicting request id', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const first = await invokeReserve(database, 'activity-open-1');
+  const response = await invokeReserve(database, 'activity-open-2');
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.body, {
+    error: 'attempt_in_progress',
+    active_attempt_id: first.body.attempt.id,
+  });
+});
+
+test('abandoning an unconsumed reservation does not increment consumed_count', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const reserved = await invokeReserve(database, 'activity-open-1');
+  const abandoned = await invokeAbandon(database, reserved.body.attempt.id);
+  assert.equal(abandoned.statusCode, 200);
+  const state = database.docs.get('assignment_attempt_states/assignment-1__trainee');
+  assert.equal(state.consumed_count, 0);
+  assert.equal(state.active_attempt_id, undefined);
+  const recovered = await invokeReserve(database, 'activity-open-2');
+  assert.equal(recovered.statusCode, 200);
+  assert.notEqual(recovered.body.attempt.id, reserved.body.attempt.id);
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').consumed_count,
+    0,
+  );
+  assert.equal(
+    database.docs.get(`assignment_attempts/${reserved.body.attempt.id}`).status,
+    'draft',
+  );
+});
+
+test('consuming then abandoning keeps the finite attempt counted', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const reserved = await invokeReserve(database, 'activity-open-1');
+  const consumed = await invokeConsume(database, reserved.body.attempt.id);
+  assert.equal(consumed.statusCode, 200);
+  await invokeAbandon(database, reserved.body.attempt.id);
+  const state = database.docs.get('assignment_attempt_states/assignment-1__trainee');
+  assert.equal(state.consumed_count, 1);
+  assert.equal(state.active_attempt_id, undefined);
+  const recovered = await invokeReserve(database, 'activity-open-2');
+  assert.equal(recovered.statusCode, 200);
+  assert.notEqual(recovered.body.attempt.id, reserved.body.attempt.id);
+});
+
+test('Teacher Activity reservation stays exhausted after consumed attempts', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  for (const requestId of ['activity-open-1', 'activity-open-2']) {
+    const reserved = await invokeReserve(database, requestId);
+    await invokeConsume(database, reserved.body.attempt.id);
+    await invokeAbandon(database, reserved.body.attempt.id);
+  }
+  const blocked = await invokeReserve(database, 'activity-open-3');
+  assert.equal(blocked.statusCode, 409);
+  assert.deepEqual(blocked.body, {error: 'attempts_exhausted'});
+});
+
+test('Teacher Activity reservation rejects graded, overdue, and forbidden trainees', async () => {
+  const graded = fakeTeacherActivityAttemptDatabase({
+    assignmentOverrides: {grading_locked: true},
+  });
+  const gradedResponse = await invokeReserve(graded);
+  assert.equal(gradedResponse.statusCode, 409);
+  assert.deepEqual(gradedResponse.body, {error: 'graded'});
+
+  const overdue = fakeTeacherActivityAttemptDatabase({
+    assignmentOverrides: {due_at: Timestamp.fromMillis(Date.now() - 60_000)},
+  });
+  const overdueResponse = await invokeReserve(overdue);
+  assert.equal(overdueResponse.statusCode, 409);
+  assert.deepEqual(overdueResponse.body, {error: 'deadline_passed'});
+
+  const forbidden = fakeTeacherActivityAttemptDatabase({
+    userOverrides: {role: 'Teacher'},
+  });
+  const forbiddenResponse = await invokeReserve(forbidden);
+  assert.equal(forbiddenResponse.statusCode, 403);
+  assert.deepEqual(forbiddenResponse.body, {error: 'forbidden'});
+});
+
+test('recovery never creates a second canonical active attempt', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const first = await invokeReserve(database, 'activity-open-1');
+  await invokeAbandon(database, first.body.attempt.id);
+  const second = await invokeReserve(database, 'activity-open-2');
+  const state = database.docs.get('assignment_attempt_states/assignment-1__trainee');
+  assert.equal(state.active_attempt_id, second.body.attempt.id);
+  const activeAttempts = [...database.docs.entries()]
+    .filter(([path, data]) => path.startsWith('assignment_attempts/') && data.status === 'in_progress');
+  assert.equal(activeAttempts.length, 1);
+});
+

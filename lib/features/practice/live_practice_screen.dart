@@ -69,9 +69,13 @@ class LivePracticeScreen extends StatefulWidget {
 }
 
 class TeacherCreatedAssignmentPractice {
-  const TeacherCreatedAssignmentPractice({required this.assignment});
+  const TeacherCreatedAssignmentPractice({
+    required this.assignment,
+    this.reservedActivityAttempt,
+  });
 
   final GroupAssignment assignment;
+  final AssignmentAttempt? reservedActivityAttempt;
 
   String get title => assignment.displayTitle;
   String get instructions => assignment.displayInstructions ?? '';
@@ -189,6 +193,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       onRecordingModeStarted: _run.pauseElapsed,
       onRecordingModeEnded: _run.resumeElapsed,
     )..addListener(_onRecordingChanged);
+    final reserved = assignment.reservedActivityAttempt;
+    if (reserved != null) {
+      _recording!.latestSubmission = reserved;
+    }
     unawaited(_recording!.refreshLatestSubmission());
   }
 

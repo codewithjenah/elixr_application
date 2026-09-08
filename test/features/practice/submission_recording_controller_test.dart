@@ -286,6 +286,44 @@ void main() {
     expect(classroom.consumedTeacherActivityAttemptIds, contains(reserved.id));
   });
 
+  test('releasing an Activity reservation leaves it reopenable', () async {
+    final socket = _GatedRecordSocket();
+    final controller = SubmissionRecordingController(
+      websocket: socket,
+      classroom: classroom,
+      submissions: submissions,
+      assignment: _activityAssignment,
+      traineeId: 'trainee-1',
+      recordingCountdown: Duration.zero,
+    );
+    addTearDown(controller.dispose);
+    classroom.assignments[_activityAssignment.id] = _activityAssignment;
+
+    final reserved = await classroom.reserveTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      assignment: _activityAssignment,
+      requestId: 'activity-open-1',
+    );
+    controller.latestSubmission = reserved;
+    await controller.releaseActivityAttempt();
+
+    expect(
+      classroom.teacherActivityActiveAttemptId(
+        assignmentId: _activityAssignment.id,
+        traineeId: 'trainee-1',
+      ),
+      isNull,
+    );
+    expect(classroom.consumedTeacherActivityAttemptIds, isEmpty);
+
+    final reopened = await classroom.reserveTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      assignment: _activityAssignment,
+      requestId: 'activity-open-2',
+    );
+    expect(reopened.id, isNot(reserved.id));
+  });
+
   test(
     'Activity recording submits the reserved attempt automatically',
     () async {
@@ -546,6 +584,41 @@ void main() {
       await controller.refreshLatestSubmission();
 
       expect(controller.latestSubmission, same(submitted));
+    },
+  );
+
+  test(
+    'refresh keeps an HTTP Activity reservation when the snapshot is empty',
+    () async {
+      final classroom = InMemoryClassroomAssignmentRepository();
+      addTearDown(classroom.dispose);
+      classroom.assignments[_activityAssignment.id] = _activityAssignment;
+      final reserved = await classroom.reserveTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        assignment: _activityAssignment,
+        requestId: 'activity-open-1',
+      );
+      final staleWatch = _StaleSnapshotClassroomRepository(const []);
+      addTearDown(staleWatch.dispose);
+      final controller = SubmissionRecordingController(
+        websocket: _GatedRecordSocket(),
+        classroom: staleWatch,
+        submissions: InMemoryAssignmentSubmissionRepository(
+          classroom: staleWatch,
+        ),
+        assignment: _activityAssignment,
+        traineeId: 'trainee-1',
+      );
+      addTearDown(controller.dispose);
+      controller.latestSubmission = reserved;
+
+      await controller.refreshLatestSubmission();
+
+      expect(controller.latestSubmission, same(reserved));
+      expect(
+        controller.latestSubmission?.status,
+        AssignmentAttemptStatus.inProgress,
+      );
     },
   );
 }

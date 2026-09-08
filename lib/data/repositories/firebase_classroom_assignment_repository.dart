@@ -1784,6 +1784,11 @@ ClassroomException classroomFunctionFailure({
     'invalid_audience' ||
     'invalid_topic' ||
     'method_not_allowed' => ClassroomError.malformed,
+    'deadline_passed' => ClassroomError.deadlinePassed,
+    'graded' => ClassroomError.invalidState,
+    'attempt_in_progress' => ClassroomError.conflict,
+    'attempts_exhausted' => ClassroomError.attemptLimitConflict,
+    'unavailable' => ClassroomError.invalidState,
     _
         when statusCode == HttpStatus.unauthorized ||
             statusCode == HttpStatus.forbidden =>
@@ -1821,12 +1826,27 @@ ClassroomException classroomFunctionFailure({
     'invalid_audience' => 'Choose a valid assignment audience.',
     'invalid_topic' => 'Topic must be between 1 and 80 characters.',
     'method_not_allowed' => 'Assignment creation is temporarily unavailable.',
+    'deadline_passed' => 'This Teacher Activity is past its deadline.',
+    'graded' => 'This Teacher Activity has already been graded.',
+    'attempt_in_progress' =>
+      'This Teacher Activity could not recover a previous recording attempt. Try again.',
+    'attempts_exhausted' =>
+      'This Teacher Activity has no remaining recordings.',
+    'unavailable' =>
+      'The classroom service is unavailable. Check your connection and try again.',
     _ => null,
   };
+  final activeAttemptId =
+      responseBody is Map &&
+          responseBody['active_attempt_id'] is String &&
+          (responseBody['active_attempt_id'] as String).trim().isNotEmpty
+      ? (responseBody['active_attempt_id'] as String).trim()
+      : null;
   return ClassroomException.fromFunction(
     error,
     message: message,
     httpStatus: statusCode,
     serverCode: serverCode,
+    activeAttemptId: activeAttemptId,
   );
 }

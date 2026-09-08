@@ -1069,6 +1069,141 @@ void ensureCanSupersedeNeedsRetry({
   }
 }
 
+String teacherActivityAttemptStateId({
+  required String assignmentId,
+  required String traineeId,
+}) => '${assignmentId}__$traineeId';
+
+/// The in-progress Teacher Activity reservation that currently holds the
+/// server-side active lock, if one is visible to the client.
+AssignmentAttempt? activeTeacherActivityReservation({
+  required Iterable<AssignmentAttempt> attempts,
+  required String assignmentId,
+  required String traineeId,
+}) {
+  AssignmentAttempt? latest;
+  for (final attempt in attempts) {
+    if (attempt.assignmentId != assignmentId ||
+        attempt.traineeId != traineeId ||
+        attempt.activityAssessmentSnapshot == null ||
+        attempt.status != AssignmentAttemptStatus.inProgress) {
+      continue;
+    }
+    if (latest == null) {
+      latest = attempt;
+      continue;
+    }
+    final latestAt = latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final attemptAt =
+        attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    if (attemptAt.isAfter(latestAt)) latest = attempt;
+  }
+  return latest;
+}
+
+bool isTeacherActivityAttemptInProgress(Object error) {
+  return error is ClassroomException &&
+      error.serverCode == 'attempt_in_progress';
+}
+
+/// Releases a stale in-progress reservation, then reserves a fresh attempt.
+///
+/// An unconsumed reservation is released at zero cost. A consumed interrupted
+/// attempt stays counted. [attempt_in_progress] is retried once after a
+/// lookup-and-abandon pass so Retry cannot loop on a leftover lock.
+Future<AssignmentAttempt> reserveTeacherActivityAttemptWithRecovery({
+  required ClassroomAssignmentRepository assignments,
+  required String traineeId,
+  required GroupAssignment assignment,
+  required String requestId,
+  AssignmentAttempt? knownActiveReservation,
+}) async {
+  final initial = _usableActiveTeacherActivityReservation(
+    knownActiveReservation,
+    assignmentId: assignment.id,
+    traineeId: traineeId,
+  );
+  if (initial != null) {
+    await assignments.abandonTeacherActivityAttempt(
+      traineeId: traineeId,
+      attempt: initial,
+    );
+  }
+  try {
+    return await assignments.reserveTeacherActivityAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      requestId: requestId,
+    );
+  } on ClassroomException catch (error) {
+    if (!isTeacherActivityAttemptInProgress(error)) rethrow;
+    final attempts = await assignments
+        .watchAttemptsForTrainee(traineeId: traineeId)
+        .first;
+    final fromWatch = activeTeacherActivityReservation(
+      attempts: attempts,
+      assignmentId: assignment.id,
+      traineeId: traineeId,
+    );
+    final fromConflict = await _teacherActivityAttemptFromConflict(
+      assignments: assignments,
+      traineeId: traineeId,
+      assignmentId: assignment.id,
+      error: error,
+    );
+    // The 409 lock is authoritative. A cache-first watch can still expose an
+    // older in_progress row that is not active_attempt_id; abandoning that
+    // is a no-op and must not hide the conflict id.
+    final staleLocks = <AssignmentAttempt>[
+      ?fromConflict,
+      if (fromWatch?.id != fromConflict?.id) ?fromWatch,
+    ];
+    if (staleLocks.isEmpty) rethrow;
+    for (final stale in staleLocks) {
+      await assignments.abandonTeacherActivityAttempt(
+        traineeId: traineeId,
+        attempt: stale,
+      );
+    }
+    return assignments.reserveTeacherActivityAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      requestId: '${requestId}_recover',
+    );
+  }
+}
+
+Future<AssignmentAttempt?> _teacherActivityAttemptFromConflict({
+  required ClassroomAssignmentRepository assignments,
+  required String traineeId,
+  required String assignmentId,
+  required ClassroomException error,
+}) async {
+  final attemptId = error.activeAttemptId?.trim();
+  if (attemptId == null || attemptId.isEmpty) return null;
+  final attempt = await assignments.getAttempt(attemptId: attemptId);
+  return _usableActiveTeacherActivityReservation(
+    attempt,
+    assignmentId: assignmentId,
+    traineeId: traineeId,
+  );
+}
+
+AssignmentAttempt? _usableActiveTeacherActivityReservation(
+  AssignmentAttempt? attempt, {
+  required String assignmentId,
+  required String traineeId,
+}) {
+  if (attempt == null ||
+      attempt.assignmentId != assignmentId ||
+      attempt.traineeId != traineeId ||
+      attempt.activityAssessmentSnapshot == null ||
+      attempt.status != AssignmentAttemptStatus.inProgress) {
+    return null;
+  }
+  return attempt;
+}
+
 bool canMarkTeacherReviewSubmissionAbandoned({
   required AssignmentAttempt attempt,
   required String traineeId,

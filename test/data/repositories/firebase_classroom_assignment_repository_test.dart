@@ -33,6 +33,44 @@ void main() {
       ).code,
       ClassroomError.notFound,
     );
+    expect(
+      classroomFunctionFailure(
+        statusCode: 409,
+        responseBody: {'error': 'deadline_passed'},
+      ).code,
+      ClassroomError.deadlinePassed,
+    );
+    expect(
+      classroomFunctionFailure(
+        statusCode: 409,
+        responseBody: {'error': 'graded'},
+      ).serverCode,
+      'graded',
+    );
+    expect(
+      classroomFunctionFailure(
+        statusCode: 409,
+        responseBody: {'error': 'attempt_in_progress'},
+      ).code,
+      ClassroomError.conflict,
+    );
+    expect(
+      classroomFunctionFailure(
+        statusCode: 409,
+        responseBody: {
+          'error': 'attempt_in_progress',
+          'active_attempt_id': 'activity_assignment-1_trainee_1',
+        },
+      ).activeAttemptId,
+      'activity_assignment-1_trainee_1',
+    );
+    expect(
+      classroomFunctionFailure(
+        statusCode: 409,
+        responseBody: {'error': 'attempts_exhausted'},
+      ).code,
+      ClassroomError.attemptLimitConflict,
+    );
   });
 
   test('unknown non-success Function responses fail closed', () {

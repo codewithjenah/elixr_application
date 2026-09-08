@@ -12,6 +12,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assessment_mode.dart';
 import '../../data/models/assignment_attempt.dart';
+import '../../data/models/classroom_exceptions.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
@@ -46,6 +47,40 @@ AssignedPracticeDispatch dispatchAssignedPractice(GroupAssignment assignment) {
     return AssignedPracticeDispatch.teacherReviewed;
   }
   return AssignedPracticeDispatch.invalid;
+}
+
+@visibleForTesting
+String assignedPracticeReservationFailureMessage(Object error) {
+  if (error is ClassroomException) {
+    final serverCode = error.serverCode;
+    if (serverCode == 'attempts_exhausted' ||
+        error.code == ClassroomError.attemptLimitConflict) {
+      return 'This Teacher Activity has no remaining recordings.';
+    }
+    if (serverCode == 'graded') {
+      return 'This Teacher Activity has already been graded.';
+    }
+    if (serverCode == 'deadline_passed' ||
+        error.code == ClassroomError.deadlinePassed) {
+      return 'This Teacher Activity is past its deadline.';
+    }
+    if (serverCode == 'forbidden' || error.code == ClassroomError.forbidden) {
+      return 'You no longer have permission to record this Teacher Activity.';
+    }
+    if (serverCode == 'attempt_in_progress') {
+      return 'This Teacher Activity could not recover a previous recording attempt. Try again.';
+    }
+    if (serverCode == 'unavailable' || error.httpStatus == 503) {
+      return 'The classroom service is unavailable. Check your connection and try again.';
+    }
+    if (serverCode == 'not_found' || error.code == ClassroomError.notFound) {
+      return 'This Teacher Activity is no longer available.';
+    }
+    if (error.code == ClassroomError.malformed) {
+      return 'This Teacher Activity could not be opened because its data is invalid.';
+    }
+  }
+  return 'Could not open this Teacher Activity. Try again.';
 }
 
 class AssignedPracticeScreen extends StatefulWidget {
@@ -145,13 +180,16 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         });
         return;
       }
+      AssignmentAttempt? reservedActivityAttempt;
       if (assignment.isTeacherCreated) {
-        final current = await _currentSubmission(
-          assignments: assignments,
-          traineeId: traineeId,
+        final attempts = await assignments
+            .watchAttemptsForTrainee(traineeId: traineeId)
+            .first;
+        if (!mounted) return;
+        final current = _currentSubmissionFrom(
+          attempts: attempts,
           assignmentId: assignment.id,
         );
-        if (!mounted) return;
         if (current?.status == AssignmentAttemptStatus.submitted &&
             assignment.activityAssessment == null) {
           setState(() {
@@ -188,18 +226,24 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
             return;
           }
           try {
-            await assignments.reserveTeacherActivityAttempt(
-              traineeId: traineeId,
-              assignment: assignment,
-              requestId:
-                  'activity-open-${DateTime.now().toUtc().microsecondsSinceEpoch}',
-            );
-          } catch (_) {
+            reservedActivityAttempt =
+                await reserveTeacherActivityAttemptWithRecovery(
+                  assignments: assignments,
+                  traineeId: traineeId,
+                  assignment: assignment,
+                  requestId:
+                      'activity-open-${DateTime.now().toUtc().microsecondsSinceEpoch}',
+                  knownActiveReservation: activeTeacherActivityReservation(
+                    attempts: attempts,
+                    assignmentId: assignment.id,
+                    traineeId: traineeId,
+                  ),
+                );
+          } on ClassroomException catch (error) {
             if (!mounted) return;
             setState(() {
               _loading = false;
-              _error =
-                  'This Teacher Activity is not available for another recording.';
+              _error = assignedPracticeReservationFailureMessage(error);
             });
             return;
           }
@@ -214,6 +258,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
             _child = LivePracticeScreen(
               teacherCreatedAssignment: TeacherCreatedAssignmentPractice(
                 assignment: assignment,
+                reservedActivityAttempt: reservedActivityAttempt,
               ),
             );
           });
@@ -238,14 +283,10 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
     }
   }
 
-  Future<AssignmentAttempt?> _currentSubmission({
-    required ClassroomAssignmentRepository assignments,
-    required String traineeId,
+  AssignmentAttempt? _currentSubmissionFrom({
+    required Iterable<AssignmentAttempt> attempts,
     required String assignmentId,
-  }) async {
-    final attempts = await assignments
-        .watchAttemptsForTrainee(traineeId: traineeId)
-        .first;
+  }) {
     AssignmentAttempt? canonical;
     AssignmentAttempt? legacy;
     for (final attempt in attempts) {

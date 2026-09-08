@@ -34,6 +34,8 @@ class InMemoryClassroomAssignmentRepository
   final Map<String, AssignmentAttempt> attempts = {};
   final Map<String, AssignmentDeadlineOverride> deadlineOverrides = {};
   final Set<String> consumedTeacherActivityAttemptIds = {};
+  final Map<String, _TeacherActivityAttemptState>
+  _teacherActivityAttemptStates = {};
   bool failNextSubmitTransition = false;
 
   final _teacherControllers =
@@ -678,38 +680,96 @@ class InMemoryClassroomAssignmentRepository
     return attempts[attemptId];
   }
 
+  _TeacherActivityAttemptState _teacherActivityState({
+    required String assignmentId,
+    required String traineeId,
+  }) {
+    return _teacherActivityAttemptStates.putIfAbsent(
+      teacherActivityAttemptStateId(
+        assignmentId: assignmentId,
+        traineeId: traineeId,
+      ),
+      _TeacherActivityAttemptState.new,
+    );
+  }
+
+  int teacherActivityConsumedCount({
+    required String assignmentId,
+    required String traineeId,
+  }) {
+    return _teacherActivityState(
+      assignmentId: assignmentId,
+      traineeId: traineeId,
+    ).consumedCount;
+  }
+
+  String? teacherActivityActiveAttemptId({
+    required String assignmentId,
+    required String traineeId,
+  }) {
+    return _teacherActivityState(
+      assignmentId: assignmentId,
+      traineeId: traineeId,
+    ).activeAttemptId;
+  }
+
+  Never _throwTeacherActivityError(
+    String serverCode, {
+    String? activeAttemptId,
+  }) {
+    throw ClassroomException.fromFunction(
+      switch (serverCode) {
+        'forbidden' => ClassroomError.forbidden,
+        'not_found' => ClassroomError.notFound,
+        'deadline_passed' => ClassroomError.deadlinePassed,
+        'graded' => ClassroomError.invalidState,
+        'attempt_in_progress' => ClassroomError.conflict,
+        'attempts_exhausted' => ClassroomError.attemptLimitConflict,
+        _ => ClassroomError.invalidState,
+      },
+      httpStatus: serverCode == 'forbidden' ? 403 : 409,
+      serverCode: serverCode,
+      activeAttemptId: activeAttemptId,
+    );
+  }
+
   @override
   Future<AssignmentAttempt> reserveTeacherActivityAttempt({
     required String traineeId,
     required GroupAssignment assignment,
     required String requestId,
   }) async {
-    final config = assignment.activityAssessment;
-    if (config == null ||
-        !isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
-      throw const ClassroomException(ClassroomError.invalidState);
+    if (assignment.activityAssessment == null) {
+      _throwTeacherActivityError('forbidden');
     }
-    final active = attempts.values.where(
-      (attempt) =>
-          attempt.assignmentId == assignment.id &&
-          attempt.traineeId == traineeId &&
-          attempt.activityAssessmentSnapshot != null &&
-          attempt.status == AssignmentAttemptStatus.inProgress,
+    if (assignment.gradingLocked) {
+      _throwTeacherActivityError('graded');
+    }
+    if (!isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
+      _throwTeacherActivityError('deadline_passed');
+    }
+    final state = _teacherActivityState(
+      assignmentId: assignment.id,
+      traineeId: traineeId,
     );
-    if (active.isNotEmpty) return active.first;
-    final consumed = attempts.values
-        .where(
-          (attempt) =>
-              attempt.assignmentId == assignment.id &&
-              attempt.traineeId == traineeId &&
-              consumedTeacherActivityAttemptIds.contains(attempt.id),
-        )
-        .length;
-    final maximum = assignment.attemptPolicy.maximumAttempts;
-    if (maximum != null && consumed >= maximum) {
-      throw const ClassroomException(ClassroomError.invalidState);
+    if (state.graded) {
+      _throwTeacherActivityError('graded');
     }
-    final id = 'activity_${assignment.id}_${traineeId}_${consumed + 1}';
+    if (state.activeAttemptId != null) {
+      if (state.activeRequestId == requestId) {
+        return attempts[state.activeAttemptId]!;
+      }
+      _throwTeacherActivityError(
+        'attempt_in_progress',
+        activeAttemptId: state.activeAttemptId,
+      );
+    }
+    final maximum = assignment.attemptPolicy.maximumAttempts;
+    if (maximum != null && state.consumedCount >= maximum) {
+      _throwTeacherActivityError('attempts_exhausted');
+    }
+    final ordinal = state.nextOrdinal + 1;
+    final id = 'activity_${assignment.id}_${traineeId}_$ordinal';
     final attempt = teacherReviewSubmissionDraftAttempt(
       traineeId: traineeId,
       assignment: assignment,
@@ -717,6 +777,10 @@ class InMemoryClassroomAssignmentRepository
       createdAt: now,
     ).copyWith(status: AssignmentAttemptStatus.inProgress);
     attempts[id] = attempt;
+    state.nextOrdinal = ordinal;
+    state.activeAttemptId = id;
+    state.activeRequestId = requestId;
+    state.activeConsumed = false;
     _emitAssignmentAttempts(assignment.teacherId, assignment.id);
     _emitTraineeAttempts(traineeId);
     _emitTeacherAttempts(assignment.teacherId);
@@ -728,15 +792,22 @@ class InMemoryClassroomAssignmentRepository
     required String traineeId,
     required AssignmentAttempt attempt,
   }) async {
+    final stored = attempts[attempt.id];
+    final state = _teacherActivityState(
+      assignmentId: attempt.assignmentId,
+      traineeId: traineeId,
+    );
     if (attempt.traineeId != traineeId ||
         attempt.activityAssessmentSnapshot == null ||
-        attempts[attempt.id]?.status != AssignmentAttemptStatus.inProgress) {
-      throw const ClassroomException(ClassroomError.invalidState);
+        stored?.status != AssignmentAttemptStatus.inProgress ||
+        state.activeAttemptId != attempt.id) {
+      throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (stored!.recordingStartedAt != null) return;
     consumedTeacherActivityAttemptIds.add(attempt.id);
-    attempts[attempt.id] = attempts[attempt.id]!.copyWith(
-      recordingStartedAt: now,
-    );
+    state.consumedCount += 1;
+    state.activeConsumed = true;
+    attempts[attempt.id] = stored.copyWith(recordingStartedAt: now);
     _emitAssignmentAttempts(attempt.teacherId, attempt.assignmentId);
     _emitTraineeAttempts(traineeId);
     _emitTeacherAttempts(attempt.teacherId);
@@ -748,15 +819,23 @@ class InMemoryClassroomAssignmentRepository
     required AssignmentAttempt attempt,
   }) async {
     final stored = attempts[attempt.id];
+    final state = _teacherActivityState(
+      assignmentId: attempt.assignmentId,
+      traineeId: traineeId,
+    );
+    if (state.activeAttemptId != attempt.id) return;
     if (attempt.traineeId != traineeId ||
         attempt.activityAssessmentSnapshot == null ||
-        stored?.status != AssignmentAttemptStatus.inProgress) {
-      return;
+        stored == null) {
+      throw const ClassroomException(ClassroomError.forbidden);
     }
-    attempts[attempt.id] = stored!.copyWith(
+    attempts[attempt.id] = stored.copyWith(
       status: AssignmentAttemptStatus.draft,
       abandonedAt: now,
     );
+    state.activeAttemptId = null;
+    state.activeRequestId = null;
+    state.activeConsumed = false;
     _emitAssignmentAttempts(attempt.teacherId, attempt.assignmentId);
     _emitTraineeAttempts(traineeId);
     _emitTeacherAttempts(attempt.teacherId);
@@ -776,6 +855,9 @@ class InMemoryClassroomAssignmentRepository
     attempts.removeWhere((_, attempt) => attempt.assignmentId == assignmentId);
     consumedTeacherActivityAttemptIds.removeWhere(
       (id) => !attempts.containsKey(id),
+    );
+    _teacherActivityAttemptStates.removeWhere(
+      (key, _) => key.startsWith('${assignmentId}__'),
     );
     _emitTeacher(teacherId);
   }
@@ -1603,4 +1685,13 @@ class InMemoryClassroomAssignmentRepository
       return bAt.compareTo(aAt);
     });
   }
+}
+
+class _TeacherActivityAttemptState {
+  int consumedCount = 0;
+  int nextOrdinal = 0;
+  String? activeAttemptId;
+  String? activeRequestId;
+  bool activeConsumed = false;
+  bool graded = false;
 }

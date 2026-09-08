@@ -167,6 +167,7 @@ class SubmissionRecordingController extends ChangeNotifier {
           });
       final latest = activityAttempts.isEmpty ? null : activityAttempts.first;
       if (_isStalePreSubmissionSnapshot(latest)) return;
+      if (_shouldKeepReservedActivityAttempt(latest)) return;
       latestSubmission = latest;
       if (latest?.status == AssignmentAttemptStatus.submitted ||
           latest?.status == AssignmentAttemptStatus.checked ||
@@ -230,6 +231,25 @@ class SubmissionRecordingController extends ChangeNotifier {
         latest != null &&
         latest.id == confirmed.id &&
         latest.status == AssignmentAttemptStatus.inProgress;
+  }
+
+  /// An HTTP reservation can exist before Firestore snapshots catch up.
+  /// Do not let a cache miss or older attempt wipe that lock.
+  bool _shouldKeepReservedActivityAttempt(AssignmentAttempt? latest) {
+    final reserved = latestSubmission;
+    if (!isTeacherActivity ||
+        reserved == null ||
+        reserved.status != AssignmentAttemptStatus.inProgress ||
+        reserved.activityAssessmentSnapshot == null) {
+      return false;
+    }
+    if (latest == null || latest.id == reserved.id) {
+      return latest == null;
+    }
+    final reservedAt =
+        reserved.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final latestAt = latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return !latestAt.isAfter(reservedAt);
   }
 
   Future<SubmissionPlaybackFile?> openSubmittedPlayback({
@@ -515,11 +535,13 @@ class SubmissionRecordingController extends ChangeNotifier {
 
   Future<void> reserveActivityAttempt() async {
     if (!isTeacherActivity) return;
-    final reserved = await classroom.reserveTeacherActivityAttempt(
+    final reserved = await reserveTeacherActivityAttemptWithRecovery(
+      assignments: classroom,
       traineeId: traineeId,
       assignment: assignment,
       requestId:
           'activity-readiness-${DateTime.now().toUtc().microsecondsSinceEpoch}',
+      knownActiveReservation: latestSubmission,
     );
     latestSubmission = reserved;
     notifyListeners();

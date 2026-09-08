@@ -146,11 +146,17 @@ class LeaderboardRepository {
           .collection(FirestoreCollections.leaderboard)
           .doc(userId);
       final snap = await ref.get();
-      final exists = snap.exists && snap.data() != null;
+      final data = snap.data();
+      final exists = snap.exists && data != null;
+      final persistedLastActiveAt =
+          LeaderboardPresencePolicy.persistedLastActiveAt(
+            data?['last_active_at'],
+          );
       if (!LeaderboardPresencePolicy.shouldWrite(
         documentExists: exists,
         nowUtc: now,
         lastWriteUtc: lastWrite,
+        persistedLastActiveAt: persistedLastActiveAt,
       )) {
         // Rate-limit missing-document gets as well as successful writes so
         // login/resume cannot poll Firestore every foreground event.
@@ -165,6 +171,12 @@ class LeaderboardRepository {
       return true;
     } on FirebaseException catch (error, stackTrace) {
       if (error.code == 'not-found') {
+        _lastActiveWriteAt[userId] = now;
+        return false;
+      }
+      if (error.code == 'permission-denied') {
+        // Another valid write, or the persisted 10-minute guard, rejected
+        // this best-effort presence touch. Do not spam or affect XP.
         _lastActiveWriteAt[userId] = now;
         return false;
       }
@@ -880,14 +892,31 @@ abstract final class LeaderboardPresencePolicy {
     required bool documentExists,
     required DateTime nowUtc,
     DateTime? lastWriteUtc,
+    DateTime? persistedLastActiveAt,
   }) {
     if (!documentExists) return false;
-    if (lastWriteUtc == null) return true;
-    return nowUtc.toUtc().difference(lastWriteUtc.toUtc()) >= minInterval;
+    final last = _mostRecent(lastWriteUtc, persistedLastActiveAt);
+    if (last == null) return true;
+    return nowUtc.toUtc().difference(last.toUtc()) >= minInterval;
+  }
+
+  static DateTime? persistedLastActiveAt(Object? value) {
+    if (value == null) return null;
+    if (value is DateTime) return value.toUtc();
+    if (value is Timestamp) return value.toDate().toUtc();
+    return null;
   }
 
   static Map<String, dynamic> buildUpdate(Object serverTimestamp) {
     return {'last_active_at': serverTimestamp};
+  }
+
+  static DateTime? _mostRecent(DateTime? left, DateTime? right) {
+    if (left == null) return right?.toUtc();
+    if (right == null) return left.toUtc();
+    final leftUtc = left.toUtc();
+    final rightUtc = right.toUtc();
+    return leftUtc.isAfter(rightUtc) ? leftUtc : rightUtc;
   }
 }
 

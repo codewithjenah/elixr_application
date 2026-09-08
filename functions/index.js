@@ -758,7 +758,10 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
         if (state.active_request_id === body.request_id) {
           return {attemptId: state.active_attempt_id, reused: true};
         }
-        const error = new Error('attempt_in_progress'); error.code = 'attempt_in_progress'; throw error;
+        const error = new Error('attempt_in_progress');
+        error.code = 'attempt_in_progress';
+        error.activeAttemptId = state.active_attempt_id;
+        throw error;
       }
       const consumed = Number.isInteger(state.consumed_count) ? state.consumed_count : 0;
       const policy = assignmentAttemptPolicy(assignment);
@@ -794,7 +797,11 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
   } catch (error) {
     const known = ['not_found', 'forbidden', 'deadline_passed', 'graded', 'attempt_in_progress', 'attempts_exhausted'];
     if (known.includes(error.code)) {
-      return response.status(error.code === 'forbidden' ? 403 : 409).json({error: error.code});
+      const body = {error: error.code};
+      if (error.code === 'attempt_in_progress' && validId(error.activeAttemptId)) {
+        body.active_attempt_id = error.activeAttemptId;
+      }
+      return response.status(error.code === 'forbidden' ? 403 : 409).json(body);
     }
     console.error('Teacher Activity attempt reservation failed', error);
     return response.status(503).json({error: 'unavailable'});
