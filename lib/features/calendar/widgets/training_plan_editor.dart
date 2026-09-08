@@ -1,11 +1,16 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
+import '../../../core/progression/practice_variant.dart';
+import '../../../core/progression/progression_access.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/training_plan.dart';
 import '../../../data/models/training_prop.dart';
+import '../../../services/trainee_progression_service.dart';
+import '../../../services/tutorial_progress_service.dart';
 
 class TrainingPlanEditor extends StatefulWidget {
   const TrainingPlanEditor({
@@ -30,26 +35,65 @@ class TrainingPlanEditor extends StatefulWidget {
 }
 
 class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
-  late Movement _movement;
-  late TrainingProp _prop;
+  Movement? _movement;
+  TrainingProp? _prop;
   late int _duration;
+  var _initialized = false;
 
-  List<Movement> get _enabledMovements =>
-      movementCatalog.where((movement) => movement.enabled).toList();
+  bool _isPersonalReady(Movement movement, TrainingProp prop) {
+    final progression = context.read<TraineeProgressionService>();
+    final tutorials = context.read<TutorialProgressService>();
+    final access = evaluatePersonal(
+      variant: PracticeVariant(
+        movementName: movement.name,
+        trainingProp: prop,
+      ),
+      currentLevel: progression.currentLevelOrNull,
+      tutorialCompleted: tutorials.isInitialized
+          ? tutorials.hasCompletedLesson(movement.name, prop)
+          : null,
+    );
+    return access == ProgressionAccessResult.personalReady;
+  }
+
+  List<Movement> get _readyMovements {
+    return [
+      for (final movement in movementCatalog)
+        if (movement.enabled)
+          if (movement.supportedProps.any(
+            (prop) => _isPersonalReady(movement, prop),
+          ))
+            movement,
+    ];
+  }
+
+  List<TrainingProp> _readyPropsFor(Movement movement) {
+    return [
+      for (final prop in movement.supportedProps)
+        if (_isPersonalReady(movement, prop)) prop,
+    ];
+  }
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+    final ready = _readyMovements;
     final initial = widget.initialPlan;
     final named = initial?.movementName;
-    _movement = _enabledMovements.firstWhere(
-      (movement) => movement.name == named,
-      orElse: () => _enabledMovements.first,
+    final selected = ready.cast<Movement?>().firstWhere(
+      (movement) => movement?.name == named,
+      orElse: () => ready.isEmpty ? null : ready.first,
     );
-    final supported = _movement.supportedProps;
-    _prop = initial?.propType != null && supported.contains(initial!.propType)
-        ? initial.propType!
-        : supported.first;
+    _movement = selected;
+    if (selected != null) {
+      final props = _readyPropsFor(selected);
+      _prop =
+          initial?.propType != null && props.contains(initial!.propType)
+          ? initial.propType
+          : (props.isEmpty ? null : props.first);
+    }
     _duration =
         initial?.targetDurationMinutes != null &&
             TrainingPlan.allowedTargetDurations.contains(
@@ -63,20 +107,24 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
     if (movement == null) return;
     setState(() {
       _movement = movement;
-      if (!movement.supportedProps.contains(_prop)) {
-        _prop = movement.supportedProps.first;
+      final props = _readyPropsFor(movement);
+      if (_prop == null || !props.contains(_prop)) {
+        _prop = props.isEmpty ? null : props.first;
       }
     });
   }
 
   void _submit() {
+    final movement = _movement;
+    final prop = _prop;
+    if (movement == null || prop == null) return;
     widget.onSave(
       TrainingPlan.training(
         userId: widget.userId,
         dayKey: widget.dayKey,
-        movementName: _movement.name,
-        difficulty: _movement.difficulty,
-        propType: _prop,
+        movementName: movement.name,
+        difficulty: movement.difficulty,
+        propType: prop,
         targetDurationMinutes: _duration,
       ),
     );
@@ -84,7 +132,37 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final props = _movement.supportedProps;
+    final ready = _readyMovements;
+    final movement = _movement;
+    final props = movement == null ? const <TrainingProp>[] : _readyPropsFor(movement);
+    final prop = _prop;
+
+    if (ready.isEmpty || movement == null || prop == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.initialPlan == null ? 'Plan Practice' : 'Edit Plan',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'No personally unlocked movements are ready to schedule yet. '
+            'Complete a lesson first, then try again.',
+            style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Button(
+            onPressed: widget.isSaving ? null : widget.onCancel,
+            child: const Text('Cancel'),
+          ),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -102,20 +180,20 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
           label: 'Movement',
           child: ComboBox<String>(
             isExpanded: true,
-            value: _movement.name,
+            value: movement.name,
             items: [
-              for (final movement in _enabledMovements)
+              for (final item in ready)
                 ComboBoxItem<String>(
-                  value: movement.name,
-                  child: Text(movement.name),
+                  value: item.name,
+                  child: Text(item.name),
                 ),
             ],
             onChanged: widget.isSaving
                 ? null
                 : (name) {
                     if (name == null) return;
-                    final next = _enabledMovements.firstWhere(
-                      (movement) => movement.name == name,
+                    final next = ready.firstWhere(
+                      (item) => item.name == name,
                     );
                     _onMovementChanged(next);
                   },
@@ -123,7 +201,7 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
         ),
         const SizedBox(height: AppSpacing.sm),
         Text(
-          '${_movement.difficulty} · ${_prop.displayLabel}',
+          '${movement.difficulty} · ${prop.displayLabel}',
           style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
         ),
         if (props.length > 1) ...[
@@ -132,12 +210,12 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
             label: 'Training prop',
             child: ComboBox<TrainingProp>(
               isExpanded: true,
-              value: _prop,
+              value: prop,
               items: [
-                for (final prop in props)
+                for (final item in props)
                   ComboBoxItem<TrainingProp>(
-                    value: prop,
-                    child: Text(prop.displayLabel),
+                    value: item,
+                    child: Text(item.displayLabel),
                   ),
               ],
               onChanged: widget.isSaving

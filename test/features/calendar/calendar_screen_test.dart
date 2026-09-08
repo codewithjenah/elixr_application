@@ -11,10 +11,21 @@ import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/features/calendar/calendar_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/session_service.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
+import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Feedback;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+
+/// Test double: every exact lesson is already complete.
+class _ReadyTutorials extends TutorialProgressService {
+  @override
+  bool get isInitialized => true;
+
+  @override
+  bool hasCompletedLesson(String movement, TrainingProp prop) => true;
+}
 
 const _userId = 'calendar-user';
 final _now = DateTime.utc(2026, 8, 19, 4); // 12:00 Manila on 2026-08-19
@@ -274,6 +285,12 @@ void main() {
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: authService),
           ChangeNotifierProvider<SessionService>.value(value: sessionService),
+          ChangeNotifierProvider<TraineeProgressionService>(
+            create: (_) => TraineeProgressionService.ready(totalXp: 20 * 250),
+          ),
+          ChangeNotifierProvider<TutorialProgressService>(
+            create: (_) => _ReadyTutorials(),
+          ),
         ],
         child: FluentApp.router(
           theme: AppTheme.dark,

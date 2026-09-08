@@ -158,6 +158,7 @@ void main() {
           teacherDisplayName: 'Grace Hopper',
           group: group,
           officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
         );
         final controller = await controllerFor(
           'teacher-1',
@@ -528,12 +529,14 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: group,
       officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
     );
     await assignments.createOfficialAssignment(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
       group: other,
       officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
     );
 
     final controller = await controllerFor(
@@ -598,6 +601,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: group,
         officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
       );
       final controller = await controllerFor(
         'teacher-1',
@@ -653,6 +657,7 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: group,
       officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
     );
     final controller = await controllerFor(
       'teacher-1',
@@ -725,6 +730,7 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: group,
       officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
     );
     final controller = await controllerFor(
       'teacher-1',
@@ -870,6 +876,7 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: active,
       officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
     );
     await repository.archiveGroup(groupId: active.id, teacherId: 'teacher-1');
 

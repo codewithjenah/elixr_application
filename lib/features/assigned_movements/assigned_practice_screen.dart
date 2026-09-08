@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/progression/assignment_prop_resolution.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
@@ -287,14 +288,25 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
       return;
     }
     final movement = catalog.first;
+    final resolvedProp = resolvedAllowedPropForOfficialAssignment(
+      officialMovementName: movement.name,
+      storedAllowedProp: assignment.allowedProp,
+    );
+    if (resolvedProp == null) {
+      setState(() {
+        _loading = false;
+        _error = 'This official assignment has an invalid training prop.';
+      });
+      return;
+    }
     final tutorials = context.read<TutorialProgressService>();
-    if (!tutorials.hasCompletedLesson(movement.name)) {
+    if (!tutorials.hasCompletedLesson(movement.name, resolvedProp)) {
       if (!mounted) return;
       context.go(
         AppRoutePaths.movementLesson(
           movement: movement.name,
           difficulty: movement.difficulty,
-          prop: movement.supportedProps.first.protocolValue,
+          prop: resolvedProp.protocolValue,
           assignmentId: assignment.id,
         ),
       );
@@ -306,7 +318,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         assignment: assignment,
         movementName: movement.name,
         difficulty: movement.difficulty,
-        supportedProps: movement.supportedProps,
+        prop: resolvedProp,
       );
     });
   }
@@ -422,62 +434,31 @@ class AssignedPracticePropPicker extends StatelessWidget {
   }
 }
 
-class _OfficialAssignedPractice extends StatefulWidget {
+class _OfficialAssignedPractice extends StatelessWidget {
   const _OfficialAssignedPractice({
     required this.assignment,
     required this.movementName,
     required this.difficulty,
-    required this.supportedProps,
+    required this.prop,
   });
 
   final GroupAssignment assignment;
   final String movementName;
   final String difficulty;
-  final List<TrainingProp> supportedProps;
-
-  @override
-  State<_OfficialAssignedPractice> createState() =>
-      _OfficialAssignedPracticeState();
-}
-
-class _OfficialAssignedPracticeState extends State<_OfficialAssignedPractice> {
-  late TrainingProp _prop = widget.supportedProps.first;
-  bool _started = false;
+  final TrainingProp prop;
 
   @override
   Widget build(BuildContext context) {
-    if (_started || widget.supportedProps.length == 1) {
-      return PracticeScreen(
-        movement: widget.movementName,
-        difficulty: widget.difficulty,
-        prop: _prop,
-        assignmentContext: SessionAssignmentContext(
-          assignmentId: widget.assignment.id,
-          groupId: widget.assignment.groupId,
-          teacherId: widget.assignment.teacherId,
-          movementId: widget.assignment.movementId,
-          revisionId: widget.assignment.revisionId,
-        ),
-      );
-    }
-    return ElixScaffoldPage(
-      content: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: AssignedPracticePropPicker(
-              movementName: widget.movementName,
-              selectedProp: _prop,
-              supportedProps: widget.supportedProps,
-              onPropChanged: (value) => setState(() => _prop = value),
-              onStart: () => setState(() => _started = true),
-              onBack: () => context.go(
-                AppRoutePaths.assignmentDetail(widget.assignment.id),
-              ),
-            ),
-          ),
-        ),
+    return PracticeScreen(
+      movement: movementName,
+      difficulty: difficulty,
+      prop: prop,
+      assignmentContext: SessionAssignmentContext(
+        assignmentId: assignment.id,
+        groupId: assignment.groupId,
+        teacherId: assignment.teacherId,
+        movementId: assignment.movementId,
+        revisionId: assignment.revisionId,
       ),
     );
   }

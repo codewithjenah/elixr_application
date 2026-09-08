@@ -1,13 +1,21 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
 import '../../../core/constants/music_tracks.dart';
+import '../../../core/progression/practice_variant.dart';
+import '../../../core/progression/progression_access.dart';
+import '../../../core/progression/progression_catalog.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/movement_image.dart';
+import '../../../data/models/movement.dart';
+import '../../../services/trainee_progression_service.dart';
+import '../../../services/tutorial_progress_service.dart';
 import '../../movements/movements_presentation.dart';
 import 'practice_preferences_controller.dart';
+import 'practice_setlist_access.dart';
 
 /// Presentation-only Live Practice preferences editor.
 ///
@@ -28,6 +36,7 @@ class PracticePreferencesEditor extends StatelessWidget {
       builder: (context, _) {
         final draft = controller.draft;
         final canSave = controller.canSave;
+        final selected = draft.practiceVariants;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -44,9 +53,9 @@ class PracticePreferencesEditor extends StatelessWidget {
             for (final difficulty in _difficultyOrder) ...[
               _DifficultyGroup(
                 difficulty: difficulty,
-                orderedSelected: draft.movementNames,
-                onToggle: controller.toggleMovement,
-                onMove: controller.moveMovement,
+                orderedSelected: selected,
+                onToggle: controller.toggleVariant,
+                onMove: controller.moveVariant,
               ),
               const SizedBox(height: AppSpacing.sm),
             ],
@@ -54,7 +63,7 @@ class PracticePreferencesEditor extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                 child: Text(
-                  'Select at least one movement.',
+                  'Select at least one ready practice variant.',
                   style: AppTheme.caption.copyWith(
                     color: context.elixColors.error,
                   ),
@@ -128,9 +137,9 @@ class _DifficultyGroup extends StatelessWidget {
   });
 
   final String difficulty;
-  final List<String> orderedSelected;
-  final void Function(String name, bool selected) onToggle;
-  final void Function(String name, int delta) onMove;
+  final List<PracticeVariant> orderedSelected;
+  final void Function(PracticeVariant variant, bool selected) onToggle;
+  final void Function(PracticeVariant variant, int delta) onMove;
 
   @override
   Widget build(BuildContext context) {
@@ -151,76 +160,160 @@ class _DifficultyGroup extends StatelessWidget {
             ),
           ),
         ),
-        for (final movement in movements)
-          _MovementRow(
-            name: movement.name,
-            accent: accent,
-            selected: orderedSelected.contains(movement.name),
-            order: orderedSelected.contains(movement.name)
-                ? orderedSelected.indexOf(movement.name) + 1
-                : null,
-            canMoveUp:
-                orderedSelected.length > 1 &&
-                orderedSelected.indexOf(movement.name) > 0,
-            canMoveDown:
-                orderedSelected.length > 1 &&
-                orderedSelected.contains(movement.name) &&
-                orderedSelected.indexOf(movement.name) <
-                    orderedSelected.length - 1,
-            onToggle: (value) => onToggle(movement.name, value),
-            onMoveUp: () => onMove(movement.name, -1),
-            onMoveDown: () => onMove(movement.name, 1),
-          ),
+        for (final movement in movements) ...[
+          if (movement.supportedProps.length > 1) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 2),
+              child: Row(
+                children: [
+                  MovementImage(movementName: movement.name, size: 18),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      movement.name,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (final prop in movement.supportedProps)
+              _VariantRow(
+                movement: movement,
+                variant: PracticeVariant(
+                  movementName: movement.name,
+                  trainingProp: prop,
+                ),
+                title: prop.displayLabel,
+                showImage: false,
+                accent: accent,
+                orderedSelected: orderedSelected,
+                onToggle: onToggle,
+                onMove: onMove,
+              ),
+          ] else
+            _VariantRow(
+              movement: movement,
+              variant: PracticeVariant(
+                movementName: movement.name,
+                trainingProp: movement.supportedProps.first,
+              ),
+              title: movement.name,
+              showImage: true,
+              accent: accent,
+              orderedSelected: orderedSelected,
+              onToggle: onToggle,
+              onMove: onMove,
+            ),
+        ],
       ],
     );
   }
 }
 
-class _MovementRow extends StatelessWidget {
-  const _MovementRow({
-    required this.name,
+class _VariantRow extends StatelessWidget {
+  const _VariantRow({
+    required this.movement,
+    required this.variant,
+    required this.title,
+    required this.showImage,
     required this.accent,
-    required this.selected,
-    required this.order,
-    required this.canMoveUp,
-    required this.canMoveDown,
+    required this.orderedSelected,
     required this.onToggle,
-    required this.onMoveUp,
-    required this.onMoveDown,
+    required this.onMove,
   });
 
-  final String name;
+  final Movement movement;
+  final PracticeVariant variant;
+  final String title;
+  final bool showImage;
   final Color accent;
-  final bool selected;
-  final int? order;
-  final bool canMoveUp;
-  final bool canMoveDown;
-  final ValueChanged<bool> onToggle;
-  final VoidCallback onMoveUp;
-  final VoidCallback onMoveDown;
+  final List<PracticeVariant> orderedSelected;
+  final void Function(PracticeVariant variant, bool selected) onToggle;
+  final void Function(PracticeVariant variant, int delta) onMove;
 
   @override
   Widget build(BuildContext context) {
+    final selectedIndex = orderedSelected.indexWhere(
+      (entry) => entry.persistenceKey == variant.persistenceKey,
+    );
+    final selected = selectedIndex >= 0;
+    final progression = Provider.of<TraineeProgressionService?>(
+      context,
+      listen: true,
+    );
+    final tutorials = Provider.of<TutorialProgressService?>(
+      context,
+      listen: true,
+    );
+    final access = (progression == null || tutorials == null)
+        ? ProgressionAccessResult.personalLoading
+        : evaluatePersonal(
+            variant: variant,
+            currentLevel: progression.currentLevelOrNull,
+            tutorialCompleted: tutorials.isInitialized
+                ? tutorials.hasCompletedLesson(
+                    variant.movementName,
+                    variant.trainingProp,
+                  )
+                : null,
+          );
+    final state = practiceSetlistSelectionState(access);
+    final canAdd = practiceSetlistCanAdd(state);
+    final canRemove = practiceSetlistCanRemove(state, selected: selected);
+    final checkboxEnabled = selected ? canRemove : canAdd;
+    final status = practiceSetlistStatusLabel(
+      state,
+      requiredLevel: requiredLevelFor(variant),
+    );
+    final order = selected ? selectedIndex + 1 : null;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: EdgeInsets.only(
+        left: showImage ? 0 : 22,
+        top: 2,
+        bottom: 2,
+      ),
       child: Row(
         children: [
           Checkbox(
             checked: selected,
-            onChanged: (value) => onToggle(value ?? false),
+            onChanged: checkboxEnabled
+                ? (value) => onToggle(variant, value ?? false)
+                : null,
           ),
           const SizedBox(width: 4),
-          MovementImage(movementName: name, size: 20),
-          const SizedBox(width: AppSpacing.sm),
+          if (showImage) ...[
+            MovementImage(movementName: movement.name, size: 20),
+            const SizedBox(width: AppSpacing.sm),
+          ],
           Expanded(
-            child: Text(
-              name,
-              style: AppTheme.body.copyWith(
-                fontSize: 13,
-                color: context.elixTextPrimary,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTheme.body.copyWith(
+                    fontSize: 13,
+                    color: checkboxEnabled || selected
+                        ? context.elixTextPrimary
+                        : context.elixTextSecondary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (status != null)
+                  Text(
+                    status,
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
             ),
           ),
           if (order != null) ...[
@@ -247,21 +340,29 @@ class _MovementRow extends StatelessWidget {
               icon: Icon(
                 FluentIcons.chevron_up,
                 size: 12,
-                color: canMoveUp
+                color: selectedIndex > 0
                     ? context.elixTextSecondary
                     : context.elixBorder,
               ),
-              onPressed: canMoveUp ? onMoveUp : null,
+              onPressed: selectedIndex > 0
+                  ? () => onMove(variant, -1)
+                  : null,
             ),
             IconButton(
               icon: Icon(
                 FluentIcons.chevron_down,
                 size: 12,
-                color: canMoveDown
+                color:
+                    selectedIndex >= 0 &&
+                        selectedIndex < orderedSelected.length - 1
                     ? context.elixTextSecondary
                     : context.elixBorder,
               ),
-              onPressed: canMoveDown ? onMoveDown : null,
+              onPressed:
+                  selectedIndex >= 0 &&
+                      selectedIndex < orderedSelected.length - 1
+                  ? () => onMove(variant, 1)
+                  : null,
             ),
           ],
         ],

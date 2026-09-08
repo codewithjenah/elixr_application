@@ -427,5 +427,18 @@ void main() {
       );
       expect(DashboardHero.practiceRouteFor(null), '/movements');
     });
+
+    test('practiceRouteFor avoids practice when recommendation is not runnable', () {
+      final recommendation = buildTrainingRecommendation(
+        sessions: const [],
+        movements: movementCatalog,
+        canRecommendPractice: (_) => false,
+      );
+      expect(recommendation.hasRunnablePractice, isFalse);
+      expect(
+        DashboardHero.practiceRouteFor(recommendation),
+        '/movements',
+      );
+    });
   });
 }

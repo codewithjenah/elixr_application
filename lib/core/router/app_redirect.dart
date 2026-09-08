@@ -1,5 +1,8 @@
 import 'package:elixr_core/models/user.dart';
 
+import '../../data/models/training_prop.dart';
+import '../progression/practice_variant.dart';
+import '../progression/progression_access.dart';
 import 'app_route_paths.dart';
 
 /// Inputs required to resolve role-aware redirects for [AppRouter].
@@ -16,6 +19,7 @@ class AppRedirectState {
     required this.practiceDifficulty,
     required this.practiceProp,
     required this.hasCompletedLesson,
+    this.currentLevel,
     this.hasPendingGoogleProfile = false,
   });
 
@@ -29,7 +33,10 @@ class AppRedirectState {
   final String practiceMovement;
   final String practiceDifficulty;
   final String practiceProp;
-  final bool Function(String movement) hasCompletedLesson;
+  final bool Function(String movement, TrainingProp prop) hasCompletedLesson;
+
+  /// Already-resolved trainee level. Null means personal XP is still loading.
+  final int? currentLevel;
   final bool hasPendingGoogleProfile;
 }
 
@@ -145,11 +152,32 @@ String? _redirectAuthenticatedTrainee({
     return AppRoutePaths.teacherAccess;
   }
 
-  if (location == AppRoutePaths.practice && state.tutorialInitialized) {
+  if (location == AppRoutePaths.practice) {
     final movement = state.practiceMovement;
-    if (!state.hasCompletedLesson(movement)) {
-      return '/learn/movement/${Uri.encodeComponent(movement)}'
-          '?difficulty=${state.practiceDifficulty}&prop=${state.practiceProp}';
+    final prop = TrainingProp.fromProtocolValue(state.practiceProp);
+    final variant = PracticeVariant(movementName: movement, trainingProp: prop);
+    final access = evaluatePersonal(
+      variant: variant,
+      currentLevel: state.currentLevel,
+      tutorialCompleted: state.tutorialInitialized
+          ? state.hasCompletedLesson(movement, prop)
+          : null,
+    );
+    switch (access) {
+      case ProgressionAccessResult.personalReady:
+        return null;
+      case ProgressionAccessResult.personalLearn:
+        return '/learn/movement/${Uri.encodeComponent(movement)}'
+            '?difficulty=${state.practiceDifficulty}&prop=${prop.protocolValue}';
+      case ProgressionAccessResult.personalLoading:
+      case ProgressionAccessResult.personalLocked:
+      case ProgressionAccessResult.invalid:
+        return AppRoutePaths.movements;
+      case ProgressionAccessResult.assignmentLoading:
+      case ProgressionAccessResult.assignmentLearn:
+      case ProgressionAccessResult.assignmentReady:
+        // Personal practice redirect never evaluates assignment grants.
+        return AppRoutePaths.movements;
     }
   }
 

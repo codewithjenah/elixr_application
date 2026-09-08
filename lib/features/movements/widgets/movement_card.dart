@@ -5,10 +5,14 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/progression/practice_variant.dart';
+import '../../../core/progression/progression_access.dart';
+import '../../../core/progression/progression_catalog.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/training_prop.dart';
+import '../../../services/trainee_progression_service.dart';
 import '../../../services/tutorial_progress_service.dart';
 import '../movements_presentation.dart';
 
@@ -86,34 +90,115 @@ class _MovementCardState extends State<MovementCard>
     return 'New';
   }
 
+  /// Null when progression providers are absent (legacy widget tests).
+  ProgressionAccessResult? _accessFor(
+    TrainingProp prop, {
+    bool listen = true,
+  }) {
+    final progression = Provider.of<TraineeProgressionService?>(
+      context,
+      listen: listen,
+    );
+    final tutorial = Provider.of<TutorialProgressService?>(
+      context,
+      listen: listen,
+    );
+    if (progression == null || tutorial == null) return null;
+    return evaluatePersonal(
+      variant: PracticeVariant(
+        movementName: widget.movement.name,
+        trainingProp: prop,
+      ),
+      currentLevel: progression.currentLevelOrNull,
+      tutorialCompleted: tutorial.isInitialized
+          ? tutorial.hasCompletedLesson(widget.movement.name, prop)
+          : null,
+    );
+  }
+
+  String _actionLabelFor(TrainingProp prop, ProgressionAccessResult? access) {
+    if (!_enabled) return 'Locked';
+    if (access == null) {
+      if (_requiresFixedNonDefaultProp && prop == _singleProp) {
+        return 'Start with ${prop.displayLabel}';
+      }
+      final tutorial = Provider.of<TutorialProgressService?>(
+        context,
+        listen: false,
+      );
+      // Standalone cards (including legacy widget tests) retain the original
+      // practice wording. In the app, the router still enforces the lesson gate.
+      if (tutorial == null) {
+        if (_hasPropChoice) return 'Ready';
+        return _practiced ? 'Practice again' : 'Start practice';
+      }
+      if (tutorial.hasCompletedLesson(widget.movement.name, prop)) {
+        if (_hasPropChoice) {
+          return _practiced ? 'Practice again' : 'Ready';
+        }
+        return _practiced ? 'Practice again' : 'Start practice';
+      }
+      return 'Learn first';
+    }
+    switch (access) {
+      case ProgressionAccessResult.personalReady:
+        if (_hasPropChoice) {
+          return _practiced ? 'Practice again' : 'Ready';
+        }
+        return _practiced ? 'Practice again' : 'Start practice';
+      case ProgressionAccessResult.personalLearn:
+        return 'Learn first';
+      case ProgressionAccessResult.personalLocked:
+        final level =
+            requiredLevelFor(
+              PracticeVariant(
+                movementName: widget.movement.name,
+                trainingProp: prop,
+              ),
+            ) ??
+            '?';
+        return 'Locked · Level $level';
+      case ProgressionAccessResult.personalLoading:
+        return 'Checking access…';
+      case ProgressionAccessResult.invalid:
+        return 'Unavailable';
+      case ProgressionAccessResult.assignmentLoading:
+      case ProgressionAccessResult.assignmentLearn:
+      case ProgressionAccessResult.assignmentReady:
+        return 'Unavailable';
+    }
+  }
+
   String _actionLabel(BuildContext context) {
     if (!_enabled) return 'Locked';
     if (_hasPropChoice) return 'Choose a prop';
-    if (_requiresFixedNonDefaultProp) {
-      return 'Start with ${_singleProp.displayLabel}';
-    }
-    final tutorial = Provider.of<TutorialProgressService?>(
-      context,
-      listen: false,
-    );
-    // Standalone cards (including legacy widget tests) retain the original
-    // practice wording. In the app, the router still enforces the lesson gate.
-    if (tutorial == null) {
-      return _practiced ? 'Practice again' : 'Start practice';
-    }
-    if (tutorial.hasCompletedLesson(widget.movement.name)) {
-      return _practiced ? 'Practice again' : 'Start practice';
-    }
-    return 'Learn movement';
+    return _actionLabelFor(_singleProp, _accessFor(_singleProp));
   }
 
-  void _startPractice([TrainingProp? prop]) {
+  bool _canActivate(ProgressionAccessResult? access) {
+    if (!_enabled) return false;
+    if (access == null) return true;
+    return access == ProgressionAccessResult.personalLearn ||
+        access == ProgressionAccessResult.personalReady;
+  }
+
+  void _activate([TrainingProp? prop]) {
     if (!_enabled || _activating) return;
+    final resolvedProp = prop ?? _singleProp;
+    final access = _accessFor(resolvedProp, listen: false);
+    if (!_canActivate(access)) return;
     _activating = true;
     try {
       if (!mounted) return;
-      final resolvedProp = prop ?? _singleProp;
       final encoded = Uri.encodeComponent(widget.movement.name);
+      if (access == ProgressionAccessResult.personalLearn) {
+        context.go(
+          '/learn/movement/$encoded'
+          '?difficulty=${widget.movement.difficulty}'
+          '&prop=${resolvedProp.protocolValue}',
+        );
+        return;
+      }
       context.go(
         '/practice?movement=$encoded'
         '&difficulty=${widget.movement.difficulty}'
@@ -157,8 +242,10 @@ class _MovementCardState extends State<MovementCard>
 
   @override
   Widget build(BuildContext context) {
+    final singleAccess = _hasPropChoice ? null : _accessFor(_singleProp);
     final interactive = _enabled;
-    final cardInteractive = interactive && !_hasPropChoice;
+    final cardInteractive =
+        interactive && !_hasPropChoice && _canActivate(singleAccess);
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
     final reduceMotion = _reduceMotion;
@@ -183,14 +270,14 @@ class _MovementCardState extends State<MovementCard>
             actions: <Type, Action<Intent>>{
               ActivateIntent: CallbackAction<ActivateIntent>(
                 onInvoke: (_) {
-                  if (cardInteractive) _startPractice();
+                  if (cardInteractive) _activate();
                   return null;
                 },
               ),
             },
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: cardInteractive ? _startPractice : null,
+              onTap: cardInteractive ? _activate : null,
               onTapDown: cardInteractive ? (_) => _setPressed(true) : null,
               onTapUp: cardInteractive ? (_) => _setPressed(false) : null,
               onTapCancel: cardInteractive ? () => _setPressed(false) : null,
@@ -447,7 +534,7 @@ class _MovementCardState extends State<MovementCard>
           else
             _ActionButton(
               label: _actionLabel(context),
-              enabled: _enabled,
+              enabled: _enabled && _canActivate(_accessFor(_singleProp)),
               accent: _accent,
               fullWidth: true,
               active: _hovered || _focused,
@@ -596,23 +683,34 @@ class _MovementCardState extends State<MovementCard>
         const SizedBox(height: 6),
         for (var i = 0; i < _supportedProps.length; i++) ...[
           if (i > 0) const SizedBox(height: 8),
-          _PropActionChip(
-            emoji: _emojiForProp(_supportedProps[i]),
-            label: _supportedProps[i].displayLabel,
-            enabled: true,
-            accent: _accent,
-            hovered: _propHovered[_supportedProps[i]] ?? false,
-            focused: _propFocused[_supportedProps[i]] ?? false,
-            onHoverChanged: (hovered) {
-              setState(() => _propHovered[_supportedProps[i]] = hovered);
+          Builder(
+            builder: (context) {
+              final prop = _supportedProps[i];
+              final access = _accessFor(prop);
+              final canActivate = _canActivate(access);
+              final status = _actionLabelFor(prop, access);
+              return _PropActionChip(
+                emoji: _emojiForProp(prop),
+                label: prop.displayLabel,
+                statusLabel: status,
+                enabled: canActivate,
+                accent: _accent,
+                hovered: _propHovered[prop] ?? false,
+                focused: _propFocused[prop] ?? false,
+                onHoverChanged: (hovered) {
+                  setState(() => _propHovered[prop] = hovered);
+                },
+                onFocusChanged: (focused) {
+                  setState(() => _propFocused[prop] = focused);
+                  _setFocused(_propFocused.values.any((value) => value));
+                },
+                onPressedChanged: _setPressed,
+                onTap: () => _activate(prop),
+                semanticLabel: canActivate
+                    ? '$status with ${prop.displayLabel}'
+                    : '${prop.displayLabel}. $status',
+              );
             },
-            onFocusChanged: (focused) {
-              setState(() => _propFocused[_supportedProps[i]] = focused);
-              _setFocused(_propFocused.values.any((value) => value));
-            },
-            onPressedChanged: _setPressed,
-            onTap: () => _startPractice(_supportedProps[i]),
-            semanticLabel: 'Practice with ${_supportedProps[i].displayLabel}',
           ),
         ],
       ],
@@ -789,6 +887,7 @@ class _PropActionChip extends StatelessWidget {
   const _PropActionChip({
     required this.emoji,
     required this.label,
+    required this.statusLabel,
     required this.enabled,
     required this.accent,
     required this.hovered,
@@ -802,6 +901,7 @@ class _PropActionChip extends StatelessWidget {
 
   final String emoji;
   final String label;
+  final String statusLabel;
   final bool enabled;
   final Color accent;
   final bool hovered;
@@ -884,6 +984,16 @@ class _PropActionChip extends StatelessWidget {
                           color: enabled
                               ? context.elixTextPrimary
                               : context.elixTextSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: context.elixTextSecondary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

@@ -44,6 +44,7 @@ AppRedirectState _state({
   bool hasPendingJoinCode = false,
   bool tutorialInitialized = true,
   bool hasCompletedLesson = true,
+  int? currentLevel = 16,
   bool hasPendingGoogleProfile = false,
 }) {
   return AppRedirectState(
@@ -57,7 +58,8 @@ AppRedirectState _state({
     practiceMovement: 'Hand Stall',
     practiceDifficulty: 'Easy',
     practiceProp: 'bottle',
-    hasCompletedLesson: (_) => hasCompletedLesson,
+    hasCompletedLesson: (_, _) => hasCompletedLesson,
+    currentLevel: currentLevel,
     hasPendingGoogleProfile: hasPendingGoogleProfile,
   );
 }
@@ -482,6 +484,49 @@ void main() {
         ),
       ),
       '/learn/movement/Hand%20Stall?difficulty=Easy&prop=bottle',
+    );
+  });
+
+  test('trainee practice redirects to movements when level locked', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.practice,
+          hasCompletedLesson: true,
+          currentLevel: 1,
+        ),
+      ),
+      AppRoutePaths.movements,
+    );
+  });
+
+  test('trainee practice redirects to movements while tutorials loading', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.practice,
+          hasCompletedLesson: true,
+          tutorialInitialized: false,
+          currentLevel: 4,
+        ),
+      ),
+      AppRoutePaths.movements,
+    );
+  });
+
+  test('trainee practice redirects to movements while level loading', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.practice,
+          hasCompletedLesson: true,
+          currentLevel: null,
+        ),
+      ),
+      AppRoutePaths.movements,
     );
   });
 

@@ -62,17 +62,49 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: _group(),
       officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
       dueAt: DateTime.utc(2026, 8, 21, 12),
       topic: '  Bottle control  ',
     );
     final identity = officialElixrIdentityForName('Hand Stall')!;
     expect(assignment.origin, MovementOrigin.officialElixr);
     expect(assignment.officialMovementName, 'Hand Stall');
+    expect(assignment.allowedProp, TrainingProp.bottle);
     expect(assignment.movementId, identity.movementId);
     expect(assignment.revisionId, identity.revisionId);
     expect(assignment.groupName, 'BSHM 4A');
     expect(assignment.dueAt, DateTime.utc(2026, 8, 21, 12));
     expect(assignment.topic, 'Bottle control');
+  });
+
+  test('official assignment rejects unsupported allowed prop', () async {
+    expect(
+      () => assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        officialMovementName: 'Normal Grip',
+        allowedProp: TrainingProp.shaker,
+      ),
+      throwsA(
+        isA<ClassroomException>().having(
+          (e) => e.code,
+          'code',
+          ClassroomError.identityMismatch,
+        ),
+      ),
+    );
+  });
+
+  test('official medium assignment can pin Cocktail Shaker', () async {
+    final assignment = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.shaker,
+    );
+    expect(assignment.allowedProp, TrainingProp.shaker);
   });
 
   test(
@@ -117,6 +149,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
         audience: AssignmentAudience.individualStudent(['trainee-a']),
       );
 
@@ -129,6 +162,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
         audience: AssignmentAudience.selectedStudents([
           for (var index = 0; index < 12; index++) 'trainee-$index',
         ]),
@@ -148,6 +182,7 @@ void main() {
           teacherDisplayName: 'Grace Hopper',
           group: _group(),
           officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
           audience: AssignmentAudience.individualStudent(['trainee-b']),
         ),
         throwsA(isA<ClassroomException>()),
@@ -163,6 +198,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
         audience: AssignmentAudience.individualStudent(['trainee-a']),
       ),
       throwsA(isA<ClassroomException>()),
@@ -176,6 +212,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(teacherId: 'teacher-2'),
         officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
       ),
       throwsA(
         isA<ClassroomException>().having(
@@ -194,6 +231,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(status: ElixrGroupStatus.archived),
         officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
       ),
       throwsA(
         isA<ClassroomException>().having(
@@ -212,6 +250,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Arm Stall',
+      allowedProp: TrainingProp.bottle,
       ),
       throwsA(
         isA<ClassroomException>().having(

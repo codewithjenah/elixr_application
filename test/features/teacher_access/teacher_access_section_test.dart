@@ -400,6 +400,7 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: groupA,
       officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
       dueAt: DateTime(2026, 8, 31),
     );
 

@@ -58,6 +58,7 @@ class TrainingRecommendation {
     required this.recommended,
     required this.reason,
     required this.masteries,
+    this.hasRunnablePractice = true,
   });
 
   final MovementMastery recommended;
@@ -65,6 +66,11 @@ class TrainingRecommendation {
 
   /// Mastery rows for every enabled movement, grouped-ready by difficulty.
   final List<MovementMastery> masteries;
+
+  /// False when [canRecommendPractice] filtered every candidate out.
+  ///
+  /// UI must not expose Start Practice / Practice this for a non-runnable target.
+  final bool hasRunnablePractice;
 }
 
 const _difficultyOrder = <String, int>{'Easy': 0, 'Medium': 1, 'Hard': 2};
@@ -80,6 +86,7 @@ const _rubricTrendEpsilon = 0.25;
 TrainingRecommendation buildTrainingRecommendation({
   required List<Session> sessions,
   required List<Movement> movements,
+  bool Function(Movement movement)? canRecommendPractice,
 }) {
   final enabledMovements = <({Movement movement, int catalogIndex})>[];
   for (var i = 0; i < movements.length; i++) {
@@ -103,13 +110,26 @@ TrainingRecommendation buildTrainingRecommendation({
       ),
   ];
 
-  final recommended = _selectRecommendation(masteries, sessions.isEmpty);
-  final reason = _buildReason(recommended, masteries, sessions.isEmpty);
+  final eligible = canRecommendPractice == null
+      ? masteries
+      : [
+          for (final mastery in masteries)
+            if (canRecommendPractice(mastery.movement)) mastery,
+        ];
+  final hasRunnablePractice =
+      canRecommendPractice == null || eligible.isNotEmpty;
+  final recommended = eligible.isEmpty
+      ? masteries.first
+      : _selectRecommendation(eligible, sessions.isEmpty);
+  final reason = eligible.isEmpty && canRecommendPractice != null
+      ? 'Complete an unlocked lesson to start a recommended practice.'
+      : _buildReason(recommended, masteries, sessions.isEmpty);
 
   return TrainingRecommendation(
     recommended: recommended,
     reason: reason,
     masteries: masteries,
+    hasRunnablePractice: hasRunnablePractice,
   );
 }
 

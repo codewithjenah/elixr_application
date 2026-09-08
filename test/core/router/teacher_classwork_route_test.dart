@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/router/app_router.dart';
 import 'package:elixr_application/services/join_link_service.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
 import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -22,7 +23,12 @@ void main() {
     final auth = phase3TeacherAuth();
     final tutorials = TutorialProgressService();
     final joinLinks = JoinLinkService();
-    final router = AppRouter.create(auth, tutorials, joinLinks);
+    final router = AppRouter.create(
+      auth,
+      tutorials,
+      joinLinks,
+      TraineeProgressionService.ready(),
+    );
     addTearDown(router.dispose);
     addTearDown(auth.dispose);
     addTearDown(tutorials.dispose);
@@ -64,7 +70,12 @@ void main() {
     final auth = phase3TeacherAuth();
     final tutorials = TutorialProgressService();
     final joinLinks = JoinLinkService();
-    final router = AppRouter.create(auth, tutorials, joinLinks);
+    final router = AppRouter.create(
+      auth,
+      tutorials,
+      joinLinks,
+      TraineeProgressionService.ready(),
+    );
     addTearDown(router.dispose);
     addTearDown(auth.dispose);
     addTearDown(tutorials.dispose);

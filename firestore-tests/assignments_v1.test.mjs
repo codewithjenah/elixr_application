@@ -125,6 +125,8 @@ function officialAssignmentDoc(
     audienceType = 'entire_class',
     targetTraineeIds = [],
     legacy = false,
+    omitAllowedProp = false,
+    allowedProp = 'bottle',
   } = {},
 ) {
   const ctx = assignmentContext(assignmentId);
@@ -141,6 +143,7 @@ function officialAssignmentDoc(
     teacher_display_name: 'Grace Hopper',
     group_name: 'BSHM 4A',
     official_movement_name: name,
+    ...(omitAllowedProp ? {} : {allowed_prop: allowedProp}),
     ...(legacy ? {} : { audience_type: audienceType }),
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
@@ -1908,5 +1911,75 @@ describe('Phase 5 live fix: create-first Teacher-created start vs missing get', 
     assert.equal(existing.data().status, 'in_progress');
     assert.equal(existing.data().awards_global_xp, false);
     assert.equal(existing.data().source_session_id, undefined);
+  });
+});
+
+describe('official allowed_prop create/update negatives', () => {
+  test('create rejects missing and unsupported allowed_prop', async () => {
+    await seedClassroom({secondAssignment: false});
+    const db = context('teacher').firestore();
+    await assertFails(
+      setDoc(doc(db, 'group_assignments', 'asgMissingProp'), {
+        teacher_id: 'teacher',
+        group_id: GROUP_ID,
+        movement_id: 'official_normal_grip',
+        revision_id: 'official_normal_grip_v1',
+        origin: 'official_elixr',
+        assessment_mode: 'official_guided',
+        status: 'active',
+        display_title: 'Normal Grip',
+        teacher_display_name: 'Grace Hopper',
+        group_name: 'BSHM 4A',
+        official_movement_name: 'Normal Grip',
+        audience_type: 'entire_class',
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, 'group_assignments', 'asgBadProp'), {
+        teacher_id: 'teacher',
+        group_id: GROUP_ID,
+        movement_id: 'official_normal_grip',
+        revision_id: 'official_normal_grip_v1',
+        origin: 'official_elixr',
+        assessment_mode: 'official_guided',
+        status: 'active',
+        display_title: 'Normal Grip',
+        teacher_display_name: 'Grace Hopper',
+        group_name: 'BSHM 4A',
+        official_movement_name: 'Normal Grip',
+        allowed_prop: 'shaker',
+        audience_type: 'entire_class',
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('legacy update cannot inject unsupported allowed_prop', async () => {
+    await seedClassroom({secondAssignment: false});
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgLegacyProp'),
+        officialAssignmentDoc(ASG_B, {omitAllowedProp: true}),
+      );
+    });
+    const db = context('teacher').firestore();
+    const legacy = await getDoc(doc(db, 'group_assignments', 'asgLegacyProp'));
+    await assertFails(
+      updateDoc(doc(db, 'group_assignments', 'asgLegacyProp'), {
+        ...legacy.data(),
+        allowed_prop: 'shaker',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(db, 'group_assignments', 'asgLegacyProp'), {
+        ...legacy.data(),
+        allowed_prop: 'bottle',
+        updated_at: serverTimestamp(),
+      }),
+    );
   });
 });

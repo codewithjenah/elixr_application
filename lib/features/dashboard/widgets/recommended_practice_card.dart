@@ -33,6 +33,10 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
     );
   }
 
+  void _openMovements() {
+    context.go('/movements');
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.loading) {
@@ -52,6 +56,7 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
     }
 
     final mastery = recommendation.recommended;
+    final runnable = recommendation.hasRunnablePractice;
     final movement = mastery.movement;
     final accent = difficultyAccentColor(movement.difficulty);
     final statusLabel = masteryStatusLabel(mastery.status);
@@ -98,7 +103,7 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          movement.name,
+                          runnable ? movement.name : 'No ready practice yet',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
@@ -108,25 +113,26 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 5),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            _InfoChip(
-                              label: movement.difficulty,
-                              color: accent,
-                            ),
-                            _InfoChip(
-                              label: statusLabel,
-                              color: context.elixTextSecondary,
-                            ),
-                            _InfoChip(
-                              label: 'Recent: $recentLabel',
-                              color: context.elixTextSecondary,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 7),
+                        if (runnable)
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _InfoChip(
+                                label: movement.difficulty,
+                                color: accent,
+                              ),
+                              _InfoChip(
+                                label: statusLabel,
+                                color: context.elixTextSecondary,
+                              ),
+                              _InfoChip(
+                                label: 'Recent: $recentLabel',
+                                color: context.elixTextSecondary,
+                              ),
+                            ],
+                          ),
+                        if (runnable) const SizedBox(height: 7),
                         Text(
                           recommendation.reason,
                           style: TextStyle(
@@ -141,7 +147,9 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                 ],
               );
               final action = Button(
-                onPressed: () => _practiceNow(mastery),
+                onPressed: runnable
+                    ? () => _practiceNow(mastery)
+                    : _openMovements,
                 style: ButtonStyle(
                   padding: WidgetStateProperty.all(
                     const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -161,12 +169,12 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                     ),
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Practice this'),
-                    SizedBox(width: 8),
-                    Icon(FluentIcons.chevron_right, size: 11),
+                    Text(runnable ? 'Practice this' : 'Open Movements'),
+                    const SizedBox(width: 8),
+                    const Icon(FluentIcons.chevron_right, size: 11),
                   ],
                 ),
               );

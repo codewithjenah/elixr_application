@@ -43,6 +43,7 @@ import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
 import 'services/settings_service.dart';
 import 'services/tutorial_progress_service.dart';
+import 'services/trainee_progression_service.dart';
 import 'services/join_code_resolver.dart';
 import 'services/join_link_service.dart';
 import 'services/message_unread_service.dart';
@@ -72,6 +73,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final SettingsService _settingsService;
   late final CameraDeviceService _cameraDeviceService;
   late final TutorialProgressService _tutorialProgressService;
+  late final TraineeProgressionService _traineeProgressionService;
   late final PublicProfileRepository _publicProfileRepository;
   late final LeaderboardRepository _leaderboardRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
@@ -104,6 +106,9 @@ class _ElixrAppState extends State<ElixrApp> {
     _settingsService = SettingsService()..initialize();
     _cameraDeviceService = CameraDeviceService();
     _tutorialProgressService = TutorialProgressService();
+    _traineeProgressionService = TraineeProgressionService(
+      leaderboardRepository: _leaderboardRepository,
+    );
     // Subscription setup is synchronous on the first call, so cold links are
     // retained before the router begins evaluating redirects.
     unawaited(_joinLinkService.initialize());
@@ -111,6 +116,7 @@ class _ElixrAppState extends State<ElixrApp> {
       _authService,
       _tutorialProgressService,
       _joinLinkService,
+      _traineeProgressionService,
     );
   }
 
@@ -119,6 +125,7 @@ class _ElixrAppState extends State<ElixrApp> {
     _backendService.dispose();
     _cameraDeviceService.dispose();
     _joinLinkService.dispose();
+    _traineeProgressionService.dispose();
     _router.dispose();
     super.dispose();
   }
@@ -154,6 +161,17 @@ class _ElixrAppState extends State<ElixrApp> {
                 : null;
             unawaited(tutorial.setUser(userId));
             return tutorial;
+          },
+        ),
+        ChangeNotifierProxyProvider<AuthService, TraineeProgressionService>(
+          create: (_) => _traineeProgressionService,
+          update: (_, auth, progression) {
+            progression ??= _traineeProgressionService;
+            final userId = auth.currentUser?.isTrainee == true
+                ? auth.currentUser?.id
+                : null;
+            unawaited(progression.setUser(userId));
+            return progression;
           },
         ),
         ChangeNotifierProvider(

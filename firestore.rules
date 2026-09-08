@@ -3432,7 +3432,11 @@ service cloud.firestore {
         && data.movement_id == officialMovementIdForName(data.official_movement_name)
         && data.revision_id == officialRevisionIdForName(data.official_movement_name)
         && data.display_title == data.official_movement_name
-        && !data.keys().hasAny(['allowed_prop'])
+        && data.keys().hasAny(['allowed_prop'])
+        && isTrainingProp(data.allowed_prop)
+        && officialMovementSupportsProp(
+          data.official_movement_name, data.allowed_prop
+        )
         && !data.keys().hasAny(['assessment_spec'])
         && (
           !data.keys().hasAny(['display_instructions'])
@@ -3599,6 +3603,22 @@ service cloud.firestore {
           || (
             !request.resource.data.keys().hasAny(['max_score',
               'grading_locked', 'grading_locked_at'])
+            && (
+              !request.resource.data.keys().hasAny(['allowed_prop'])
+              ? !resource.data.keys().hasAny(['allowed_prop'])
+              : (
+                isTrainingProp(request.resource.data.allowed_prop)
+                && officialMovementSupportsProp(
+                  resource.data.official_movement_name,
+                  request.resource.data.allowed_prop
+                )
+                && (
+                  !resource.data.keys().hasAny(['allowed_prop'])
+                  || request.resource.data.allowed_prop
+                    == resource.data.allowed_prop
+                )
+              )
+            )
           )
         )
         && (
@@ -4879,6 +4899,22 @@ service cloud.firestore {
     function isOfficialElixrMovementName(name) {
       return name is string && name in coachingMovementNames();
     }
+    // OFFICIAL_MOVEMENT_PROPS_BEGIN
+    function officialMovementSupportsProp(name, prop) {
+      return (name == 'Normal Grip' && prop == 'bottle')
+        || (name == "Bartender's Grip" && prop == 'bottle')
+        || (name == 'Reverse Grip' && prop == 'bottle')
+        || (name == 'Claw Grip' && prop == 'bottle')
+        || (name == 'Hand Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'One Finger Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'Forearm Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'Elbow Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'Reverse Forearm Stall' && prop == 'bottle')
+        || (name == 'Shoulder Stall' && prop == 'bottle')
+        || (name == 'Double Hand Stall' && prop == 'bottle')
+        || (name == 'Bottle in a tin' && prop == 'bottle_and_shaker');
+    }
+    // OFFICIAL_MOVEMENT_PROPS_END
     function officialMovementIdForName(name) {
       return name == 'Normal Grip' ? 'official_normal_grip'
         : name == "Bartender's Grip" ? 'official_bartenders_grip'

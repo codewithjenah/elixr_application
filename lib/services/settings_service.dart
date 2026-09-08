@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../core/constants/movements.dart';
+import '../core/progression/practice_variant.dart';
+import '../core/progression/progression_catalog.dart';
 import '../data/models/camera_device.dart';
 
 /// Result of attempting to persist local Settings JSON.
@@ -39,6 +41,7 @@ class SettingsService extends ChangeNotifier {
   static const _cameraDeviceIdKey = 'camera_device_id';
   static const _cameraDisplayNameKey = 'camera_display_name';
   static const _justDanceMovementNamesKey = 'just_dance_movement_names';
+  static const _justDancePracticeVariantsKey = 'just_dance_practice_variants';
   static const _justDanceIntervalSecondsKey = 'just_dance_interval_seconds';
   static const _selectedMusicTrackIdKey = 'selected_music_track_id';
 
@@ -65,7 +68,8 @@ class SettingsService extends ChangeNotifier {
   double _musicVolume = _defaultMusicVolume;
   String? _selectedCameraDeviceId;
   String? _selectedCameraDisplayName;
-  List<String> _justDanceMovementNames = _defaultJustDanceMovementNames();
+  List<PracticeVariant> _justDancePracticeVariants =
+      _defaultJustDancePracticeVariants();
   int _justDanceIntervalSeconds = _defaultJustDanceIntervalSeconds;
   String? _selectedMusicTrackId;
 
@@ -91,8 +95,14 @@ class SettingsService extends ChangeNotifier {
   double get musicVolume => _musicVolume;
 
   /// Ordered Just Dance rotation setlist. Defaults to the full catalog.
-  List<String> get justDanceMovementNames =>
-      List.unmodifiable(_justDanceMovementNames);
+  /// Compatibility view of movement names derived from exact practice variants.
+  List<String> get justDanceMovementNames => List.unmodifiable([
+    for (final variant in _justDancePracticeVariants) variant.movementName,
+  ]);
+
+  /// Exact Playground setlist identities (movement + prop).
+  List<PracticeVariant> get justDancePracticeVariants =>
+      List.unmodifiable(_justDancePracticeVariants);
 
   /// Seconds each movement stays on screen before auto-advancing.
   int get justDanceIntervalSeconds => _justDanceIntervalSeconds;
@@ -153,7 +163,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -171,7 +181,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -189,7 +199,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -217,7 +227,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -235,7 +245,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -253,7 +263,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -273,7 +283,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -284,7 +294,7 @@ class SettingsService extends ChangeNotifier {
   /// Throws [ArgumentError] when [movementNames] is empty or contains no
   /// catalog movements after normalization.
   Future<SettingsWriteOutcome> setJustDanceSetlist(List<String> movementNames) {
-    final normalized = _normalizeMovementNames(movementNames);
+    final normalized = _normalizePracticeVariantsFromNames(movementNames);
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
@@ -296,7 +306,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: normalized,
+      justDancePracticeVariants: normalized,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -322,7 +332,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: seconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -341,7 +351,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: normalized,
     );
@@ -352,7 +362,8 @@ class SettingsService extends ChangeNotifier {
   /// Throws [ArgumentError] when normalization leaves no valid movements or
   /// [intervalSeconds] is not positive.
   Future<SettingsWriteOutcome> updateLivePracticePreferences({
-    required List<String> movementNames,
+    List<PracticeVariant>? practiceVariants,
+    List<String>? movementNames,
     required int intervalSeconds,
     String? musicTrackId,
   }) {
@@ -363,7 +374,14 @@ class SettingsService extends ChangeNotifier {
         'Live Practice interval must be positive',
       );
     }
-    final normalizedMovements = _normalizeMovementNames(movementNames);
+    if (practiceVariants == null && movementNames == null) {
+      throw ArgumentError(
+        'Live Practice preferences require practiceVariants or movementNames',
+      );
+    }
+    final normalizedMovements = practiceVariants != null
+        ? _normalizePracticeVariants(practiceVariants)
+        : _normalizePracticeVariantsFromNames(movementNames!);
     final normalizedTrack = _parseTrackId(musicTrackId);
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
@@ -376,7 +394,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
-      justDanceMovementNames: normalizedMovements,
+      justDancePracticeVariants: normalizedMovements,
       justDanceIntervalSeconds: intervalSeconds,
       selectedMusicTrackId: normalizedTrack,
     );
@@ -403,7 +421,7 @@ class SettingsService extends ChangeNotifier {
       cameraDeviceId: normalizedId,
       cameraDisplayName: normalizedId == null ? null : name,
       legacyCameraIndex: null,
-      justDanceMovementNames: _justDanceMovementNames,
+      justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: _selectedMusicTrackId,
     );
@@ -481,20 +499,34 @@ class SettingsService extends ChangeNotifier {
     _legacyCameraIndex = _parseCameraIndex(data[_cameraIndexKey]);
   }
 
-  /// Loads the Just Dance setlist/interval, dropping any persisted movement
-  /// names that no longer exist in [movementCatalog]. Falls back to the full
-  /// catalog default when nothing valid remains.
+  /// Loads Playground setlist variants. Prefers exact variant persistence;
+  /// migrates legacy movement-name lists to each movement's first supported
+  /// prop only.
   void _loadJustDanceSettings(Map<String, dynamic> data) {
-    final validNames = movementCatalog.map((m) => m.name).toSet();
-    final raw = data[_justDanceMovementNamesKey];
-    final persisted = raw is List
-        ? _dedupePreservingOrder(
-            raw.whereType<String>().where(validNames.contains),
-          )
-        : <String>[];
-    _justDanceMovementNames = persisted.isEmpty
-        ? _defaultJustDanceMovementNames()
-        : List.unmodifiable(persisted);
+    final rawVariants = data[_justDancePracticeVariantsKey];
+    if (rawVariants is List) {
+      final parsed = <PracticeVariant>[];
+      for (final entry in rawVariants.whereType<String>()) {
+        final variant = PracticeVariant.tryParsePersistenceKey(entry);
+        if (variant == null) continue;
+        if (resolvePracticeVariant(variant) == null) continue;
+        parsed.add(variant);
+      }
+      final deduped = _dedupeVariantsPreservingOrder(parsed);
+      _justDancePracticeVariants = deduped.isEmpty
+          ? _defaultJustDancePracticeVariants()
+          : List.unmodifiable(deduped);
+    } else {
+      final raw = data[_justDanceMovementNamesKey];
+      final names = raw is List ? raw.whereType<String>().toList() : <String>[];
+      final migrated = _normalizePracticeVariantsFromNames(
+        names,
+        allowEmpty: true,
+      );
+      _justDancePracticeVariants = migrated.isEmpty
+          ? _defaultJustDancePracticeVariants()
+          : List.unmodifiable(migrated);
+    }
 
     final interval = data[_justDanceIntervalSecondsKey];
     _justDanceIntervalSeconds = interval is int && interval > 0
@@ -502,8 +534,66 @@ class SettingsService extends ChangeNotifier {
         : _defaultJustDanceIntervalSeconds;
   }
 
-  static List<String> _defaultJustDanceMovementNames() =>
-      List.unmodifiable(movementCatalog.map((m) => m.name));
+  static List<PracticeVariant> _defaultJustDancePracticeVariants() =>
+      List.unmodifiable([
+        for (final movement in movementCatalog)
+          if (movement.enabled && movement.supportedProps.isNotEmpty)
+            PracticeVariant(
+              movementName: movement.name,
+              trainingProp: movement.supportedProps.first,
+            ),
+      ]);
+
+  /// Filters to catalog-supported variants, dedupes preserving order.
+  static List<PracticeVariant> _normalizePracticeVariants(
+    List<PracticeVariant> variants, {
+    bool allowEmpty = false,
+  }) {
+    final normalized = _dedupeVariantsPreservingOrder([
+      for (final variant in variants)
+        if (resolvePracticeVariant(variant) != null) variant,
+    ]);
+    if (normalized.isEmpty && !allowEmpty) {
+      throw ArgumentError(
+        'Live Practice setlist must contain at least one catalog variant',
+      );
+    }
+    return List.unmodifiable(normalized);
+  }
+
+  /// Legacy name-only setlists map each name to the first supported prop only.
+  static List<PracticeVariant> _normalizePracticeVariantsFromNames(
+    List<String> movementNames, {
+    bool allowEmpty = false,
+  }) {
+    final variants = <PracticeVariant>[];
+    for (final name in movementNames) {
+      for (final movement in movementCatalog) {
+        if (movement.name != name || movement.supportedProps.isEmpty) continue;
+        variants.add(
+          PracticeVariant(
+            movementName: movement.name,
+            trainingProp: movement.supportedProps.first,
+          ),
+        );
+        break;
+      }
+    }
+    return _normalizePracticeVariants(variants, allowEmpty: allowEmpty);
+  }
+
+  static List<PracticeVariant> _dedupeVariantsPreservingOrder(
+    Iterable<PracticeVariant> variants,
+  ) {
+    final seen = <String>{};
+    final result = <PracticeVariant>[];
+    for (final variant in variants) {
+      if (seen.add(variant.persistenceKey)) {
+        result.add(variant);
+      }
+    }
+    return result;
+  }
 
   static String? _parseTrackId(Object? raw) {
     if (raw is! String) return null;
@@ -544,31 +634,6 @@ class SettingsService extends ChangeNotifier {
     return value;
   }
 
-  /// Filters to catalog names, dedupes preserving order. Throws when empty.
-  static List<String> _normalizeMovementNames(List<String> movementNames) {
-    final validNames = movementCatalog.map((m) => m.name).toSet();
-    final normalized = _dedupePreservingOrder(
-      movementNames.where(validNames.contains),
-    );
-    if (normalized.isEmpty) {
-      throw ArgumentError(
-        'Live Practice setlist must contain at least one catalog movement',
-      );
-    }
-    return List.unmodifiable(normalized);
-  }
-
-  static List<String> _dedupePreservingOrder(Iterable<String> names) {
-    final seen = <String>{};
-    final result = <String>[];
-    for (final name in names) {
-      if (seen.add(name)) {
-        result.add(name);
-      }
-    }
-    return result;
-  }
-
   Future<SettingsWriteOutcome> _commitCandidate({
     required bool cameraMirrored,
     required bool darkMode,
@@ -580,7 +645,7 @@ class SettingsService extends ChangeNotifier {
     required String? cameraDeviceId,
     required String? cameraDisplayName,
     required int? legacyCameraIndex,
-    required List<String> justDanceMovementNames,
+    required List<PracticeVariant> justDancePracticeVariants,
     required int justDanceIntervalSeconds,
     required String? selectedMusicTrackId,
   }) async {
@@ -594,7 +659,10 @@ class SettingsService extends ChangeNotifier {
         _selectedCameraDeviceId == cameraDeviceId &&
         _selectedCameraDisplayName == cameraDisplayName &&
         _legacyCameraIndex == legacyCameraIndex &&
-        listEquals(_justDanceMovementNames, justDanceMovementNames) &&
+        listEquals(
+          [for (final v in _justDancePracticeVariants) v.persistenceKey],
+          [for (final v in justDancePracticeVariants) v.persistenceKey],
+        ) &&
         _justDanceIntervalSeconds == justDanceIntervalSeconds &&
         _selectedMusicTrackId == selectedMusicTrackId) {
       return SettingsWriteOutcome.unchanged;
@@ -610,7 +678,12 @@ class SettingsService extends ChangeNotifier {
       _musicVolumeKey: musicVolume,
       _cameraDeviceIdKey: cameraDeviceId,
       _cameraDisplayNameKey: cameraDisplayName,
-      _justDanceMovementNamesKey: justDanceMovementNames,
+      _justDanceMovementNamesKey: [
+        for (final v in justDancePracticeVariants) v.movementName
+      ],
+      _justDancePracticeVariantsKey: [
+        for (final v in justDancePracticeVariants) v.persistenceKey
+      ],
       _justDanceIntervalSecondsKey: justDanceIntervalSeconds,
       _selectedMusicTrackIdKey: selectedMusicTrackId,
     };
@@ -635,7 +708,7 @@ class SettingsService extends ChangeNotifier {
     _selectedCameraDeviceId = cameraDeviceId;
     _selectedCameraDisplayName = cameraDisplayName;
     _legacyCameraIndex = legacyCameraIndex;
-    _justDanceMovementNames = List.unmodifiable(justDanceMovementNames);
+    _justDancePracticeVariants = List.unmodifiable(justDancePracticeVariants);
     _justDanceIntervalSeconds = justDanceIntervalSeconds;
     _selectedMusicTrackId = selectedMusicTrackId;
     notifyListeners();

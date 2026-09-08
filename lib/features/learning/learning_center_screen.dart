@@ -1,15 +1,22 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/progression/practice_variant.dart';
+import '../../core/progression/progression_access.dart';
+import '../../core/progression/progression_catalog.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_stat_card.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../data/models/movement.dart';
+import '../../data/models/training_prop.dart';
+import '../../services/trainee_progression_service.dart';
+import '../../services/tutorial_progress_service.dart';
 import 'rubric_guide.dart';
 
 const _kLearningContentMaxWidth = 1280.0;
@@ -558,47 +565,114 @@ class _LessonCard extends StatefulWidget {
 class _LessonCardState extends State<_LessonCard> {
   bool _hovered = false;
 
-  void _openLesson() {
+  void _openLesson(TrainingProp prop) {
     final movement = widget.movement;
     context.go(
-      '/learn/movement/${Uri.encodeComponent(movement.name)}?difficulty=${movement.difficulty}&prop=${movement.supportedProps.first.protocolValue}',
+      '/learn/movement/${Uri.encodeComponent(movement.name)}'
+      '?difficulty=${movement.difficulty}&prop=${prop.protocolValue}',
     );
+  }
+
+  ProgressionAccessResult? _accessFor(TrainingProp prop) {
+    final progression = Provider.of<TraineeProgressionService?>(
+      context,
+      listen: true,
+    );
+    final tutorials = Provider.of<TutorialProgressService?>(
+      context,
+      listen: true,
+    );
+    if (progression == null || tutorials == null) return null;
+    return evaluatePersonal(
+      variant: PracticeVariant(
+        movementName: widget.movement.name,
+        trainingProp: prop,
+      ),
+      currentLevel: progression.currentLevelOrNull,
+      tutorialCompleted: tutorials.isInitialized
+          ? tutorials.hasCompletedLesson(widget.movement.name, prop)
+          : null,
+    );
+  }
+
+  String _statusFor(TrainingProp prop, ProgressionAccessResult? access) {
+    if (access == null) return 'View lesson';
+    switch (access) {
+      case ProgressionAccessResult.personalReady:
+        return 'Ready';
+      case ProgressionAccessResult.personalLearn:
+        return 'Learn';
+      case ProgressionAccessResult.personalLocked:
+        final level =
+            requiredLevelFor(
+              PracticeVariant(
+                movementName: widget.movement.name,
+                trainingProp: prop,
+              ),
+            ) ??
+            '?';
+        return 'Locked · Level $level';
+      case ProgressionAccessResult.personalLoading:
+        return 'Checking…';
+      case ProgressionAccessResult.invalid:
+        return 'Unavailable';
+      case ProgressionAccessResult.assignmentLoading:
+      case ProgressionAccessResult.assignmentLearn:
+      case ProgressionAccessResult.assignmentReady:
+        return 'Unavailable';
+    }
+  }
+
+  bool _canOpen(ProgressionAccessResult? access) {
+    if (access == null) return true;
+    return access == ProgressionAccessResult.personalLearn ||
+        access == ProgressionAccessResult.personalReady;
   }
 
   @override
   Widget build(BuildContext context) {
     final movement = widget.movement;
+    final props = movement.supportedProps;
     final difficultyColor = switch (movement.difficulty) {
       'Easy' => AppColors.success,
       'Medium' => AppColors.warning,
       _ => AppColors.primary,
     };
+    final multiProp = props.length > 1;
+    final primaryProp = props.first;
+    final primaryAccess = _accessFor(primaryProp);
+    final primaryOpenable = !multiProp && _canOpen(primaryAccess);
 
     return Semantics(
-      button: true,
-      label: 'Open ${movement.name} lesson',
+      button: primaryOpenable,
+      label: multiProp
+          ? '${movement.name} lessons'
+          : 'Open ${movement.name} lesson. ${_statusFor(primaryProp, primaryAccess)}',
       child: MouseRegion(
-        cursor: SystemMouseCursors.click,
+        cursor: primaryOpenable
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
-          onTap: _openLesson,
+          onTap: primaryOpenable ? () => _openLesson(primaryProp) : null,
           behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            height: 156,
+            constraints: BoxConstraints(minHeight: multiProp ? 188 : 156),
             decoration: AppTheme.panelDecoration(
               context,
               glow: AppColors.accent,
-              highlighted: _hovered,
+              highlighted: _hovered && primaryOpenable,
             ),
             clipBehavior: Clip.antiAlias,
-            child: Row(
+            child: IntrinsicHeight(
+              child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   width: 116,
-                  height: double.infinity,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
@@ -648,45 +722,108 @@ class _LessonCardState extends State<_LessonCard> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Expanded(
-                          child: Text(
-                            movement.description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                              height: 1.35,
-                            ),
+                        Text(
+                          movement.description,
+                          maxLines: multiProp ? 1 : 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                            height: 1.35,
                           ),
                         ),
-                        Row(
-                          children: [
-                            Text(
-                              'View lesson',
-                              style: AppTheme.caption.copyWith(
-                                color: _hovered
-                                    ? AppColors.primarySoft
-                                    : context.elixTextSecondary,
-                                fontWeight: FontWeight.w700,
+                        const SizedBox(height: AppSpacing.sm),
+                        if (multiProp)
+                          for (final prop in props) ...[
+                            const SizedBox(height: 4),
+                            _PropLessonRow(
+                              prop: prop,
+                              status: _statusFor(prop, _accessFor(prop)),
+                              enabled: _canOpen(_accessFor(prop)),
+                              onTap: () => _openLesson(prop),
+                            ),
+                          ]
+                        else
+                          Row(
+                            children: [
+                              Text(
+                                _statusFor(primaryProp, primaryAccess),
+                                style: AppTheme.caption.copyWith(
+                                  color: _hovered && primaryOpenable
+                                      ? AppColors.primarySoft
+                                      : context.elixTextSecondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 5),
-                            Icon(
-                              FluentIcons.chevron_right,
-                              size: 10,
-                              color: _hovered
-                                  ? AppColors.primarySoft
-                                  : context.elixTextSecondary,
-                            ),
-                          ],
-                        ),
+                              if (primaryOpenable) ...[
+                                const SizedBox(width: 5),
+                                Icon(
+                                  FluentIcons.chevron_right,
+                                  size: 10,
+                                  color: _hovered
+                                      ? AppColors.primarySoft
+                                      : context.elixTextSecondary,
+                                ),
+                              ],
+                            ],
+                          ),
                       ],
                     ),
                   ),
                 ),
               ],
             ),
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PropLessonRow extends StatelessWidget {
+  const _PropLessonRow({
+    required this.prop,
+    required this.status,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final TrainingProp prop;
+  final String status;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: enabled,
+      enabled: enabled,
+      label: '${prop.displayLabel}. $status',
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        behavior: HitTestBehavior.opaque,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${prop.displayLabel} · $status',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.caption.copyWith(
+                  color: enabled
+                      ? context.elixTextPrimary
+                      : context.elixTextSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (enabled)
+              Icon(
+                FluentIcons.chevron_right,
+                size: 10,
+                color: context.elixTextSecondary,
+              ),
+          ],
         ),
       ),
     );

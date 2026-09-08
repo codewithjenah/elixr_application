@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -5,18 +7,26 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/progression/assignment_prop_resolution.dart';
+import '../../core/progression/practice_variant.dart';
+import '../../core/progression/progression_access.dart';
+import '../../core/progression/progression_catalog.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/movement_image.dart';
+import '../../data/models/group_assignment.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/training_prop.dart';
+import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../services/auth_service.dart';
+import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import 'rubric_guide.dart';
 
-class MovementLessonScreen extends StatelessWidget {
+class MovementLessonScreen extends StatefulWidget {
   const MovementLessonScreen({
     super.key,
     required this.movement,
@@ -30,12 +40,249 @@ class MovementLessonScreen extends StatelessWidget {
   final String? assignmentId;
 
   @override
+  State<MovementLessonScreen> createState() => _MovementLessonScreenState();
+}
+
+class _MovementLessonScreenState extends State<MovementLessonScreen> {
+  AssignmentGrant? _assignmentGrant;
+  var _assignmentGrantLoading = false;
+  var _assignmentChecked = false;
+
+  String get movement => widget.movement;
+  String get difficulty => widget.difficulty;
+  TrainingProp get prop => widget.prop;
+  String? get assignmentId => widget.assignmentId;
+
+  bool get _assigned =>
+      assignmentId != null && assignmentId!.trim().isNotEmpty;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_assigned && !_assignmentChecked) {
+      _assignmentChecked = true;
+      _assignmentGrantLoading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_verifyAssignmentGrant());
+      });
+    }
+  }
+
+  Future<void> _verifyAssignmentGrant() async {
+    final id = assignmentId?.trim() ?? '';
+    final auth = Provider.of<AuthService?>(context, listen: false);
+    final repo = Provider.of<ClassroomAssignmentRepository?>(
+      context,
+      listen: false,
+    );
+    if (id.isEmpty || auth == null || repo == null) {
+      if (!mounted) return;
+      setState(() {
+        _assignmentGrant = const AssignmentGrant(isAuthorized: false);
+        _assignmentGrantLoading = false;
+      });
+      return;
+    }
+    final traineeId = auth.currentUser?.id?.trim();
+    if (traineeId == null || traineeId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _assignmentGrant = const AssignmentGrant(isAuthorized: false);
+        _assignmentGrantLoading = false;
+      });
+      return;
+    }
+    try {
+      final assignment = await repo.getAssignment(assignmentId: id);
+      final authorized = _isAuthorizedAssignmentLesson(
+        assignment: assignment,
+        traineeId: traineeId,
+        movementName: movement,
+        prop: prop,
+      );
+      if (!mounted) return;
+      setState(() {
+        _assignmentGrant = AssignmentGrant(isAuthorized: authorized);
+        _assignmentGrantLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _assignmentGrant = const AssignmentGrant(isAuthorized: false);
+        _assignmentGrantLoading = false;
+      });
+    }
+  }
+
+  static bool _isAuthorizedAssignmentLesson({
+    required GroupAssignment? assignment,
+    required String traineeId,
+    required String movementName,
+    required TrainingProp prop,
+  }) {
+    if (assignment == null || !assignment.isActive) return false;
+    if (!assignment.audience.isAvailableToTrainee(traineeId)) return false;
+    // Catalog lessons only accept official ELIXR assignment grants that match
+    // the exact movement + pinned prop. Teacher-created activity assignments
+    // use a different practice path and must not unlock arbitrary catalog rows.
+    if (!assignment.isOfficial) return false;
+    if (assignment.officialMovementName != movementName) return false;
+    final resolved = resolvedAllowedPropForOfficialAssignment(
+      officialMovementName: movementName,
+      storedAllowedProp: assignment.allowedProp,
+    );
+    return resolved == prop;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final item = movementCatalog.where((m) => m.name == movement).firstOrNull;
     if (item == null) {
       return const ElixScaffoldPage(
         content: Center(child: Text('This movement is not available.')),
       );
+    }
+    if (_assigned) {
+      if (_assignmentGrantLoading) {
+        return const ElixScaffoldPage(
+          content: Center(child: ProgressRing()),
+        );
+      }
+      final grant = _assignmentGrant;
+      if (grant == null || !grant.isAuthorized) {
+        return ElixScaffoldPage(
+          content: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'This assignment lesson is not available.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Button(
+                      onPressed: () => context.go(AppRoutePaths.teacherAccess),
+                      child: const Text('Back to Classroom'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      final tutorials = Provider.of<TutorialProgressService?>(
+        context,
+        listen: true,
+      );
+      if (tutorials == null) {
+        return const ElixScaffoldPage(
+          content: Center(child: ProgressRing()),
+        );
+      }
+      final access = evaluateAssignment(
+        variant: PracticeVariant(movementName: movement, trainingProp: prop),
+        assignmentGrant: grant,
+        tutorialCompleted: tutorials.isInitialized
+            ? tutorials.hasCompletedLesson(movement, prop)
+            : null,
+      );
+      if (access == ProgressionAccessResult.assignmentLoading) {
+        return const ElixScaffoldPage(
+          content: Center(child: ProgressRing()),
+        );
+      }
+      if (access == ProgressionAccessResult.invalid) {
+        return ElixScaffoldPage(
+          content: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'This assignment lesson is not available.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Button(
+                      onPressed: () => context.go(AppRoutePaths.teacherAccess),
+                      child: const Text('Back to Classroom'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    } else {
+      final progression = Provider.of<TraineeProgressionService?>(
+        context,
+        listen: true,
+      );
+      final tutorials = Provider.of<TutorialProgressService?>(
+        context,
+        listen: true,
+      );
+      if (progression == null || tutorials == null) {
+        return const ElixScaffoldPage(
+          content: Center(child: ProgressRing()),
+        );
+      }
+      final access = evaluatePersonal(
+        variant: PracticeVariant(movementName: movement, trainingProp: prop),
+        currentLevel: progression.currentLevelOrNull,
+        tutorialCompleted: tutorials.isInitialized
+            ? tutorials.hasCompletedLesson(movement, prop)
+            : null,
+      );
+      if (access == ProgressionAccessResult.personalLoading) {
+        return const ElixScaffoldPage(
+          content: Center(child: ProgressRing()),
+        );
+      }
+      if (access == ProgressionAccessResult.personalLocked ||
+          access == ProgressionAccessResult.invalid) {
+        final required =
+            requiredLevelFor(
+              PracticeVariant(movementName: movement, trainingProp: prop),
+            ) ??
+            '?';
+        return ElixScaffoldPage(
+          content: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      access == ProgressionAccessResult.personalLocked
+                          ? 'This lesson unlocks at Level $required.'
+                          : 'This lesson is not available.',
+                      textAlign: TextAlign.center,
+                      style: AppTheme.body,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Button(
+                      onPressed: () => context.go(AppRoutePaths.learn),
+                      child: const Text('Back to Learning Center'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
     }
     final lesson = MovementLesson.forMovement(item);
     return ElixScaffoldPage(
@@ -437,6 +684,7 @@ class _Actions extends StatelessWidget {
           onPressed: () async {
             await context.read<TutorialProgressService>().completeLesson(
               item.name,
+              prop,
             );
             if (context.mounted) {
               context.go(

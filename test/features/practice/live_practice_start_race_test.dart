@@ -18,6 +18,8 @@ import 'package:elixr_application/features/practice/just_dance/playground_sessio
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
+import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -25,6 +27,15 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+
+/// Test double: every exact lesson is already complete.
+class _ReadyTutorials extends TutorialProgressService {
+  @override
+  bool get isInitialized => true;
+
+  @override
+  bool hasCompletedLesson(String movement, TrainingProp prop) => true;
+}
 
 const _assignment = GroupAssignment(
   id: 'asg-bbb',
@@ -336,6 +347,12 @@ void main() {
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<TraineeProgressionService>(
+            create: (_) => TraineeProgressionService.ready(totalXp: 20 * 250),
+          ),
+          ChangeNotifierProvider<TutorialProgressService>(
+            create: (_) => _ReadyTutorials(),
+          ),
           Provider<ClassroomAssignmentRepository>.value(value: assignments),
           Provider<AssignmentSubmissionRepository>(
             create: (_) =>
@@ -471,8 +488,11 @@ void main() {
 
       ws.emitPreview();
       await tester.pump();
+      // Preview bytes are fixtures for lifecycle timing; ignore decode noise.
+      while (tester.takeException() != null) {}
       await tester.pump(const Duration(seconds: 4));
       await tester.pump();
+      while (tester.takeException() != null) {}
 
       expect(ws.activateCalls, 1);
       expect(

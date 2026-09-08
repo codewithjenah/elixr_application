@@ -8,6 +8,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/progression/assignment_prop_resolution.dart';
+import '../../core/progression/practice_variant.dart';
+import '../../core/progression/progression_catalog.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/user_name.dart';
@@ -372,6 +375,33 @@ class _AssignmentHeader extends StatelessWidget {
                 ),
             ],
           ),
+          if (assignment.isOfficial) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Builder(
+              builder: (context) {
+                final name = assignment.officialMovementName;
+                if (name == null) return const SizedBox.shrink();
+                final prop = resolvedAllowedPropForOfficialAssignment(
+                  officialMovementName: name,
+                  storedAllowedProp: assignment.allowedProp,
+                );
+                if (prop == null) return const SizedBox.shrink();
+                final level = requiredLevelFor(
+                  PracticeVariant(
+                    movementName: name,
+                    trainingProp: prop,
+                  ),
+                );
+                if (level == null) return const SizedBox.shrink();
+                return Text(
+                  'Assignment Access · Normally unlocks at Level $level',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                );
+              },
+            ),
+          ],
           if (activityAssessment != null) ...[
             const SizedBox(height: AppSpacing.md),
             if (activityAssessment.demonstrationVideo != null) ...[

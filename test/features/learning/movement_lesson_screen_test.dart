@@ -1,8 +1,33 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/learning/movement_lesson.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
+import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+class _ReadyTutorials extends TutorialProgressService {
+  @override
+  bool get isInitialized => true;
+
+  @override
+  bool hasCompletedLesson(String movement, TrainingProp prop) => true;
+}
+
+Widget _wrapLesson(Widget child) {
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<TraineeProgressionService>(
+        create: (_) => TraineeProgressionService.ready(totalXp: 20 * 250),
+      ),
+      ChangeNotifierProvider<TutorialProgressService>(
+        create: (_) => _ReadyTutorials(),
+      ),
+    ],
+    child: FluentApp(theme: AppTheme.dark, home: child),
+  );
+}
 
 void main() {
   testWidgets('lesson action buttons fit without horizontal overflow', (
@@ -14,9 +39,8 @@ void main() {
     tester.view.physicalSize = const Size(1180, 900);
 
     await tester.pumpWidget(
-      FluentApp(
-        theme: AppTheme.dark,
-        home: const MovementLessonScreen(
+      _wrapLesson(
+        const MovementLessonScreen(
           movement: 'Claw Grip',
           difficulty: 'Easy',
           prop: TrainingProp.bottle,
@@ -37,9 +61,8 @@ void main() {
     tester.view.physicalSize = const Size(1180, 900);
 
     await tester.pumpWidget(
-      FluentApp(
-        theme: AppTheme.dark,
-        home: const MovementLessonScreen(
+      _wrapLesson(
+        const MovementLessonScreen(
           movement: 'Claw Grip',
           difficulty: 'Easy',
           prop: TrainingProp.bottle,

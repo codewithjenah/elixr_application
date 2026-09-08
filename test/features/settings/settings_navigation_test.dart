@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
@@ -359,19 +358,20 @@ void main() {
     final controller = PracticePreferencesController(settingsService);
     expect(controller.isDirty, isFalse);
 
-    controller.toggleMovement(movementCatalog.first.name, false);
+    final first = settingsService.justDancePracticeVariants.first;
+    controller.toggleVariant(first, false);
     // May still be dirty depending on starting setlist size.
-    final before = List.of(controller.draft.movementNames);
+    final before = List.of(controller.draft.practiceVariants);
     controller.setInterval(40);
     expect(controller.isDirty, isTrue);
     expect(
       controller.canSave,
-      before.isNotEmpty || controller.draft.movementNames.isNotEmpty,
+      before.isNotEmpty || controller.draft.practiceVariants.isNotEmpty,
     );
 
-    // Ensure at least one movement remains.
-    if (controller.draft.movementNames.isEmpty) {
-      controller.toggleMovement(movementCatalog.first.name, true);
+    // Ensure at least one variant remains.
+    if (controller.draft.practiceVariants.isEmpty) {
+      controller.toggleVariant(first, true);
     }
 
     final outcome = await controller.save();

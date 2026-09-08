@@ -5,16 +5,20 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/movements.dart';
+import '../../core/progression/practice_variant.dart';
+import '../../core/progression/progression_access.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/utils/manila_day.dart';
 import '../../data/models/session.dart';
+import '../../data/models/training_prop.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../calendar/utils/calendar_metrics.dart';
 import '../trainee/activity_center/trainee_activity_controller.dart';
@@ -109,6 +113,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final recommendation = buildTrainingRecommendation(
         sessions: sessions,
         movements: movementCatalog,
+        canRecommendPractice: (movement) {
+          final progression = context.read<TraineeProgressionService>();
+          final tutorials = context.read<TutorialProgressService>();
+          if (!progression.isReady || !tutorials.isInitialized) {
+            return false;
+          }
+          return movement.supportedProps.any((prop) {
+            final access = evaluatePersonal(
+              variant: PracticeVariant(
+                movementName: movement.name,
+                trainingProp: prop,
+              ),
+              currentLevel: progression.currentLevelOrNull,
+              tutorialCompleted: tutorials.hasCompletedLesson(
+                movement.name,
+                prop,
+              ),
+            );
+            return access == ProgressionAccessResult.personalReady;
+          });
+        },
       );
       setState(() {
         _stats = stats;
@@ -435,7 +460,10 @@ class _QuickStartCard extends StatelessWidget {
           const SizedBox(height: 10),
           _QuickStartStep(
             label: 'Learn one Easy movement',
-            complete: tutorial.hasCompletedLesson('Normal Grip'),
+            complete: tutorial.hasCompletedLesson(
+              'Normal Grip',
+              TrainingProp.bottle,
+            ),
           ),
           _QuickStartStep(
             label: 'Complete camera setup',

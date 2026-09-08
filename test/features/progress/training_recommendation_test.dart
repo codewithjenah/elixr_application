@@ -540,5 +540,48 @@ void main() {
       expect(mastery.lifetimeAverageRubric, 6);
       expect(mastery.recentAverageRubric, inInclusiveRange(0, 12));
     });
+
+    test('canRecommendPractice excludes ineligible movements from Start Practice', () {
+      final sessions = [
+        _session(
+          movementName: 'Normal Grip',
+          rubricTotal: 8,
+          createdAt: _iso(2026, 1, 1),
+        ),
+      ];
+      final result = buildTrainingRecommendation(
+        sessions: sessions,
+        movements: movementCatalog,
+        canRecommendPractice: (movement) => movement.name == 'Claw Grip',
+      );
+      expect(result.recommended.movement.name, 'Claw Grip');
+      expect(
+        result.reason,
+        isNot(contains('Complete an unlocked lesson')),
+      );
+    });
+
+    test('empty canRecommendPractice pool uses fallback copy', () {
+      final result = buildTrainingRecommendation(
+        sessions: const [],
+        movements: movementCatalog,
+        canRecommendPractice: (_) => false,
+      );
+      expect(
+        result.reason,
+        'Complete an unlocked lesson to start a recommended practice.',
+      );
+      expect(result.hasRunnablePractice, isFalse);
+    });
+
+    test('filtered recommendation remains runnable when eligible exists', () {
+      final result = buildTrainingRecommendation(
+        sessions: const [],
+        movements: movementCatalog,
+        canRecommendPractice: (movement) => movement.name == 'Claw Grip',
+      );
+      expect(result.hasRunnablePractice, isTrue);
+      expect(result.recommended.movement.name, 'Claw Grip');
+    });
   });
 }

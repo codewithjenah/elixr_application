@@ -8,8 +8,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/gamification_rules.dart';
 import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
+import '../../core/progression/practice_variant.dart';
+import '../../core/progression/progression_access.dart';
+import '../../core/progression/progression_catalog.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -26,6 +30,8 @@ import '../../services/auth_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/trainee_progression_service.dart';
+import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
 import 'just_dance/playground_session_controller.dart';
 import 'just_dance/movement_setlist_dialog.dart';
@@ -122,6 +128,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
   late final PlaygroundSessionController _playground;
+  late List<TrainingProp> _playgroundProps;
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   StreamSubscription<PreviewFrame>? _previewSub;
@@ -151,8 +158,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _ownsWebSocket = widget.websocketService == null;
     _ws = widget.websocketService ?? WebSocketService();
     final settings = context.read<SettingsService>();
+    final steps = _resolvePlayableSteps(settings.justDancePracticeVariants);
+    _playgroundProps = _propsFromSteps(steps);
     _playground = PlaygroundSessionController(
-      movements: _resolveMovements(settings.justDanceMovementNames),
+      movements: _movementsFromSteps(steps),
       assessmentDuration: Duration(seconds: settings.justDanceIntervalSeconds),
     );
     _playground.addListener(_onPlaygroundChanged);
@@ -219,25 +228,49 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   @visibleForTesting
   PlaygroundSessionController get debugPlayground => _playground;
 
-  /// Maps persisted setlist names to catalog [Movement]s, preserving the
-  /// chosen rotation order and silently dropping any unknown names.
-  List<Movement> _resolveMovements(List<String> names) {
-    final byName = {
-      for (final movement in movementCatalog) movement.name: movement,
-    };
-    return [
-      for (final name in names)
-        if (byName.containsKey(name)) byName[name]!,
-    ];
+  /// Maps persisted Playground variants to catalog steps, dropping invalid
+  /// identities and variants that are not personally practice-ready.
+  List<PracticeCatalogStep> _resolvePlayableSteps(
+    List<PracticeVariant> variants,
+  ) {
+    final progression = context.read<TraineeProgressionService>();
+    final tutorials = context.read<TutorialProgressService>();
+    final steps = <PracticeCatalogStep>[];
+    for (final variant in variants) {
+      final step = resolvePracticeVariant(variant);
+      if (step == null) continue;
+      final access = evaluatePersonal(
+        variant: variant,
+        currentLevel: progression.currentLevelOrNull,
+        tutorialCompleted: tutorials.isInitialized
+            ? tutorials.hasCompletedLesson(
+                variant.movementName,
+                variant.trainingProp,
+              )
+            : null,
+      );
+      if (access == ProgressionAccessResult.personalReady) {
+        steps.add(step);
+      }
+    }
+    return steps;
   }
+
+  List<Movement> _movementsFromSteps(List<PracticeCatalogStep> steps) => [
+    for (final step in steps) step.movement,
+  ];
+
+  List<TrainingProp> _propsFromSteps(List<PracticeCatalogStep> steps) => [
+    for (final step in steps) step.prop,
+  ];
 
   Future<void> _openSetlistDialog() async {
     final saved = await MovementSetlistDialog.show(context);
     if (saved != true || !mounted) return;
     final settings = context.read<SettingsService>();
-    _playground.updateSetlist(
-      _resolveMovements(settings.justDanceMovementNames),
-    );
+    final steps = _resolvePlayableSteps(settings.justDancePracticeVariants);
+    _playgroundProps = _propsFromSteps(steps);
+    _playground.updateSetlist(_movementsFromSteps(steps));
   }
 
   bool get _isPlayground => widget.teacherCreatedAssignment == null;
@@ -680,6 +713,19 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _latestFeedback = null;
     _bottleDetected = false;
     if (assignment == null) {
+      final steps = _resolvePlayableSteps(
+        settings.justDancePracticeVariants,
+      );
+      if (steps.isEmpty) {
+        setState(() {
+          _sessionError =
+              'No personally ready movements are in your set. '
+              'Unlock and complete lessons first, then rebuild your set.';
+        });
+        return;
+      }
+      _playgroundProps = _propsFromSteps(steps);
+      _playground.updateSetlist(_movementsFromSteps(steps));
       final generation = _playground.start();
       if (generation == null) {
         setState(() {
@@ -790,7 +836,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       final ack = await _ws.sendPrepare(
         movement: movement.name,
         difficulty: movement.difficulty,
-        prop: TrainingProp.bottle,
+        prop: _playgroundProps.length > _playground.currentIndex
+            ? _playgroundProps[_playground.currentIndex]
+            : TrainingProp.bottle,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
@@ -1126,6 +1174,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       )
                     : null,
               );
+              final progressionHud = assignment == null
+                  ? _PlaygroundProgressionHud(
+                      progression: context.watch<TraineeProgressionService>(),
+                    )
+                  : null;
               final camera = TrainingCameraWorkspace(
                 frameListenable: _frameBytes,
                 mirrored: context.watch<SettingsService>().cameraMirrored,
@@ -1250,6 +1303,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     header,
+                    if (progressionHud != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      progressionHud,
+                    ],
                     Expanded(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1278,6 +1335,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     header,
+                    if (progressionHud != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      progressionHud,
+                    ],
                     AspectRatio(
                       aspectRatio: LivePracticeScreen.cameraAspectRatio,
                       child: camera,
@@ -1290,6 +1351,36 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
             },
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PlaygroundProgressionHud extends StatelessWidget {
+  const _PlaygroundProgressionHud({required this.progression});
+
+  final TraineeProgressionService progression;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!progression.isReady) {
+      return Text(
+        'Level progress loading…',
+        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+      );
+    }
+    final level = progression.level;
+    final into = GamificationRules.xpIntoLevel(progression.totalXp);
+    final perLevel = GamificationRules.xpPerLevel;
+    final next = nextUnlockAfterLevel(level);
+    final nextLabel = next == null
+        ? 'All official variants unlocked'
+        : 'Next unlock: ${next.movementName} · ${next.trainingProp.displayLabel}';
+    return Text(
+      'Level $level · $into / $perLevel XP · $nextLabel',
+      style: AppTheme.caption.copyWith(
+        color: context.elixTextSecondary,
+        fontWeight: FontWeight.w600,
       ),
     );
   }

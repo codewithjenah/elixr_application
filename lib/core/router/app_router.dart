@@ -48,6 +48,7 @@ import '../../features/training/training_view.dart';
 import '../../features/trainee/activity_center/trainee_activity_center_screen.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_link_service.dart';
+import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../shell/teacher_shell.dart';
 import '../widgets/app_shell.dart';
@@ -60,6 +61,7 @@ class AppRouter {
     AuthService authService,
     TutorialProgressService tutorialProgress,
     JoinLinkService joinLinks,
+    TraineeProgressionService traineeProgression,
   ) {
     return GoRouter(
       initialLocation: AppRoutePaths.login,
@@ -67,6 +69,7 @@ class AppRouter {
         authService,
         tutorialProgress,
         joinLinks,
+        traineeProgression,
       ]),
       redirect: (context, state) {
         final location = state.matchedLocation;
@@ -87,6 +90,7 @@ class AppRouter {
               state.uri.queryParameters['prop'],
             ).protocolValue,
             hasCompletedLesson: tutorialProgress.hasCompletedLesson,
+            currentLevel: traineeProgression.currentLevelOrNull,
             hasPendingGoogleProfile: authService.hasPendingGoogleProfile,
           ),
         );

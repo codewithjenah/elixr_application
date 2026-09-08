@@ -132,6 +132,7 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: group,
       officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
     );
     final previewController = TeacherAccessController(
       groupRepository: groupRepository,

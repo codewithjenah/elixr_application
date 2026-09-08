@@ -862,6 +862,7 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       group: group,
       officialMovementName: 'Normal Grip',
+      allowedProp: TrainingProp.bottle,
       dueAt: DateTime.utc(2026, 8, 31),
     );
 

@@ -336,6 +336,28 @@ const OFFICIAL_ASSIGNMENTS = new Map([
   ['Bottle in a tin', ['official_bottle_in_a_tin', 'official_bottle_in_a_tin_v1']],
 ]);
 
+// OFFICIAL_MOVEMENT_PROPS_BEGIN
+const OFFICIAL_MOVEMENT_PROPS = new Map([
+  ['Normal Grip', ['bottle']],
+  ["Bartender's Grip", ['bottle']],
+  ['Reverse Grip', ['bottle']],
+  ['Claw Grip', ['bottle']],
+  ['Hand Stall', ['bottle', 'shaker']],
+  ['One Finger Stall', ['bottle', 'shaker']],
+  ['Forearm Stall', ['bottle', 'shaker']],
+  ['Elbow Stall', ['bottle', 'shaker']],
+  ['Reverse Forearm Stall', ['bottle']],
+  ['Shoulder Stall', ['bottle']],
+  ['Double Hand Stall', ['bottle']],
+  ['Bottle in a tin', ['bottle_and_shaker']],
+]);
+// OFFICIAL_MOVEMENT_PROPS_END
+
+function officialMovementSupportsProp(name, prop) {
+  const props = OFFICIAL_MOVEMENT_PROPS.get(name);
+  return Array.isArray(props) && props.includes(prop);
+}
+
 function assignmentAudienceAllows(data, traineeId, recipient, assignmentId) {
   if (!data || typeof data !== 'object') return false;
   const hasType = Object.hasOwn(data, 'audience_type');
@@ -2311,6 +2333,9 @@ async function createClassroomAssignmentHandler(request, response, {
       if (body.origin === 'official_elixr') {
         const official = OFFICIAL_ASSIGNMENTS.get(body.official_movement_name);
         if (!official) { const error = new Error('invalid_movement'); error.code = 'invalid_movement'; throw error; }
+        if (!officialMovementSupportsProp(body.official_movement_name, body.allowed_prop)) {
+          const error = new Error('invalid_allowed_prop'); error.code = 'invalid_allowed_prop'; throw error;
+        }
         const instructions = boundedText(body.display_instructions, 2000, {required: false});
         if (body.display_instructions != null && instructions == null) {
           const error = new Error('invalid_instructions'); error.code = 'invalid_instructions'; throw error;
@@ -2318,6 +2343,7 @@ async function createClassroomAssignmentHandler(request, response, {
         assignment = {...common, movement_id: official[0], revision_id: official[1],
           origin: 'official_elixr', assessment_mode: 'official_guided',
           official_movement_name: body.official_movement_name, display_title: body.official_movement_name,
+          allowed_prop: body.allowed_prop,
           ...(instructions ? {display_instructions: instructions} : {})};
       } else if (body.origin === 'teacher_created' && validId(body.movement_id) && validId(body.revision_id) &&
           Number.isInteger(body.max_score) && body.max_score >= 1 && body.max_score <= 100) {

@@ -66,6 +66,7 @@ class TeacherAssignmentCreationService {
     required ElixrGroup group,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
     Movement? officialMovement,
+    TrainingProp? officialAllowedProp,
     TeacherMovement? teacherCreatedMovement,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
@@ -109,6 +110,14 @@ class TeacherAssignmentCreationService {
 
     final official = officialMovement;
     if (official != null) {
+      final allowedProp =
+          officialAllowedProp ?? official.supportedProps.first;
+      if (!official.supportedProps.contains(allowedProp)) {
+        throw const ClassroomException(
+          ClassroomError.identityMismatch,
+          'Choose a training prop supported by this official movement.',
+        );
+      }
       final normalizedTopic = topic?.trim();
       if (normalizedTopic == null || normalizedTopic.isEmpty) {
         return assignmentRepository.createOfficialAssignment(
@@ -116,6 +125,7 @@ class TeacherAssignmentCreationService {
           teacherDisplayName: teacherDisplayName,
           group: group,
           officialMovementName: official.name,
+          allowedProp: allowedProp,
           dueAt: dueAt,
           status: status,
           publishAt: publishAt,
@@ -129,6 +139,7 @@ class TeacherAssignmentCreationService {
         teacherDisplayName: teacherDisplayName,
         group: group,
         officialMovementName: official.name,
+        allowedProp: allowedProp,
         dueAt: dueAt,
         status: status,
         publishAt: publishAt,
@@ -376,6 +387,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   final _editorScrollController = ScrollController();
   late ElixrGroup? _selectedGroup;
   late Movement? _selectedOfficialMovement;
+  TrainingProp? _selectedOfficialProp;
   late TeacherMovement? _selectedTeacherCreatedMovement;
   late _AssignmentOriginSelection _origin;
 
@@ -624,6 +636,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               )
               .firstOrNull
         : widget.officialMovement;
+    _selectedOfficialProp = existing?.isOfficial == true
+        ? (existing?.allowedProp ??
+              _selectedOfficialMovement?.supportedProps.first)
+        : _selectedOfficialMovement?.supportedProps.first;
     _selectedTeacherCreatedMovement = widget.teacherCreatedMovement;
     _origin =
         (existing?.isTeacherCreated == true ||
@@ -642,6 +658,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
     if (_classroomScoped) {
       _selectedOfficialMovement = _enabledOfficialMovements.firstOrNull;
+      _selectedOfficialProp =
+          _selectedOfficialMovement?.supportedProps.first;
       _startWatchingTeacherMovements();
     } else {
       unawaited(_prefillActivityDefaultsForSelectedMovement());
@@ -1909,21 +1927,60 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   Widget _classroomMovementPicker(BuildContext context) {
     if (_origin == _AssignmentOriginSelection.official) {
-      return _MovementChoiceList(
-        key: const Key('teacher_assignment_movement'),
+      final selected = _selectedOfficialMovement;
+      final props = selected?.supportedProps ?? const <TrainingProp>[];
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final movement in _enabledOfficialMovements)
-            _MovementChoiceCard(
-              key: Key('teacher_assignment_official_${movement.name}'),
-              title: movement.name,
-              metadata:
-                  '${movement.difficulty} · ${movement.supportedProps.map((prop) => prop.displayLabel).join(', ')}',
-              description: movement.description,
-              movementName: movement.name,
-              selected: _selectedOfficialMovement?.name == movement.name,
-              enabled: !_submitting,
-              onPressed: () => _onOfficialMovementChanged(movement.name),
+          _MovementChoiceList(
+            key: const Key('teacher_assignment_movement'),
+            children: [
+              for (final movement in _enabledOfficialMovements)
+                _MovementChoiceCard(
+                  key: Key('teacher_assignment_official_${movement.name}'),
+                  title: movement.name,
+                  metadata:
+                      '${movement.difficulty} · ${movement.supportedProps.map((prop) => prop.displayLabel).join(', ')}',
+                  description: movement.description,
+                  movementName: movement.name,
+                  selected: selected?.name == movement.name,
+                  enabled: !_submitting,
+                  onPressed: () => _onOfficialMovementChanged(movement.name),
+                ),
+            ],
+          ),
+          if (selected != null && props.length > 1) ...[
+            const SizedBox(height: AppSpacing.md),
+            InfoLabel(
+              label: 'Training prop',
+              child: ComboBox<TrainingProp>(
+                key: const Key('teacher_assignment_official_prop'),
+                value: _selectedOfficialProp,
+                items: [
+                  for (final prop in props)
+                    ComboBoxItem(
+                      value: prop,
+                      child: Text(prop.displayLabel),
+                    ),
+                ],
+                onChanged: _submitting
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _selectedOfficialProp = value;
+                          _validationError = null;
+                        });
+                      },
+              ),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Some selected trainees may not have reached this movement\'s '
+              'personal unlock level. Assignment access will still be granted.',
+              style: AppTheme.caption,
+            ),
+          ],
         ],
       );
     }
@@ -2254,6 +2311,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       if (movement.name == value) {
         setState(() {
           _selectedOfficialMovement = movement;
+          _selectedOfficialProp = movement.supportedProps.first;
           _validationError = null;
         });
         return;
@@ -2471,6 +2529,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       }
       return 'Choose a movement.';
     }
+    final official = _selectedOfficialMovement;
+    if (official != null) {
+      final prop = _selectedOfficialProp;
+      if (prop == null || !official.supportedProps.contains(prop)) {
+        return 'Choose a training prop for this official movement.';
+      }
+    }
     if (_isTeacherCreated && !_hasValidMaxScore) {
       return 'Enter a maximum score from 1 to 100.';
     }
@@ -2526,6 +2591,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           group: group,
           audience: _audience,
           officialMovement: _selectedOfficialMovement,
+          officialAllowedProp: _selectedOfficialProp,
           teacherCreatedMovement: _isTeacherCreated
               ? _selectedTeacherCreatedMovement
               : null,

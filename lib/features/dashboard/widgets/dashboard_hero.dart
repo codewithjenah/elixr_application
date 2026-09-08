@@ -49,6 +49,7 @@ class DashboardHero extends StatelessWidget {
   static String practiceRouteFor(TrainingRecommendation? recommendation) {
     final mastery = recommendation?.recommended;
     if (mastery == null) return '/movements';
+    if (!recommendation!.hasRunnablePractice) return '/movements';
     final encoded = Uri.encodeComponent(mastery.movement.name);
     return '/practice?movement=$encoded&difficulty=${mastery.movement.difficulty}';
   }
@@ -62,6 +63,9 @@ class DashboardHero extends StatelessWidget {
   }
 
   String get _fullPrimaryLabel {
+    if (recommendation != null && !recommendation!.hasRunnablePractice) {
+      return 'Explore Movements';
+    }
     final name = recommendation?.recommended.movement.name;
     if (name == null || name.isEmpty) return 'Start Recommended Practice';
     return 'Practice $name';
@@ -73,7 +77,9 @@ class DashboardHero extends StatelessWidget {
   /// Prefer the named practice label when it fits; otherwise use the short fallback.
   String _primaryLabelFor(double contentWidth) {
     final full = _fullPrimaryLabel;
-    if (full == 'Start Recommended Practice') return full;
+    if (full == 'Start Recommended Practice' || full == 'Explore Movements') {
+      return full;
+    }
     // Long movement names never get the named label in a constrained CTA area.
     if (full.length > 28 || contentWidth < _fullPrimaryLabelBreakpoint) {
       return 'Start Recommended Practice';

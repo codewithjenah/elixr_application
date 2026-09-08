@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:elixr_application/core/constants/movements.dart';
+import 'package:elixr_application/core/progression/practice_variant.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -105,6 +107,71 @@ void main() {
     expect(
       service.justDanceMovementNames,
       movementCatalog.map((m) => m.name).toList(),
+    );
+  });
+
+  test('legacy Hand Stall setlist maps only to Bottle variant', () async {
+    await settingsFile.writeAsString(
+      jsonEncode({
+        'camera_mirrored': true,
+        'dark_mode': true,
+        'just_dance_movement_names': ['Hand Stall', 'Normal Grip'],
+      }),
+    );
+
+    await service.initialize();
+
+    expect(
+      service.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
+      ['Hand Stall|bottle', 'Normal Grip|bottle'],
+    );
+    expect(
+      service.justDancePracticeVariants.any(
+        (v) => v.persistenceKey == 'Hand Stall|shaker',
+      ),
+      isFalse,
+    );
+  });
+
+  test('updateLivePracticePreferences persists exact dual-prop variants', () async {
+    await service.initialize();
+    final outcome = await service.updateLivePracticePreferences(
+      practiceVariants: const [
+        PracticeVariant(
+          movementName: 'Normal Grip',
+          trainingProp: TrainingProp.bottle,
+        ),
+        PracticeVariant(
+          movementName: 'Hand Stall',
+          trainingProp: TrainingProp.bottle,
+        ),
+        PracticeVariant(
+          movementName: 'Hand Stall',
+          trainingProp: TrainingProp.shaker,
+        ),
+      ],
+      intervalSeconds: 25,
+    );
+
+    expect(outcome, SettingsWriteOutcome.saved);
+    expect(
+      service.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
+      [
+        'Normal Grip|bottle',
+        'Hand Stall|bottle',
+        'Hand Stall|shaker',
+      ],
+    );
+
+    final reloaded = SettingsService(settingsFile: settingsFile);
+    await reloaded.initialize();
+    expect(
+      reloaded.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
+      [
+        'Normal Grip|bottle',
+        'Hand Stall|bottle',
+        'Hand Stall|shaker',
+      ],
     );
   });
 }

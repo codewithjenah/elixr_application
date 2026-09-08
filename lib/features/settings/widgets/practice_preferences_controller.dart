@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/constants/movements.dart';
+import '../../../core/progression/practice_variant.dart';
+import '../../../core/progression/progression_catalog.dart';
 import '../../../services/settings_service.dart';
 import 'practice_preferences_draft.dart';
 
@@ -23,10 +24,10 @@ class PracticePreferencesController extends ChangeNotifier {
 
   bool get isDirty => _draft != _original;
 
-  /// At least one catalog movement after filtering, and a positive interval.
+  /// At least one catalog-resolvable variant after filtering, and a positive interval.
   bool get canSave {
     final normalized = normalizeDraft();
-    return normalized.movementNames.isNotEmpty &&
+    return normalized.practiceVariants.isNotEmpty &&
         normalized.intervalSeconds > 0;
   }
 
@@ -38,26 +39,31 @@ class PracticePreferencesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleMovement(String name, bool selected) {
-    final next = List<String>.of(_draft.movementNames);
+  void toggleVariant(PracticeVariant variant, bool selected) {
+    final next = List<PracticeVariant>.of(_draft.practiceVariants);
+    final index = next.indexWhere(
+      (entry) => entry.persistenceKey == variant.persistenceKey,
+    );
     if (selected) {
-      if (!next.contains(name)) next.add(name);
-    } else {
-      next.remove(name);
+      if (index < 0) next.add(variant);
+    } else if (index >= 0) {
+      next.removeAt(index);
     }
-    _draft = _draft.copyWith(movementNames: next);
+    _draft = _draft.copyWith(practiceVariants: next);
     notifyListeners();
   }
 
-  void moveMovement(String name, int delta) {
-    final next = List<String>.of(_draft.movementNames);
-    final index = next.indexOf(name);
+  void moveVariant(PracticeVariant variant, int delta) {
+    final next = List<PracticeVariant>.of(_draft.practiceVariants);
+    final index = next.indexWhere(
+      (entry) => entry.persistenceKey == variant.persistenceKey,
+    );
     if (index < 0) return;
     final target = index + delta;
     if (target < 0 || target >= next.length) return;
     final entry = next.removeAt(index);
     next.insert(target, entry);
-    _draft = _draft.copyWith(movementNames: next);
+    _draft = _draft.copyWith(practiceVariants: next);
     notifyListeners();
   }
 
@@ -74,19 +80,18 @@ class PracticePreferencesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Filters unknown catalog names, dedupes preserving order, and nulls empty
-  /// music ids. Does not throw — validation for save is exposed via [canSave].
+  /// Filters unknown/unsupported variants, dedupes preserving order, and nulls
+  /// empty music ids. Does not throw — validation for save is via [canSave].
   PracticePreferencesDraft normalizeDraft() {
-    final validNames = movementCatalog.map((m) => m.name).toSet();
     final seen = <String>{};
-    final movements = <String>[];
-    for (final name in _draft.movementNames) {
-      if (!validNames.contains(name)) continue;
-      if (seen.add(name)) movements.add(name);
+    final variants = <PracticeVariant>[];
+    for (final variant in _draft.practiceVariants) {
+      if (resolvePracticeVariant(variant) == null) continue;
+      if (seen.add(variant.persistenceKey)) variants.add(variant);
     }
     final track = _draft.musicTrackId?.trim();
     return PracticePreferencesDraft(
-      movementNames: List.unmodifiable(movements),
+      practiceVariants: List.unmodifiable(variants),
       intervalSeconds: _draft.intervalSeconds,
       musicTrackId: (track == null || track.isEmpty) ? null : track,
     );
@@ -94,15 +99,16 @@ class PracticePreferencesController extends ChangeNotifier {
 
   Future<SettingsWriteOutcome> save() async {
     final normalized = normalizeDraft();
-    if (normalized.movementNames.isEmpty || normalized.intervalSeconds <= 0) {
+    if (normalized.practiceVariants.isEmpty ||
+        normalized.intervalSeconds <= 0) {
       throw ArgumentError(
-        'Live Practice preferences require at least one catalog movement '
+        'Live Practice preferences require at least one catalog variant '
         'and a positive interval',
       );
     }
 
     final outcome = await _settings.updateLivePracticePreferences(
-      movementNames: normalized.movementNames,
+      practiceVariants: normalized.practiceVariants,
       intervalSeconds: normalized.intervalSeconds,
       musicTrackId: normalized.musicTrackId,
     );
@@ -134,7 +140,7 @@ class PracticePreferencesController extends ChangeNotifier {
     SettingsService settings,
   ) {
     return PracticePreferencesDraft(
-      movementNames: List.unmodifiable(settings.justDanceMovementNames),
+      practiceVariants: List.unmodifiable(settings.justDancePracticeVariants),
       intervalSeconds: settings.justDanceIntervalSeconds,
       musicTrackId: settings.selectedMusicTrackId,
     );

@@ -2,6 +2,7 @@ import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 
+import '../../core/progression/assignment_prop_resolution.dart';
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt_policy.dart';
 import '../models/assignment_attempt.dart';
@@ -21,6 +22,7 @@ abstract class ClassroomAssignmentRepository {
     required String teacherDisplayName,
     required ElixrGroup group,
     required String officialMovementName,
+    required TrainingProp allowedProp,
     DateTime? dueAt,
     GroupAssignmentStatus status = GroupAssignmentStatus.active,
     DateTime? publishAt,
@@ -102,6 +104,7 @@ abstract class ClassroomAssignmentRepository {
     required String teacherDisplayName,
     required ElixrGroup group,
     required String officialMovementName,
+    required TrainingProp allowedProp,
     DateTime? dueAt,
     GroupAssignmentStatus status = GroupAssignmentStatus.active,
     DateTime? publishAt,
@@ -115,6 +118,7 @@ abstract class ClassroomAssignmentRepository {
     teacherDisplayName: teacherDisplayName,
     group: group,
     officialMovementName: officialMovementName,
+    allowedProp: allowedProp,
     dueAt: dueAt,
     status: status,
     publishAt: publishAt,
@@ -425,6 +429,7 @@ Map<String, dynamic> officialAssignmentPayload({
   required String teacherDisplayName,
   required ElixrGroup group,
   required String officialMovementName,
+  required TrainingProp allowedProp,
   required String displayInstructions,
   DateTime? dueAt,
   GroupAssignmentStatus status = GroupAssignmentStatus.active,
@@ -442,6 +447,16 @@ Map<String, dynamic> officialAssignmentPayload({
       'Not an official ELIXR movement.',
     );
   }
+  final resolvedProp = resolvedAllowedPropForOfficialAssignment(
+    officialMovementName: identity.catalogName,
+    storedAllowedProp: allowedProp,
+  );
+  if (resolvedProp == null || resolvedProp != allowedProp) {
+    throw const ClassroomException(
+      ClassroomError.identityMismatch,
+      'Choose a training prop supported by this official movement.',
+    );
+  }
   return {
     'teacher_id': teacherId,
     'group_id': group.id,
@@ -452,6 +467,7 @@ Map<String, dynamic> officialAssignmentPayload({
     'status': status.name,
     'official_movement_name': identity.catalogName,
     'display_title': identity.catalogName,
+    'allowed_prop': allowedProp.protocolValue,
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
     ...audience.toMap(),

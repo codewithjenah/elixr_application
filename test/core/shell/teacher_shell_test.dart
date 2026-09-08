@@ -11,6 +11,7 @@ import 'package:elixr_application/data/repositories/in_memory_teacher_movement_r
 import 'package:elixr_application/data/repositories/teacher_movement_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/join_link_service.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
 import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -130,7 +131,12 @@ void main() {
         );
     final tutorials = TutorialProgressService();
     final joinLinks = JoinLinkService();
-    final router = AppRouter.create(auth, tutorials, joinLinks);
+    final router = AppRouter.create(
+      auth,
+      tutorials,
+      joinLinks,
+      TraineeProgressionService.ready(),
+    );
 
     addTearDown(router.dispose);
     addTearDown(auth.dispose);

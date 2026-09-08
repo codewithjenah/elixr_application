@@ -28,6 +28,8 @@ import 'package:elixr_application/features/movements/widgets/movements_header.da
 import 'package:elixr_application/features/progress/widgets/progress_overview_stats.dart';
 import 'package:elixr_application/features/teacher/students/teacher_student_detail_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
+import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/user.dart';
@@ -36,6 +38,14 @@ import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+
+class _ReadyTutorials extends TutorialProgressService {
+  @override
+  bool get isInitialized => true;
+
+  @override
+  bool hasCompletedLesson(String movement, TrainingProp prop) => true;
+}
 
 class _SilentAuthRepository implements AuthRepositoryBase {
   @override
@@ -132,11 +142,21 @@ Widget _app(
   FluentThemeData? theme,
   Size size = const Size(1100, 800),
 }) {
-  return FluentApp(
-    theme: theme ?? AppTheme.dark,
-    home: MediaQuery(
-      data: MediaQueryData(size: size),
-      child: ScaffoldPage(content: child),
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<TraineeProgressionService>(
+        create: (_) => TraineeProgressionService.ready(totalXp: 20 * 250),
+      ),
+      ChangeNotifierProvider<TutorialProgressService>(
+        create: (_) => _ReadyTutorials(),
+      ),
+    ],
+    child: FluentApp(
+      theme: theme ?? AppTheme.dark,
+      home: MediaQuery(
+        data: MediaQueryData(size: size),
+        child: ScaffoldPage(content: child),
+      ),
     ),
   );
 }
