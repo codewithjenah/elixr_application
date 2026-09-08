@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:video_player_win/video_player_win.dart';
 
-import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import 'elix_status_panel.dart';
 
 /// Awaitable native-player release so Windows can delete the MP4 afterward.
 class ElixrPlaybackSession {
@@ -55,6 +55,8 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
   WinVideoPlayerController? _controller;
   String? _error;
   bool _ready = false;
+  bool _opening = false;
+  int _openGeneration = 0;
 
   @override
   void initState() {
@@ -85,9 +87,11 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
   }
 
   Future<void> _open(Uri source) async {
+    final generation = ++_openGeneration;
     await _releaseNative();
+    if (!mounted || generation != _openGeneration) return;
     _error = null;
-    if (mounted) setState(() {});
+    setState(() => _opening = true);
     final next = source.isScheme('file') || source.scheme.isEmpty
         ? WinVideoPlayerController.file(File(source.toFilePath()))
         : WinVideoPlayerController.networkUrl(source);
@@ -96,19 +100,21 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
       if (widget.autoPlay) {
         await next.play();
       }
-      if (!mounted) {
+      if (!mounted || generation != _openGeneration) {
         await next.dispose();
         return;
       }
       setState(() {
         _controller = next;
         _ready = true;
+        _opening = false;
       });
     } catch (_) {
       await next.dispose();
-      if (!mounted) return;
+      if (!mounted || generation != _openGeneration) return;
       setState(() {
         _error = 'This clip could not be played in-app.';
+        _opening = false;
       });
     }
   }
@@ -133,6 +139,7 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
 
   @override
   void dispose() {
+    _openGeneration++;
     widget.session?.attach(() async {});
     final controller = _controller;
     _controller = null;
@@ -144,16 +151,21 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
   Widget build(BuildContext context) {
     if (_error != null) {
       return Center(
-        child: Text(
-          _error!,
-          textAlign: TextAlign.center,
-          style: AppTheme.body.copyWith(color: AppColors.error),
+        child: ElixStatusPanel(
+          isError: true,
+          icon: FluentIcons.warning,
+          title: 'Video unavailable',
+          message: _error!,
+          actionLabel: 'Retry',
+          onAction: _opening ? null : () => unawaited(_open(widget.source)),
         ),
       );
     }
     final controller = _controller;
     if (!_ready || controller == null) {
-      return const Center(child: ProgressRing());
+      return const Center(
+        child: ElixStatusPanel(isLoading: true, message: 'Opening video…'),
+      );
     }
     return Column(
       children: [

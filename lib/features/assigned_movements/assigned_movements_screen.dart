@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../services/auth_service.dart';
@@ -71,7 +72,16 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
     final isClassroomScoped =
         classroomGroupId != null && classroomGroupId.isNotEmpty;
     if (controller == null) {
-      return const ElixScaffoldPage(content: Center(child: ProgressRing()));
+      return const ElixScaffoldPage(
+        content: Center(
+          child: ElixStatusPanel(
+            isError: true,
+            icon: FluentIcons.warning,
+            title: 'Sign-in required',
+            message: 'Sign in to view your assigned movements.',
+          ),
+        ),
+      );
     }
     return AnimatedBuilder(
       animation: controller,

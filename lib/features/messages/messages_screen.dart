@@ -10,6 +10,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_card.dart';
 import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../services/auth_service.dart';
@@ -109,7 +110,16 @@ class _MessagesScreenState extends State<MessagesScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(content: Center(child: ProgressRing()));
+      return const ElixScaffoldPage(
+        content: Center(
+          child: ElixStatusPanel(
+            isError: true,
+            icon: FluentIcons.warning,
+            title: 'Sign-in required',
+            message: 'Sign in to use messages.',
+          ),
+        ),
+      );
     }
     return AnimatedBuilder(
       animation: controller,
@@ -1023,7 +1033,8 @@ class _Composer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final archived = controller.selectedConversation?.isArchived == true;
-    final disabled = controller.blockState.cannotSend || archived;
+    final disabled =
+        controller.blockState.cannotSend || archived || controller.sending;
     final unavailableMessage = archived
         ? 'This archived conversation is read-only.'
         : controller.blockState.blockedByMe
@@ -1098,7 +1109,16 @@ class _Composer extends StatelessWidget {
                         top: 4,
                       ),
                       child: IconButton(
-                        icon: const Icon(FluentIcons.send, size: 14),
+                        icon: controller.sending
+                            ? Semantics(
+                                label: 'Sending message',
+                                child: SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: ProgressRing(strokeWidth: 2),
+                                ),
+                              )
+                            : const Icon(FluentIcons.send, size: 14),
                         style: ButtonStyle(
                           backgroundColor: disabled
                               ? null

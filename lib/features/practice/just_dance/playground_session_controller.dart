@@ -71,6 +71,23 @@ class PlaygroundSessionController extends ChangeNotifier {
   bool get isAssessing => _phase == PlaygroundSessionPhase.assessing;
   List<PlaygroundMovementOutcome> get outcomes => List.unmodifiable(_outcomes);
 
+  /// Read-only presentation values. The screen must not maintain its own
+  /// routine counter or timing state.
+  int get currentIndex => _index;
+  int get movementCount => _movements.length;
+  int get completedMovementCount => _outcomes.length;
+  Duration get remainingDuration {
+    final duration = _phase == PlaygroundSessionPhase.getReady
+        ? getReadyDuration
+        : assessmentDuration;
+    return Duration(
+      milliseconds: (duration.inMilliseconds - _elapsedMs).clamp(
+        0,
+        duration.inMilliseconds,
+      ),
+    );
+  }
+
   double get progress {
     final duration = _phase == PlaygroundSessionPhase.getReady
         ? getReadyDuration

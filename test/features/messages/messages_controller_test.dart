@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/features/messages/messages_controller.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -120,6 +122,26 @@ void main() {
     expect(repository.idempotencyKeys[1], repository.idempotencyKeys.first);
     expect(controller.messages.single.deliveryState, ChatDeliveryState.sent);
     expect(repository.messages.values.single, hasLength(1));
+  });
+
+  test('a pending send prevents duplicate message requests', () async {
+    final repository = _DelayedSendChatRepository();
+    addTearDown(repository.dispose);
+    final controller = MessagesController(
+      repository: repository,
+      currentUser: current,
+    );
+    addTearDown(controller.dispose);
+    await controller.openUser(other);
+
+    final first = controller.send('Only once');
+    expect(controller.sending, isTrue);
+    expect(await controller.send('Duplicate'), isFalse);
+    expect(repository.sendCalls, 1);
+
+    repository.completeSend();
+    expect(await first, isTrue);
+    expect(controller.sending, isFalse);
   });
 
   test(
@@ -311,6 +333,30 @@ class _FailOnceChatRepository extends InMemoryChatRepository {
       _failNext = false;
       throw const ChatException(ChatError.network);
     }
+    return super.sendMessage(
+      sender: sender,
+      recipient: recipient,
+      body: body,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+}
+
+class _DelayedSendChatRepository extends InMemoryChatRepository {
+  final _sendCompleter = Completer<void>();
+  int sendCalls = 0;
+
+  void completeSend() => _sendCompleter.complete();
+
+  @override
+  Future<ChatMessage> sendMessage({
+    required ChatUser sender,
+    required ChatUser recipient,
+    required String body,
+    String? idempotencyKey,
+  }) async {
+    sendCalls++;
+    await _sendCompleter.future;
     return super.sendMessage(
       sender: sender,
       recipient: recipient,

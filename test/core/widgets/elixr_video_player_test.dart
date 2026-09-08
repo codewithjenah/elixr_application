@@ -10,6 +10,8 @@ class _FakeVideoPlayerPlatform extends VideoPlayerWinPlatform {
   int playCalls = 0;
   int pauseCalls = 0;
   int? lastSeekMs;
+  bool failOpen = false;
+  int openCalls = 0;
 
   @override
   Future<WinVideoPlayerValue?> openVideo(
@@ -18,6 +20,8 @@ class _FakeVideoPlayerPlatform extends VideoPlayerWinPlatform {
     String path,
     Map<String, String> httpHeaders,
   ) async {
+    openCalls++;
+    if (failOpen) throw StateError('video unavailable');
     const textureIdForTest = 1;
     final value = WinVideoPlayerValue(
       textureId: textureIdForTest,
@@ -147,5 +151,37 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+  });
+
+  testWidgets('video initialization failure can be retried', (tester) async {
+    final initialPlatform = VideoPlayerWinPlatform.instance;
+    final fakePlatform = _FakeVideoPlayerPlatform()..failOpen = true;
+    VideoPlayerWinPlatform.instance = fakePlatform;
+    addTearDown(() => VideoPlayerWinPlatform.instance = initialPlatform);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: SizedBox(
+          height: 280,
+          child: ElixrVideoPlayer(
+            source: Uri(scheme: 'file', path: 'clip'),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Video unavailable'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Retry'), findsOneWidget);
+    expect(fakePlatform.openCalls, 1);
+
+    fakePlatform.failOpen = false;
+    await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(fakePlatform.openCalls, 2);
+    expect(find.byKey(const Key('elixr_video_play_pause')), findsOneWidget);
   });
 }

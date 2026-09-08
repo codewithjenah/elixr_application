@@ -544,9 +544,22 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _connect() async {
+    if (_connecting) return;
     setState(() => _connecting = true);
-    await _ws.connect();
-    if (mounted) setState(() => _connecting = false);
+    try {
+      await _ws.connect();
+    } catch (error, stackTrace) {
+      debugPrint('Practice connection failed: $error\n$stackTrace');
+      if (mounted) {
+        setState(() {
+          _sessionError =
+              'Could not connect to the camera service. Check that it is running, then try again.';
+        });
+      }
+    } finally {
+      _connecting = false;
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _startSession() async {
@@ -1084,7 +1097,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 wideLayout: wide,
                 trailing: assignment == null
                     ? Button(
-                        onPressed: _openSetlistDialog,
+                        onPressed:
+                            _playground.phase == PlaygroundSessionPhase.idle ||
+                                _playground.isComplete
+                            ? _openSetlistDialog
+                            : null,
                         child: const Text('Build Your Set'),
                       )
                     : null,
@@ -1108,9 +1125,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 overlays:
                     assignment == null &&
                         _playground.currentMovement != null &&
-                        !_playground.isComplete &&
                         _playground.phase != PlaygroundSessionPhase.idle
-                    ? MovementRotationOverlay(controller: _playground)
+                    ? MovementRotationOverlay(
+                        controller: _playground,
+                        onRestart: _startSession,
+                        onEditSetlist: _openSetlistDialog,
+                      )
                     : null,
                 statusItems: [
                   if (isTrainingActive)

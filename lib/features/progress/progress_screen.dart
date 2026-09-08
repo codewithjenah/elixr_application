@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
@@ -39,6 +40,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   List<Session> _sessions = const [];
   TrainingRecommendation? _trainingRecommendation;
   bool _loading = true;
+  String? _loadError;
   SessionService? _sessionService;
 
   @override
@@ -67,19 +69,39 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
   Future<void> _loadStats() async {
     final userId = context.read<AuthService>().currentUser?.id;
-    if (userId == null) return;
-
-    final stats = await _repo.getStatsForUser(userId);
-    final sessions = await _sessionRepo.getSessionsForUser(userId);
-    final recommendation = buildTrainingRecommendation(
-      sessions: sessions,
-      movements: movementCatalog,
-    );
-    if (mounted) {
+    if (userId == null) {
+      if (mounted) {
+        setState(() {
+          _loadError = 'Sign in to view your training progress.';
+          _loading = false;
+        });
+      }
+      return;
+    }
+    try {
+      final stats = await _repo.getStatsForUser(userId);
+      final sessions = await _sessionRepo.getSessionsForUser(userId);
+      final recommendation = buildTrainingRecommendation(
+        sessions: sessions,
+        movements: movementCatalog,
+      );
+      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
+        return;
+      }
       setState(() {
         _stats = stats;
         _sessions = sessions;
         _trainingRecommendation = recommendation;
+        _loadError = null;
+        _loading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Progress load failed: $error\n$stackTrace');
+      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
+        return;
+      }
+      setState(() {
+        _loadError = 'We could not load your progress. Please try again.';
         _loading = false;
       });
     }
@@ -151,7 +173,24 @@ class _ProgressScreenState extends State<ProgressScreen> {
       padding: EdgeInsets.zero,
       content: SafeArea(
         child: _loading
-            ? const Center(child: ProgressRing())
+            ? const Center(
+                child: ElixStatusPanel(
+                  isLoading: true,
+                  title: 'Loading your progress',
+                  message: 'Preparing your training summary.',
+                ),
+              )
+            : _loadError != null && _stats == null
+            ? Center(
+                child: ElixStatusPanel(
+                  isError: true,
+                  icon: FluentIcons.warning,
+                  title: 'Progress unavailable',
+                  message: _loadError!,
+                  actionLabel: 'Retry',
+                  onAction: _loadStats,
+                ),
+              )
             : SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.xl,
@@ -162,6 +201,16 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_loadError != null) ...[
+                      ElixStatusPanel(
+                        isError: true,
+                        icon: FluentIcons.warning,
+                        message: _loadError!,
+                        actionLabel: 'Retry',
+                        onAction: _loadStats,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
                     ElixEditorialHeader(
                       heading: 'Progress',
                       eyebrow: 'TRAINING',

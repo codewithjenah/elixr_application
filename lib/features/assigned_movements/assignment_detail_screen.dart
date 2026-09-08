@@ -16,6 +16,7 @@ import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/elixr_video_player.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
@@ -97,7 +98,16 @@ class _AssignmentDetailScreenState extends State<AssignmentDetailScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(content: Center(child: ProgressRing()));
+      return const ElixScaffoldPage(
+        content: Center(
+          child: ElixStatusPanel(
+            isError: true,
+            icon: FluentIcons.warning,
+            title: 'Sign-in required',
+            message: 'Sign in to view this assignment.',
+          ),
+        ),
+      );
     }
     return AnimatedBuilder(
       animation: controller,

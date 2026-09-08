@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../features/calendar/utils/calendar_metrics.dart';
@@ -44,6 +45,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<Session> _sessions = [];
   List<Session> _filtered = [];
   bool _loading = true;
+  String? _loadError;
   String? _difficultyFilter;
   String _searchQuery = '';
   HistorySortMode _sortMode = HistorySortMode.mostRecent;
@@ -160,17 +162,39 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Future<void> _loadSessions() async {
     final userId = context.read<AuthService>().currentUser?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      if (mounted) {
+        setState(() {
+          _loadError = 'Sign in to view your practice history.';
+          _loading = false;
+        });
+      }
+      return;
+    }
 
     setState(() => _loading = true);
     final loader =
         widget.sessionsLoader ??
         (_repo ??= SessionRepository()).getSessionsForUser;
-    final sessions = await loader(userId);
-    if (mounted) {
+    try {
+      final sessions = await loader(userId);
+      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
+        return;
+      }
       setState(() {
         _sessions = sessions;
         _applyFiltersAndSort();
+        _loadError = null;
+        _loading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('History load failed: $error\n$stackTrace');
+      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
+        return;
+      }
+      setState(() {
+        _loadError =
+            'We could not load your practice history. Please try again.';
         _loading = false;
       });
     }
@@ -261,6 +285,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 onRefresh: _loadSessions,
                 showTitle: !widget.embedded,
               ),
+              if (_loadError != null && hasSessions) ...[
+                const SizedBox(height: AppSpacing.md),
+                ElixStatusPanel(
+                  isError: true,
+                  icon: FluentIcons.warning,
+                  message: _loadError!,
+                  actionLabel: 'Retry',
+                  onAction: _loadSessions,
+                ),
+              ],
               if (hasSessions) ...[
                 SizedBox(
                   height: widget.embedded ? AppSpacing.sm : AppSpacing.lg,
@@ -322,6 +356,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     0,
                     AppSpacing.xl,
                     AppSpacing.xl,
+                  ),
+                )
+              : _loadError != null && _sessions.isEmpty
+              ? Center(
+                  child: ElixStatusPanel(
+                    isError: true,
+                    icon: FluentIcons.warning,
+                    title: 'History unavailable',
+                    message: _loadError!,
+                    actionLabel: 'Retry',
+                    onAction: _loadSessions,
                   ),
                 )
               : _sessions.isEmpty

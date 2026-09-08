@@ -66,7 +66,14 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
           eyebrow: 'TEACHER WORKSPACE',
         ),
         scrollable: false,
-        content: Center(child: ProgressRing()),
+        content: Center(
+          child: ElixStatusPanel(
+            isError: true,
+            icon: FluentIcons.warning,
+            title: 'Sign-in required',
+            message: 'Sign in to view your students.',
+          ),
+        ),
       );
     }
 

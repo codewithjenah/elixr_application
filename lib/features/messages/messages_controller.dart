@@ -31,6 +31,7 @@ class MessagesController extends ChangeNotifier {
   Object? searchError;
   Object? paginationError;
   bool loadingOlder = false;
+  bool sending = false;
   bool hasOlder = false;
   String? alertMessage;
 
@@ -323,7 +324,7 @@ class MessagesController extends ChangeNotifier {
 
   Future<bool> send(String body, {String? idempotencyKey}) async {
     final recipient = selectedUser;
-    if (recipient == null || blockState.cannotSend) return false;
+    if (recipient == null || blockState.cannotSend || sending) return false;
     final validation = ChatMessage.validateBody(body);
     if (validation != null) {
       messageError = ChatException(ChatError.invalidMessage, validation);
@@ -341,6 +342,7 @@ class MessagesController extends ChangeNotifier {
       createdAt: DateTime.now().toUtc(),
       deliveryState: ChatDeliveryState.sending,
     );
+    sending = true;
     messages = _deduplicate([temporary, ...messages]);
     messageState = MessagePaneState.ready;
     messageError = null;
@@ -369,6 +371,9 @@ class MessagesController extends ChangeNotifier {
       messageError = error;
       _notify();
       return false;
+    } finally {
+      sending = false;
+      _notify();
     }
   }
 

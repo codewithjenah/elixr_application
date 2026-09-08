@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/utils/manila_day.dart';
 import '../../data/models/session.dart';
@@ -42,6 +43,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Session> _sessions = const [];
   TrainingRecommendation? _trainingRecommendation;
   bool _loading = true;
+  String? _loadError;
   String? _loadedUserId;
   SessionService? _sessionService;
 
@@ -97,22 +99,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     }
 
-    final stats = await _progressRepo.getStatsForUser(userId);
-    final sessions = await _sessionRepo.getSessionsForUser(userId);
-    if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
-      return;
-    }
-
-    final recommendation = buildTrainingRecommendation(
-      sessions: sessions,
-      movements: movementCatalog,
-    );
-    if (mounted) {
+    try {
+      final stats = await _progressRepo.getStatsForUser(userId);
+      final sessions = await _sessionRepo.getSessionsForUser(userId);
+      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
+        return;
+      }
+      final recommendation = buildTrainingRecommendation(
+        sessions: sessions,
+        movements: movementCatalog,
+      );
       setState(() {
         _stats = stats;
         _sessions = sessions;
         _trainingRecommendation = recommendation;
         _loadedUserId = userId;
+        _loadError = null;
+        _loading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Dashboard statistics load failed: $error\n$stackTrace');
+      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
+        return;
+      }
+      setState(() {
+        _loadError = 'We could not load your dashboard. Please try again.';
         _loading = false;
       });
     }
@@ -205,7 +216,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_loading) {
       return const ElixScaffoldPage(
         padding: EdgeInsets.zero,
-        content: Center(child: ProgressRing()),
+        content: Center(
+          child: ElixStatusPanel(
+            isLoading: true,
+            title: 'Loading your dashboard',
+            message: 'Getting your latest training activity.',
+          ),
+        ),
+      );
+    }
+    if (_loadError != null && _stats == null) {
+      return ElixScaffoldPage(
+        padding: EdgeInsets.zero,
+        content: Center(
+          child: ElixStatusPanel(
+            isError: true,
+            icon: FluentIcons.warning,
+            title: 'Dashboard unavailable',
+            message: _loadError!,
+            actionLabel: 'Retry',
+            onAction: _loadStats,
+          ),
+        ),
       );
     }
 
@@ -239,29 +271,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
           AppSpacing.lg,
           AppSpacing.lg,
         ),
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.maxWidth >= _wideBreakpoint;
-                if (wide) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: mainColumn),
-                      const SizedBox(width: 18),
-                      SizedBox(width: _railWidth, child: rightRail),
-                    ],
-                  );
-                }
-                return Column(
-                  children: [mainColumn, const SizedBox(height: 18), rightRail],
-                );
-              },
+        child: Column(
+          children: [
+            if (_loadError != null) ...[
+              ElixStatusPanel(
+                isError: true,
+                icon: FluentIcons.warning,
+                message: _loadError!,
+                actionLabel: 'Retry',
+                onAction: _loadStats,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
+            Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final wide = constraints.maxWidth >= _wideBreakpoint;
+                    if (wide) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: mainColumn),
+                          const SizedBox(width: 18),
+                          SizedBox(width: _railWidth, child: rightRail),
+                        ],
+                      );
+                    }
+                    return Column(
+                      children: [
+                        mainColumn,
+                        const SizedBox(height: 18),
+                        rightRail,
+                      ],
+                    );
+                  },
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

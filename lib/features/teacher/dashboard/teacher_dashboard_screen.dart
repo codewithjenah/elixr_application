@@ -77,7 +77,14 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
           subtitle: 'Your classrooms and review work in one place.',
           variant: ElixEditorialHeaderVariant.standard,
         ),
-        content: Center(child: ProgressRing()),
+        content: Center(
+          child: ElixStatusPanel(
+            isError: true,
+            icon: FluentIcons.warning,
+            title: 'Sign-in required',
+            message: 'Sign in to view your teacher dashboard.',
+          ),
+        ),
       );
     }
 
