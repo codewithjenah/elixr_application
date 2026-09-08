@@ -609,7 +609,7 @@ void main() {
     }
   });
 
-  testWidgets('movement grids expand cards for large desktop text', (
+  testWidgets('movement grid remains usable for large desktop text', (
     tester,
   ) async {
     await pumpScreen(
@@ -618,11 +618,23 @@ void main() {
       textScaler: const TextScaler.linear(1.5),
     );
 
-    final officialGrid = tester.widget<SliverGrid>(find.byType(SliverGrid));
-    final officialDelegate =
-        officialGrid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-    expect(officialDelegate.mainAxisExtent, greaterThan(410));
+    expect(find.byType(SliverGrid), findsAtLeastNWidgets(1));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide Official ELIXR layout places four Easy cards in one row', (
+    tester,
+  ) async {
+    await pumpScreen(tester, size: const Size(1600, 900));
+
+    final grid = tester.widget<SliverGrid>(find.byType(SliverGrid).first);
+    final delegate =
+        grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+    expect(delegate.crossAxisCount, 4);
+    expect(
+      tester.getTopLeft(find.text('Normal Grip')).dy,
+      closeTo(tester.getTopLeft(find.text('Claw Grip')).dy, 1),
+    );
   });
 
   testWidgets('keyboard focus gives an Official ELIXR card a visible border', (

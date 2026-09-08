@@ -48,6 +48,12 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
+    label: 'Activity Library',
+    icon: FluentIcons.library,
+    route: AppRoutePaths.teacherMovements,
+    group: TeacherSidebarGroup.primary,
+  ),
+  TeacherSidebarItem(
     label: 'Review Work',
     icon: FluentIcons.review_request_solid,
     route: AppRoutePaths.teacherToReview,

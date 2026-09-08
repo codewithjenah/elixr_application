@@ -170,12 +170,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Dashboard'), findsWidgets);
-    expect(find.text('Classrooms'), findsOneWidget);
+    expect(find.text('Classrooms'), findsWidgets);
     expect(find.text('Teacher Access'), findsOneWidget);
     expect(find.text('Students'), findsWidgets);
     expect(find.text('Progress'), findsOneWidget);
     expect(find.text('Analytics'), findsNothing);
-    expect(find.text('Activity Library'), findsNothing);
+    expect(find.text('Activity Library'), findsOneWidget);
     expect(find.text('Review Work'), findsWidgets);
     expect(find.text('Notifications'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);

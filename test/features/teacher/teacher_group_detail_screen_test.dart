@@ -354,6 +354,15 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('teacher_group_tab_grades')), findsOneWidget);
+    final gradesTab = find.byKey(const Key('teacher_group_tab_grades'));
+    expect(
+      find.descendant(of: gradesTab, matching: find.text('Grades')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: gradesTab, matching: find.text('Progress')),
+      findsNothing,
+    );
     expect(
       find.byKey(const Key('teacher_group_pending_join_badge')),
       findsNothing,

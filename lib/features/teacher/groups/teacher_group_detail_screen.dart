@@ -645,7 +645,7 @@ class _GroupDetailTabBar extends StatelessWidget {
         ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_grades'),
-          label: 'Progress',
+          label: 'Grades',
           icon: FluentIcons.assessment_group,
           selected: selectedTab == TeacherGroupDetailTab.grades,
           onPressed: () => onChanged(TeacherGroupDetailTab.grades),

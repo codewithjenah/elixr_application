@@ -325,7 +325,7 @@ class _MyMovementsList extends StatelessWidget {
         itemCount: controller.myMovements.length,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: _gridColumnsFor(constraints.maxWidth),
-          mainAxisExtent: _cardExtent(context, base: 340, growth: 200),
+          mainAxisExtent: _cardExtent(context, base: 390, growth: 200),
           crossAxisSpacing: AppSpacing.md,
           mainAxisSpacing: AppSpacing.md,
         ),
@@ -339,9 +339,10 @@ class _MyMovementsList extends StatelessWidget {
 }
 
 int _gridColumnsFor(double availableWidth) {
-  if (availableWidth < 850) return 1;
-  if (availableWidth < 1180) return 2;
-  return 3;
+  if (availableWidth >= 1400) return 4;
+  if (availableWidth >= 1050) return 3;
+  if (availableWidth >= 760) return 2;
+  return 1;
 }
 
 double _cardExtent(
@@ -350,7 +351,6 @@ double _cardExtent(
   required double growth,
 }) {
   final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
-  // Keep multiline badge/action rows inside their cards at desktop text sizes.
   return base + ((textScale - 1).clamp(0.0, 1.5) * growth);
 }
 
@@ -414,62 +414,140 @@ class _OfficialMovementCard extends StatelessWidget {
       child: _TeacherMovementHoverCard(
         focusKey: Key('teacher_movement_card_official_${movement.name}'),
         accent: accent,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _MovementCardVisual(movementName: movement.name, accent: accent),
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.xs,
-              runSpacing: AppSpacing.xs,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final horizontal = constraints.maxWidth >= 760;
+            final details = _OfficialMovementDetails(
+              movement: movement,
+              accent: accent,
+            );
+            final actions = _OfficialMovementActions(
+              movement: movement,
+              busy: busy,
+              onViewGuide: onViewGuide,
+              onAssign: onAssign,
+            );
+            if (!horizontal) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _MovementCardVisual(
+                    movementName: movement.name,
+                    accent: accent,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  details,
+                  const SizedBox(height: AppSpacing.md),
+                  actions,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                _MetadataChip(label: 'OFFICIAL ELIXR', color: AppColors.accent),
-                _MetadataChip(label: movement.difficulty, color: accent),
-                for (final prop in movement.supportedProps)
-                  _MetadataChip(label: prop.displayLabel, color: accent),
+                SizedBox(
+                  width: 210,
+                  child: _MovementCardVisual(
+                    movementName: movement.name,
+                    accent: accent,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: details),
+                const SizedBox(width: AppSpacing.md),
+                SizedBox(width: 230, child: actions),
               ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              movement.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTheme.headingMedium.copyWith(
-                color: context.elixTextPrimary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Expanded(
-              child: Text(
-                movement.description,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.body.copyWith(
-                  color: context.elixTextSecondary,
-                  height: 1.35,
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                Button(
-                  key: Key('teacher_movement_guide_${movement.name}'),
-                  onPressed: onViewGuide,
-                  child: const Text('View guide'),
-                ),
-                FilledButton(
-                  key: Key('teacher_movement_assign_official_${movement.name}'),
-                  onPressed: busy ? null : onAssign,
-                  child: const Text('Assign to class'),
-                ),
-              ],
-            ),
-          ],
+            );
+          },
         ),
       ),
+    );
+  }
+}
+
+class _OfficialMovementDetails extends StatelessWidget {
+  const _OfficialMovementDetails({
+    required this.movement,
+    required this.accent,
+  });
+
+  final Movement movement;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          children: [
+            const _MetadataChip(
+              label: 'OFFICIAL ELIXR',
+              color: AppColors.accent,
+            ),
+            _MetadataChip(label: movement.difficulty, color: accent),
+            for (final prop in movement.supportedProps)
+              _MetadataChip(label: prop.displayLabel, color: accent),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          movement.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.headingMedium.copyWith(
+            color: context.elixTextPrimary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          movement.description,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.body.copyWith(
+            color: context.elixTextSecondary,
+            height: 1.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OfficialMovementActions extends StatelessWidget {
+  const _OfficialMovementActions({
+    required this.movement,
+    required this.busy,
+    required this.onViewGuide,
+    required this.onAssign,
+  });
+
+  final Movement movement;
+  final bool busy;
+  final VoidCallback onViewGuide;
+  final VoidCallback onAssign;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      alignment: WrapAlignment.end,
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        Button(
+          key: Key('teacher_movement_guide_${movement.name}'),
+          onPressed: onViewGuide,
+          child: const Text('View guide'),
+        ),
+        FilledButton(
+          key: Key('teacher_movement_assign_official_${movement.name}'),
+          onPressed: busy ? null : onAssign,
+          child: const Text('Assign to class'),
+        ),
+      ],
     );
   }
 }
@@ -490,93 +568,155 @@ class _CustomMovementCard extends StatelessWidget {
       child: _TeacherMovementHoverCard(
         focusKey: Key('teacher_movement_card_custom_${movement.id}'),
         accent: AppColors.accent,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _MovementCardVisual(
-              movementName: movement.title,
-              accent: AppColors.accent,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            const _MetadataChip(
-              label: 'TEACHER-CREATED ACTIVITY',
-              color: AppColors.accent,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              movement.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTheme.headingMedium.copyWith(
-                color: context.elixTextPrimary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Expanded(
-              child: Text(
-                controller.movementModeLabel(movement),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.body.copyWith(
-                  color: context.elixTextSecondary,
-                  height: 1.35,
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            if (canManage)
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final horizontal = constraints.maxWidth >= 760;
+            final details = _CustomMovementDetails(
+              movement: movement,
+              controller: controller,
+            );
+            final actions = _CustomMovementActions(
+              movement: movement,
+              controller: controller,
+              canManage: canManage,
+              canDelete: canDelete,
+            );
+            if (!horizontal) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Button(
-                    onPressed: controller.busy
-                        ? null
-                        : () => _showCreateOrEditMovement(
-                            context,
-                            controller,
-                            existing: movement,
-                          ),
-                    child: const Text('Edit'),
+                  _MovementCardVisual(
+                    movementName: movement.title,
+                    accent: AppColors.accent,
                   ),
-                  FilledButton(
-                    key: Key('teacher_movement_assign_custom_${movement.id}'),
-                    onPressed: controller.busy
-                        ? null
-                        : () => _showAssignToClass(
-                            context,
-                            controller,
-                            custom: movement,
-                          ),
-                    child: const Text('Assign to class'),
-                  ),
-                  Tooltip(
-                    message: canDelete
-                        ? 'Permanently delete this unused movement.'
-                        : 'This movement is used by an assignment and cannot be deleted.',
-                    child: Button(
-                      onPressed: controller.busy || !canDelete
-                          ? null
-                          : () => _confirmDeleteMovement(
-                              context,
-                              controller,
-                              movement,
-                            ),
-                      child: const Text('Delete'),
-                    ),
-                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  details,
+                  const SizedBox(height: AppSpacing.md),
+                  actions,
                 ],
-              )
-            else
-              Text(
-                'This activity cannot be managed from this account.',
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 210,
+                  child: _MovementCardVisual(
+                    movementName: movement.title,
+                    accent: AppColors.accent,
+                  ),
                 ),
-              ),
-          ],
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: details),
+                const SizedBox(width: AppSpacing.md),
+                SizedBox(width: 300, child: actions),
+              ],
+            );
+          },
         ),
       ),
+    );
+  }
+}
+
+class _CustomMovementDetails extends StatelessWidget {
+  const _CustomMovementDetails({
+    required this.movement,
+    required this.controller,
+  });
+
+  final TeacherMovement movement;
+  final TeacherMovementsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _MetadataChip(
+          label: 'TEACHER-CREATED ACTIVITY',
+          color: AppColors.accent,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          movement.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.headingMedium.copyWith(
+            color: context.elixTextPrimary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          controller.movementModeLabel(movement),
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.body.copyWith(
+            color: context.elixTextSecondary,
+            height: 1.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomMovementActions extends StatelessWidget {
+  const _CustomMovementActions({
+    required this.movement,
+    required this.controller,
+    required this.canManage,
+    required this.canDelete,
+  });
+
+  final TeacherMovement movement;
+  final TeacherMovementsController controller;
+  final bool canManage;
+  final bool canDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!canManage) {
+      return Text(
+        'This activity cannot be managed from this account.',
+        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+      );
+    }
+    return Wrap(
+      alignment: WrapAlignment.end,
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        Button(
+          onPressed: controller.busy
+              ? null
+              : () => _showCreateOrEditMovement(
+                  context,
+                  controller,
+                  existing: movement,
+                ),
+          child: const Text('Edit'),
+        ),
+        FilledButton(
+          key: Key('teacher_movement_assign_custom_${movement.id}'),
+          onPressed: controller.busy
+              ? null
+              : () => _showAssignToClass(context, controller, custom: movement),
+          child: const Text('Assign to class'),
+        ),
+        Tooltip(
+          message: canDelete
+              ? 'Permanently delete this unused movement.'
+              : 'This movement is used by an assignment and cannot be deleted.',
+          child: Button(
+            onPressed: controller.busy || !canDelete
+                ? null
+                : () => _confirmDeleteMovement(context, controller, movement),
+            child: const Text('Delete'),
+          ),
+        ),
+      ],
     );
   }
 }
