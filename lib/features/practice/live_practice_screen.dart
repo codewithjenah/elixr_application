@@ -216,6 +216,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   @visibleForTesting
   WebSocketService get debugWebSocket => _ws;
 
+  @visibleForTesting
+  PlaygroundSessionController get debugPlayground => _playground;
+
   /// Maps persisted setlist names to catalog [Movement]s, preserving the
   /// chosen rotation order and silently dropping any unknown names.
   List<Movement> _resolveMovements(List<String> names) {
@@ -867,8 +870,21 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         settings.soundEnabled ? settings.musicVolume : 0.0,
       );
       _music.start(resolveTrack(settings.selectedMusicTrackId));
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (!mounted || generation != _playground.generation) return;
+      debugPrint(
+        'Playground activation failed: type=${error.runtimeType} '
+        'generation=$generation movement=${_playground.currentMovement?.name} '
+        'sessionId=${_ws.currentSessionId} '
+        'sessionState=${_ws.sessionActive
+            ? 'active'
+            : _ws.sessionPrepared
+            ? 'prepared'
+            : 'idle'} '
+        'lastProtocolError=${_ws.lastProtocolError?.errorCode} '
+        '${_ws.lastProtocolError?.message}',
+      );
+      debugPrintStack(stackTrace: stackTrace);
       _run.onPreviewFeedback(
         hasJpegFrame: false,
         isFatal: true,
@@ -905,6 +921,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   Future<void> _beginSessionAfterCountdown() async {
     if (!mounted) return;
+    // Playground's controller owns its Get Ready clock and routes activation
+    // through _activatePlaygroundMovement. It may use the shared run phase for
+    // presentation compatibility, but must never inherit this generic owner.
+    if (_isPlayground) return;
     if (!_run.isCountdown) return;
     if (_commandInFlight) return;
     if (!_ws.isConnected) {
@@ -1116,7 +1136,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 errorMessage: _ws.errorMessage,
                 sessionError: _sessionError ?? _run.errorMessage,
                 onRetry: _connect,
-                countdownActive: _run.isCountdown,
+                // The shared overlay owns countdown completion for Guided
+                // Practice and Teacher Activity only. Playground renders its
+                // controller-owned Get Ready state in MovementRotationOverlay.
+                countdownActive: !_isPlayground && _run.isCountdown,
                 onCountdownComplete: _beginSessionAfterCountdown,
                 overlayFeedback: isTrainingActive
                     ? null

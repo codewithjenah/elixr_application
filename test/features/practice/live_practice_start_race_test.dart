@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
@@ -13,6 +14,7 @@ import 'package:elixr_application/data/repositories/assignment_submission_reposi
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
+import 'package:elixr_application/features/practice/just_dance/playground_session_controller.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
@@ -79,8 +81,11 @@ class _GatedSettingsService extends SettingsService {
 
 class _RecordingWebSocketService extends WebSocketService {
   int beginCalls = 0;
+  int activateCalls = 0;
   final preparePayloads = <Map<String, Object?>>[];
   Completer<CommandAck> prepareAck = Completer<CommandAck>();
+  Completer<CommandAck> activateAck = Completer<CommandAck>();
+  final _previewFrames = StreamController<PreviewFrame>.broadcast();
 
   @override
   WebSocketConnectionState get connectionState =>
@@ -91,6 +96,9 @@ class _RecordingWebSocketService extends WebSocketService {
 
   @override
   Future<void> connect() async {}
+
+  @override
+  Stream<PreviewFrame> get previewStream => _previewFrames.stream;
 
   @override
   String beginPracticeAttempt() {
@@ -125,6 +133,12 @@ class _RecordingWebSocketService extends WebSocketService {
       if (readinessSpec != null) 'readiness_spec': readinessSpec.toMap(),
     });
     return prepareAck.future;
+  }
+
+  @override
+  Future<CommandAck> sendActivate({String? sessionId}) {
+    activateCalls += 1;
+    return activateAck.future;
   }
 
   @override
@@ -167,6 +181,109 @@ class _RecordingWebSocketService extends WebSocketService {
         message: message,
       ),
     );
+  }
+
+  void emitPreview() {
+    _previewFrames.add(
+      PreviewFrame(
+        // A valid transparent 1x1 PNG keeps the camera Image widget quiet
+        // while this test exercises lifecycle rather than image decoding.
+        jpegBytes: Uint8List.fromList([
+          137,
+          80,
+          78,
+          71,
+          13,
+          10,
+          26,
+          10,
+          0,
+          0,
+          0,
+          13,
+          73,
+          72,
+          68,
+          82,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          8,
+          6,
+          0,
+          0,
+          0,
+          31,
+          21,
+          196,
+          137,
+          0,
+          0,
+          0,
+          13,
+          73,
+          68,
+          65,
+          84,
+          8,
+          215,
+          99,
+          248,
+          207,
+          192,
+          240,
+          31,
+          0,
+          5,
+          0,
+          1,
+          255,
+          137,
+          153,
+          61,
+          29,
+          0,
+          0,
+          0,
+          0,
+          73,
+          69,
+          78,
+          68,
+          174,
+          66,
+          96,
+          130,
+        ]),
+        sessionId: currentSessionId,
+        sessionState: 'preparing',
+      ),
+    );
+  }
+
+  void acceptActivate() {
+    if (activateAck.isCompleted) return;
+    activateAck.complete(
+      CommandAck(
+        protocolVersion: 1,
+        requestId: 'activate-test',
+        action: 'activate',
+        accepted: true,
+        sessionId: currentSessionId,
+        sessionState: 'active',
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    unawaited(_previewFrames.close());
+    super.dispose();
   }
 }
 
@@ -337,6 +454,50 @@ void main() {
       expect(ws.preparePayloads.single['movement'], 'Normal Grip');
       ws.acceptPrepare();
       await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'Playground Get Ready has one activation owner while its ack is slow',
+    (tester) async {
+      await pumpScreen(tester);
+
+      screenKey.currentState!.debugStartSession();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pump(const Duration(milliseconds: 20));
+      ws.acceptPrepare();
+      await tester.pump();
+
+      ws.emitPreview();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump();
+
+      expect(ws.activateCalls, 1);
+      expect(
+        find.byType(GameCountdownOverlay),
+        findsNothing,
+        reason: 'Playground renders its controller-owned Get Ready HUD only.',
+      );
+      expect(
+        screenKey.currentState!.debugPlayground.phase,
+        PlaygroundSessionPhase.getReady,
+      );
+
+      // A slow activate acknowledgement must not allow a shared countdown
+      // completion to issue a second generic activate command.
+      await tester.pump(const Duration(seconds: 5));
+      expect(ws.activateCalls, 1);
+
+      ws.acceptActivate();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        screenKey.currentState!.debugPlayground.phase,
+        PlaygroundSessionPhase.assessing,
+      );
     },
   );
 
