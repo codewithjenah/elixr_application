@@ -3,6 +3,7 @@ import 'package:elixr_core/models/user.dart';
 import '../../data/models/training_prop.dart';
 import '../progression/practice_variant.dart';
 import '../progression/progression_access.dart';
+import '../progression/progression_catalog.dart';
 import 'app_route_paths.dart';
 
 /// Inputs required to resolve role-aware redirects for [AppRouter].
@@ -16,7 +17,6 @@ class AppRedirectState {
     required this.hasPendingJoinCode,
     required this.tutorialInitialized,
     required this.practiceMovement,
-    required this.practiceDifficulty,
     required this.practiceProp,
     required this.hasCompletedLesson,
     this.currentLevel,
@@ -30,8 +30,7 @@ class AppRedirectState {
   final String location;
   final bool hasPendingJoinCode;
   final bool tutorialInitialized;
-  final String practiceMovement;
-  final String practiceDifficulty;
+  final String? practiceMovement;
   final String? practiceProp;
   final bool Function(String movement, TrainingProp prop) hasCompletedLesson;
 
@@ -153,9 +152,13 @@ String? _redirectAuthenticatedTrainee({
   }
 
   if (location == AppRoutePaths.practice) {
-    final movement = state.practiceMovement;
-    final prop = TrainingProp.tryParseStrict(state.practiceProp);
-    if (prop == null) return AppRoutePaths.movements;
+    final step = resolveStrictPracticeRouteVariant(
+      movementName: state.practiceMovement,
+      propProtocolValue: state.practiceProp,
+    );
+    if (step == null) return AppRoutePaths.movements;
+    final movement = step.movement.name;
+    final prop = step.prop;
     final variant = PracticeVariant(movementName: movement, trainingProp: prop);
     final access = evaluatePersonal(
       variant: variant,
@@ -169,7 +172,7 @@ String? _redirectAuthenticatedTrainee({
         return null;
       case ProgressionAccessResult.personalLearn:
         return '/learn/movement/${Uri.encodeComponent(movement)}'
-            '?difficulty=${state.practiceDifficulty}&prop=${prop.protocolValue}';
+            '?difficulty=${step.movement.difficulty}&prop=${prop.protocolValue}';
       case ProgressionAccessResult.personalLoading:
       case ProgressionAccessResult.personalLocked:
       case ProgressionAccessResult.invalid:

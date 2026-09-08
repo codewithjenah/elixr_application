@@ -47,7 +47,7 @@ AppRedirectState _state({
   int? currentLevel = 16,
   bool hasPendingGoogleProfile = false,
   String? practiceProp = 'bottle',
-  String practiceMovement = 'Hand Stall',
+  String? practiceMovement = 'Hand Stall',
 }) {
   return AppRedirectState(
     isLoading: isLoading,
@@ -58,7 +58,6 @@ AppRedirectState _state({
     hasPendingJoinCode: hasPendingJoinCode,
     tutorialInitialized: tutorialInitialized,
     practiceMovement: practiceMovement,
-    practiceDifficulty: 'Easy',
     practiceProp: practiceProp,
     hasCompletedLesson: (_, _) => hasCompletedLesson,
     currentLevel: currentLevel,
@@ -485,14 +484,14 @@ void main() {
           hasCompletedLesson: false,
         ),
       ),
-      '/learn/movement/Hand%20Stall?difficulty=Easy&prop=bottle',
+      '/learn/movement/Hand%20Stall?difficulty=Medium&prop=bottle',
     );
   });
 
   test(
     'trainee practice fails closed for missing or malformed exact props',
     () {
-      for (final prop in <String?>[null, 'garbage']) {
+      for (final prop in <String?>[null, 'garbage', 'Bottle']) {
         expect(
           resolveAppRedirect(
             _state(
@@ -522,6 +521,22 @@ void main() {
     );
   });
 
+  test('trainee practice fails closed for missing or unknown movements', () {
+    for (final movement in <String?>[null, '', 'Unknown Move']) {
+      expect(
+        resolveAppRedirect(
+          _state(
+            user: _trainee(),
+            location: AppRoutePaths.practice,
+            practiceMovement: movement,
+          ),
+        ),
+        AppRoutePaths.movements,
+        reason: 'movement: $movement',
+      );
+    }
+  });
+
   test('trainee practice preserves the exact Shaker lesson route', () {
     expect(
       resolveAppRedirect(
@@ -533,7 +548,7 @@ void main() {
           currentLevel: 16,
         ),
       ),
-      '/learn/movement/Hand%20Stall?difficulty=Easy&prop=shaker',
+      '/learn/movement/Hand%20Stall?difficulty=Medium&prop=shaker',
     );
   });
 

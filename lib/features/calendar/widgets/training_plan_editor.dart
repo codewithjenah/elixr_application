@@ -44,10 +44,7 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
     final progression = context.read<TraineeProgressionService>();
     final tutorials = context.read<TutorialProgressService>();
     final access = evaluatePersonal(
-      variant: PracticeVariant(
-        movementName: movement.name,
-        trainingProp: prop,
-      ),
+      variant: PracticeVariant(movementName: movement.name, trainingProp: prop),
       currentLevel: progression.currentLevelOrNull,
       tutorialCompleted: tutorials.isInitialized
           ? tutorials.hasCompletedLesson(movement.name, prop)
@@ -89,8 +86,7 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
     _movement = selected;
     if (selected != null) {
       final props = _readyPropsFor(selected);
-      _prop =
-          initial?.propType != null && props.contains(initial!.propType)
+      _prop = initial?.propType != null && props.contains(initial!.propType)
           ? initial.propType
           : (props.isEmpty ? null : props.first);
     }
@@ -134,7 +130,9 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
   Widget build(BuildContext context) {
     final ready = _readyMovements;
     final movement = _movement;
-    final props = movement == null ? const <TrainingProp>[] : _readyPropsFor(movement);
+    final props = movement == null
+        ? const <TrainingProp>[]
+        : _readyPropsFor(movement);
     final prop = _prop;
 
     if (ready.isEmpty || movement == null || prop == null) {
@@ -183,18 +181,13 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
             value: movement.name,
             items: [
               for (final item in ready)
-                ComboBoxItem<String>(
-                  value: item.name,
-                  child: Text(item.name),
-                ),
+                ComboBoxItem<String>(value: item.name, child: Text(item.name)),
             ],
             onChanged: widget.isSaving
                 ? null
                 : (name) {
                     if (name == null) return;
-                    final next = ready.firstWhere(
-                      (item) => item.name == name,
-                    );
+                    final next = ready.firstWhere((item) => item.name == name);
                     _onMovementChanged(next);
                   },
           ),

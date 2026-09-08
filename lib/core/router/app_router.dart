@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/models/training_prop.dart';
 import '../../features/achievements/achievements_screen.dart';
 import '../../features/assigned_movements/assigned_movements_screen.dart';
 import '../../features/assigned_movements/assigned_practice_screen.dart';
@@ -51,6 +50,7 @@ import '../../services/join_link_service.dart';
 import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../shell/teacher_shell.dart';
+import '../progression/progression_catalog.dart';
 import '../widgets/app_shell.dart';
 import 'app_redirect.dart';
 import 'app_route_paths.dart';
@@ -82,10 +82,7 @@ class AppRouter {
             location: location,
             hasPendingJoinCode: joinLinks.hasPendingCode,
             tutorialInitialized: tutorialProgress.isInitialized,
-            practiceMovement:
-                state.uri.queryParameters['movement'] ?? 'Hand Stall',
-            practiceDifficulty:
-                state.uri.queryParameters['difficulty'] ?? 'Easy',
+            practiceMovement: state.uri.queryParameters['movement'],
             practiceProp: state.uri.queryParameters['prop'],
             hasCompletedLesson: tutorialProgress.hasCompletedLesson,
             currentLevel: traineeProgression.currentLevelOrNull,
@@ -157,26 +154,26 @@ class AppRouter {
         GoRoute(
           path: AppRoutePaths.practice,
           redirect: (context, state) =>
-              TrainingProp.tryParseStrict(state.uri.queryParameters['prop']) ==
+              resolveStrictPracticeRouteVariant(
+                    movementName: state.uri.queryParameters['movement'],
+                    propProtocolValue: state.uri.queryParameters['prop'],
+                  ) ==
                   null
               ? AppRoutePaths.movements
               : null,
           pageBuilder: (context, state) {
-            final movement =
-                state.uri.queryParameters['movement'] ?? 'Hand Stall';
-            final difficulty =
-                state.uri.queryParameters['difficulty'] ?? 'Easy';
-            final prop = TrainingProp.tryParseStrict(
-              state.uri.queryParameters['prop'],
+            final step = resolveStrictPracticeRouteVariant(
+              movementName: state.uri.queryParameters['movement'],
+              propProtocolValue: state.uri.queryParameters['prop'],
             )!;
             return fadeTransitionPage(
               key: ValueKey(
-                'practice:$movement|$difficulty|${prop.protocolValue}',
+                'practice:${step.movement.name}|${step.prop.protocolValue}',
               ),
               child: PracticeScreen(
-                movement: movement,
-                difficulty: difficulty,
-                prop: prop,
+                movement: step.movement.name,
+                difficulty: step.movement.difficulty,
+                prop: step.prop,
               ),
             );
           },
@@ -286,27 +283,26 @@ class AppRouter {
             GoRoute(
               path: '/learn/movement/:movementName',
               redirect: (context, state) =>
-                  TrainingProp.tryParseStrict(
-                        state.uri.queryParameters['prop'],
+                  resolveStrictPracticeRouteVariant(
+                        movementName: state.pathParameters['movementName'],
+                        propProtocolValue: state.uri.queryParameters['prop'],
                       ) ==
                       null
                   ? AppRoutePaths.learn
                   : null,
               pageBuilder: (context, state) {
-                final movement = state.pathParameters['movementName'] ?? '';
-                final difficulty =
-                    state.uri.queryParameters['difficulty'] ?? 'Easy';
-                final prop = TrainingProp.tryParseStrict(
-                  state.uri.queryParameters['prop'],
+                final step = resolveStrictPracticeRouteVariant(
+                  movementName: state.pathParameters['movementName'],
+                  propProtocolValue: state.uri.queryParameters['prop'],
                 )!;
                 final assignmentId = state.uri.queryParameters['assignmentId']
                     ?.trim();
                 return fadeTransitionPage(
                   key: state.pageKey,
                   child: MovementLessonScreen(
-                    movement: movement,
-                    difficulty: difficulty,
-                    prop: prop,
+                    movement: step.movement.name,
+                    difficulty: step.movement.difficulty,
+                    prop: step.prop,
                     assignmentId: (assignmentId == null || assignmentId.isEmpty)
                         ? null
                         : assignmentId,

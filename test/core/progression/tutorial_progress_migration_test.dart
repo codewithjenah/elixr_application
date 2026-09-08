@@ -10,7 +10,9 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('elixr_tutorial_');
-    file = File('${tempDir.path}${Platform.pathSeparator}tutorial_progress.json');
+    file = File(
+      '${tempDir.path}${Platform.pathSeparator}tutorial_progress.json',
+    );
   });
 
   tearDown(() async {
@@ -34,7 +36,10 @@ void main() {
 
   test('legacy Normal Grip maps to Bottle only', () async {
     final service = await loadWithLegacy(['Normal Grip']);
-    expect(service.hasCompletedLesson('Normal Grip', TrainingProp.bottle), isTrue);
+    expect(
+      service.hasCompletedLesson('Normal Grip', TrainingProp.bottle),
+      isTrue,
+    );
     expect(
       service.hasCompletedLesson('Normal Grip', TrainingProp.shaker),
       isFalse,
@@ -43,7 +48,10 @@ void main() {
 
   test('legacy Hand Stall maps to Bottle only, not Shaker', () async {
     final service = await loadWithLegacy(['Hand Stall']);
-    expect(service.hasCompletedLesson('Hand Stall', TrainingProp.bottle), isTrue);
+    expect(
+      service.hasCompletedLesson('Hand Stall', TrainingProp.bottle),
+      isTrue,
+    );
     expect(
       service.hasCompletedLesson('Hand Stall', TrainingProp.shaker),
       isFalse,
@@ -56,11 +64,7 @@ void main() {
       'Forearm Stall',
       'Elbow Stall',
     ]);
-    for (final name in [
-      'One Finger Stall',
-      'Forearm Stall',
-      'Elbow Stall',
-    ]) {
+    for (final name in ['One Finger Stall', 'Forearm Stall', 'Elbow Stall']) {
       expect(service.hasCompletedLesson(name, TrainingProp.bottle), isTrue);
       expect(service.hasCompletedLesson(name, TrainingProp.shaker), isFalse);
     }
@@ -80,7 +84,10 @@ void main() {
   test('migration is idempotent across setUser', () async {
     final service = await loadWithLegacy(['Hand Stall']);
     await service.setUser('user-a');
-    expect(service.hasCompletedLesson('Hand Stall', TrainingProp.bottle), isTrue);
+    expect(
+      service.hasCompletedLesson('Hand Stall', TrainingProp.bottle),
+      isTrue,
+    );
     expect(
       service.hasCompletedLesson('Hand Stall', TrainingProp.shaker),
       isFalse,

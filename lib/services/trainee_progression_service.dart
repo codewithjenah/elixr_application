@@ -11,9 +11,8 @@ import '../data/repositories/leaderboard_repository.dart';
 /// Does not evaluate access policy itself. Router and UI call
 /// [evaluatePersonal] with these values.
 class TraineeProgressionService extends ChangeNotifier {
-  TraineeProgressionService({
-    LeaderboardRepository? leaderboardRepository,
-  }) : _leaderboardRepository = leaderboardRepository;
+  TraineeProgressionService({LeaderboardRepository? leaderboardRepository})
+    : _leaderboardRepository = leaderboardRepository;
 
   /// Test/harness constructor with an already-known XP total.
   TraineeProgressionService.ready({int totalXp = 0})
@@ -50,18 +49,20 @@ class TraineeProgressionService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    _sub = repo.watchPlayer(uid).listen(
-      (entry) {
-        _totalXp = entry?.totalXp ?? 0;
-        _ready = true;
-        notifyListeners();
-      },
-      onError: (_) {
-        // Fail closed: keep not-ready so gated personal actions do not unlock.
-        _ready = false;
-        notifyListeners();
-      },
-    );
+    _sub = repo
+        .watchPlayer(uid)
+        .listen(
+          (entry) {
+            _totalXp = entry?.totalXp ?? 0;
+            _ready = true;
+            notifyListeners();
+          },
+          onError: (_) {
+            // Fail closed: keep not-ready so gated personal actions do not unlock.
+            _ready = false;
+            notifyListeners();
+          },
+        );
   }
 
   @override

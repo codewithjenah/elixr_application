@@ -40,6 +40,16 @@ Map<String, dynamic> _spec({String laterality = 'either'}) {
 }
 
 void main() {
+  test('assignment marked for deletion fails closed during parsing', () {
+    expect(
+      GroupAssignment.tryFromMap({
+        ..._base(),
+        'deletion_state': 'deleting',
+      }, id: 'asg1'),
+      isNull,
+    );
+  });
+
   test(
     'legacy assignment without audience fields is available to entire class',
     () {

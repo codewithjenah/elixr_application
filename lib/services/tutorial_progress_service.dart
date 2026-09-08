@@ -73,11 +73,15 @@ class TutorialProgressService extends ChangeNotifier {
     _completedOnboardingVersion = onboardingVersion;
   });
 
-  Future<bool> completeLesson(String movement, TrainingProp prop) => _update(() {
-    _completedLessons.add(
-      PracticeVariant(movementName: movement, trainingProp: prop).persistenceKey,
-    );
-  });
+  Future<bool> completeLesson(String movement, TrainingProp prop) =>
+      _update(() {
+        _completedLessons.add(
+          PracticeVariant(
+            movementName: movement,
+            trainingProp: prop,
+          ).persistenceKey,
+        );
+      });
 
   Future<bool> markCameraSetupComplete() => _update(() {
     _firstCameraSetupComplete = true;
@@ -124,7 +128,9 @@ class TutorialProgressService extends ChangeNotifier {
     _completedOnboardingVersion = data['onboarding_version'] is int
         ? data['onboarding_version'] as int
         : 0;
-    final migrated = _migrateCompletedLessons(_strings(data['completed_lessons']));
+    final migrated = _migrateCompletedLessons(
+      _strings(data['completed_lessons']),
+    );
     _completedLessons = migrated.lessons;
     _migrationDirty = migrated.dirty;
     _firstCameraSetupComplete = data['first_camera_setup_complete'] == true;

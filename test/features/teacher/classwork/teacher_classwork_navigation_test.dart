@@ -57,7 +57,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: group,
         officialMovementName: 'Normal Grip',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
       );
       final checkedAttempt = AssignmentAttempt(
         id: 'checked-submission',

@@ -668,110 +668,110 @@ class _LessonCardState extends State<_LessonCard> {
             clipBehavior: Clip.antiAlias,
             child: IntrinsicHeight(
               child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: 116,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        difficultyColor.withValues(
-                          alpha: _hovered ? 0.22 : 0.14,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: 116,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          difficultyColor.withValues(
+                            alpha: _hovered ? 0.22 : 0.14,
+                          ),
+                          AppColors.accent.withValues(alpha: 0.08),
+                        ],
+                      ),
+                      border: Border(
+                        right: BorderSide(
+                          color: difficultyColor.withValues(alpha: 0.18),
                         ),
-                        AppColors.accent.withValues(alpha: 0.08),
-                      ],
+                      ),
                     ),
-                    border: Border(
-                      right: BorderSide(
-                        color: difficultyColor.withValues(alpha: 0.18),
+                    child: Center(
+                      child: AnimatedScale(
+                        scale: _hovered ? 1.06 : 1,
+                        duration: const Duration(milliseconds: 180),
+                        child: MovementImage(
+                          movementName: movement.name,
+                          size: 106,
+                        ),
                       ),
                     ),
                   ),
-                  child: Center(
-                    child: AnimatedScale(
-                      scale: _hovered ? 1.06 : 1,
-                      duration: const Duration(milliseconds: 180),
-                      child: MovementImage(
-                        movementName: movement.name,
-                        size: 106,
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _DifficultyBadge(
-                          difficulty: movement.difficulty,
-                          color: difficultyColor,
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        Text(
-                          movement.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.body.copyWith(
-                            color: context.elixTextPrimary,
-                            fontWeight: FontWeight.w800,
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _DifficultyBadge(
+                            difficulty: movement.difficulty,
+                            color: difficultyColor,
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          movement.description,
-                          maxLines: multiProp ? 1 : 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        if (multiProp)
-                          for (final prop in props) ...[
-                            const SizedBox(height: 4),
-                            _PropLessonRow(
-                              prop: prop,
-                              status: _statusFor(prop, _accessFor(prop)),
-                              enabled: _canOpen(_accessFor(prop)),
-                              onTap: () => _openLesson(prop),
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            movement.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.body.copyWith(
+                              color: context.elixTextPrimary,
+                              fontWeight: FontWeight.w800,
                             ),
-                          ]
-                        else
-                          Row(
-                            children: [
-                              Text(
-                                _statusFor(primaryProp, primaryAccess),
-                                style: AppTheme.caption.copyWith(
-                                  color: _hovered && primaryOpenable
-                                      ? AppColors.primarySoft
-                                      : context.elixTextSecondary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              if (primaryOpenable) ...[
-                                const SizedBox(width: 5),
-                                Icon(
-                                  FluentIcons.chevron_right,
-                                  size: 10,
-                                  color: _hovered
-                                      ? AppColors.primarySoft
-                                      : context.elixTextSecondary,
-                                ),
-                              ],
-                            ],
                           ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            movement.description,
+                            maxLines: multiProp ? 1 : 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          if (multiProp)
+                            for (final prop in props) ...[
+                              const SizedBox(height: 4),
+                              _PropLessonRow(
+                                prop: prop,
+                                status: _statusFor(prop, _accessFor(prop)),
+                                enabled: _canOpen(_accessFor(prop)),
+                                onTap: () => _openLesson(prop),
+                              ),
+                            ]
+                          else
+                            Row(
+                              children: [
+                                Text(
+                                  _statusFor(primaryProp, primaryAccess),
+                                  style: AppTheme.caption.copyWith(
+                                    color: _hovered && primaryOpenable
+                                        ? AppColors.primarySoft
+                                        : context.elixTextSecondary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (primaryOpenable) ...[
+                                  const SizedBox(width: 5),
+                                  Icon(
+                                    FluentIcons.chevron_right,
+                                    size: 10,
+                                    color: _hovered
+                                        ? AppColors.primarySoft
+                                        : context.elixTextSecondary,
+                                  ),
+                                ],
+                              ],
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
             ),
           ),
         ),

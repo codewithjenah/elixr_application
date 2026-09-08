@@ -78,10 +78,10 @@ void main() {
       expect(find.text('Preparing movement'), findsOneWidget);
       expect(find.text('Success'), findsNothing);
       controller.markMovementPrepared(controller.generation);
-    await tester.pump();
-    expect(find.text('Get Ready'), findsOneWidget);
-    expect(find.text('First'), findsWidgets);
-    controller.pause();
+      await tester.pump();
+      expect(find.text('Get Ready'), findsOneWidget);
+      expect(find.text('First'), findsWidgets);
+      controller.pause();
     },
   );
 

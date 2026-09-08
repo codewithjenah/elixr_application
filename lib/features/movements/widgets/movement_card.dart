@@ -91,10 +91,7 @@ class _MovementCardState extends State<MovementCard>
   }
 
   /// Null when progression providers are absent (legacy widget tests).
-  ProgressionAccessResult? _accessFor(
-    TrainingProp prop, {
-    bool listen = true,
-  }) {
+  ProgressionAccessResult? _accessFor(TrainingProp prop, {bool listen = true}) {
     final progression = Provider.of<TraineeProgressionService?>(
       context,
       listen: listen,

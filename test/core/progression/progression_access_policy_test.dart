@@ -127,20 +127,23 @@ void main() {
     );
   });
 
-  test('catalog-supported but non-progression prop still invalid for personal', () {
-    // All enabled catalog props are progression milestones today; guard the
-    // policy against a future catalog-only prop by using a bogus pairing that
-    // resolvePracticeVariant rejects.
-    expect(
-      evaluatePersonal(
-        variant: const PracticeVariant(
-          movementName: 'Normal Grip',
-          trainingProp: TrainingProp.shaker,
+  test(
+    'catalog-supported but non-progression prop still invalid for personal',
+    () {
+      // All enabled catalog props are progression milestones today; guard the
+      // policy against a future catalog-only prop by using a bogus pairing that
+      // resolvePracticeVariant rejects.
+      expect(
+        evaluatePersonal(
+          variant: const PracticeVariant(
+            movementName: 'Normal Grip',
+            trainingProp: TrainingProp.shaker,
+          ),
+          currentLevel: 99,
+          tutorialCompleted: true,
         ),
-        currentLevel: 99,
-        tutorialCompleted: true,
-      ),
-      ProgressionAccessResult.invalid,
-    );
-  });
+        ProgressionAccessResult.invalid,
+      );
+    },
+  );
 }

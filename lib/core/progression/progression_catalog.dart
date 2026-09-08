@@ -146,6 +146,22 @@ PracticeCatalogStep? resolvePracticeVariant(PracticeVariant variant) {
   return PracticeCatalogStep(movement: movement, prop: variant.trainingProp);
 }
 
+/// Resolves strict route inputs to one canonical official catalog step.
+///
+/// Route parameters must use the exact movement name and prop protocol value.
+/// Missing values, display labels, and unsupported combinations fail closed.
+PracticeCatalogStep? resolveStrictPracticeRouteVariant({
+  required String? movementName,
+  required String? propProtocolValue,
+}) {
+  if (movementName == null || movementName.isEmpty) return null;
+  final prop = TrainingProp.tryParseStrict(propProtocolValue);
+  if (prop == null || propProtocolValue != prop.protocolValue) return null;
+  return resolvePracticeVariant(
+    PracticeVariant(movementName: movementName, trainingProp: prop),
+  );
+}
+
 /// Personal required level for [variant], or null when not in the progression.
 int? requiredLevelFor(PracticeVariant variant) {
   for (final milestone in progressionMilestones) {

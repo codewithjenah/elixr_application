@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/constants/movements.dart';
+import 'package:elixr_application/core/progression/practice_variant.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
@@ -14,6 +15,7 @@ import 'package:elixr_application/features/dashboard/widgets/recommended_practic
 import 'package:elixr_application/features/progress/training_recommendation.dart';
 import 'package:elixr_application/features/teacher/dashboard/teacher_dashboard_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -320,6 +322,12 @@ void main() {
     final recommendation = buildTrainingRecommendation(
       sessions: const [],
       movements: movementCatalog,
+      readyPracticeVariantFor: (movement) => movement.name == 'Normal Grip'
+          ? const PracticeVariant(
+              movementName: 'Normal Grip',
+              trainingProp: TrainingProp.bottle,
+            )
+          : null,
     );
 
     await tester.pumpWidget(

@@ -698,6 +698,7 @@ function fakeAssignmentDatabase({memberships, assignments, recipients = [], over
 
 function fakeCreationDatabase({recipientIds, documents = []}) {
   const writes = [];
+  const reads = [];
   const values = new Map([
     ['users/teacher', {
       full_name: 'Grace Hopper', role: 'Teacher', lifecycle_state: 'active',
@@ -736,6 +737,7 @@ function fakeCreationDatabase({recipientIds, documents = []}) {
     async runTransaction(callback) {
       const transaction = {
         async get(ref) {
+          reads.push(ref.path);
           const data = values.get(ref.path);
           return {
             exists: Boolean(data),
@@ -749,6 +751,7 @@ function fakeCreationDatabase({recipientIds, documents = []}) {
       };
       return callback(transaction);
     },
+    reads,
     writes,
   };
   return database;
@@ -1093,6 +1096,7 @@ test('assignment creation accepts an uncapped targeted subset atomically', async
         recipient_ids: recipientIds,
         origin: 'official_elixr',
         official_movement_name: 'Hand Stall',
+        allowed_prop: 'bottle',
         topic: '  Bottle control  ',
       },
       get: () => '',
@@ -1112,12 +1116,111 @@ test('assignment creation accepts an uncapped targeted subset atomically', async
   assert.ok(assignmentWrite);
   assert.equal('target_trainee_ids' in assignmentWrite.data, false);
   assert.equal(assignmentWrite.data.audience_type, 'selected_students');
+  assert.equal(assignmentWrite.data.allowed_prop, 'bottle');
   assert.equal(assignmentWrite.data.topic, 'Bottle control');
+  assert.equal(
+    database.reads.some((path) => path.startsWith('users/trainee-')),
+    false,
+    'assignment creation must not inspect recipients\' personal progression',
+  );
   assert.equal(
     database.writes.filter((write) =>
       write.path.includes('/assignment_recipients/')).length,
     recipientIds.length,
   );
+});
+
+test('official Hand Stall assignment accepts the exact Shaker variant', async () => {
+  const database = fakeCreationDatabase({recipientIds: []});
+  const response = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1',
+        audience_type: 'entire_class',
+        recipient_ids: [],
+        origin: 'official_elixr',
+        official_movement_name: 'Hand Stall',
+        allowed_prop: 'shaker',
+      },
+      get: () => '',
+    },
+    response,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
+      databaseFactory: () => database,
+    },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.assignment.allowed_prop, 'shaker');
+});
+
+test('official assignment identity failures return deliberate client errors', async () => {
+  const cases = [
+    [{}, 'invalid_allowed_prop'],
+    [{allowed_prop: 'Bottle'}, 'invalid_allowed_prop'],
+    [{allowed_prop: 'glass'}, 'invalid_allowed_prop'],
+    [{allowed_prop: 'bottle_and_shaker'}, 'invalid_allowed_prop'],
+    [{official_movement_name: 'Unknown Move', allowed_prop: 'bottle'}, 'invalid_movement'],
+  ];
+
+  for (const [overrides, expectedError] of cases) {
+    const database = fakeCreationDatabase({recipientIds: []});
+    const response = fakeResponse();
+    await createClassroomAssignmentHandler(
+      {
+        method: 'POST',
+        body: {
+          group_id: 'g1',
+          audience_type: 'entire_class',
+          recipient_ids: [],
+          origin: 'official_elixr',
+          official_movement_name: 'Hand Stall',
+          ...overrides,
+        },
+        get: () => '',
+      },
+      response,
+      {
+        verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
+        databaseFactory: () => database,
+      },
+    );
+
+    assert.equal(response.statusCode, 400, JSON.stringify(overrides));
+    assert.equal(response.body.error, expectedError, JSON.stringify(overrides));
+    assert.equal(database.writes.length, 0, JSON.stringify(overrides));
+  }
+});
+
+test('assignment creation preserves genuine infrastructure failures as 503', async () => {
+  const response = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1',
+        audience_type: 'entire_class',
+        recipient_ids: [],
+        origin: 'official_elixr',
+        official_movement_name: 'Hand Stall',
+        allowed_prop: 'bottle',
+      },
+      get: () => '',
+    },
+    response,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
+      databaseFactory: () => {
+        throw new Error('database unavailable');
+      },
+    },
+  );
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.error, 'unavailable');
 });
 
 test('assignment creation accepts a current Teacher Activity revision for the entire class', async () => {

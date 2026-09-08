@@ -387,10 +387,7 @@ class _AssignmentHeader extends StatelessWidget {
                 );
                 if (prop == null) return const SizedBox.shrink();
                 final level = requiredLevelFor(
-                  PracticeVariant(
-                    movementName: name,
-                    trainingProp: prop,
-                  ),
+                  PracticeVariant(movementName: name, trainingProp: prop),
                 );
                 if (level == null) return const SizedBox.shrink();
                 return Text(

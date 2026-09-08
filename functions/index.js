@@ -2417,6 +2417,7 @@ async function createClassroomAssignmentHandler(request, response, {
       'movement_archived', 'revision_not_found', 'stale_revision',
       'invalid_movement_owner', 'invalid_movement_spec',
       'invalid_activity_assessment', 'invalid_payload', 'invalid_instructions',
+      'invalid_allowed_prop',
       'invalid_identity', 'invalid_topic'].includes(error.code)) {
       return response.status(error.code === 'forbidden' ? 403 : 400).json({error: error.code});
     }

@@ -336,6 +336,9 @@ class GroupAssignment {
     Map<String, dynamic> map, {
     required String id,
   }) {
+    // Permanent deletion marks the assignment before cascading related data.
+    // Treat that intermediate state as unavailable across every client flow.
+    if (map['deletion_state'] == 'deleting') return null;
     final teacherId = _readId(map['teacher_id']);
     final groupId = _readId(map['group_id']);
     final movementId = _readId(map['movement_id']);

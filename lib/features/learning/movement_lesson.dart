@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -53,8 +54,7 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
   TrainingProp get prop => widget.prop;
   String? get assignmentId => widget.assignmentId;
 
-  bool get _assigned =>
-      assignmentId != null && assignmentId!.trim().isNotEmpty;
+  bool get _assigned => assignmentId != null && assignmentId!.trim().isNotEmpty;
 
   @override
   void didChangeDependencies() {
@@ -127,6 +127,12 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
     // use a different practice path and must not unlock arbitrary catalog rows.
     if (!assignment.isOfficial) return false;
     if (assignment.officialMovementName != movementName) return false;
+    final identity = officialElixrIdentityForName(movementName);
+    if (identity == null ||
+        assignment.movementId != identity.movementId ||
+        assignment.revisionId != identity.revisionId) {
+      return false;
+    }
     final resolved = resolvedAllowedPropForOfficialAssignment(
       officialMovementName: movementName,
       storedAllowedProp: assignment.allowedProp,
@@ -144,9 +150,7 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
     }
     if (_assigned) {
       if (_assignmentGrantLoading) {
-        return const ElixScaffoldPage(
-          content: Center(child: ProgressRing()),
-        );
+        return const ElixScaffoldPage(content: Center(child: ProgressRing()));
       }
       final grant = _assignmentGrant;
       if (grant == null || !grant.isAuthorized) {
@@ -180,9 +184,7 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
         listen: true,
       );
       if (tutorials == null) {
-        return const ElixScaffoldPage(
-          content: Center(child: ProgressRing()),
-        );
+        return const ElixScaffoldPage(content: Center(child: ProgressRing()));
       }
       final access = evaluateAssignment(
         variant: PracticeVariant(movementName: movement, trainingProp: prop),
@@ -192,9 +194,7 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
             : null,
       );
       if (access == ProgressionAccessResult.assignmentLoading) {
-        return const ElixScaffoldPage(
-          content: Center(child: ProgressRing()),
-        );
+        return const ElixScaffoldPage(content: Center(child: ProgressRing()));
       }
       if (access == ProgressionAccessResult.invalid) {
         return ElixScaffoldPage(
@@ -232,9 +232,7 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
         listen: true,
       );
       if (progression == null || tutorials == null) {
-        return const ElixScaffoldPage(
-          content: Center(child: ProgressRing()),
-        );
+        return const ElixScaffoldPage(content: Center(child: ProgressRing()));
       }
       final access = evaluatePersonal(
         variant: PracticeVariant(movementName: movement, trainingProp: prop),
@@ -244,9 +242,7 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
             : null,
       );
       if (access == ProgressionAccessResult.personalLoading) {
-        return const ElixScaffoldPage(
-          content: Center(child: ProgressRing()),
-        );
+        return const ElixScaffoldPage(content: Center(child: ProgressRing()));
       }
       if (access == ProgressionAccessResult.personalLocked ||
           access == ProgressionAccessResult.invalid) {

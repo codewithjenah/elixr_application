@@ -133,45 +133,42 @@ void main() {
     );
   });
 
-  test('updateLivePracticePreferences persists exact dual-prop variants', () async {
-    await service.initialize();
-    final outcome = await service.updateLivePracticePreferences(
-      practiceVariants: const [
-        PracticeVariant(
-          movementName: 'Normal Grip',
-          trainingProp: TrainingProp.bottle,
-        ),
-        PracticeVariant(
-          movementName: 'Hand Stall',
-          trainingProp: TrainingProp.bottle,
-        ),
-        PracticeVariant(
-          movementName: 'Hand Stall',
-          trainingProp: TrainingProp.shaker,
-        ),
-      ],
-      intervalSeconds: 25,
-    );
+  test(
+    'updateLivePracticePreferences persists exact dual-prop variants',
+    () async {
+      await service.initialize();
+      final outcome = await service.updateLivePracticePreferences(
+        practiceVariants: const [
+          PracticeVariant(
+            movementName: 'Normal Grip',
+            trainingProp: TrainingProp.bottle,
+          ),
+          PracticeVariant(
+            movementName: 'Hand Stall',
+            trainingProp: TrainingProp.bottle,
+          ),
+          PracticeVariant(
+            movementName: 'Hand Stall',
+            trainingProp: TrainingProp.shaker,
+          ),
+        ],
+        intervalSeconds: 25,
+      );
 
-    expect(outcome, SettingsWriteOutcome.saved);
-    expect(
-      service.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
-      [
-        'Normal Grip|bottle',
-        'Hand Stall|bottle',
-        'Hand Stall|shaker',
-      ],
-    );
+      expect(outcome, SettingsWriteOutcome.saved);
+      expect(
+        service.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
+        ['Normal Grip|bottle', 'Hand Stall|bottle', 'Hand Stall|shaker'],
+      );
 
-    final reloaded = SettingsService(settingsFile: settingsFile);
-    await reloaded.initialize();
-    expect(
-      reloaded.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
-      [
-        'Normal Grip|bottle',
-        'Hand Stall|bottle',
-        'Hand Stall|shaker',
-      ],
-    );
-  });
+      final reloaded = SettingsService(settingsFile: settingsFile);
+      await reloaded.initialize();
+      expect(
+        reloaded.justDancePracticeVariants
+            .map((v) => v.persistenceKey)
+            .toList(),
+        ['Normal Grip|bottle', 'Hand Stall|bottle', 'Hand Stall|shaker'],
+      );
+    },
+  );
 }

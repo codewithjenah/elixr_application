@@ -679,10 +679,10 @@ class SettingsService extends ChangeNotifier {
       _cameraDeviceIdKey: cameraDeviceId,
       _cameraDisplayNameKey: cameraDisplayName,
       _justDanceMovementNamesKey: [
-        for (final v in justDancePracticeVariants) v.movementName
+        for (final v in justDancePracticeVariants) v.movementName,
       ],
       _justDancePracticeVariantsKey: [
-        for (final v in justDancePracticeVariants) v.persistenceKey
+        for (final v in justDancePracticeVariants) v.persistenceKey,
       ],
       _justDanceIntervalSecondsKey: justDanceIntervalSeconds,
       _selectedMusicTrackIdKey: selectedMusicTrackId,

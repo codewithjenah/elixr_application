@@ -713,9 +713,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _latestFeedback = null;
     _bottleDetected = false;
     if (assignment == null) {
-      final steps = _resolvePlayableSteps(
-        settings.justDancePracticeVariants,
-      );
+      final steps = _resolvePlayableSteps(settings.justDancePracticeVariants);
       if (steps.isEmpty) {
         setState(() {
           _sessionError =

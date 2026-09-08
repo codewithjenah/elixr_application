@@ -20,17 +20,20 @@ void main() {
     expect(parsed, expected);
   });
 
-  test('Firestore Rules officialMovementSupportsProp matches Flutter catalog', () {
-    final source = File('$repoRoot/firestore.rules').readAsStringSync();
-    final begin = source.indexOf('// OFFICIAL_MOVEMENT_PROPS_BEGIN');
-    final end = source.indexOf('// OFFICIAL_MOVEMENT_PROPS_END');
-    expect(begin, greaterThanOrEqualTo(0));
-    expect(end, greaterThan(begin));
-    final block = source.substring(begin, end);
-    final expected = officialSupportedPracticeVariants();
-    final parsed = _parseRulesOfficialProps(block);
-    expect(parsed, expected);
-  });
+  test(
+    'Firestore Rules officialMovementSupportsProp matches Flutter catalog',
+    () {
+      final source = File('$repoRoot/firestore.rules').readAsStringSync();
+      final begin = source.indexOf('// OFFICIAL_MOVEMENT_PROPS_BEGIN');
+      final end = source.indexOf('// OFFICIAL_MOVEMENT_PROPS_END');
+      expect(begin, greaterThanOrEqualTo(0));
+      expect(end, greaterThan(begin));
+      final block = source.substring(begin, end);
+      final expected = officialSupportedPracticeVariants();
+      final parsed = _parseRulesOfficialProps(block);
+      expect(parsed, expected);
+    },
+  );
 
   test('all 16 progression milestones are official supported pairs', () {
     final supported = officialSupportedPracticeVariants();
@@ -70,20 +73,14 @@ Set<PracticeVariant> _parseRulesOfficialProps(String block) {
   for (final match in single.allMatches(block)) {
     final name = match.group(1) ?? match.group(3)!;
     final prop = match.group(2) ?? match.group(4)!;
-    result.add(
-      PracticeVariant.tryParsePersistenceKey('$name|$prop')!,
-    );
+    result.add(PracticeVariant.tryParsePersistenceKey('$name|$prop')!);
   }
-  final multi = RegExp(
-    r"""\(name == '([^']+)' && prop in \[([^\]]+)\]\)""",
-  );
+  final multi = RegExp(r"""\(name == '([^']+)' && prop in \[([^\]]+)\]\)""");
   for (final match in multi.allMatches(block)) {
     final name = match.group(1)!;
     for (final propMatch in RegExp(r"'([^']+)'").allMatches(match.group(2)!)) {
       result.add(
-        PracticeVariant.tryParsePersistenceKey(
-          '$name|${propMatch.group(1)}',
-        )!,
+        PracticeVariant.tryParsePersistenceKey('$name|${propMatch.group(1)}')!,
       );
     }
   }

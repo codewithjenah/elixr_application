@@ -35,8 +35,7 @@ bool practiceSetlistCanAdd(PracticeSetlistSelectionState state) =>
 bool practiceSetlistCanRemove(
   PracticeSetlistSelectionState state, {
   required bool selected,
-}) =>
-    selected;
+}) => selected;
 
 String? practiceSetlistStatusLabel(
   PracticeSetlistSelectionState state, {

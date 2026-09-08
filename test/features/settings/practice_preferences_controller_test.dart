@@ -25,21 +25,20 @@ void main() {
     }
   });
 
-  PracticeVariant bottle(String name) => PracticeVariant(
-    movementName: name,
-    trainingProp: TrainingProp.bottle,
-  );
+  PracticeVariant bottle(String name) =>
+      PracticeVariant(movementName: name, trainingProp: TrainingProp.bottle);
 
-  PracticeVariant shaker(String name) => PracticeVariant(
-    movementName: name,
-    trainingProp: TrainingProp.shaker,
-  );
+  PracticeVariant shaker(String name) =>
+      PracticeVariant(movementName: name, trainingProp: TrainingProp.shaker);
 
   test('loads exact PracticeVariants from settings', () {
     final controller = PracticePreferencesController(settings);
     addTearDown(controller.dispose);
 
-    expect(controller.draft.practiceVariants, settings.justDancePracticeVariants);
+    expect(
+      controller.draft.practiceVariants,
+      settings.justDancePracticeVariants,
+    );
     expect(
       controller.draft.practiceVariants.any(
         (v) =>
@@ -107,22 +106,14 @@ void main() {
     expect(outcome, SettingsWriteOutcome.saved);
     expect(
       settings.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
-      [
-        'Normal Grip|bottle',
-        'Hand Stall|bottle',
-        'Hand Stall|shaker',
-      ],
+      ['Normal Grip|bottle', 'Hand Stall|bottle', 'Hand Stall|shaker'],
     );
 
     final reloaded = SettingsService(settingsFile: settingsFile);
     await reloaded.initialize();
     expect(
       reloaded.justDancePracticeVariants.map((v) => v.persistenceKey).toList(),
-      [
-        'Normal Grip|bottle',
-        'Hand Stall|bottle',
-        'Hand Stall|shaker',
-      ],
+      ['Normal Grip|bottle', 'Hand Stall|bottle', 'Hand Stall|shaker'],
     );
   });
 

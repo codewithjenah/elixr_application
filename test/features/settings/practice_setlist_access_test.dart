@@ -32,10 +32,7 @@ void main() {
     );
     expect(state, PracticeSetlistSelectionState.learnFirst);
     expect(practiceSetlistCanAdd(state), isFalse);
-    expect(
-      practiceSetlistStatusLabel(state, requiredLevel: 5),
-      'Learn first',
-    );
+    expect(practiceSetlistStatusLabel(state, requiredLevel: 5), 'Learn first');
   });
 
   test('personalLocked shows required level and is not selectable', () {

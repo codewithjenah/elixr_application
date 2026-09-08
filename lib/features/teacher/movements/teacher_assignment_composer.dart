@@ -110,8 +110,7 @@ class TeacherAssignmentCreationService {
 
     final official = officialMovement;
     if (official != null) {
-      final allowedProp =
-          officialAllowedProp ?? official.supportedProps.first;
+      final allowedProp = officialAllowedProp ?? official.supportedProps.first;
       if (!official.supportedProps.contains(allowedProp)) {
         throw const ClassroomException(
           ClassroomError.identityMismatch,
@@ -658,8 +657,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
     if (_classroomScoped) {
       _selectedOfficialMovement = _enabledOfficialMovements.firstOrNull;
-      _selectedOfficialProp =
-          _selectedOfficialMovement?.supportedProps.first;
+      _selectedOfficialProp = _selectedOfficialMovement?.supportedProps.first;
       _startWatchingTeacherMovements();
     } else {
       unawaited(_prefillActivityDefaultsForSelectedMovement());
@@ -1958,10 +1956,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 value: _selectedOfficialProp,
                 items: [
                   for (final prop in props)
-                    ComboBoxItem(
-                      value: prop,
-                      child: Text(prop.displayLabel),
-                    ),
+                    ComboBoxItem(value: prop, child: Text(prop.displayLabel)),
                 ],
                 onChanged: _submitting
                     ? null

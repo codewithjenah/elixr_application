@@ -134,7 +134,78 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('This assignment lesson is not available.'), findsOneWidget);
+    expect(
+      find.text('This assignment lesson is not available.'),
+      findsOneWidget,
+    );
+    expect(find.text('Start guided practice'), findsNothing);
+  });
+
+  testWidgets('official assignment lesson rejects mismatched identity IDs', (
+    tester,
+  ) async {
+    final auth =
+        AuthService(
+          repository: _UnusedAuth(),
+          awaitInitialAuthState: () async {},
+        )..seedAuthenticatedUser(
+          const User(
+            id: 'trainee-1',
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+            email: 'ada@example.com',
+            role: User.roleTrainee,
+          ),
+        );
+    addTearDown(auth.dispose);
+
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(assignments.dispose);
+    assignments.seedAssignment(
+      const GroupAssignment(
+        id: 'asg-malformed',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        movementId: 'official_normal_grip',
+        revisionId: 'official_normal_grip_v1',
+        origin: MovementOrigin.officialElixr,
+        assessmentMode: AssessmentMode.officialGuided,
+        status: GroupAssignmentStatus.active,
+        displayTitle: 'Elbow Stall',
+        teacherDisplayName: 'Coach',
+        groupName: 'Class',
+        officialMovementName: 'Elbow Stall',
+        allowedProp: TrainingProp.shaker,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthService>.value(value: auth),
+          Provider<ClassroomAssignmentRepository>.value(value: assignments),
+          ChangeNotifierProvider<TutorialProgressService>(
+            create: (_) => _ReadyTutorials(),
+          ),
+        ],
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const MovementLessonScreen(
+            movement: 'Elbow Stall',
+            difficulty: 'Medium',
+            prop: TrainingProp.shaker,
+            assignmentId: 'asg-malformed',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      find.text('This assignment lesson is not available.'),
+      findsOneWidget,
+    );
     expect(find.text('Start guided practice'), findsNothing);
   });
 

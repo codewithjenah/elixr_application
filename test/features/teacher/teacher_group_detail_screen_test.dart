@@ -158,7 +158,7 @@ void main() {
           teacherDisplayName: 'Grace Hopper',
           group: group,
           officialMovementName: 'Normal Grip',
-      allowedProp: TrainingProp.bottle,
+          allowedProp: TrainingProp.bottle,
         );
         final controller = await controllerFor(
           'teacher-1',
@@ -601,7 +601,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: group,
         officialMovementName: 'Normal Grip',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
       );
       final controller = await controllerFor(
         'teacher-1',

@@ -272,11 +272,7 @@ class _VariantRow extends StatelessWidget {
     final order = selected ? selectedIndex + 1 : null;
 
     return Padding(
-      padding: EdgeInsets.only(
-        left: showImage ? 0 : 22,
-        top: 2,
-        bottom: 2,
-      ),
+      padding: EdgeInsets.only(left: showImage ? 0 : 22, top: 2, bottom: 2),
       child: Row(
         children: [
           Checkbox(
@@ -344,9 +340,7 @@ class _VariantRow extends StatelessWidget {
                     ? context.elixTextSecondary
                     : context.elixBorder,
               ),
-              onPressed: selectedIndex > 0
-                  ? () => onMove(variant, -1)
-                  : null,
+              onPressed: selectedIndex > 0 ? () => onMove(variant, -1) : null,
             ),
             IconButton(
               icon: Icon(

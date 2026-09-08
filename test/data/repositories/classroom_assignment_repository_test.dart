@@ -149,7 +149,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Hand Stall',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
         audience: AssignmentAudience.individualStudent(['trainee-a']),
       );
 
@@ -162,7 +162,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Hand Stall',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
         audience: AssignmentAudience.selectedStudents([
           for (var index = 0; index < 12; index++) 'trainee-$index',
         ]),
@@ -182,7 +182,7 @@ void main() {
           teacherDisplayName: 'Grace Hopper',
           group: _group(),
           officialMovementName: 'Hand Stall',
-      allowedProp: TrainingProp.bottle,
+          allowedProp: TrainingProp.bottle,
           audience: AssignmentAudience.individualStudent(['trainee-b']),
         ),
         throwsA(isA<ClassroomException>()),
@@ -198,7 +198,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Hand Stall',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
         audience: AssignmentAudience.individualStudent(['trainee-a']),
       ),
       throwsA(isA<ClassroomException>()),
@@ -212,7 +212,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(teacherId: 'teacher-2'),
         officialMovementName: 'Hand Stall',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
       ),
       throwsA(
         isA<ClassroomException>().having(
@@ -231,7 +231,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(status: ElixrGroupStatus.archived),
         officialMovementName: 'Hand Stall',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
       ),
       throwsA(
         isA<ClassroomException>().having(
@@ -250,7 +250,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         group: _group(),
         officialMovementName: 'Arm Stall',
-      allowedProp: TrainingProp.bottle,
+        allowedProp: TrainingProp.bottle,
       ),
       throwsA(
         isA<ClassroomException>().having(
