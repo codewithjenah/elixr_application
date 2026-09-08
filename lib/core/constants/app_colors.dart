@@ -1,19 +1,22 @@
 import 'dart:ui';
 
 abstract final class AppColors {
-  static const background = Color(0xFF0D0D0F);
-  static const cardSurface = Color(0xFF1A1A1F);
-  static const primary = Color(0xFFFF4D8D);
-  static const primarySoft = Color(0xFFFF7EB3);
-  static const accent = Color(0xFF8B5CF6);
-  static const accentSoft = Color(0xFFA78BFA);
-  static const panelSurface = Color(0xFF16121F);
-  static const textPrimary = Color(0xFFF5F5F5);
-  static const textSecondary = Color(0xFFA0A0A8);
-  static const success = Color(0xFF6EE7B7);
+  static const background = Color(0xFF080812);
+  static const backgroundDeep = Color(0xFF0B0916);
+  static const cardSurface = Color(0xFF141126);
+  static const interactiveSurface = Color(0xFF231A3C);
+  static const primary = Color(0xFFFF2FA8);
+  static const primarySoft = Color(0xFFF43CB9);
+  static const accent = Color(0xFF8C3DFF);
+  static const accentSoft = Color(0xFF6A35D9);
+  static const panelSurface = Color(0xFF1B1630);
+  static const textPrimary = Color(0xFFF7F5FC);
+  static const textSecondary = Color(0xFFAAA5B8);
+  static const textMuted = Color(0xFF777187);
+  static const success = Color(0xFF4FE3AF);
   static const error = Color(0xFFFF6B6B);
-  static const warning = Color(0xFFFFB347);
-  static const border = Color(0xFF2A2A32);
+  static const warning = Color(0xFFF4B84A);
+  static const border = Color(0xFF33284F);
 
   static const backgroundLight = Color(0xFFF3F3F6);
   static const cardSurfaceLight = Color(0xFFFFFFFF);

@@ -5,6 +5,8 @@ import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/elix_design_tokens.dart';
 
+enum ElixPanelVariant { normal, elevated, hero }
+
 /// Neutral panel surface used by Trainee dashboard and Teacher destinations.
 ///
 /// Accent is optional and should be used for icons, hover, or a thin accent
@@ -17,12 +19,14 @@ class ElixPanelCard extends StatelessWidget {
     this.padding,
     this.showAccentBar = false,
     this.expand = true,
+    this.variant = ElixPanelVariant.normal,
   });
 
   final Widget child;
   final Color? accent;
   final EdgeInsetsGeometry? padding;
   final bool showAccentBar;
+  final ElixPanelVariant variant;
 
   /// When true, the panel stretches to the parent's width. Set false inside
   /// a [Wrap] so the card can size to its content.
@@ -31,9 +35,21 @@ class ElixPanelCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
-    final surface = context.elixPanelSurface;
-    final borderColor = context.elixColors.borderSubtle;
+    final colors = context.elixColors;
+    final surface = variant == ElixPanelVariant.normal
+        ? colors.surfaceRaised
+        : colors.surfaceTinted;
+    final borderColor = highContrast
+        ? colors.borderStrong
+        : showAccentBar && accent != null
+        ? accent!.withValues(alpha: 0.46)
+        : colors.borderSubtle;
     final accentColor = accent;
+    final highlighted = variant == ElixPanelVariant.hero;
+    final workspaceVisuals = context.elixWorkspaceVisuals;
+    final flattenSurface =
+        workspaceVisuals.flattenDenseSurfaces &&
+        variant == ElixPanelVariant.normal;
     final content = Padding(
       padding: padding ?? const EdgeInsets.all(AppSpacing.md),
       child: child,
@@ -42,12 +58,50 @@ class ElixPanelCard extends StatelessWidget {
     return Container(
       width: expand ? double.infinity : null,
       decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(16),
+        color: highContrast ? surface : null,
+        gradient: highContrast
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: variant == ElixPanelVariant.normal
+                    ? [surface, surface]
+                    : [
+                        colors.surfaceTinted,
+                        Color.alphaBlend(
+                          colors.brandSecondary.withValues(
+                            alpha: highlighted ? 0.11 : 0.035,
+                          ),
+                          colors.surfaceRaised,
+                        ),
+                        colors.surfaceRaised,
+                      ],
+              ),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: borderColor, width: highContrast ? 2 : 1),
+        boxShadow: highContrast || flattenSurface
+            ? const []
+            : [
+                BoxShadow(
+                  color: colors.shadow.withValues(alpha: 0.38),
+                  blurRadius: variant == ElixPanelVariant.normal ? 12 : 22,
+                  offset: Offset(
+                    0,
+                    variant == ElixPanelVariant.normal ? 4 : 10,
+                  ),
+                ),
+                if (highlighted)
+                  BoxShadow(
+                    color: colors.glowPrimary.withValues(
+                      alpha: 0.22 * workspaceVisuals.persistentGlowScale,
+                    ),
+                    blurRadius: 30,
+                    spreadRadius: -9,
+                  ),
+              ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         child: showAccentBar && accentColor != null
             ? Stack(
                 children: [
@@ -60,7 +114,9 @@ class ElixPanelCard extends StatelessWidget {
                     top: 0,
                     bottom: 0,
                     width: 3,
-                    child: ColoredBox(color: accentColor),
+                    child: ColoredBox(
+                      color: highContrast ? colors.borderStrong : accentColor,
+                    ),
                   ),
                 ],
               )

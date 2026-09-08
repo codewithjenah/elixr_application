@@ -118,7 +118,16 @@ abstract final class AppTheme {
         'light': colors.brandSecondary,
       }),
       scaffoldBackgroundColor: background,
+      acrylicBackgroundColor: colors.surfaceRaised,
       micaBackgroundColor: cardSurface,
+      menuColor: colors.surfaceRaised,
+      cardColor: colors.surfaceRaised,
+      selectionColor: colors.brandPrimary.withValues(alpha: 0.34),
+      shadowColor: colors.shadow,
+      resources: _resourcesFor(brightness, colors),
+      buttonTheme: _buttonTheme(colors, highContrast),
+      dialogTheme: _dialogTheme(colors, highContrast),
+      tooltipTheme: _tooltipTheme(colors, highContrast),
       extensions: [ElixContrastTheme(highContrast: highContrast)],
       typography: Typography.raw(
         title: TextStyle(
@@ -164,9 +173,239 @@ abstract final class AppTheme {
     );
   }
 
+  static ResourceDictionary _resourcesFor(
+    Brightness brightness,
+    ElixSemanticColors colors,
+  ) {
+    if (brightness == Brightness.light) {
+      return ResourceDictionary.light(
+        textFillColorPrimary: colors.textPrimary,
+        textFillColorSecondary: colors.textSecondary,
+        textFillColorTertiary: colors.textMuted,
+        textFillColorDisabled: colors.disabledText,
+        controlFillColorDefault: colors.surfaceRaised,
+        controlFillColorSecondary: colors.surfaceInteractive,
+        controlFillColorTertiary: colors.surfaceBase,
+        controlFillColorDisabled: colors.disabledSurface,
+        controlFillColorInputActive: colors.surfaceRaised,
+        controlSolidFillColorDefault: colors.surfaceRaised,
+        controlStrokeColorDefault: colors.borderSubtle,
+        controlStrokeColorSecondary: colors.borderInteractive,
+        cardStrokeColorDefault: colors.borderSubtle,
+        cardStrokeColorDefaultSolid: colors.borderSubtle,
+        surfaceStrokeColorDefault: colors.borderStrong,
+        surfaceStrokeColorFlyout: colors.borderSubtle,
+        dividerStrokeColorDefault: colors.borderSubtle,
+        focusStrokeColorOuter: colors.focusRing,
+        focusStrokeColorInner: colors.canvas,
+        cardBackgroundFillColorDefault: colors.surfaceRaised,
+        cardBackgroundFillColorSecondary: colors.surfaceTinted,
+        layerOnAcrylicFillColorDefault: colors.surfaceRaised,
+        layerOnMicaBaseAltFillColorDefault: colors.surfaceTinted,
+        solidBackgroundFillColorBase: colors.canvas,
+        solidBackgroundFillColorSecondary: colors.canvasDeep,
+        solidBackgroundFillColorTertiary: colors.surfaceBase,
+        solidBackgroundFillColorQuarternary: colors.surfaceRaised,
+        systemFillColorSuccess: colors.success,
+        systemFillColorCaution: colors.warning,
+        systemFillColorCritical: colors.error,
+      );
+    }
+
+    return ResourceDictionary.dark(
+      textFillColorPrimary: colors.textPrimary,
+      textFillColorSecondary: colors.textSecondary,
+      textFillColorTertiary: colors.textMuted,
+      textFillColorDisabled: colors.disabledText,
+      textOnAccentFillColorPrimary: colors.onBrand,
+      textOnAccentFillColorSecondary: colors.onBrand.withValues(alpha: 0.82),
+      textOnAccentFillColorDisabled: colors.disabledText,
+      controlFillColorDefault: colors.surfaceRaised.withValues(alpha: 0.92),
+      controlFillColorSecondary: colors.surfaceInteractive,
+      controlFillColorTertiary: colors.surfaceBase,
+      controlFillColorDisabled: colors.disabledSurface,
+      controlFillColorInputActive: colors.surfaceRaised,
+      controlStrongFillColorDefault: colors.textSecondary,
+      controlStrongFillColorDisabled: colors.disabledText,
+      controlSolidFillColorDefault: colors.surfaceRaised,
+      subtleFillColorSecondary: colors.interactiveHover.withValues(alpha: 0.72),
+      subtleFillColorTertiary: colors.interactivePressed.withValues(
+        alpha: 0.76,
+      ),
+      accentFillColorDisabled: colors.disabledSurface,
+      controlStrokeColorDefault: colors.borderSubtle,
+      controlStrokeColorSecondary: colors.borderInteractive,
+      cardStrokeColorDefault: colors.borderSubtle,
+      cardStrokeColorDefaultSolid: colors.borderSubtle,
+      controlStrongStrokeColorDefault: colors.borderStrong,
+      controlStrongStrokeColorDisabled: colors.disabledBorder,
+      surfaceStrokeColorDefault: colors.borderStrong,
+      surfaceStrokeColorFlyout: colors.borderSubtle,
+      dividerStrokeColorDefault: colors.borderSubtle,
+      focusStrokeColorOuter: colors.focusRing,
+      focusStrokeColorInner: colors.canvas,
+      cardBackgroundFillColorDefault: colors.surfaceRaised,
+      cardBackgroundFillColorSecondary: colors.surfaceTinted,
+      smokeFillColorDefault: colors.shadow.withValues(alpha: 0.72),
+      layerFillColorDefault: colors.surfaceRaised,
+      layerFillColorAlt: colors.surfaceBase,
+      layerOnAcrylicFillColorDefault: colors.surfaceRaised,
+      layerOnMicaBaseAltFillColorDefault: colors.surfaceTinted,
+      layerOnMicaBaseAltFillColorSecondary: colors.surfaceInteractive,
+      layerOnMicaBaseAltFillColorTertiary: colors.surfaceRaised,
+      solidBackgroundFillColorBase: colors.canvas,
+      solidBackgroundFillColorSecondary: colors.canvasDeep,
+      solidBackgroundFillColorTertiary: colors.surfaceBase,
+      solidBackgroundFillColorQuarternary: colors.surfaceRaised,
+      solidBackgroundFillColorBaseAlt: colors.canvasDeep,
+      systemFillColorSuccess: colors.success,
+      systemFillColorCaution: colors.warning,
+      systemFillColorCritical: colors.error,
+      systemFillColorSuccessBackground: colors.success.withValues(alpha: 0.14),
+      systemFillColorCautionBackground: colors.warning.withValues(alpha: 0.14),
+      systemFillColorCriticalBackground: colors.error.withValues(alpha: 0.14),
+    );
+  }
+
+  static ButtonThemeData _buttonTheme(
+    ElixSemanticColors colors,
+    bool highContrast,
+  ) {
+    ShapeBorder shapeFor(Set<WidgetState> states) => RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(10),
+      side: BorderSide(
+        color: states.contains(WidgetState.focused)
+            ? colors.focusRing
+            : states.contains(WidgetState.disabled)
+            ? colors.disabledBorder
+            : colors.borderSubtle,
+        width: states.contains(WidgetState.focused)
+            ? (highContrast ? 4 : 2)
+            : (highContrast ? 2 : 1),
+      ),
+    );
+
+    return ButtonThemeData(
+      defaultButtonStyle: ButtonStyle(
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return colors.disabledSurface;
+          }
+          if (states.contains(WidgetState.pressed)) {
+            return colors.interactivePressed;
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return colors.interactiveHover;
+          }
+          return colors.surfaceRaised;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.disabled)
+              ? colors.disabledText
+              : colors.textPrimary,
+        ),
+        shape: WidgetStateProperty.resolveWith(shapeFor),
+      ),
+      filledButtonStyle: ButtonStyle(
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return colors.disabledSurface;
+          }
+          if (states.contains(WidgetState.pressed)) return colors.brandPressed;
+          if (states.contains(WidgetState.hovered)) return colors.brandHover;
+          return colors.brandPrimary;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.disabled)
+              ? colors.disabledText
+              : colors.onBrand,
+        ),
+        shape: WidgetStateProperty.resolveWith(shapeFor),
+      ),
+      iconButtonStyle: ButtonStyle(
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.pressed)) {
+            return colors.interactivePressed;
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return colors.interactiveHover;
+          }
+          return Colors.transparent;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.disabled)
+              ? colors.disabledText
+              : colors.textSecondary,
+        ),
+        shape: WidgetStateProperty.resolveWith(shapeFor),
+      ),
+    );
+  }
+
+  static ContentDialogThemeData _dialogTheme(
+    ElixSemanticColors colors,
+    bool highContrast,
+  ) => ContentDialogThemeData(
+    decoration: BoxDecoration(
+      color: colors.surfaceRaised,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(
+        color: highContrast ? colors.borderStrong : colors.borderInteractive,
+        width: highContrast ? 2 : 1,
+      ),
+      boxShadow: highContrast
+          ? const []
+          : [
+              BoxShadow(
+                color: colors.shadow,
+                blurRadius: 32,
+                offset: Offset(0, 16),
+              ),
+            ],
+    ),
+    barrierColor: colors.shadow.withValues(alpha: 0.78),
+    padding: const EdgeInsets.all(20),
+    titlePadding: const EdgeInsets.only(bottom: AppSpacing.sm),
+    actionsSpacing: AppSpacing.sm,
+    actionsPadding: const EdgeInsets.all(20),
+    actionsDecoration: BoxDecoration(
+      color: colors.surfaceTinted,
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+      border: Border(top: BorderSide(color: colors.borderSubtle)),
+    ),
+  );
+
+  static TooltipThemeData _tooltipTheme(
+    ElixSemanticColors colors,
+    bool highContrast,
+  ) => TooltipThemeData(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    waitDuration: const Duration(milliseconds: 650),
+    decoration: BoxDecoration(
+      color: colors.surfaceInteractive,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(
+        color: highContrast ? colors.borderStrong : colors.borderSubtle,
+        width: highContrast ? 2 : 1,
+      ),
+      boxShadow: highContrast
+          ? const []
+          : [
+              BoxShadow(
+                color: colors.shadow,
+                blurRadius: 14,
+                offset: Offset(0, 6),
+              ),
+            ],
+    ),
+    textStyle: supporting(color: colors.textPrimary).copyWith(fontSize: 12),
+  );
+
   static BoxDecoration cardDecoration(BuildContext context, {Color? color}) {
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
+    final flattenDenseSurfaces =
+        context.elixWorkspaceVisuals.flattenDenseSurfaces;
     return BoxDecoration(
       color: color ?? context.elixCardSurface,
       borderRadius: BorderRadius.circular(18),
@@ -176,7 +415,7 @@ abstract final class AppTheme {
         ),
         width: highContrast ? 2 : 1,
       ),
-      boxShadow: highContrast
+      boxShadow: highContrast || flattenDenseSurfaces
           ? const []
           : [
               BoxShadow(
@@ -312,20 +551,26 @@ abstract final class AppTheme {
   /// Subtle ambient wash used behind every primary ELIXR page.
   static BoxDecoration ambientPageBackground(BuildContext context) {
     final isDark = context.isDarkTheme;
+    final ambientScale = context.elixWorkspaceVisuals.ambientGlowScale;
     if (context.isHighContrast) {
       return BoxDecoration(color: context.elixBackground);
     }
     return BoxDecoration(
       color: context.elixBackground,
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
+      gradient: RadialGradient(
+        center: const Alignment(-0.78, -0.86),
+        radius: 1.45,
         colors: [
-          AppColors.primary.withValues(alpha: isDark ? 0.06 : 0.04),
+          AppColors.primary.withValues(
+            alpha: (isDark ? 0.105 : 0.04) * ambientScale,
+          ),
+          AppColors.accent.withValues(
+            alpha: (isDark ? 0.045 : 0.025) * ambientScale,
+          ),
           context.elixBackground,
-          AppColors.accent.withValues(alpha: isDark ? 0.05 : 0.03),
+          context.elixColors.canvasDeep,
         ],
-        stops: const [0.0, 0.45, 1.0],
+        stops: const [0.0, 0.22, 0.62, 1.0],
       ),
     );
   }

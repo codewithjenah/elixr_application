@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/router/app_router.dart';
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/shell/teacher_shell.dart';
+import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/app_shell.dart';
 import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
@@ -175,6 +176,13 @@ void main() {
     expect(find.text('Create your first classroom'), findsOneWidget);
     expect(find.byType(TeacherShell), findsOneWidget);
     expect(find.byType(AppShell), findsNothing);
+    final teacherContext = tester.element(
+      find.text('Create your first classroom'),
+    );
+    final visuals = ElixWorkspaceVisualScope.of(teacherContext);
+    expect(visuals.ambientGlowScale, 0.72);
+    expect(visuals.persistentGlowScale, 0.72);
+    expect(visuals.flattenDenseSurfaces, isTrue);
 
     router.go(AppRoutePaths.teacherProgress);
     await tester.pump();

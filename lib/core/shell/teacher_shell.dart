@@ -6,6 +6,7 @@ import '../../services/auth_service.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../theme/elix_design_tokens.dart';
 import '../router/app_route_paths.dart';
 import '../widgets/elix_editorial_header.dart';
 import '../widgets/elix_scaffold_page.dart';
@@ -56,20 +57,22 @@ class _TeacherShellState extends State<TeacherShell> {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
 
-    return ColoredBox(
-      color: context.elixBackground,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TeacherSidebar(
-            currentRoute: location,
-            isCollapsed: _sidebarCollapsed,
-            onToggleCollapse: () =>
-                setState(() => _sidebarCollapsed = !_sidebarCollapsed),
-            onLogout: _confirmAndLogout,
-          ),
-          Expanded(child: ClipRect(child: widget.child)),
-        ],
+    return ElixWorkspaceVisualScope.teacher(
+      child: ColoredBox(
+        color: context.elixBackground,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TeacherSidebar(
+              currentRoute: location,
+              isCollapsed: _sidebarCollapsed,
+              onToggleCollapse: () =>
+                  setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+              onLogout: _confirmAndLogout,
+            ),
+            Expanded(child: ClipRect(child: widget.child)),
+          ],
+        ),
       ),
     );
   }

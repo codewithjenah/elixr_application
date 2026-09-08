@@ -12,6 +12,7 @@ class ElixStatCard extends StatelessWidget {
     required this.icon,
     this.smallValue = false,
     this.valueColor,
+    this.highlighted = false,
   });
 
   final String label;
@@ -19,11 +20,14 @@ class ElixStatCard extends StatelessWidget {
   final IconData icon;
   final bool smallValue;
   final Color? valueColor;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
     return ElixCard(
-      variant: ElixCardVariant.metric,
+      variant: highlighted
+          ? ElixCardVariant.highlighted
+          : ElixCardVariant.metric,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -11,13 +11,18 @@ import '../constants/app_colors.dart';
 class ElixSemanticColors {
   const ElixSemanticColors({
     required this.canvas,
+    required this.canvasDeep,
     required this.surfaceBase,
     required this.surfaceRaised,
     required this.surfaceTinted,
+    required this.surfaceInteractive,
+    required this.surfaceSelected,
     required this.borderSubtle,
     required this.borderStrong,
+    required this.borderInteractive,
     required this.textPrimary,
     required this.textSecondary,
+    required this.textMuted,
     required this.brandPrimary,
     required this.brandHover,
     required this.brandPressed,
@@ -34,16 +39,24 @@ class ElixSemanticColors {
     required this.disabledSurface,
     required this.disabledText,
     required this.disabledBorder,
+    required this.glowPrimary,
+    required this.glowSecondary,
+    required this.shadow,
   });
 
   final Color canvas;
+  final Color canvasDeep;
   final Color surfaceBase;
   final Color surfaceRaised;
   final Color surfaceTinted;
+  final Color surfaceInteractive;
+  final Color surfaceSelected;
   final Color borderSubtle;
   final Color borderStrong;
+  final Color borderInteractive;
   final Color textPrimary;
   final Color textSecondary;
+  final Color textMuted;
   final Color brandPrimary;
   final Color brandHover;
   final Color brandPressed;
@@ -62,43 +75,60 @@ class ElixSemanticColors {
   final Color disabledSurface;
   final Color disabledText;
   final Color disabledBorder;
+  final Color glowPrimary;
+  final Color glowSecondary;
+  final Color shadow;
 
   static const dark = ElixSemanticColors(
     canvas: AppColors.background,
-    surfaceBase: AppColors.background,
+    canvasDeep: AppColors.backgroundDeep,
+    surfaceBase: AppColors.cardSurface,
     surfaceRaised: AppColors.cardSurface,
     surfaceTinted: AppColors.panelSurface,
-    borderSubtle: AppColors.border,
-    borderStrong: Color(0xFF686874),
+    surfaceInteractive: AppColors.interactiveSurface,
+    surfaceSelected: Color(0xFF32163F),
+    borderSubtle: Color(0x663B2E5C),
+    borderStrong: Color(0xFF8E65C5),
+    borderInteractive: Color(0x99C052FF),
     textPrimary: AppColors.textPrimary,
     textSecondary: AppColors.textSecondary,
+    textMuted: AppColors.textMuted,
     brandPrimary: AppColors.primary,
-    brandHover: Color(0xFFFF79AD),
-    brandPressed: Color(0xFFE83E7D),
+    brandHover: AppColors.primarySoft,
+    // Retains 4.5:1 contrast with the dark on-brand label when pressed.
+    brandPressed: Color(0xFFEC2A9F),
     brandSecondary: AppColors.accent,
-    onBrand: Color(0xFF1C1017),
+    onBrand: AppColors.background,
     focusRing: Color(0xFFFFFFFF),
-    milestone: Color(0xFFD7B15A),
-    warning: AppColors.warning,
+    milestone: Color(0xFFF6C75A),
+    warning: Color(0xFFF1A43C),
     success: AppColors.success,
     error: AppColors.error,
-    interactiveHover: Color(0xFF23232A),
-    interactivePressed: Color(0xFF30303A),
-    interactiveSelected: Color(0xFF301A29),
-    disabledSurface: Color(0xFF27272D),
-    disabledText: Color(0xFF7A7A84),
-    disabledBorder: Color(0xFF41414A),
+    interactiveHover: AppColors.interactiveSurface,
+    interactivePressed: Color(0xFF2B2047),
+    interactiveSelected: Color(0xFF32163F),
+    disabledSurface: Color(0xFF211D2E),
+    disabledText: Color(0xFF6F697C),
+    disabledBorder: Color(0xFF393247),
+    glowPrimary: Color(0x52FF2FA8),
+    glowSecondary: Color(0x478C3DFF),
+    shadow: Color(0xA6000000),
   );
 
   static const light = ElixSemanticColors(
     canvas: AppColors.backgroundLight,
+    canvasDeep: Color(0xFFEAE7F0),
     surfaceBase: AppColors.backgroundLight,
     surfaceRaised: AppColors.cardSurfaceLight,
     surfaceTinted: AppColors.panelSurfaceLight,
+    surfaceInteractive: Color(0xFFE8E1F3),
+    surfaceSelected: Color(0xFFFFDDED),
     borderSubtle: AppColors.borderLight,
     borderStrong: Color(0xFF8A8A96),
+    borderInteractive: Color(0xFF8C3DFF),
     textPrimary: AppColors.textPrimaryLight,
     textSecondary: AppColors.textSecondaryLight,
+    textMuted: Color(0xFF777187),
     brandPrimary: AppColors.primary,
     brandHover: Color(0xFFFF79AD),
     brandPressed: Color(0xFFE83E7D),
@@ -115,19 +145,27 @@ class ElixSemanticColors {
     disabledSurface: Color(0xFFE5E5EA),
     disabledText: Color(0xFF767680),
     disabledBorder: Color(0xFFB9B9C2),
+    glowPrimary: Color(0x2EFF2FA8),
+    glowSecondary: Color(0x248C3DFF),
+    shadow: Color(0x24000000),
   );
 
   // Contrast modes deliberately use opaque black/white surfaces and borders.
   // Status colours remain separate semantic roles, not surface treatments.
   static const highContrastDark = ElixSemanticColors(
     canvas: Color(0xFF000000),
+    canvasDeep: Color(0xFF000000),
     surfaceBase: Color(0xFF000000),
     surfaceRaised: Color(0xFF000000),
     surfaceTinted: Color(0xFF000000),
+    surfaceInteractive: Color(0xFF000000),
+    surfaceSelected: Color(0xFF000000),
     borderSubtle: Color(0xFFFFFFFF),
     borderStrong: Color(0xFFFFFFFF),
+    borderInteractive: Color(0xFFFFFFFF),
     textPrimary: Color(0xFFFFFFFF),
     textSecondary: Color(0xFFFFFFFF),
+    textMuted: Color(0xFFFFFFFF),
     brandPrimary: Color(0xFFFFFFFF),
     brandHover: Color(0xFFFFFFFF),
     brandPressed: Color(0xFFFFFFFF),
@@ -144,17 +182,25 @@ class ElixSemanticColors {
     disabledSurface: Color(0xFF000000),
     disabledText: Color(0xFFFFFFFF),
     disabledBorder: Color(0xFFFFFFFF),
+    glowPrimary: Color(0x00000000),
+    glowSecondary: Color(0x00000000),
+    shadow: Color(0x00000000),
   );
 
   static const highContrastLight = ElixSemanticColors(
     canvas: Color(0xFFFFFFFF),
+    canvasDeep: Color(0xFFFFFFFF),
     surfaceBase: Color(0xFFFFFFFF),
     surfaceRaised: Color(0xFFFFFFFF),
     surfaceTinted: Color(0xFFFFFFFF),
+    surfaceInteractive: Color(0xFFFFFFFF),
+    surfaceSelected: Color(0xFFFFFFFF),
     borderSubtle: Color(0xFF000000),
     borderStrong: Color(0xFF000000),
+    borderInteractive: Color(0xFF000000),
     textPrimary: Color(0xFF000000),
     textSecondary: Color(0xFF000000),
+    textMuted: Color(0xFF000000),
     brandPrimary: Color(0xFF000000),
     brandHover: Color(0xFF000000),
     brandPressed: Color(0xFF000000),
@@ -171,6 +217,9 @@ class ElixSemanticColors {
     disabledSurface: Color(0xFFFFFFFF),
     disabledText: Color(0xFF000000),
     disabledBorder: Color(0xFF000000),
+    glowPrimary: Color(0x00000000),
+    glowSecondary: Color(0x00000000),
+    shadow: Color(0x00000000),
   );
 }
 
@@ -198,6 +247,57 @@ abstract final class ElixMotion {
 abstract final class ElixFocus {
   static const ringWidth = 2.0;
   static const ringWidthHighContrast = 4.0;
+}
+
+/// Role-level tuning for the shared ELIXR visual system.
+///
+/// Both workspaces resolve the same semantic colours and components. Teacher
+/// pages only reduce atmospheric light and flatten routine dense surfaces so
+/// operational information stays easy to scan.
+@immutable
+class ElixWorkspaceVisuals {
+  const ElixWorkspaceVisuals({
+    this.ambientGlowScale = 1,
+    this.persistentGlowScale = 1,
+    this.flattenDenseSurfaces = false,
+  });
+
+  const ElixWorkspaceVisuals.teacher()
+    : ambientGlowScale = 0.72,
+      persistentGlowScale = 0.72,
+      flattenDenseSurfaces = true;
+
+  final double ambientGlowScale;
+  final double persistentGlowScale;
+  final bool flattenDenseSurfaces;
+}
+
+class ElixWorkspaceVisualScope extends InheritedWidget {
+  const ElixWorkspaceVisualScope({
+    super.key,
+    required this.visuals,
+    required super.child,
+  });
+
+  const ElixWorkspaceVisualScope.teacher({super.key, required super.child})
+    : visuals = const ElixWorkspaceVisuals.teacher();
+
+  final ElixWorkspaceVisuals visuals;
+
+  static ElixWorkspaceVisuals of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<ElixWorkspaceVisualScope>()
+          ?.visuals ??
+      const ElixWorkspaceVisuals();
+
+  @override
+  bool updateShouldNotify(ElixWorkspaceVisualScope oldWidget) =>
+      visuals != oldWidget.visuals;
+}
+
+extension ElixWorkspaceVisualContext on BuildContext {
+  ElixWorkspaceVisuals get elixWorkspaceVisuals =>
+      ElixWorkspaceVisualScope.of(this);
 }
 
 /// Status roles that must always ship with a non-colour cue (icon, mark, or

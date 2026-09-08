@@ -1,4 +1,3 @@
-import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/constants/app_constants.dart';
 import 'package:elixr_application/core/shell/teacher_shell.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
@@ -260,7 +259,7 @@ void main() {
       expect(brandSpan.style!.fontSize, 52);
       expect(
         (brandSpan.children!.last as TextSpan).style!.color,
-        AppColors.primary,
+        ElixSemanticColors.dark.brandPrimary,
       );
     },
   );

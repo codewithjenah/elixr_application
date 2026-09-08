@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
@@ -39,6 +40,7 @@ class _ElixPrimaryButtonState extends State<ElixPrimaryButton> {
     final decorativeMotionEnabled =
         !MediaQuery.disableAnimationsOf(context) && !highContrast;
     final colors = context.elixColors;
+    final glowScale = context.elixWorkspaceVisuals.persistentGlowScale;
 
     Widget button = Listener(
       onPointerDown: (_) {
@@ -65,16 +67,41 @@ class _ElixPrimaryButtonState extends State<ElixPrimaryButton> {
             duration: ElixMotion.duration(context, ElixMotion.standard),
             curve: ElixMotion.standardCurve,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              boxShadow: _hovered && !isDisabled && decorativeMotionEnabled
-                  ? [
+              color: isDisabled
+                  ? colors.disabledSurface
+                  : (highContrast ? colors.brandPrimary : null),
+              gradient: isDisabled || highContrast
+                  ? null
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: _pressed
+                          ? [colors.brandPressed, colors.brandSecondary]
+                          : _hovered
+                          ? [colors.brandHover, colors.brandSecondary]
+                          : [colors.brandPrimary, colors.brandSecondary],
+                    ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDisabled
+                    ? colors.disabledBorder
+                    : (highContrast
+                          ? colors.borderStrong
+                          : colors.borderInteractive),
+                width: highContrast ? 2 : 1,
+              ),
+              boxShadow: isDisabled || highContrast
+                  ? const []
+                  : [
                       BoxShadow(
-                        color: colors.brandPrimary.withValues(alpha: 0.35),
-                        blurRadius: 16,
-                        spreadRadius: -2,
+                        color: colors.glowPrimary.withValues(
+                          alpha: (_hovered ? 0.42 : 0.25) * glowScale,
+                        ),
+                        blurRadius: _hovered ? 18 : 12,
+                        spreadRadius: -3,
+                        offset: const Offset(0, 5),
                       ),
-                    ]
-                  : null,
+                    ],
             ),
             child: Builder(
               builder: (context) {
@@ -82,21 +109,11 @@ class _ElixPrimaryButtonState extends State<ElixPrimaryButton> {
                   style: ButtonStyle(
                     backgroundColor: WidgetStateProperty.resolveWith((states) {
                       if (states.contains(WidgetState.disabled)) {
-                        return colors.disabledSurface;
+                        return Colors.transparent;
                       }
-                      if (states.contains(WidgetState.pressed) ||
-                          (_pressed && !isDisabled)) {
-                        return highContrast
-                            ? colors.brandPrimary
-                            : colors.brandPressed;
-                      }
-                      if (states.contains(WidgetState.hovered) ||
-                          (_hovered && !isDisabled)) {
-                        return highContrast
-                            ? colors.brandPrimary
-                            : colors.brandHover;
-                      }
-                      return colors.brandPrimary;
+                      return highContrast
+                          ? colors.brandPrimary
+                          : Colors.transparent;
                     }),
                     foregroundColor: WidgetStateProperty.resolveWith((states) {
                       if (states.contains(WidgetState.disabled)) {
@@ -122,13 +139,13 @@ class _ElixPrimaryButtonState extends State<ElixPrimaryButton> {
                         side = BorderSide(
                           color: highContrast
                               ? colors.borderStrong
-                              : colors.brandPrimary,
-                          width: highContrast ? 2 : 1,
+                              : Colors.transparent,
+                          width: highContrast ? 2 : 0,
                         );
                       }
                       return RoundedRectangleBorder(
                         side: side,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(12),
                       );
                     }),
                     padding: WidgetStateProperty.all(
@@ -191,6 +208,24 @@ class _ElixPrimaryButtonState extends State<ElixPrimaryButton> {
                     child: innerButton,
                   );
                 }
+                innerButton = Focus(
+                  canRequestFocus: false,
+                  onKeyEvent: (_, event) {
+                    final isActivationKey =
+                        event.logicalKey == LogicalKeyboardKey.enter ||
+                        event.logicalKey == LogicalKeyboardKey.space;
+                    if (!isActivationKey || isDisabled) {
+                      return KeyEventResult.ignored;
+                    }
+                    if (event is KeyDownEvent && !_pressed) {
+                      setState(() => _pressed = true);
+                    } else if (event is KeyUpEvent && _pressed) {
+                      setState(() => _pressed = false);
+                    }
+                    return KeyEventResult.ignored;
+                  },
+                  child: innerButton,
+                );
                 if (widget.isLoading) {
                   innerButton = Semantics(
                     container: true,

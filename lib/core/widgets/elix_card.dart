@@ -60,6 +60,7 @@ class _ElixCardState extends State<ElixCard> {
     final colors = context.elixColors;
     final variant = widget.resolvedVariant;
     final highlighted = variant == ElixCardVariant.highlighted;
+    final workspaceVisuals = context.elixWorkspaceVisuals;
     final decoration = AppTheme.cardDecoration(context);
 
     final Color fill;
@@ -97,7 +98,9 @@ class _ElixCardState extends State<ElixCard> {
       shadows = [
         ...shadows,
         BoxShadow(
-          color: colors.brandPrimary.withValues(alpha: 0.22),
+          color: colors.brandPrimary.withValues(
+            alpha: 0.22 * workspaceVisuals.persistentGlowScale,
+          ),
           blurRadius: 24,
           spreadRadius: -4,
         ),

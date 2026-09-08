@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
@@ -240,6 +241,7 @@ class ElixSidebarCollapseButton extends StatefulWidget {
 
 class _ElixSidebarCollapseButtonState extends State<ElixSidebarCollapseButton> {
   bool _hovered = false;
+  bool _focused = false;
 
   static const _buttonSize = 38.0;
   static const _iconSize = 18.0;
@@ -251,45 +253,60 @@ class _ElixSidebarCollapseButtonState extends State<ElixSidebarCollapseButton> {
       label: widget.isCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
       child: Tooltip(
         message: widget.isCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: GestureDetector(
-            onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: ElixMotion.duration(context, ElixMotion.micro),
-              width: _buttonSize,
-              height: _buttonSize,
-              decoration: BoxDecoration(
-                color: _hovered
-                    ? _pink.withValues(alpha: 0.12)
-                    : context.elixCardSurface.withValues(alpha: 0.48),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
+        child: Focus(
+          onFocusChange: (focused) => setState(() => _focused = focused),
+          onKeyEvent: (_, event) {
+            if (event is! KeyDownEvent) return KeyEventResult.ignored;
+            if (event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space) {
+              widget.onTap();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              onTap: widget.onTap,
+              child: AnimatedContainer(
+                duration: ElixMotion.duration(context, ElixMotion.micro),
+                width: _buttonSize,
+                height: _buttonSize,
+                decoration: BoxDecoration(
                   color: _hovered
-                      ? _pink.withValues(alpha: 0.48)
-                      : context.elixBorder.withValues(alpha: 0.52),
+                      ? _pink.withValues(alpha: 0.12)
+                      : context.elixCardSurface.withValues(alpha: 0.48),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _focused
+                        ? context.elixColors.focusRing
+                        : _hovered
+                        ? _pink.withValues(alpha: 0.48)
+                        : context.elixBorder.withValues(alpha: 0.52),
+                    width: _focused ? ElixFocus.ringWidth : 1,
+                  ),
+                  boxShadow: _hovered && !context.isHighContrast
+                      ? [
+                          BoxShadow(
+                            color: _pink.withValues(alpha: 0.12),
+                            blurRadius: 14,
+                          ),
+                        ]
+                      : const [],
                 ),
-                boxShadow: _hovered && !context.isHighContrast
-                    ? [
-                        BoxShadow(
-                          color: _pink.withValues(alpha: 0.12),
-                          blurRadius: 14,
-                        ),
-                      ]
-                    : const [],
-              ),
-              child: Center(
-                child: AnimatedSwitcher(
-                  duration: ElixMotion.duration(context, ElixMotion.micro),
-                  child: Icon(
-                    widget.isCollapsed
-                        ? FluentIcons.open_pane_mirrored
-                        : FluentIcons.close_pane_mirrored,
-                    key: ValueKey(widget.isCollapsed),
-                    size: _iconSize,
-                    color: _hovered ? _pink : context.elixTextPrimary,
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: ElixMotion.duration(context, ElixMotion.micro),
+                    child: Icon(
+                      widget.isCollapsed
+                          ? FluentIcons.open_pane_mirrored
+                          : FluentIcons.close_pane_mirrored,
+                      key: ValueKey(widget.isCollapsed),
+                      size: _iconSize,
+                      color: _hovered ? _pink : context.elixTextPrimary,
+                    ),
                   ),
                 ),
               ),
@@ -445,12 +462,15 @@ class ElixSidebarNavTile extends StatefulWidget {
 
 class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final soon = widget.comingSoon;
-    final highlight = (widget.isActive || _hovered) && !soon;
+    final highlight = (widget.isActive || _hovered || _focused) && !soon;
     final highContrast = context.isHighContrast;
+    final colors = context.elixColors;
+    final glowScale = context.elixWorkspaceVisuals.persistentGlowScale;
 
     final iconColor = widget.isActive
         ? _pink
@@ -460,194 +480,215 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
 
     final tile = Semantics(
       button: true,
+      enabled: !soon,
       selected: widget.isActive,
       label: widget.label,
+      onTap: soon ? null : widget.onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: ElixSidebarMetrics.navOuterPadding,
           vertical: 1,
         ),
-        child: MouseRegion(
-          cursor: soon ? SystemMouseCursors.basic : SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: GestureDetector(
-            onTap: widget.onTap,
-            behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              height: ElixSidebarMetrics.navItemHeight,
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.isCollapsed
-                    ? 0
-                    : ElixSidebarMetrics.navInnerPadding,
-              ),
-              decoration: BoxDecoration(
-                color: highContrast
-                    ? (widget.isActive
-                          ? context.elixTextPrimary.withValues(alpha: 0.12)
-                          : Colors.transparent)
-                    : (widget.isActive ? null : Colors.transparent),
-                gradient: widget.isActive && !highContrast
-                    ? LinearGradient(
-                        colors: [
-                          _pink.withValues(alpha: 0.17),
-                          _purple.withValues(alpha: 0.08),
-                        ],
-                      )
-                    : (_hovered && !soon && !highContrast)
-                    ? LinearGradient(
-                        colors: [
-                          context.elixBorder.withValues(alpha: 0.20),
-                          context.elixBorder.withValues(alpha: 0.08),
-                        ],
-                      )
-                    : null,
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: widget.isActive
-                      ? (highContrast
-                            ? context.elixTextPrimary
-                            : _pink.withValues(alpha: 0.24))
-                      : Colors.transparent,
+        child: Focus(
+          canRequestFocus: !soon,
+          onFocusChange: (focused) => setState(() => _focused = focused),
+          onKeyEvent: (_, event) {
+            if (soon || event is! KeyDownEvent) return KeyEventResult.ignored;
+            if (event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space) {
+              widget.onTap();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: MouseRegion(
+            cursor: soon ? SystemMouseCursors.basic : SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              onTap: soon ? null : widget.onTap,
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: ElixMotion.duration(context, ElixMotion.standard),
+                height: ElixSidebarMetrics.navItemHeight,
+                padding: EdgeInsets.symmetric(
+                  horizontal: widget.isCollapsed
+                      ? 0
+                      : ElixSidebarMetrics.navInnerPadding,
                 ),
-                boxShadow: widget.isActive && !highContrast
-                    ? [
-                        BoxShadow(
-                          color: _pink.withValues(alpha: 0.09),
-                          blurRadius: 14,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : const [],
-              ),
-              child: widget.isCollapsed
-                  ? Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        if (widget.isActive)
-                          Positioned(
-                            left: 0,
-                            top: 8,
-                            bottom: 8,
-                            child: Container(
-                              width: ElixSidebarMetrics.navIndicatorWidth,
-                              decoration: BoxDecoration(
-                                color: _pink,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
+                decoration: BoxDecoration(
+                  color: highContrast
+                      ? (widget.isActive
+                            ? colors.surfaceSelected
+                            : colors.surfaceBase)
+                      : (widget.isActive ? null : Colors.transparent),
+                  gradient: widget.isActive && !highContrast
+                      ? LinearGradient(
+                          colors: [
+                            _pink.withValues(alpha: 0.17),
+                            _purple.withValues(alpha: 0.08),
+                          ],
+                        )
+                      : (_hovered && !soon && !highContrast)
+                      ? LinearGradient(
+                          colors: [
+                            colors.surfaceInteractive.withValues(alpha: 0.82),
+                            colors.surfaceInteractive.withValues(alpha: 0.38),
+                          ],
+                        )
+                      : null,
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(
+                    color: _focused
+                        ? colors.focusRing
+                        : widget.isActive
+                        ? (highContrast
+                              ? context.elixTextPrimary
+                              : colors.borderInteractive)
+                        : Colors.transparent,
+                    width: _focused ? (highContrast ? 4 : 2) : 1,
+                  ),
+                  boxShadow: widget.isActive && !highContrast
+                      ? [
+                          BoxShadow(
+                            color: colors.glowPrimary.withValues(
+                              alpha: 0.30 * glowScale,
                             ),
+                            blurRadius: 18,
+                            offset: const Offset(0, 4),
                           ),
-                        Center(
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              _buildNavIcon(context, iconColor),
-                              if (widget.unreadCount > 0)
-                                Positioned(
-                                  top: -8,
-                                  right: -12,
-                                  child: MessageUnreadBadge(
-                                    count: widget.unreadCount,
-                                    compact: true,
-                                  ),
+                        ]
+                      : const [],
+                ),
+                child: widget.isCollapsed
+                    ? Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          if (widget.isActive)
+                            Positioned(
+                              left: 0,
+                              top: 8,
+                              bottom: 8,
+                              child: Container(
+                                width: ElixSidebarMetrics.navIndicatorWidth,
+                                decoration: BoxDecoration(
+                                  color: _pink,
+                                  borderRadius: BorderRadius.circular(3),
                                 ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    )
-                  : Row(
-                      children: [
-                        SizedBox(
-                          width:
-                              ElixSidebarMetrics.navIndicatorWidth +
-                              ElixSidebarMetrics.navIndicatorGap,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: widget.isActive
-                                ? Container(
-                                    width: ElixSidebarMetrics.navIndicatorWidth,
-                                    height: 24,
-                                    decoration: BoxDecoration(
-                                      gradient: highContrast
-                                          ? null
-                                          : const LinearGradient(
-                                              begin: Alignment.topCenter,
-                                              end: Alignment.bottomCenter,
-                                              colors: [_pink, _purple],
-                                            ),
-                                      color: highContrast
-                                          ? context.elixTextPrimary
-                                          : null,
-                                      borderRadius: BorderRadius.circular(3),
-                                      boxShadow: highContrast
-                                          ? const []
-                                          : [
-                                              BoxShadow(
-                                                color: _pink.withValues(
-                                                  alpha: 0.48,
-                                                ),
-                                                blurRadius: 8,
-                                              ),
-                                            ],
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
-                        ),
-                        SizedBox(
-                          width: ElixSidebarMetrics.navIconSlot,
-                          height: ElixSidebarMetrics.navIconSlot,
-                          child: Center(
-                            child: _buildNavIcon(context, iconColor),
-                          ),
-                        ),
-                        const SizedBox(
-                          width: ElixSidebarMetrics.navIconLabelGap,
-                        ),
-                        Expanded(
-                          child: Text(
-                            widget.label,
-                            style: AppTheme.bodySecondary.copyWith(
-                              color: widget.isActive
-                                  ? _pink
-                                  : highlight
-                                  ? context.elixTextPrimary
-                                  : context.elixTextSecondary.withValues(
-                                      alpha: soon ? 0.5 : 1,
-                                    ),
-                              fontWeight: widget.isActive
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (soon)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _purple.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              'Soon',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w600,
-                                color: _purple.withValues(alpha: 0.9),
                               ),
                             ),
+                          Center(
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                _buildNavIcon(context, iconColor),
+                                if (widget.unreadCount > 0)
+                                  Positioned(
+                                    top: -8,
+                                    right: -12,
+                                    child: MessageUnreadBadge(
+                                      count: widget.unreadCount,
+                                      compact: true,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        if (!soon && widget.unreadCount > 0)
-                          MessageUnreadBadge(count: widget.unreadCount),
-                      ],
-                    ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          SizedBox(
+                            width:
+                                ElixSidebarMetrics.navIndicatorWidth +
+                                ElixSidebarMetrics.navIndicatorGap,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: widget.isActive
+                                  ? Container(
+                                      width:
+                                          ElixSidebarMetrics.navIndicatorWidth,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        gradient: highContrast
+                                            ? null
+                                            : const LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [_pink, _purple],
+                                              ),
+                                        color: highContrast
+                                            ? context.elixTextPrimary
+                                            : null,
+                                        borderRadius: BorderRadius.circular(3),
+                                        boxShadow: highContrast
+                                            ? const []
+                                            : [
+                                                BoxShadow(
+                                                  color: _pink.withValues(
+                                                    alpha: 0.48,
+                                                  ),
+                                                  blurRadius: 8,
+                                                ),
+                                              ],
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                          ),
+                          SizedBox(
+                            width: ElixSidebarMetrics.navIconSlot,
+                            height: ElixSidebarMetrics.navIconSlot,
+                            child: Center(
+                              child: _buildNavIcon(context, iconColor),
+                            ),
+                          ),
+                          const SizedBox(
+                            width: ElixSidebarMetrics.navIconLabelGap,
+                          ),
+                          Expanded(
+                            child: Text(
+                              widget.label,
+                              style: AppTheme.bodySecondary.copyWith(
+                                color: widget.isActive
+                                    ? _pink
+                                    : highlight
+                                    ? context.elixTextPrimary
+                                    : context.elixTextSecondary.withValues(
+                                        alpha: soon ? 0.5 : 1,
+                                      ),
+                                fontWeight: widget.isActive
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (soon)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _purple.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Soon',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  color: _purple.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ),
+                          if (!soon && widget.unreadCount > 0)
+                            MessageUnreadBadge(count: widget.unreadCount),
+                        ],
+                      ),
+              ),
             ),
           ),
         ),

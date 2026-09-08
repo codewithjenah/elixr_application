@@ -5,6 +5,7 @@ import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_card.dart';
 import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
+import 'package:elixr_application/core/widgets/elix_sidebar_chrome.dart';
 import 'package:elixr_application/core/widgets/elix_stat_card.dart';
 import 'package:elixr_application/core/widgets/elix_tone_label.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -105,7 +106,7 @@ void main() {
     expect(innerTheme, isNotEmpty);
   });
 
-  testWidgets('primary button resolves accessible brand interaction states', (
+  testWidgets('primary button renders an accessible gradient surface', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -113,19 +114,142 @@ void main() {
     );
 
     final button = tester.widget<FilledButton>(find.byType(FilledButton));
-    final background = button.style!.backgroundColor!;
     final foreground = button.style!.foregroundColor!;
+    final surface = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('elix-primary-button-surface')),
+    );
+    final decoration = surface.decoration! as BoxDecoration;
 
-    expect(
-      background.resolve({WidgetState.hovered}),
-      ElixSemanticColors.dark.brandHover,
-    );
-    expect(
-      background.resolve({WidgetState.pressed}),
-      ElixSemanticColors.dark.brandPressed,
-    );
+    expect(decoration.gradient, isA<LinearGradient>());
+    expect((decoration.gradient! as LinearGradient).colors, [
+      ElixSemanticColors.dark.brandPrimary,
+      ElixSemanticColors.dark.brandSecondary,
+    ]);
+    expect(decoration.borderRadius, BorderRadius.circular(12));
     expect(foreground.resolve({}), ElixSemanticColors.dark.onBrand);
   });
+
+  testWidgets('primary button exposes its pressed surface from the keyboard', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(ElixPrimaryButton(label: 'Save', onPressed: () {})),
+    );
+
+    LinearGradient gradient() {
+      final surface = tester.widget<AnimatedContainer>(
+        find.byKey(const ValueKey('elix-primary-button-surface')),
+      );
+      return (surface.decoration! as BoxDecoration).gradient! as LinearGradient;
+    }
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(gradient().colors.first, ElixSemanticColors.dark.brandPressed);
+
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(gradient().colors.first, ElixSemanticColors.dark.brandPrimary);
+  });
+
+  testWidgets('sidebar destination activates from keyboard and shows focus', (
+    tester,
+  ) async {
+    var activations = 0;
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 260,
+          child: ElixSidebarNavTile(
+            label: 'Dashboard',
+            icon: FluentIcons.home,
+            isActive: false,
+            isCollapsed: false,
+            onTap: () => activations++,
+          ),
+        ),
+      ),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+
+    expect(activations, 1);
+    final decoration =
+        tester
+                .widgetList<AnimatedContainer>(find.byType(AnimatedContainer))
+                .first
+                .decoration!
+            as BoxDecoration;
+    expect((decoration.border! as Border).top.width, 2);
+    expect(
+      (decoration.border! as Border).top.color,
+      ElixSemanticColors.dark.focusRing,
+    );
+  });
+
+  testWidgets('high-contrast active sidebar fill stays opaque', (tester) async {
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 260,
+          child: ElixSidebarNavTile(
+            label: 'Dashboard',
+            icon: FluentIcons.home,
+            isActive: true,
+            isCollapsed: false,
+            onTap: () {},
+          ),
+        ),
+        theme: AppTheme.highContrastDark,
+      ),
+    );
+
+    final decoration =
+        tester
+                .widgetList<AnimatedContainer>(find.byType(AnimatedContainer))
+                .first
+                .decoration!
+            as BoxDecoration;
+    expect(
+      decoration.color,
+      ElixSemanticColors.highContrastDark.surfaceSelected,
+    );
+    expect(decoration.color?.a, 1);
+  });
+
+  testWidgets(
+    'sidebar collapse control activates from keyboard and shows focus',
+    (tester) async {
+      var activations = 0;
+      await tester.pumpWidget(
+        host(
+          ElixSidebarCollapseButton(
+            isCollapsed: false,
+            onTap: () => activations++,
+          ),
+        ),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+
+      expect(activations, 1);
+      final decoration =
+          tester
+                  .widget<AnimatedContainer>(find.byType(AnimatedContainer))
+                  .decoration!
+              as BoxDecoration;
+      expect((decoration.border! as Border).top.width, ElixFocus.ringWidth);
+      expect(
+        (decoration.border! as Border).top.color,
+        ElixSemanticColors.dark.focusRing,
+      );
+    },
+  );
 
   testWidgets('loading button keeps its accessible action name and state', (
     tester,

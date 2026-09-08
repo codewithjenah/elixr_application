@@ -160,6 +160,7 @@ class _DashboardBody extends StatelessWidget {
                       label: 'Active classrooms',
                       value: '${controller.activeGroupCount}',
                       icon: FluentIcons.people,
+                      highlighted: true,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -191,6 +192,7 @@ class _DashboardBody extends StatelessWidget {
                       label: 'Active classrooms',
                       value: '${controller.activeGroupCount}',
                       icon: FluentIcons.people,
+                      highlighted: true,
                     ),
                   ),
                   ConstrainedBox(
@@ -242,6 +244,7 @@ class _TeacherCommandHeader extends StatelessWidget {
     return ElixPanelCard(
       accent: context.elixColors.brandPrimary,
       showAccentBar: true,
+      variant: ElixPanelVariant.hero,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 650;

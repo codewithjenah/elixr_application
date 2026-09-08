@@ -73,6 +73,41 @@ void main() {
     }
   });
 
+  test('dark neon-glass roles match the ELIXR workspace hierarchy', () {
+    final colors = ElixSemanticColors.dark;
+
+    expect(colors.canvas, const Color(0xFF080812));
+    expect(colors.canvasDeep, const Color(0xFF0B0916));
+    expect(colors.surfaceRaised, const Color(0xFF141126));
+    expect(colors.surfaceTinted, const Color(0xFF1B1630));
+    expect(colors.surfaceInteractive, const Color(0xFF231A3C));
+    expect(colors.textPrimary, const Color(0xFFF7F5FC));
+    expect(colors.textSecondary, const Color(0xFFAAA5B8));
+    expect(colors.textMuted, const Color(0xFF777187));
+    expect(colors.brandPrimary, const Color(0xFFFF2FA8));
+    expect(colors.brandHover, const Color(0xFFF43CB9));
+    expect(colors.brandSecondary, const Color(0xFF8C3DFF));
+    expect(colors.onBrand, const Color(0xFF080812));
+    expect(colors.glowPrimary.a, lessThan(0.4));
+    expect(colors.glowSecondary.a, lessThan(0.4));
+  });
+
+  test('Fluent resources inherit semantic input and overlay colors', () {
+    final theme = AppTheme.dark;
+    final colors = ElixSemanticColors.dark;
+
+    expect(theme.menuColor, colors.surfaceRaised);
+    expect(theme.cardColor, colors.surfaceRaised);
+    expect(theme.resources.controlFillColorInputActive, colors.surfaceRaised);
+    expect(
+      theme.resources.controlStrokeColorSecondary,
+      colors.borderInteractive,
+    );
+    expect(theme.resources.textFillColorTertiary, colors.textMuted);
+    expect(theme.dialogTheme.decoration, isA<BoxDecoration>());
+    expect(theme.tooltipTheme.decoration, isA<BoxDecoration>());
+  });
+
   testWidgets('resolves all four semantic colour modes', (tester) async {
     Future<ElixSemanticColors> resolve(FluentThemeData theme) async {
       late ElixSemanticColors colors;
