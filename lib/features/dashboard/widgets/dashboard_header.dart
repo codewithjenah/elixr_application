@@ -8,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_time_format.dart';
+import '../../../core/widgets/message_unread_badge.dart';
 import '../../trainee/activity_center/trainee_activity_controller.dart';
 
 /// Welcome and quick-navigation chrome above the trainee dashboard.
@@ -52,6 +53,8 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
   @override
   Widget build(BuildContext context) {
+    final unreadCount =
+        context.watch<TraineeActivityController?>()?.unreadCount ?? 0;
     return LayoutBuilder(
       builder: (context, constraints) {
         // The header slogan is a persistent piece of dashboard chrome. Text
@@ -91,7 +94,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               child: _HeaderIconButton(
                 key: const ValueKey('dashboard-header-notifications'),
                 icon: FluentIcons.ringer,
-                tooltip: 'Notifications',
+                tooltip: unreadCount == 0
+                    ? 'Notifications'
+                    : 'Notifications, $unreadCount unread',
+                unreadCount: unreadCount,
                 onPressed: _showNotifications,
               ),
             ),
@@ -342,11 +348,13 @@ class _HeaderIconButton extends StatefulWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.unreadCount = 0,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
+  final int unreadCount;
 
   @override
   State<_HeaderIconButton> createState() => _HeaderIconButtonState();
@@ -359,37 +367,72 @@ class _HeaderIconButtonState extends State<_HeaderIconButton> {
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: highContrast
-                  ? context.elixCardSurface
-                  : isDark
-                  ? const Color(
-                      0xFF171424,
-                    ).withValues(alpha: _hovered ? 0.96 : 0.82)
-                  : context.elixCardSurface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
+    return Semantics(
+      button: true,
+      label: widget.tooltip,
+      child: Tooltip(
+        message: widget.tooltip,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onPressed,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
                 color: highContrast
-                    ? context.elixBorder
+                    ? context.elixCardSurface
                     : isDark
-                    ? AppColors.accent.withValues(alpha: _hovered ? 0.42 : 0.20)
-                    : context.elixBorder,
-                width: highContrast ? 2 : 1,
+                    ? const Color(
+                        0xFF171424,
+                      ).withValues(alpha: _hovered ? 0.96 : 0.82)
+                    : context.elixCardSurface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: highContrast
+                      ? context.elixBorder
+                      : isDark
+                      ? AppColors.accent.withValues(
+                          alpha: _hovered ? 0.42 : 0.20,
+                        )
+                      : context.elixBorder,
+                  width: highContrast ? 2 : 1,
+                ),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: Icon(
+                      widget.icon,
+                      size: 18,
+                      color: context.elixTextPrimary,
+                    ),
+                  ),
+                  if (widget.unreadCount > 0)
+                    Positioned(
+                      top: 2,
+                      right: 2,
+                      child: IgnorePointer(
+                        child: ExcludeSemantics(
+                          child: MessageUnreadBadge(
+                            key: const ValueKey(
+                              'dashboard-header-notification-unread-badge',
+                            ),
+                            count: widget.unreadCount,
+                            compact: true,
+                            semanticLabel:
+                                '${widget.unreadCount} unread notifications',
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            child: Icon(widget.icon, size: 18, color: context.elixTextPrimary),
           ),
         ),
       ),

@@ -15,6 +15,7 @@ import '../../../core/utils/user_name.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/message_unread_badge.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
@@ -157,7 +158,10 @@ class _DashboardBody extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _TeacherCommandHeader(teacher: teacher),
+                _TeacherCommandHeader(
+                  teacher: teacher,
+                  unreadCount: activityController?.unreadCount ?? 0,
+                ),
                 const SizedBox(height: AppSpacing.md),
                 _TeacherKpiGrid(
                   controller: controller,
@@ -183,9 +187,13 @@ class _DashboardBody extends StatelessWidget {
 }
 
 class _TeacherCommandHeader extends StatelessWidget {
-  const _TeacherCommandHeader({required this.teacher});
+  const _TeacherCommandHeader({
+    required this.teacher,
+    required this.unreadCount,
+  });
 
   final User? teacher;
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +243,7 @@ class _TeacherCommandHeader extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
+              _TeacherNotificationButton(unreadCount: unreadCount),
               FilledButton(
                 key: const Key('teacher_dashboard_to_review'),
                 onPressed: () => context.go(AppRoutePaths.teacherToReview),
@@ -264,6 +273,63 @@ class _TeacherCommandHeader extends StatelessWidget {
                   ],
                 );
         },
+      ),
+    );
+  }
+}
+
+class _TeacherNotificationButton extends StatelessWidget {
+  const _TeacherNotificationButton({required this.unreadCount});
+
+  final int unreadCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = unreadCount == 0
+        ? 'Notifications'
+        : 'Notifications, $unreadCount unread';
+    return Semantics(
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: Button(
+          key: const Key('teacher_dashboard_notifications'),
+          onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
+          child: SizedBox(
+            width: 30,
+            height: 30,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Center(
+                  child: Icon(
+                    FluentIcons.ringer,
+                    size: 18,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                if (unreadCount > 0)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: ExcludeSemantics(
+                        child: MessageUnreadBadge(
+                          key: const ValueKey(
+                            'teacher-dashboard-notification-unread-badge',
+                          ),
+                          count: unreadCount,
+                          compact: true,
+                          semanticLabel: '$unreadCount unread notifications',
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

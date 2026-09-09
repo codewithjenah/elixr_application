@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/progression/practice_variant.dart';
+import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
@@ -7,6 +8,7 @@ import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/repositories/progress_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_hero.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_header.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_top_performance.dart';
@@ -14,15 +16,21 @@ import 'package:elixr_application/features/dashboard/widgets/dashboard_training_
 import 'package:elixr_application/features/dashboard/widgets/recommended_practice_card.dart';
 import 'package:elixr_application/features/progress/training_recommendation.dart';
 import 'package:elixr_application/features/teacher/dashboard/teacher_dashboard_screen.dart';
+import 'package:elixr_application/features/teacher/activity_center/activity_read_store.dart';
+import 'package:elixr_application/features/teacher/activity_center/teacher_activity_controller.dart';
+import 'package:elixr_application/features/trainee/activity_center/trainee_activity_controller.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/repositories/in_memory_chat_repository.dart';
+import 'package:elixr_core/repositories/in_memory_classroom_announcement_repository.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class _SilentAuthRepository
@@ -113,6 +121,41 @@ class _SilentAuthRepository
     required String recoveryPassword,
     String? originalEmail,
   }) async => PendingEmailChangeRecoveryResult.pending();
+}
+
+class _TestTraineeActivityController extends TraineeActivityController {
+  _TestTraineeActivityController(this.count)
+    : super(
+        groupRepository: InMemoryGroupRepository(),
+        assignmentRepository: InMemoryClassroomAssignmentRepository(),
+        announcementRepository: InMemoryClassroomAnnouncementRepository(),
+        readStore: InMemoryActivityReadStore(),
+      );
+
+  int count;
+
+  @override
+  int get unreadCount => count;
+
+  void setUnreadCount(int value) {
+    count = value;
+    notifyListeners();
+  }
+}
+
+class _TestTeacherActivityController extends TeacherActivityController {
+  _TestTeacherActivityController(this.count)
+    : super(
+        groupRepository: InMemoryGroupRepository(),
+        assignmentRepository: InMemoryClassroomAssignmentRepository(),
+        chatRepository: InMemoryChatRepository(),
+        readStore: InMemoryActivityReadStore(),
+      );
+
+  int count;
+
+  @override
+  int get unreadCount => count;
 }
 
 Future<void> _setSurface(WidgetTester tester, Size size) async {
@@ -359,6 +402,60 @@ void main() {
     expect(find.text('Notifications'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'trainee notification bell reflects unread changes and caps at 99+',
+    (tester) async {
+      await _setSurface(tester, const Size(1100, 800));
+      final activity = _TestTraineeActivityController(0);
+      addTearDown(activity.dispose);
+      await tester.pumpWidget(
+        _app(
+          ChangeNotifierProvider<TraineeActivityController>.value(
+            value: activity,
+            child: const SizedBox(
+              width: 1100,
+              child: DashboardHeader(
+                firstName: 'Ada',
+                greeting: 'Good Morning',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.byKey(
+          const ValueKey('dashboard-header-notification-unread-badge'),
+        ),
+        findsNothing,
+      );
+
+      activity.setUnreadCount(12);
+      await tester.pump();
+      expect(find.text('12'), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('dashboard-header-notification-unread-badge'),
+        ),
+        findsOneWidget,
+      );
+
+      activity.setUnreadCount(100);
+      await tester.pump();
+      expect(find.text('99+'), findsOneWidget);
+
+      activity.setUnreadCount(0);
+      await tester.pump();
+      expect(
+        find.byKey(
+          const ValueKey('dashboard-header-notification-unread-badge'),
+        ),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'light dashboard header keeps the notification and slogan transparent',
@@ -649,4 +746,109 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('teacher dashboard shows the activity bell and unread badge', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    final teacher = const User(
+      id: 'teacher-1',
+      firstName: 'Jiro',
+      lastName: 'Lapuz',
+      email: 'jiro@example.test',
+      role: User.roleTeacher,
+    );
+    final auth = AuthService(
+      repository: _SilentAuthRepository(teacher),
+      awaitInitialAuthState: () async {},
+    );
+    final groups = InMemoryGroupRepository();
+    final activity = _TestTeacherActivityController(100);
+    addTearDown(auth.dispose);
+    addTearDown(groups.dispose);
+    addTearDown(activity.dispose);
+    await auth.initialize();
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthService>.value(value: auth),
+            Provider<GroupRepository>.value(value: groups),
+            ChangeNotifierProvider<TeacherActivityController>.value(
+              value: activity,
+            ),
+          ],
+          child: const TeacherDashboardScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('teacher_dashboard_notifications')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('teacher-dashboard-notification-unread-badge')),
+      findsOneWidget,
+    );
+    expect(find.text('99+'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('teacher notification bell navigates to the activity center', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    final teacher = const User(
+      id: 'teacher-1',
+      firstName: 'Jiro',
+      lastName: 'Lapuz',
+      email: 'jiro@example.test',
+      role: User.roleTeacher,
+    );
+    final auth = AuthService(
+      repository: _SilentAuthRepository(teacher),
+      awaitInitialAuthState: () async {},
+    );
+    final groups = InMemoryGroupRepository();
+    final activity = _TestTeacherActivityController(3);
+    addTearDown(auth.dispose);
+    addTearDown(groups.dispose);
+    addTearDown(activity.dispose);
+    await auth.initialize();
+    final providers = MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthService>.value(value: auth),
+        Provider<GroupRepository>.value(value: groups),
+        ChangeNotifierProvider<TeacherActivityController>.value(
+          value: activity,
+        ),
+      ],
+      child: const TeacherDashboardScreen(),
+    );
+    final router = GoRouter(
+      routes: [
+        GoRoute(path: '/', builder: (_, _) => providers),
+        GoRoute(
+          path: AppRoutePaths.teacherActivityCenter,
+          builder: (_, _) => const Text('Teacher activity destination'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('teacher_dashboard_notifications')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Teacher activity destination'), findsOneWidget);
+  });
 }

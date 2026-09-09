@@ -7,10 +7,12 @@ class MessageUnreadBadge extends StatelessWidget {
     super.key,
     required this.count,
     this.compact = false,
+    this.semanticLabel,
   });
 
   final int count;
   final bool compact;
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +21,9 @@ class MessageUnreadBadge extends StatelessWidget {
     final highContrast = context.isHighContrast;
 
     return Semantics(
-      label: '$count unread ${count == 1 ? 'message' : 'messages'}',
+      label:
+          semanticLabel ??
+          '$count unread ${count == 1 ? 'message' : 'messages'}',
       child: Container(
         constraints: BoxConstraints(minWidth: compact ? 16 : 20),
         height: compact ? 16 : 20,

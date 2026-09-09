@@ -56,6 +56,7 @@ class TrainingSessionPanel extends StatelessWidget {
     this.supportingContent,
     this.notice,
     this.compactStatusNote,
+    this.onViewTutorial,
     this.expandVertically = true,
   });
 
@@ -67,6 +68,10 @@ class TrainingSessionPanel extends StatelessWidget {
   final Widget? supportingContent;
   final Widget? notice;
   final Widget? compactStatusNote;
+
+  /// Opens a quick-reference guide for the configured movement. The panel
+  /// deliberately owns no navigation or session lifecycle behavior.
+  final VoidCallback? onViewTutorial;
   final bool expandVertically;
 
   @override
@@ -98,6 +103,27 @@ class TrainingSessionPanel extends StatelessWidget {
           _SetupSurface(
             key: const ValueKey('session-setup-section'),
             child: supportingContent!,
+          ),
+        ],
+        if (onViewTutorial != null) ...[
+          const SizedBox(height: 10),
+          Tooltip(
+            message: 'Review this movement without leaving training',
+            child: SizedBox(
+              width: double.infinity,
+              child: Button(
+                key: const ValueKey('view-tutorial-action'),
+                onPressed: onViewTutorial,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(FluentIcons.reading_mode, size: 15),
+                    SizedBox(width: 8),
+                    Text('View Tutorial'),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
         if (compactStatusNote != null) ...[

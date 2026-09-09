@@ -211,12 +211,17 @@ class _Body extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          flex: 2,
-                          child: SingleChildScrollView(child: header),
+                          flex: 12,
+                          child: ScrollConfiguration(
+                            behavior: ScrollConfiguration.of(
+                              context,
+                            ).copyWith(scrollbars: false),
+                            child: SingleChildScrollView(child: header),
+                          ),
                         ),
                         const SizedBox(width: AppSpacing.lg),
                         Expanded(
-                          flex: 3,
+                          flex: 13,
                           child: SingleChildScrollView(
                             key: const Key('assignment_detail_work_scroll'),
                             child: Padding(
@@ -295,19 +300,40 @@ class _AssignmentHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final activityAssessment = assignment.activityAssessment;
     return ElixPanelCard(
+      variant: activityAssessment == null
+          ? ElixPanelVariant.normal
+          : ElixPanelVariant.hero,
+      accent: AppColors.primary,
+      showAccentBar: activityAssessment != null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ElixEditorialHeader(
-            heading: activityAssessment == null
-                ? assignment.displayTitle
-                : 'Teacher Activity: ${assignment.displayTitle}',
-            variant: ElixEditorialHeaderVariant.compact,
-            subtitle: activityAssessment == null
-                ? null
-                : 'A guided recording for your Teacher to review',
+          if (activityAssessment != null) ...[
+            Text(
+              'TEACHER ACTIVITY',
+              style: AppTheme.eyebrow(color: AppColors.accent),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (activityAssessment != null) ...[
+                _AccentIcon(icon: FluentIcons.task_list),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Expanded(
+                child: ElixEditorialHeader(
+                  heading: assignment.displayTitle,
+                  variant: ElixEditorialHeaderVariant.compact,
+                  subtitle: activityAssessment == null
+                      ? null
+                      : 'A guided recording for your Teacher to review',
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
           Semantics(
             label: 'Teacher $teacherDisplayName, class ${assignment.groupName}',
             child: Row(
@@ -401,6 +427,15 @@ class _AssignmentHeader extends StatelessWidget {
           ],
           if (activityAssessment != null) ...[
             const SizedBox(height: AppSpacing.md),
+            if (assignment.displayInstructions != null &&
+                assignment.displayInstructions!.trim().isNotEmpty) ...[
+              _NarrativeCard(
+                icon: FluentIcons.info,
+                title: 'Instructions',
+                text: assignment.displayInstructions!,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             if (activityAssessment.demonstrationVideo != null) ...[
               _ActivityDemoCard(
                 metadata: activityAssessment.demonstrationVideo!,
@@ -414,19 +449,24 @@ class _AssignmentHeader extends StatelessWidget {
               attempts: attempts,
             ),
           ],
-          if (assignment.displayInstructions != null &&
+          if (activityAssessment == null &&
+              assignment.displayInstructions != null &&
               assignment.displayInstructions!.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            Text('Instructions', style: AppTheme.headingMedium),
-            const SizedBox(height: AppSpacing.sm),
-            Text(assignment.displayInstructions!, style: AppTheme.body),
+            _NarrativeCard(
+              icon: FluentIcons.info,
+              title: 'Instructions',
+              text: assignment.displayInstructions!,
+            ),
           ],
           if (assignment.displaySafetyGuidance != null &&
               assignment.displaySafetyGuidance!.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            Text('Safety', style: AppTheme.headingMedium),
-            const SizedBox(height: AppSpacing.sm),
-            Text(assignment.displaySafetyGuidance!, style: AppTheme.body),
+            _NarrativeCard(
+              icon: FluentIcons.warning,
+              title: 'Safety',
+              text: assignment.displaySafetyGuidance!,
+            ),
           ],
           if (materialRepository != null)
             ActivityLearningMaterialsTraineeSection(
@@ -587,64 +627,415 @@ class _TeacherActivityOverview extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Before you start', style: AppTheme.headingMedium),
+        _SectionHeading(
+          icon: FluentIcons.info,
+          title: 'Before you start',
+          subtitle: 'Your activity at a glance',
+        ),
         const SizedBox(height: AppSpacing.sm),
-        _ActivityDetail(label: 'Teacher', value: assignment.teacherDisplayName),
-        _ActivityDetail(label: 'Class', value: assignment.groupName),
-        _ActivityDetail(
-          label: 'Deadline',
-          value: assignedMovementDueLabel(assignment),
-        ),
-        _ActivityDetail(
-          label: 'Recording',
-          value: '${assessment.recordingDurationSeconds} seconds',
-        ),
-        _ActivityDetail(label: 'Tries', value: attemptSummary),
-        const SizedBox(height: AppSpacing.md),
-        Text('Camera readiness', style: AppTheme.headingMedium),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          'Required prop: ${assignment.allowedProp?.displayLabel ?? 'Selected prop'}\n'
-          'Hands: ${readiness.hands.displayLabel}\n'
-          'Body: ${readiness.body.displayLabel}',
-          style: AppTheme.body,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Text('How your teacher will check it', style: AppTheme.headingMedium),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          '${assessment.rubric.template.displayLabel} · '
-          '${assessment.rubric.maximumScore} points maximum',
-          style: AppTheme.body,
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        for (final criterion in assessment.rubric.criteria)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-            child: Text(
-              '${criterion.label} (${criterion.maximumPoints} points): '
-              '${criterion.description}',
-              style: AppTheme.bodySecondary,
+        _ActivityMetadataGrid(
+          children: [
+            _ActivityDetail(
+              icon: FluentIcons.contact,
+              label: 'Teacher',
+              value: assignment.teacherDisplayName,
             ),
+            _ActivityDetail(
+              icon: FluentIcons.people,
+              label: 'Class',
+              value: assignment.groupName,
+            ),
+            _ActivityDetail(
+              icon: FluentIcons.calendar,
+              label: 'Deadline',
+              value: assignedMovementDueLabel(assignment),
+            ),
+            _ActivityDetail(
+              icon: FluentIcons.clock,
+              label: 'Recording',
+              value: '${assessment.recordingDurationSeconds} seconds',
+            ),
+            _ActivityDetail(
+              icon: FluentIcons.refresh,
+              label: 'Tries',
+              value: attemptSummary,
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        ElixPanelCard(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          accent: AppColors.accent,
+          showAccentBar: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionHeading(
+                icon: FluentIcons.camera,
+                title: 'Camera readiness',
+                subtitle: 'Set up before your recording begins',
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _ReadinessRow(
+                icon: FluentIcons.shopping_cart,
+                label: 'Required prop',
+                value: assignment.allowedProp?.displayLabel ?? 'Selected prop',
+                emphasized: true,
+              ),
+              _ReadinessRow(
+                icon: FluentIcons.touch,
+                label: 'Hands',
+                value: readiness.hands.displayLabel,
+              ),
+              _ReadinessRow(
+                icon: FluentIcons.camera,
+                label: 'Body',
+                value: readiness.body.displayLabel,
+              ),
+            ],
           ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        ElixPanelCard(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _SectionHeading(
+                      icon: FluentIcons.completed,
+                      title: 'How your teacher will check it',
+                      subtitle: assessment.rubric.template.displayLabel,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  _RubricTotalScore(
+                    maximumScore: assessment.rubric.maximumScore,
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              for (
+                var index = 0;
+                index < assessment.rubric.criteria.length;
+                index++
+              )
+                _RubricCriterionRow(
+                  number: index + 1,
+                  criterion: assessment.rubric.criteria[index],
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }
 }
 
 class _ActivityDetail extends StatelessWidget {
-  const _ActivityDetail({required this.label, required this.value});
+  const _ActivityDetail({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
+  final IconData icon;
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-      child: Text('$label: $value', style: AppTheme.body),
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: AppTheme.practiceMetricTileDecoration(context),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 15, color: AppColors.accent),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppTheme.label(color: context.elixTextSecondary),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: AppTheme.bodySecondary.copyWith(
+                    color: context.elixTextPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+class _ActivityMetadataGrid extends StatelessWidget {
+  const _ActivityMetadataGrid({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth >= 420 ? 2 : 1;
+      final itemWidth =
+          (constraints.maxWidth - (columns - 1) * AppSpacing.sm) / columns;
+      return Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.sm,
+        children: [
+          for (final child in children)
+            SizedBox(width: itemWidth, child: child),
+        ],
+      );
+    },
+  );
+}
+
+class _AccentIcon extends StatelessWidget {
+  const _AccentIcon({required this.icon});
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 42,
+    height: 42,
+    decoration: BoxDecoration(
+      color: AppColors.primary.withValues(alpha: 0.16),
+      borderRadius: BorderRadius.circular(13),
+      border: Border.all(color: AppColors.accent.withValues(alpha: 0.38)),
+    ),
+    child: Icon(icon, size: 19, color: AppColors.accent),
+  );
+}
+
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+  });
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _AccentIcon(icon: icon),
+      const SizedBox(width: AppSpacing.sm),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: AppTheme.cardTitle(color: context.elixTextPrimary),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                subtitle!,
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _ReadinessRow extends StatelessWidget {
+  const _ReadinessRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+    child: Row(
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: emphasized ? AppColors.accent : context.elixTextSecondary,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            label,
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextPrimary,
+              fontWeight: emphasized ? FontWeight.w700 : FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RubricCriterionRow extends StatelessWidget {
+  const _RubricCriterionRow({required this.number, required this.criterion});
+  final int number;
+  final TeacherActivityRubricCriterion criterion;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: AppSpacing.xs),
+    padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+    decoration: BoxDecoration(
+      border: Border(
+        bottom: BorderSide(color: context.elixBorder.withValues(alpha: 0.55)),
+      ),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.16),
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            '$number',
+            style: AppTheme.caption.copyWith(
+              color: AppColors.accent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                criterion.label,
+                style: AppTheme.bodySecondary.copyWith(
+                  color: context.elixTextPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                criterion.description,
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        ElixPill(
+          text: '${criterion.maximumPoints} pts',
+          color: AppColors.accent,
+          compact: true,
+        ),
+      ],
+    ),
+  );
+}
+
+class _RubricTotalScore extends StatelessWidget {
+  const _RubricTotalScore({required this.maximumScore});
+
+  final int maximumScore;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: 'Total score: $maximumScore points',
+    child: Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: AppTheme.practiceMetricTileDecoration(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            'TOTAL SCORE',
+            style: AppTheme.label(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$maximumScore pts',
+            style: AppTheme.bodySecondary.copyWith(
+              color: AppColors.accent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _NarrativeCard extends StatelessWidget {
+  const _NarrativeCard({
+    required this.icon,
+    required this.title,
+    required this.text,
+  });
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => ElixPanelCard(
+    padding: const EdgeInsets.all(AppSpacing.md),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeading(icon: icon, title: title),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          text,
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextPrimary,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _YourWork extends StatelessWidget {
@@ -688,222 +1079,321 @@ class _YourWork extends StatelessWidget {
     );
     final attemptAssessment =
         current?.activityAssessmentSnapshot ?? assignment.activityAssessment;
-    return Column(
+    return ElixPanelCard(
       key: const Key('assignment_detail_your_work'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Your work', style: AppTheme.headingMedium),
-        const SizedBox(height: AppSpacing.sm),
-        if (current == null)
-          ElixPanelCard(
-            child: Text(
-              'You have not submitted work for this assignment yet.',
-              style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-            ),
-          )
-        else
-          SubmissionDetailBody(
-            key: ValueKey(current.id),
-            assignment: assignment,
-            attempt: current,
-            viewerRole: SubmissionDetailViewerRole.trainee,
-            submissionRepository: controller.submissionRepository,
-            openLocalPlayback: controller.openLocalPlayback,
-            releaseLocalPlayback: controller.releaseLocalPlayback,
+      variant: ElixPanelVariant.hero,
+      accent: AppColors.primary,
+      showAccentBar: true,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const _AccentIcon(icon: FluentIcons.document),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text('Your work', style: AppTheme.sectionTitle(context)),
+              ),
+              ElixPill(
+                text: current == null ? 'Not submitted' : 'Current submission',
+                color: current == null
+                    ? AppColors.accent
+                    : context.elixTextSecondary,
+                compact: true,
+              ),
+            ],
           ),
-        if (attemptAssessment != null && current != null) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'This recording uses the scoring criteria saved when you started '
-            'it (${attemptAssessment.rubric.maximumScore} points total).',
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-          ),
-        ],
-        if (assignment.isTeacherCreated &&
-            !isTeacherActivity &&
-            current?.hasAttachedDraftClip == true) ...[
-          const SizedBox(height: AppSpacing.md),
-          if (controller.turnInErrorMessage != null)
-            InfoBar(
-              title: const Text('Could not turn in recording'),
-              content: Text(controller.turnInErrorMessage!),
-              severity: InfoBarSeverity.error,
-              onClose: () {},
-            ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            isTeacherActivity
-                ? 'Your Activity recording uploaded but was not sent to your Teacher.'
-                : 'Recording attached. Your Teacher cannot see it until you turn it in.',
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Wrap(
-              spacing: AppSpacing.sm,
-              children: [
-                FilledButton(
-                  onPressed: controller.turnInBusy
-                      ? null
-                      : isTeacherActivity
-                      ? controller.turnIn
-                      : () => _confirmTurnIn(
-                          context,
-                          controller,
-                          assignment,
-                          current!,
-                        ),
-                  child: controller.turnInBusy
-                      ? const ProgressRing()
-                      : Text(
-                          isTeacherActivity
-                              ? 'Retry automatic submission'
-                              : 'Turn in',
-                        ),
-                ),
-                if (!isTeacherActivity)
-                  Button(
-                    onPressed: controller.draftRemovalBusy
-                        ? null
-                        : () => controller.removeAttachedDraft(),
-                    child: Text(
-                      controller.draftRemovalBusy
-                          ? 'Removing…'
-                          : 'Remove recording',
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-        if (assignment.isTeacherCreated &&
-            current?.isDraftClipRemovalPending == true) ...[
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            controller.draftRemovalErrorMessage ??
-                'Removing the attached recording…',
-            style: AppTheme.bodySecondary.copyWith(
-              color: controller.draftRemovalErrorMessage == null
-                  ? context.elixTextSecondary
-                  : AppColors.error,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Button(
-            onPressed: controller.draftRemovalBusy
-                ? null
-                : controller.removeAttachedDraft,
-            child: const Text('Retry removal'),
-          ),
-        ],
-        if ((!assignment.isTeacherCreated || isTeacherActivity) &&
-            controller.attempts
-                    .where((attempt) => !attempt.isAbandonedTeacherReviewDraft)
-                    .length >
-                1) ...[
           const SizedBox(height: AppSpacing.lg),
-          Text('Work history', style: AppTheme.headingMedium),
-          const SizedBox(height: AppSpacing.sm),
-          for (final attempt in controller.attempts)
-            if (!attempt.isAbandonedTeacherReviewDraft)
+          if (current == null)
+            _EmptyWorkState(
+              canStart: canStart,
+              noTriesRemaining:
+                  isTeacherActivity && !hasAvailableActivityAttempt,
+              label: assignedMovementPracticeButtonLabel(
+                workflowAttempt,
+                assignment: assignment,
+              ),
+              onStart: () =>
+                  context.go(AppRoutePaths.assignedPractice(assignment.id)),
+            )
+          else
+            SubmissionDetailBody(
+              key: ValueKey(current.id),
+              assignment: assignment,
+              attempt: current,
+              viewerRole: SubmissionDetailViewerRole.trainee,
+              submissionRepository: controller.submissionRepository,
+              openLocalPlayback: controller.openLocalPlayback,
+              releaseLocalPlayback: controller.releaseLocalPlayback,
+            ),
+          if (attemptAssessment != null && current != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'This recording uses the scoring criteria saved when you started '
+              'it (${attemptAssessment.rubric.maximumScore} points total).',
+              style: AppTheme.bodySecondary.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ],
+          if (assignment.isTeacherCreated &&
+              !isTeacherActivity &&
+              current?.hasAttachedDraftClip == true) ...[
+            const SizedBox(height: AppSpacing.md),
+            if (controller.turnInErrorMessage != null)
+              InfoBar(
+                title: const Text('Could not turn in recording'),
+                content: Text(controller.turnInErrorMessage!),
+                severity: InfoBarSeverity.error,
+                onClose: () {},
+              ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              isTeacherActivity
+                  ? 'Your Activity recording uploaded but was not sent to your Teacher.'
+                  : 'Recording attached. Your Teacher cannot see it until you turn it in.',
+              style: AppTheme.bodySecondary.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: AppSpacing.sm,
+                children: [
+                  FilledButton(
+                    onPressed: controller.turnInBusy
+                        ? null
+                        : isTeacherActivity
+                        ? controller.turnIn
+                        : () => _confirmTurnIn(
+                            context,
+                            controller,
+                            assignment,
+                            current!,
+                          ),
+                    child: controller.turnInBusy
+                        ? const ProgressRing()
+                        : Text(
+                            isTeacherActivity
+                                ? 'Retry automatic submission'
+                                : 'Turn in',
+                          ),
+                  ),
+                  if (!isTeacherActivity)
+                    Button(
+                      onPressed: controller.draftRemovalBusy
+                          ? null
+                          : () => controller.removeAttachedDraft(),
+                      child: Text(
+                        controller.draftRemovalBusy
+                            ? 'Removing…'
+                            : 'Remove recording',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+          if (assignment.isTeacherCreated &&
+              current?.isDraftClipRemovalPending == true) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              controller.draftRemovalErrorMessage ??
+                  'Removing the attached recording…',
+              style: AppTheme.bodySecondary.copyWith(
+                color: controller.draftRemovalErrorMessage == null
+                    ? context.elixTextSecondary
+                    : AppColors.error,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Button(
+              onPressed: controller.draftRemovalBusy
+                  ? null
+                  : controller.removeAttachedDraft,
+              child: const Text('Retry removal'),
+            ),
+          ],
+          if ((!assignment.isTeacherCreated || isTeacherActivity) &&
+              controller.attempts
+                      .where(
+                        (attempt) => !attempt.isAbandonedTeacherReviewDraft,
+                      )
+                      .length >
+                  1) ...[
+            const SizedBox(height: AppSpacing.lg),
+            Text('Work history', style: AppTheme.headingMedium),
+            const SizedBox(height: AppSpacing.sm),
+            for (final attempt in controller.attempts)
+              if (!attempt.isAbandonedTeacherReviewDraft)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _AttemptHistoryRow(
+                    assignment: assignment,
+                    attempt: attempt,
+                    selected: selected?.id == attempt.id,
+                    onTap: () => onSelectAttempt(attempt.id),
+                  ),
+                ),
+          ],
+          if (assignment.isTeacherCreated &&
+              !isTeacherActivity &&
+              current?.status == AssignmentAttemptStatus.submitted) ...[
+            const SizedBox(height: AppSpacing.md),
+            if (controller.unsubmitErrorMessage != null)
+              InfoBar(
+                title: const Text('Could not withdraw the clip'),
+                content: Text(controller.unsubmitErrorMessage!),
+                severity: InfoBarSeverity.error,
+                onClose: () {},
+              ),
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Button(
+                onPressed: controller.unsubmitBusy || !controller.canUnsubmit
+                    ? null
+                    : () => _confirmUnsubmit(context, controller),
+                child: controller.unsubmitBusy
+                    ? const ProgressRing()
+                    : const Text('Unsubmit'),
+              ),
+            ),
+            if (!controller.canUnsubmit && !controller.unsubmitBusy)
               Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: _AttemptHistoryRow(
-                  assignment: assignment,
-                  attempt: attempt,
-                  selected: selected?.id == attempt.id,
-                  onTap: () => onSelectAttempt(attempt.id),
+                padding: const EdgeInsets.only(top: AppSpacing.sm),
+                child: Text(
+                  assignment.isOverdue
+                      ? 'Unsubmit is unavailable after the deadline.'
+                      : 'This submission can no longer be withdrawn.',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
                 ),
               ),
-        ],
-        if (assignment.isTeacherCreated &&
-            !isTeacherActivity &&
-            current?.status == AssignmentAttemptStatus.submitted) ...[
-          const SizedBox(height: AppSpacing.md),
-          if (controller.unsubmitErrorMessage != null)
-            InfoBar(
-              title: const Text('Could not withdraw the clip'),
-              content: Text(controller.unsubmitErrorMessage!),
-              severity: InfoBarSeverity.error,
-              onClose: () {},
+          ],
+          if (assignment.isTeacherCreated &&
+              !isTeacherActivity &&
+              current?.status == AssignmentAttemptStatus.unsubmitting) ...[
+            const SizedBox(height: AppSpacing.md),
+            if (controller.unsubmitErrorMessage != null)
+              InfoBar(
+                title: const Text('Clip withdrawal needs a retry'),
+                content: Text(controller.unsubmitErrorMessage!),
+                severity: InfoBarSeverity.error,
+                onClose: () {},
+              ),
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Button(
+                onPressed: controller.unsubmitBusy || !controller.canUnsubmit
+                    ? null
+                    : () => _confirmUnsubmit(context, controller),
+                child: controller.unsubmitBusy
+                    ? const ProgressRing()
+                    : const Text('Retry withdrawal'),
+              ),
             ),
-          const SizedBox(height: AppSpacing.sm),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Button(
-              onPressed: controller.unsubmitBusy || !controller.canUnsubmit
-                  ? null
-                  : () => _confirmUnsubmit(context, controller),
-              child: controller.unsubmitBusy
-                  ? const ProgressRing()
-                  : const Text('Unsubmit'),
-            ),
-          ),
-          if (!controller.canUnsubmit && !controller.unsubmitBusy)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.sm),
-              child: Text(
-                assignment.isOverdue
-                    ? 'Unsubmit is unavailable after the deadline.'
-                    : 'This submission can no longer be withdrawn.',
-                style: AppTheme.caption.copyWith(
+          ],
+          if (current != null) ...[
+            const SizedBox(height: AppSpacing.lg),
+            if (canStart)
+              ElixPrimaryButton(
+                label: assignedMovementPracticeButtonLabel(
+                  workflowAttempt,
+                  assignment: assignment,
+                ),
+                expanded: true,
+                icon: FluentIcons.play,
+                onPressed: () =>
+                    context.go(AppRoutePaths.assignedPractice(assignment.id)),
+              )
+            else if (isTeacherActivity && !hasAvailableActivityAttempt)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ElixPill(
+                  text: 'No tries remaining',
                   color: context.elixTextSecondary,
                 ),
               ),
-            ),
+          ],
         ],
-        if (assignment.isTeacherCreated &&
-            !isTeacherActivity &&
-            current?.status == AssignmentAttemptStatus.unsubmitting) ...[
-          const SizedBox(height: AppSpacing.md),
-          if (controller.unsubmitErrorMessage != null)
-            InfoBar(
-              title: const Text('Clip withdrawal needs a retry'),
-              content: Text(controller.unsubmitErrorMessage!),
-              severity: InfoBarSeverity.error,
-              onClose: () {},
-            ),
-          const SizedBox(height: AppSpacing.sm),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Button(
-              onPressed: controller.unsubmitBusy || !controller.canUnsubmit
-                  ? null
-                  : () => _confirmUnsubmit(context, controller),
-              child: controller.unsubmitBusy
-                  ? const ProgressRing()
-                  : const Text('Retry withdrawal'),
-            ),
+      ),
+    );
+  }
+}
+
+class _EmptyWorkState extends StatelessWidget {
+  const _EmptyWorkState({
+    required this.canStart,
+    required this.noTriesRemaining,
+    required this.label,
+    required this.onStart,
+  });
+  final bool canStart;
+  final bool noTriesRemaining;
+  final String label;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    label: 'Not submitted work',
+    child: Column(
+      children: [
+        Container(
+          width: 76,
+          height: 76,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.16),
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.32)),
           ),
-        ],
+          child: const Icon(
+            FluentIcons.video,
+            size: 29,
+            color: AppColors.accent,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'You have not submitted work for this assignment yet.',
+          textAlign: TextAlign.center,
+          style: AppTheme.cardTitle(color: context.elixTextPrimary),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Prepare your space, then record an attempt for your teacher to review.',
+          textAlign: TextAlign.center,
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
+          ),
+        ),
         const SizedBox(height: AppSpacing.lg),
         if (canStart)
           ElixPrimaryButton(
-            label: assignedMovementPracticeButtonLabel(
-              workflowAttempt,
-              assignment: assignment,
-            ),
+            label: label,
             expanded: true,
             icon: FluentIcons.play,
-            onPressed: () =>
-                context.go(AppRoutePaths.assignedPractice(assignment.id)),
-          )
-        else if (isTeacherActivity && !hasAvailableActivityAttempt)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: ElixPill(
-              text: 'No tries remaining',
-              color: context.elixTextSecondary,
+            padding: const EdgeInsets.symmetric(
+              vertical: 18,
+              horizontal: AppSpacing.lg,
             ),
+            onPressed: onStart,
+          )
+        else if (noTriesRemaining)
+          ElixPill(
+            text: 'No tries remaining',
+            color: context.elixTextSecondary,
           ),
       ],
-    );
-  }
+    ),
+  );
 }
 
 Future<void> _confirmUnsubmit(

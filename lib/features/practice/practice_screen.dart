@@ -25,6 +25,8 @@ import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
+import '../learning/movement_lesson_content.dart';
+import '../learning/movement_tutorial_dialog.dart';
 import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
 import 'practice_run_phase.dart';
@@ -1351,6 +1353,7 @@ class PracticeScreenState extends State<PracticeScreen>
                     ),
                   )
                 : null),
+      onViewTutorial: () => _showTutorial(isSessionActive: isTrainingActive),
       actionArea: isReadiness
           ? _buildReadinessActionArea()
           : TrainingActionArea(
@@ -1368,6 +1371,23 @@ class PracticeScreenState extends State<PracticeScreen>
                   ? false
                   : (_connecting || _commandInFlight),
             ),
+    );
+  }
+
+  void _showTutorial({required bool isSessionActive}) {
+    final movement = movementCatalog
+        .where((item) => item.name == _movement)
+        .firstOrNull;
+    if (movement == null) return;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => MovementTutorialDialog(
+        movement: movement,
+        prop: _prop,
+        lesson: MovementLesson.forMovement(movement),
+        sessionActive: isSessionActive,
+      ),
     );
   }
 

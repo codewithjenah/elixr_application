@@ -1,7 +1,11 @@
 import 'package:elixr_application/core/constants/app_colors.dart';
+import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/features/learning/movement_lesson_content.dart';
+import 'package:elixr_application/features/learning/movement_tutorial_dialog.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/widgets/readiness_checklist_panel.dart';
 import 'package:elixr_application/features/practice/widgets/training_action_area.dart';
@@ -489,6 +493,134 @@ void main() {
 
       expect(rightEdges[0], closeTo(rightEdges[1], 0.01));
       expect(rightEdges[1], closeTo(rightEdges[2], 0.01));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('View Tutorial opens canonical content and closes in place', (
+      tester,
+    ) async {
+      final movement = movementCatalog.firstWhere(
+        (item) => item.name == 'Hand Stall',
+      );
+      var tutorialOpened = false;
+      await tester.pumpWidget(
+        _wrap(
+          SizedBox(
+            width: 720,
+            height: 700,
+            child: Builder(
+              builder: (context) => TrainingSessionPanel(
+                phase: TrainingSessionPhase.inProgress,
+                expandVertically: false,
+                metrics: const TrainingReadyBrief(
+                  title: 'Training',
+                  body: 'Live',
+                ),
+                statusContent: const TrainingStatusRow(
+                  detection: TrainingDetectionStatus.detected,
+                ),
+                supportingContent: const SessionSetupRow(
+                  icon: FluentIcons.play_solid,
+                  label: 'Movement',
+                  value: 'Hand Stall',
+                ),
+                onViewTutorial: () {
+                  tutorialOpened = true;
+                  showDialog<void>(
+                    context: context,
+                    builder: (_) => MovementTutorialDialog(
+                      movement: movement,
+                      prop: TrainingProp.shaker,
+                      lesson: MovementLesson.forMovement(movement),
+                      sessionActive: true,
+                    ),
+                  );
+                },
+                actionArea: TrainingActionArea(
+                  kind: TrainingActionKind.finish,
+                  startLabel: 'Finish',
+                  onPressed: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('view-tutorial-action')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('View Tutorial'));
+      await tester.pumpAndSettle();
+
+      expect(tutorialOpened, isTrue);
+      expect(find.text('Hand Stall'), findsWidgets);
+      expect(find.text('Cocktail Shaker'), findsOneWidget);
+      expect(find.text('HOW TO PERFORM'), findsOneWidget);
+      expect(find.text('What good looks like'), findsOneWidget);
+      expect(find.text('Common mistake'), findsOneWidget);
+      expect(find.text('Practice safely'), findsOneWidget);
+      expect(
+        find.text(
+          'Your training session remains active while this guide is open.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Move the prop to the named support point.'),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSize(find.byKey(const ValueKey('tutorial-hero'))).width,
+        greaterThan(250),
+      );
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('tutorial-technique-panel')))
+            .width,
+        greaterThan(250),
+      );
+
+      await tester.tap(find.text('Back to Training'));
+      await tester.pumpAndSettle();
+      expect(find.text('Hand Stall'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('view-tutorial-action')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tutorial dialog fits compact width without exceptions', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(400, 640));
+      addTearDown(() async => tester.binding.setSurfaceSize(null));
+      final movement = movementCatalog.first;
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) => Button(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => MovementTutorialDialog(
+                  movement: movement,
+                  prop: TrainingProp.bottle,
+                  lesson: MovementLesson.forMovement(movement),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Normal Grip'), findsOneWidget);
+      expect(find.text('Bottle'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
