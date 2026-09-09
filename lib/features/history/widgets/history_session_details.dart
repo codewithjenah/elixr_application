@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/feedback.dart' as models;
 import '../../../data/models/rubric_assessment.dart';
 import '../../../data/models/session.dart';
@@ -415,61 +416,64 @@ class _AssessmentBlock extends StatelessWidget {
 
     final level = rubricPerformanceLevel(rubric.total);
     final levelColor = performanceLevelColor(level);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: 2,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Text(
-              'Performance',
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-                fontWeight: FontWeight.w600,
+    return Semantics(
+      container: true,
+      label: AssessmentScoreDisplay.officialSemantics(
+        rubric.total,
+        level: level,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'ELIXR Score',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            Text(
-              level.label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: levelColor,
+              Text(
+                AssessmentScoreDisplay.performanceLabel(level),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: levelColor,
+                ),
               ),
-            ),
-            Text(
-              '·',
-              style: TextStyle(fontSize: 13, color: context.elixTextSecondary),
-            ),
-            Text(
-              'Rubric Total',
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-                fontWeight: FontWeight.w600,
+              Text(
+                '·',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.elixTextSecondary,
+                ),
               ),
-            ),
-            Text(
-              rubricTotalLabel(rubric.total),
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
+              Text(
+                rubricTotalLabel(rubric.total),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextPrimary,
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        for (final criterion in RubricCriterion.values)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: _CriterionMeter(
-              label: criterion.label,
-              score: rubric.scoreFor(criterion),
-              fillColor: levelColor,
-            ),
+            ],
           ),
-      ],
+          const SizedBox(height: AppSpacing.sm),
+          for (final criterion in RubricCriterion.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _CriterionMeter(
+                label: AssessmentScoreDisplay.criterionLabel(criterion),
+                score: rubric.scoreFor(criterion),
+                fillColor: levelColor,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -516,7 +520,7 @@ class _CriterionMeter extends StatelessWidget {
         SizedBox(
           width: 36,
           child: Text(
-            '$score / 3',
+            '$score/3',
             textAlign: TextAlign.right,
             style: TextStyle(
               fontSize: 12,

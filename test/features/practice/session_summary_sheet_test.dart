@@ -506,13 +506,15 @@ void main() {
     );
 
     expect(find.byKey(const Key('session-summary-rubric')), findsOneWidget);
-    expect(find.text('Rubric Score'), findsOneWidget);
-    expect(find.text('10 / 12'), findsOneWidget);
-    expect(find.text('Proficient'), findsOneWidget);
-    expect(find.text('Pro'), findsOneWidget);
-    for (final criterion in RubricCriterion.values) {
-      expect(find.text(criterion.label), findsOneWidget);
-    }
+    expect(find.text('ELIXR Score'), findsOneWidget);
+    expect(find.text('10/12'), findsOneWidget);
+    expect(find.text('Great'), findsWidgets);
+    expect(find.text('Proficient'), findsNothing);
+    expect(find.text('Pro'), findsNothing);
+    expect(find.text('Form'), findsOneWidget);
+    expect(find.text('Control'), findsOneWidget);
+    expect(find.text('Finish'), findsWidgets);
+    expect(find.text('Position'), findsOneWidget);
     expect(find.textContaining('%'), findsNothing);
     expect(find.text('Score'), findsNothing);
   });
@@ -536,7 +538,7 @@ void main() {
       );
 
       expect(
-        find.text('No recurring technique issue met the session threshold.'),
+        find.text('No recurring form issue met the session threshold.'),
         findsOneWidget,
       );
     },
@@ -553,7 +555,7 @@ void main() {
       );
 
       expect(
-        find.textContaining('No recurring technique issue was detected'),
+        find.textContaining('No recurring form issue was detected'),
         findsOneWidget,
       );
     },
@@ -601,7 +603,7 @@ void main() {
       expect(_recommendation, findsOneWidget);
       expect(find.text('Try Again'), findsOneWidget);
       expect(find.text('Discard without saving'), findsOneWidget);
-      expect(find.text('Finish'), findsOneWidget);
+      expect(_primaryButtonLabeled('Finish'), findsOneWidget);
       expect(find.text('Save & Continue'), findsNothing);
       expect(_primaryButton, findsOneWidget);
 
@@ -1089,7 +1091,7 @@ void main() {
 
       expect(find.text("Next: Bartender's Grip"), findsOneWidget);
       expect(find.text('Save & Continue'), findsNothing);
-      expect(find.text('Finish'), findsNothing);
+      expect(_primaryButtonLabeled('Finish'), findsNothing);
       expect(_primaryButton, findsOneWidget);
     });
 
@@ -1125,7 +1127,7 @@ void main() {
       );
 
       expect(find.textContaining('Next:'), findsNothing);
-      expect(find.text('Finish'), findsOneWidget);
+      expect(_primaryButtonLabeled('Finish'), findsOneWidget);
       expect(find.text('Save & Continue'), findsNothing);
       expect(_primaryButton, findsOneWidget);
     });
@@ -1366,7 +1368,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 900));
 
       expect(find.text('Save & Continue'), findsNothing);
-      expect(find.text('Finish'), findsOneWidget);
+      expect(_primaryButtonLabeled('Finish'), findsOneWidget);
 
       await tester.tap(_primaryButtonLabeled('Finish'));
       await tester.pumpAndSettle();

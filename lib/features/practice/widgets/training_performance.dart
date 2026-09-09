@@ -3,11 +3,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/rubric_assessment.dart';
 
 /// Assessment V2 rubric total presented as a 0..12 performance level.
 String trainingPerformanceLabel(int total) =>
-    PerformanceLevel.fromTotal(total.clamp(0, RubricScale.maxTotal)).label;
+    AssessmentScoreDisplay.performanceLabelForTotal(total);
 
 double trainingPerformanceFraction(int? total) {
   if (total == null) return 0.0;
@@ -48,27 +49,27 @@ PerformanceCalloutCopy? performanceCalloutCopy(PerformanceLevel? level) {
   return switch (level) {
     PerformanceLevel.mastered => PerformanceCalloutCopy(
       headline: 'PERFECT!',
-      detail: level.label,
+      detail: AssessmentScoreDisplay.performanceLabel(level),
       restrained: false,
     ),
     PerformanceLevel.proficient => PerformanceCalloutCopy(
       headline: 'GREAT!',
-      detail: level.label,
+      detail: AssessmentScoreDisplay.performanceLabel(level),
       restrained: false,
     ),
     PerformanceLevel.competent => PerformanceCalloutCopy(
       headline: 'GOOD!',
-      detail: level.label,
+      detail: AssessmentScoreDisplay.performanceLabel(level),
       restrained: false,
     ),
     PerformanceLevel.developing => PerformanceCalloutCopy(
       headline: 'KEEP GOING',
-      detail: level.label,
+      detail: AssessmentScoreDisplay.performanceLabel(level),
       restrained: false,
     ),
     PerformanceLevel.beginning => PerformanceCalloutCopy(
       headline: 'STAY FOCUSED',
-      detail: level.label,
+      detail: AssessmentScoreDisplay.performanceLabel(level),
       restrained: true,
     ),
   };
@@ -84,66 +85,76 @@ class TrainingPerformanceBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasTotal = total != null;
-    final clamped = hasTotal ? total!.clamp(0, RubricScale.maxTotal) : 0;
+    final clamped = hasTotal
+        ? total!.clamp(0, RubricScale.maxTotal).toInt()
+        : 0;
     final value = trainingPerformanceFraction(total);
     final level = hasTotal ? PerformanceLevel.fromTotal(clamped) : null;
-    final levelLabel = level?.label ?? 'Waiting for assessment';
-    final display = hasTotal ? '$clamped / ${RubricScale.maxTotal}' : '—';
+    final levelLabel = level == null
+        ? 'Waiting for assessment'
+        : AssessmentScoreDisplay.performanceLabel(level);
+    final display = hasTotal ? AssessmentScoreDisplay.official(clamped) : '—';
     final levelColor = performanceLevelColor(level);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              'Current Performance',
-              style: AppTheme.caption.copyWith(
-                letterSpacing: 0.6,
-                fontWeight: FontWeight.w700,
-                color: context.elixTextSecondary,
+    return Semantics(
+      container: true,
+      label: hasTotal
+          ? AssessmentScoreDisplay.officialSemantics(clamped, level: level)
+          : 'ELIXR Score waiting for assessment',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Current Score',
+                style: AppTheme.caption.copyWith(
+                  letterSpacing: 0.6,
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextSecondary,
+                ),
               ),
-            ),
-            const Spacer(),
-            Text(
-              display,
-              style: AppTheme.caption.copyWith(
-                color: hasTotal
-                    ? AppColors.primarySoft
-                    : context.elixTextSecondary,
-                fontWeight: FontWeight.w700,
+              const Spacer(),
+              Text(
+                display,
+                style: AppTheme.caption.copyWith(
+                  color: hasTotal
+                      ? AppColors.primarySoft
+                      : context.elixTextSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: ColoredBox(
-            color: context.elixBorder.withValues(alpha: 0.35),
-            child: SizedBox(
-              height: 7,
-              width: double.infinity,
-              child: TweenAnimationBuilder<double>(
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.easeOutCubic,
-                tween: Tween(begin: 0, end: value),
-                builder: (context, v, _) => FractionallySizedBox(
-                  alignment: Alignment.centerLeft,
-                  widthFactor: hasTotal && v > 0 ? v : 0.001,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: hasTotal
-                            ? [
-                                AppColors.primary,
-                                AppColors.accent,
-                                AppColors.primarySoft,
-                              ]
-                            : [
-                                context.elixBorder.withValues(alpha: 0.25),
-                                context.elixBorder.withValues(alpha: 0.25),
-                              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: ColoredBox(
+              color: context.elixBorder.withValues(alpha: 0.35),
+              child: SizedBox(
+                height: 7,
+                width: double.infinity,
+                child: TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween(begin: 0, end: value),
+                  builder: (context, v, _) => FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: hasTotal && v > 0 ? v : 0.001,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: hasTotal
+                              ? [
+                                  AppColors.primary,
+                                  AppColors.accent,
+                                  AppColors.primarySoft,
+                                ]
+                              : [
+                                  context.elixBorder.withValues(alpha: 0.25),
+                                  context.elixBorder.withValues(alpha: 0.25),
+                                ],
+                        ),
                       ),
                     ),
                   ),
@@ -151,29 +162,29 @@ class TrainingPerformanceBar extends StatelessWidget {
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm + 2,
-            vertical: 3,
-          ),
-          decoration: BoxDecoration(
-            color: levelColor.withValues(alpha: hasTotal ? 0.12 : 0.08),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: levelColor.withValues(alpha: hasTotal ? 0.28 : 0.18),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm + 2,
+              vertical: 3,
+            ),
+            decoration: BoxDecoration(
+              color: levelColor.withValues(alpha: hasTotal ? 0.12 : 0.08),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: levelColor.withValues(alpha: hasTotal ? 0.28 : 0.18),
+              ),
+            ),
+            child: Text(
+              levelLabel,
+              style: AppTheme.caption.copyWith(
+                color: hasTotal ? levelColor : context.elixTextSecondary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-          child: Text(
-            levelLabel,
-            style: AppTheme.caption.copyWith(
-              color: hasTotal ? levelColor : context.elixTextSecondary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -238,7 +249,7 @@ class _CriterionTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            criterion.label,
+            AssessmentScoreDisplay.criterionLabel(criterion),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: AppTheme.caption.copyWith(
@@ -251,7 +262,7 @@ class _CriterionTile extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            score != null ? '$score / ${RubricScale.maxCriterion}' : '—',
+            score != null ? '$score/${RubricScale.maxCriterion}' : '—',
             style: AppTheme.body.copyWith(
               fontSize: 15,
               fontWeight: FontWeight.w800,

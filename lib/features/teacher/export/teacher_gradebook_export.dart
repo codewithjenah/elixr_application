@@ -103,7 +103,7 @@ abstract final class TeacherGradebookExportService {
           attempt.gradeMaxScore! > 0) {
         score = attempt.gradeScore;
         maximum = attempt.gradeMaxScore;
-      } else if ((assignment.isOfficial || assignment.isRetiredTemplate) &&
+      } else if ((assignment.isOfficial || assignment.isTemplateScored) &&
           attempt.rubricTotal != null &&
           attempt.rubricTotal! >= 0 &&
           attempt.rubricTotal! <= 12) {

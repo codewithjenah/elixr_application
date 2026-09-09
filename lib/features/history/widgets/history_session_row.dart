@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/movement_image.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/feedback.dart' as models;
 import '../../../data/models/session.dart';
 import '../../../data/repositories/session_repository.dart';
@@ -113,12 +114,17 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
     final String resultValue;
     final String resultLabel;
     final Color resultColor;
+    final String scoreSemantics;
     if (s.isRubricAssessed) {
       final total = s.rubricTotal!;
       final level = rubricPerformanceLevel(total);
       resultValue = rubricTotalLabel(total);
-      resultLabel = level.label;
+      resultLabel = AssessmentScoreDisplay.performanceLabel(level);
       resultColor = performanceLevelColor(level);
+      scoreSemantics = AssessmentScoreDisplay.officialSemantics(
+        total,
+        level: level,
+      );
     } else {
       final legacy = s.legacyScore;
       resultValue = legacy == null ? '—' : '$legacy/100';
@@ -126,6 +132,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
       resultColor = legacy == null
           ? context.elixTextSecondary
           : scoreQualityColor(legacy);
+      scoreSemantics = '$resultValue $resultLabel';
     }
 
     final colors = context.elixColors;
@@ -157,7 +164,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
       expanded: _expanded,
       label:
           '${s.movementName}, ${s.difficulty}, $time, $duration, '
-          '$resultValue $resultLabel',
+          '$scoreSemantics',
       child: FocusableActionDetector(
         mouseCursor: SystemMouseCursors.click,
         shortcuts: const <ShortcutActivator, Intent>{

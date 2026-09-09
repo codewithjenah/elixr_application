@@ -54,7 +54,7 @@ String rubricTotalLabel(int rubricTotal) =>
 
 /// Assessment V2 rubric average read-out (0..12).
 String rubricAverageLabel(double averageRubricTotal) =>
-    AssessmentScoreDisplay.format(earned: averageRubricTotal, maximum: 12);
+    AssessmentScoreDisplay.officialAverage(averageRubricTotal);
 
 /// Performance level for a rubric total, using the model's thresholds.
 PerformanceLevel rubricPerformanceLevel(int rubricTotal) =>

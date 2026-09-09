@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/training_plan.dart';
 import '../models/training_day_snapshot.dart';
 import '../models/training_day_status.dart';
@@ -361,8 +362,10 @@ class _TrainingPlanBody extends StatelessWidget {
             _MetricChip(label: 'Status', value: snapshot.status.label),
             if (snapshot.bestMatchingRubricTotal != null)
               _MetricChip(
-                label: 'Best rubric',
-                value: '${snapshot.bestMatchingRubricTotal} / 12',
+                label: 'Best Score',
+                value: AssessmentScoreDisplay.official(
+                  snapshot.bestMatchingRubricTotal!,
+                ),
               ),
           ],
         ),

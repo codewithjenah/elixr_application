@@ -9,8 +9,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
+import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
+import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
@@ -868,6 +870,21 @@ Future<void> _showCreateOrEditMovement(
                 assessment: assessment,
               );
             },
+        onCreateAutomatic:
+            ({
+              required title,
+              required instructions,
+              required laterality,
+              safetyGuidance,
+            }) {
+              return controller.createMovement(
+                title: title,
+                instructions: instructions,
+                requiredProp: TrainingProp.bottle,
+                safetyGuidance: safetyGuidance,
+                automaticAssessment: AssessmentSpec(laterality: laterality),
+              );
+            },
         onUploadDemonstration:
             ({required localFile, required duration, required source}) =>
                 controller.uploadActivityDemonstration(
@@ -909,6 +926,23 @@ Future<void> _showCreateOrEditMovement(
                   assessment: assessment,
                 );
               },
+        onEditAutomatic: existing == null
+            ? null
+            : ({
+                required title,
+                required instructions,
+                required laterality,
+                safetyGuidance,
+              }) {
+                return controller.editMovement(
+                  movement: existing,
+                  title: title,
+                  instructions: instructions,
+                  requiredProp: TrainingProp.bottle,
+                  safetyGuidance: safetyGuidance,
+                  automaticAssessment: AssessmentSpec(laterality: laterality),
+                );
+              },
       ),
     ),
   );
@@ -937,10 +971,7 @@ Future<void> _showAssignToClass(
 
 /// Read-only teacher view of the same lesson content used by trainee lessons.
 /// It deliberately has no progression-service dependency or completion action.
-Future<void> _showMovementGuide(
-  BuildContext context,
-  Movement movement,
-) async {
+Future<void> _showMovementGuide(BuildContext context, Movement movement) async {
   final lesson = MovementLesson.forMovement(movement);
   await showDialog<void>(
     context: context,

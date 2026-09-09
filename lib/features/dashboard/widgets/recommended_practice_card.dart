@@ -6,6 +6,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/progression/practice_variant.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../movements/movements_presentation.dart';
 import '../../progress/training_recommendation.dart';
 import 'dashboard_panel_card.dart';
@@ -65,7 +66,7 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
     final statusLabel = masteryStatusLabel(mastery.status);
     final recentAverage = mastery.recentAverageRubric;
     final recentLabel = recentAverage != null
-        ? '${recentAverage.round()} / 12'
+        ? AssessmentScoreDisplay.official(recentAverage.round())
         : 'Not practiced';
 
     return DashboardPanelCard(

@@ -10,6 +10,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
+import '../../data/models/assessment_score_display.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
@@ -199,7 +200,7 @@ class SessionSummarySheet extends StatelessWidget {
     return switch (level) {
       PerformanceLevel.mastered || PerformanceLevel.proficient =>
         hasImprovements
-            ? 'Strong finish — review recurring technique notes below.'
+            ? 'Strong finish — review recurring form notes below.'
             : 'Solid execution. Keep the consistency going.',
       PerformanceLevel.competent =>
         hasImprovements
@@ -208,26 +209,28 @@ class SessionSummarySheet extends StatelessWidget {
       PerformanceLevel.developing =>
         hasImprovements
             ? 'Getting there. Focus on the tips below.'
-            : 'You are making progress. Keep practicing to raise your rubric '
+            : 'You are making progress. Keep practicing to raise your ELIXR '
                   'score.',
       PerformanceLevel.beginning =>
         hasImprovements
             ? 'Early stages — review the tips below and try again.'
-            : 'Keep going — regular practice will help your rubric score '
+            : 'Keep going — regular practice will help your ELIXR score '
                   'improve.',
     };
   }
 
   static String _performanceMessage(PerformanceLevel level) {
     if (celebrates(level)) {
-      return 'No recurring technique issue met the session threshold.';
+      return 'No recurring form issue met the session threshold.';
     }
-    return 'No recurring technique issue was detected. '
-        'Keep practicing to improve your rubric score.';
+    return 'No recurring form issue was detected. '
+        'Keep practicing to improve your ELIXR score.';
   }
 
-  static ({String label, Color color}) _tier(PerformanceLevel level) =>
-      (label: level.label, color: performanceLevelColor(level));
+  static ({String label, Color color}) _tier(PerformanceLevel level) => (
+    label: AssessmentScoreDisplay.performanceLabel(level),
+    color: performanceLevelColor(level),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -908,7 +911,7 @@ class _ScoreGauge extends StatelessWidget {
         : const Duration(milliseconds: 1100);
 
     return Semantics(
-      label: 'Rubric score $total of ${RubricScale.maxTotal}',
+      label: AssessmentScoreDisplay.officialSemantics(total),
       child: TweenAnimationBuilder<double>(
         duration: duration,
         curve: Curves.easeOutCubic,
@@ -940,7 +943,7 @@ class _ScoreGauge extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '/ ${RubricScale.maxTotal}',
+                    '/${RubricScale.maxTotal}',
                     style: TextStyle(
                       fontSize: 11,
                       color: context.elixTextSecondary,
@@ -974,7 +977,7 @@ class _CriteriaCard extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Rubric Score',
+                'ELIXR Score',
                 style: AppTheme.caption.copyWith(
                   letterSpacing: 0.5,
                   fontWeight: FontWeight.w700,
@@ -983,7 +986,7 @@ class _CriteriaCard extends StatelessWidget {
               ),
             ),
             Text(
-              '${rubric.total} / ${RubricScale.maxTotal}',
+              AssessmentScoreDisplay.official(rubric.total),
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
@@ -995,7 +998,7 @@ class _CriteriaCard extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         for (final criterion in RubricCriterion.values)
           _RubricMetricRow(
-            label: criterion.label,
+            label: AssessmentScoreDisplay.criterionLabel(criterion),
             score: rubric.scoreFor(criterion),
           ),
       ],
@@ -1047,7 +1050,7 @@ class _RubricMetricRow extends StatelessWidget {
           SizedBox(
             width: 34,
             child: Text(
-              '$score / ${RubricScale.maxCriterion}',
+              '$score/${RubricScale.maxCriterion}',
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 12,

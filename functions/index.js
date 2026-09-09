@@ -481,6 +481,20 @@ function validActivityAssessment(value, expectedMaximum) {
   return total === expectedMaximum;
 }
 
+function validWristStallAssessmentSpec(value) {
+  if (!value || typeof value !== 'object') return false;
+  const allowed = ['schema_version', 'template_id', 'prop', 'target', 'laterality'];
+  const keys = Object.keys(value);
+  if (keys.length !== allowed.length || keys.some((key) => !allowed.includes(key))) {
+    return false;
+  }
+  return value.schema_version === 1
+    && value.template_id === 'balance_stall.wrist_v1'
+    && value.prop === 'bottle'
+    && value.target === 'wrist'
+    && ['left', 'right', 'either'].includes(value.laterality);
+}
+
 function validAssignmentAttemptPolicy(policy) {
   return !!policy && typeof policy === 'object' && (
     (policy.type === 'unlimited' && Object.keys(policy).length === 1) ||
@@ -2388,6 +2402,63 @@ async function createClassroomAssignmentHandler(request, response, {
           official_movement_name: body.official_movement_name, display_title: body.official_movement_name,
           allowed_prop: body.allowed_prop,
           ...(instructions ? {display_instructions: instructions} : {})};
+      } else if (body.origin === 'teacher_created' && validId(body.movement_id) &&
+          validId(body.revision_id) && body.assessment_mode === 'template_scored') {
+        if (body.max_score != null || body.activity_assessment != null ||
+            body.grading_locked != null) {
+          const error = new Error('invalid_payload'); error.code = 'invalid_payload'; throw error;
+        }
+        const movementRef = firestore.collection('teacher_movements').doc(body.movement_id);
+        const revisionRef = movementRef.collection('revisions').doc(body.revision_id);
+        const [movement, revision] = await Promise.all([transaction.get(movementRef), transaction.get(revisionRef)]);
+        if (!movement.exists) {
+          const error = new Error('movement_not_found'); error.code = 'movement_not_found'; throw error;
+        }
+        if (!revision.exists) {
+          const error = new Error('revision_not_found'); error.code = 'revision_not_found'; throw error;
+        }
+        if (movement.get('teacher_id') !== token.uid || revision.get('teacher_id') !== token.uid) {
+          const error = new Error('invalid_movement_owner'); error.code = 'invalid_movement_owner'; throw error;
+        }
+        if (movement.get('status') !== 'active') {
+          const error = new Error('movement_archived'); error.code = 'movement_archived'; throw error;
+        }
+        if (movement.get('current_revision_id') !== body.revision_id) {
+          const error = new Error('stale_revision'); error.code = 'stale_revision'; throw error;
+        }
+        if (revision.get('movement_id') !== body.movement_id ||
+            revision.get('assessment_mode') !== 'template_scored') {
+          const error = new Error('invalid_movement_spec'); error.code = 'invalid_movement_spec'; throw error;
+        }
+        const spec = revision.get('spec');
+        const frozen = spec?.assessment;
+        if (!spec || spec.required_prop !== 'bottle' || !validWristStallAssessmentSpec(frozen)) {
+          const error = new Error('invalid_movement_spec'); error.code = 'invalid_movement_spec'; throw error;
+        }
+        if (body.assessment_spec != null &&
+            JSON.stringify(assignmentJsonValue(body.assessment_spec)) !==
+              JSON.stringify(assignmentJsonValue(frozen))) {
+          const error = new Error('invalid_movement_spec'); error.code = 'invalid_movement_spec'; throw error;
+        }
+        const title = boundedText(body.display_title ?? movement.get('title'), 80);
+        const instructions = boundedText(
+          body.display_instructions ?? spec.instructions, 2000,
+        );
+        const rawSafety = Object.prototype.hasOwnProperty.call(body, 'display_safety_guidance')
+          ? body.display_safety_guidance
+          : spec.safety_guidance;
+        const safetyGuidance = rawSafety == null || rawSafety === ''
+          ? null
+          : boundedText(rawSafety, 1000);
+        if (!title || !instructions ||
+            (rawSafety != null && rawSafety !== '' && !safetyGuidance)) {
+          const error = new Error('invalid_movement_spec'); error.code = 'invalid_movement_spec'; throw error;
+        }
+        const {attempt_policy: _ignoredAttemptPolicy, ...templateCommon} = common;
+        assignment = {...templateCommon, movement_id: body.movement_id, revision_id: body.revision_id,
+          origin: 'teacher_created', assessment_mode: 'template_scored', display_title: title,
+          display_instructions: instructions, ...(safetyGuidance ? {display_safety_guidance: safetyGuidance} : {}),
+          allowed_prop: 'bottle', assessment_spec: assignmentJsonValue(frozen)};
       } else if (body.origin === 'teacher_created' && validId(body.movement_id) && validId(body.revision_id) &&
           Number.isInteger(body.max_score) && body.max_score >= 1 && body.max_score <= 100) {
         const movementRef = firestore.collection('teacher_movements').doc(body.movement_id);
@@ -3058,6 +3129,7 @@ exports._test = {
   validRecipientProjection,
   assignmentJsonValue,
   validActivityAssessment,
+  validWristStallAssessmentSpec,
   ACTIVITY_MATERIAL_LIMITS,
   safeActivityMaterialRejectionReason,
   materialMaximumBytes,

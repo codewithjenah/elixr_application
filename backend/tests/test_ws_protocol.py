@@ -249,24 +249,16 @@ def test_pause_and_resume_commands_parse():
     assert isinstance(resume, ResumeCommand)
 
 
-def test_retired_template_session_purpose_is_rejected():
-    with pytest.raises(ValidationError) as exc_info:
-        PrepareCommand.model_validate(
-            _prepare_payload(session_purpose="template_scored")
-        )
-
-    assert websocket_api._validation_error_code(exc_info.value) == (
-        "invalid_session_purpose"
-    )
-
-
-def test_retired_assessment_spec_is_rejected():
+def test_official_prepare_rejects_assessment_spec():
     with pytest.raises(ValidationError) as exc_info:
         PrepareCommand.model_validate(
             _prepare_payload(
                 assessment_spec={
                     "schema_version": 1,
                     "template_id": "balance_stall.wrist_v1",
+                    "prop": "bottle",
+                    "target": "wrist",
+                    "laterality": "left",
                 }
             )
         )
@@ -274,6 +266,57 @@ def test_retired_assessment_spec_is_rejected():
     assert websocket_api._validation_error_code(exc_info.value) == (
         "unexpected_assessment_spec"
     )
+
+
+def test_template_prepare_requires_assessment_spec():
+    with pytest.raises(ValidationError) as exc_info:
+        PrepareCommand.model_validate(
+            _prepare_payload(session_purpose="template_scored")
+        )
+
+    assert websocket_api._validation_error_code(exc_info.value) == (
+        "missing_assessment_spec"
+    )
+
+
+def test_template_prepare_accepts_wrist_stall_spec():
+    cmd = parse_v1_command(
+        _prepare_payload(
+            movement="Template Assessment",
+            difficulty="Easy",
+            session_purpose="live_test",
+            assessment_spec={
+                "schema_version": 1,
+                "template_id": "balance_stall.wrist_v1",
+                "prop": "bottle",
+                "target": "wrist",
+                "laterality": "right",
+            },
+        )
+    )
+    assert isinstance(cmd, PrepareCommand)
+    assert cmd.session_purpose == "live_test"
+    assert cmd.assessment_spec is not None
+    assert cmd.assessment_spec.laterality == "right"
+
+
+def test_template_prepare_rejects_shaker_prop():
+    with pytest.raises(ValidationError) as exc_info:
+        PrepareCommand.model_validate(
+            _prepare_payload(
+                session_purpose="template_scored",
+                assessment_spec={
+                    "schema_version": 1,
+                    "template_id": "balance_stall.wrist_v1",
+                    "prop": "shaker",
+                    "target": "wrist",
+                    "laterality": "left",
+                },
+            )
+        )
+
+    code = websocket_api._validation_error_code(exc_info.value)
+    assert code in {"unsupported_assessment_spec", "unexpected_assessment_spec"}
 
 
 @pytest.mark.parametrize("prop_type", ["bottle", "shaker", "bottle_and_shaker"])

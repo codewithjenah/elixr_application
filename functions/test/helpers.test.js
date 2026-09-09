@@ -21,6 +21,7 @@ const {
   listTraineeAssignmentsHandler,
   updateTeacherActivityAssignmentHandler,
   validActivityAssessment,
+  validWristStallAssessmentSpec,
   ACTIVITY_MATERIAL_LIMITS,
   detectActivityMaterialContent,
   finalMaterialPathFor,
@@ -1284,6 +1285,163 @@ test('assignment creation accepts a current Teacher Activity revision for the en
   assert.equal(assignmentWrite.data.origin, 'teacher_created');
   assert.equal(assignmentWrite.data.revision_id, 'revision-1');
   assert.equal(assignmentWrite.data.display_instructions, 'Balance the bottle upright.');
+});
+
+test('validWristStallAssessmentSpec rejects unknown templates, props, and extra keys', () => {
+  const valid = {
+    schema_version: 1,
+    template_id: 'balance_stall.wrist_v1',
+    prop: 'bottle',
+    target: 'wrist',
+    laterality: 'left',
+  };
+  assert.equal(validWristStallAssessmentSpec(valid), true);
+  assert.equal(validWristStallAssessmentSpec({...valid, laterality: 'right'}), true);
+  assert.equal(validWristStallAssessmentSpec({...valid, laterality: 'either'}), true);
+  assert.equal(validWristStallAssessmentSpec({...valid, prop: 'shaker'}), false);
+  assert.equal(validWristStallAssessmentSpec({...valid, template_id: 'toss.catch_v1'}), false);
+  assert.equal(validWristStallAssessmentSpec({...valid, threshold: 0.4}), false);
+  assert.equal(validWristStallAssessmentSpec({...valid, laterality: 'both'}), false);
+});
+
+test('assignment creation freezes Wrist Stall spec from the revision', async () => {
+  const frozen = {
+    schema_version: 1,
+    template_id: 'balance_stall.wrist_v1',
+    prop: 'bottle',
+    target: 'wrist',
+    laterality: 'left',
+  };
+  const database = fakeCreationDatabase({
+    recipientIds: [],
+    documents: [
+      ['teacher_movements/movement-1', {
+        teacher_id: 'teacher', status: 'active', current_revision_id: 'revision-1',
+        title: 'Classroom Wrist Stall',
+      }],
+      ['teacher_movements/movement-1/revisions/revision-1', {
+        teacher_id: 'teacher', movement_id: 'movement-1',
+        assessment_mode: 'template_scored',
+        spec: {
+          instructions: 'Balance the bottle on the left wrist.',
+          required_prop: 'bottle',
+          assessment: frozen,
+        },
+      }],
+    ],
+  });
+  const accepted = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1', audience_type: 'entire_class', recipient_ids: [],
+        origin: 'teacher_created', movement_id: 'movement-1', revision_id: 'revision-1',
+        assessment_mode: 'template_scored',
+        assessment_spec: {...frozen, laterality: 'right'},
+      },
+      get: () => '',
+    },
+    accepted,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
+      databaseFactory: () => database,
+    },
+  );
+  assert.equal(accepted.statusCode, 400);
+  assert.equal(accepted.body.error, 'invalid_movement_spec');
+
+  const databaseOk = fakeCreationDatabase({
+    recipientIds: [],
+    documents: [
+      ['teacher_movements/movement-1', {
+        teacher_id: 'teacher', status: 'active', current_revision_id: 'revision-1',
+        title: 'Classroom Wrist Stall',
+      }],
+      ['teacher_movements/movement-1/revisions/revision-1', {
+        teacher_id: 'teacher', movement_id: 'movement-1',
+        assessment_mode: 'template_scored',
+        spec: {
+          instructions: 'Balance the bottle on the left wrist.',
+          required_prop: 'bottle',
+          assessment: frozen,
+        },
+      }],
+    ],
+  });
+  const ok = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1', audience_type: 'entire_class', recipient_ids: [],
+        origin: 'teacher_created', movement_id: 'movement-1', revision_id: 'revision-1',
+        assessment_mode: 'template_scored',
+      },
+      get: () => '',
+    },
+    ok,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
+      databaseFactory: () => databaseOk,
+    },
+  );
+  assert.equal(ok.statusCode, 200);
+  const assignmentWrite = databaseOk.writes.find((write) =>
+    write.path === 'group_assignments/assignment-created');
+  assert.equal(assignmentWrite.data.assessment_mode, 'template_scored');
+  assert.deepEqual(assignmentWrite.data.assessment_spec, frozen);
+  assert.equal('max_score' in assignmentWrite.data, false);
+  assert.equal('attempt_policy' in assignmentWrite.data, false);
+  assert.equal(assignmentWrite.data.allowed_prop, 'bottle');
+});
+
+test('template scored assignment creation rejects teacher-review fields', async () => {
+  const frozen = {
+    schema_version: 1,
+    template_id: 'balance_stall.wrist_v1',
+    prop: 'bottle',
+    target: 'wrist',
+    laterality: 'left',
+  };
+  const database = fakeCreationDatabase({
+    recipientIds: [],
+    documents: [
+      ['teacher_movements/movement-1', {
+        teacher_id: 'teacher', status: 'active', current_revision_id: 'revision-1',
+        title: 'Classroom Wrist Stall',
+      }],
+      ['teacher_movements/movement-1/revisions/revision-1', {
+        teacher_id: 'teacher', movement_id: 'movement-1',
+        assessment_mode: 'template_scored',
+        spec: {
+          instructions: 'Balance the bottle on the left wrist.',
+          required_prop: 'bottle',
+          assessment: frozen,
+        },
+      }],
+    ],
+  });
+  const response = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1', audience_type: 'entire_class', recipient_ids: [],
+        origin: 'teacher_created', movement_id: 'movement-1', revision_id: 'revision-1',
+        assessment_mode: 'template_scored',
+        max_score: 50,
+      },
+      get: () => '',
+    },
+    response,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
+      databaseFactory: () => database,
+    },
+  );
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'invalid_payload');
 });
 
 function teacherActivityDocuments({root = {}, revision = {}} = {}) {

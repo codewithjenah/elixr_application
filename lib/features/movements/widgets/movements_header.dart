@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../movements_presentation.dart';
 
 class MovementsHeader extends StatelessWidget {
@@ -17,8 +18,8 @@ class MovementsHeader extends StatelessWidget {
         ? summary.practicedCount / summary.totalMovements
         : 0.0;
     final averageLabel = summary.overallAverageRubric == null
-        ? 'No rubric result yet'
-        : '${summary.overallAverageRubric!.toStringAsFixed(1)} / 12';
+        ? 'No score yet'
+        : AssessmentScoreDisplay.officialAverage(summary.overallAverageRubric!);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -30,7 +31,7 @@ class MovementsHeader extends StatelessWidget {
         return Semantics(
           container: true,
           label:
-              'Training library. ${summary.practicedCount} of ${summary.totalMovements} movements practiced, ${(progress * 100).round()} percent. ${summary.totalSessions} sessions completed. Overall rubric average $averageLabel.',
+              'Training library. ${summary.practicedCount} of ${summary.totalMovements} movements practiced, ${(progress * 100).round()} percent. ${summary.totalSessions} sessions completed. Overall average $averageLabel.',
           child: ExcludeSemantics(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -195,7 +196,7 @@ class _StatsPanel extends StatelessWidget {
           ),
           _SummaryStat(
             icon: FluentIcons.trophy2,
-            label: 'Rubric average',
+            label: 'Average Score',
             value: averageLabel,
           ),
         ];

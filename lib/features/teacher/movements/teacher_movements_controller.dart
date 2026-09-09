@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/movements.dart';
 import '../../../data/models/assessment_mode.dart';
+import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
@@ -76,8 +77,10 @@ class TeacherMovementsController extends ChangeNotifier {
   }
 
   bool canManageMovement(TeacherMovement movement) {
+    final mode = revisionFor(movement)?.assessmentMode;
     return movement.isActive &&
-        revisionFor(movement)?.assessmentMode == AssessmentMode.teacherReviewed;
+        (mode == AssessmentMode.teacherReviewed ||
+            mode == AssessmentMode.templateScored);
   }
 
   bool hasAssignmentsForMovement(TeacherMovement movement) => assignments.any(
@@ -90,8 +93,8 @@ class TeacherMovementsController extends ChangeNotifier {
 
   String movementModeLabel(TeacherMovement movement) {
     final revision = revisionFor(movement);
-    if (revision?.isRetiredTemplate == true) {
-      return 'Retired Activity scoring · Historical read-only';
+    if (revision?.isTemplateScored == true) {
+      return 'Automatic ELIXR Assessment · Wrist Stall';
     }
     if (!movement.isActive) {
       return 'Archived Activity · Historical assignments stay pinned';
@@ -158,6 +161,7 @@ class TeacherMovementsController extends ChangeNotifier {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
+    AssessmentSpec? automaticAssessment,
   }) => _runWrite(
     () => movementRepository.createMovement(
       teacherId: teacherId,
@@ -166,6 +170,7 @@ class TeacherMovementsController extends ChangeNotifier {
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
+      automaticAssessment: automaticAssessment,
     ),
   );
 
@@ -187,6 +192,7 @@ class TeacherMovementsController extends ChangeNotifier {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
+    AssessmentSpec? automaticAssessment,
   }) => _runWrite(
     () => movementRepository.editMovement(
       teacherId: teacherId,
@@ -196,6 +202,7 @@ class TeacherMovementsController extends ChangeNotifier {
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
+      automaticAssessment: automaticAssessment,
     ),
   );
 
@@ -210,7 +217,7 @@ class TeacherMovementsController extends ChangeNotifier {
     if (!canManageMovement(movement)) {
       throw const ClassroomException(
         ClassroomError.invalidState,
-        'Only active teacher-reviewed Activities can be deleted.',
+        'Only unused Teacher Activities can be deleted.',
       );
     }
     if (hasAssignmentsForMovement(movement)) {

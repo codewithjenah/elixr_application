@@ -13,6 +13,8 @@ import '../../core/constants/music_tracks.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../data/models/assessment_score_display.dart';
+import '../../data/models/assessment_spec.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session_assignment_context.dart';
@@ -57,6 +59,12 @@ class PracticeScreen extends StatefulWidget {
     required this.difficulty,
     this.prop = TrainingProp.bottle,
     this.assignmentContext,
+    this.assessmentSpec,
+    this.sessionPurpose = 'official',
+    this.presentationTitle,
+    this.onCustomAssessmentComplete,
+    this.exitLocation,
+    this.popOnExit = false,
     @visibleForTesting this.websocketService,
   });
 
@@ -67,6 +75,29 @@ class PracticeScreen extends StatefulWidget {
   /// Trusted official assignment identity from `/assigned-practice/:id`.
   /// Ordinary catalog practice leaves this null.
   final SessionAssignmentContext? assignmentContext;
+
+  /// Validated teacher-created Wrist Stall spec. Official practice leaves
+  /// this null so the backend keeps using the official movement registry.
+  final AssessmentSpec? assessmentSpec;
+
+  /// `official`, `template_scored`, or `live_test`.
+  final String sessionPurpose;
+
+  /// Teacher-created display title. Official sessions use [movement].
+  final String? presentationTitle;
+
+  /// Classroom persist hook. Official sessions never call this.
+  final Future<void> Function({
+    required RubricAssessment rubric,
+    required int durationSeconds,
+  })?
+  onCustomAssessmentComplete;
+
+  /// Override for Test Movement and classroom template sessions.
+  final String? exitLocation;
+
+  /// Test Movement returns to the Teacher Builder instead of a GoRouter path.
+  final bool popOnExit;
 
   /// Test injection. Production constructs [WebSocketService] in [createState].
   @visibleForTesting
@@ -104,6 +135,10 @@ class PracticeScreenState extends State<PracticeScreen>
   late final String _movement = widget.movement;
   late final String _difficulty = widget.difficulty;
   late final TrainingProp _prop = widget.prop;
+
+  bool get _isCustomAssessment => widget.assessmentSpec != null;
+
+  bool get _isLiveTest => widget.sessionPurpose == 'live_test';
 
   late final WebSocketService _ws;
   late final bool _ownsWebSocket;
@@ -572,6 +607,8 @@ class PracticeScreenState extends State<PracticeScreen>
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
             : null,
+        sessionPurpose: widget.sessionPurpose,
+        assessmentSpec: widget.assessmentSpec,
       );
       if (!mounted) return;
       if (!_run.isPreparingCamera) return;
@@ -737,7 +774,7 @@ class PracticeScreenState extends State<PracticeScreen>
       if (!wasTraining) {
         await _cancelPreActive();
         if (_leaving || !mounted) return;
-        _goPracticeExit(catalog: true);
+        _leavePractice(catalog: true);
         return;
       }
 
@@ -767,18 +804,18 @@ class PracticeScreenState extends State<PracticeScreen>
           _run.cancelToIdle();
           _clearSessionState();
           if (mounted && !_leaving) {
-            router.go(_practiceExitLocation(catalog: true));
+            _leavePractice(catalog: true);
           }
           return;
         }
       }
 
-      if (userId == null) {
+      if (userId == null && !_isCustomAssessment) {
         _run.cancelToIdle();
         _clearSessionState();
         if (mounted && !_leaving) setState(() {});
         if (mounted && !_leaving) {
-          router.go(_practiceExitLocation(catalog: true));
+          _leavePractice(catalog: true);
         }
         return;
       }
@@ -790,11 +827,66 @@ class PracticeScreenState extends State<PracticeScreen>
           _feedback.latestFeedback?.assessment ?? _emptyRubric;
       final summaryDuration = _run.elapsedSeconds;
       final sessionAssessment = _feedback.buildSessionAssessment(
-        movement: _movement,
+        movement: widget.presentationTitle ?? _movement,
         prop: _prop,
         rubric: summaryRubric,
         heldSteady: heldSteady,
       );
+      if (_isCustomAssessment) {
+        _isShowingSummary = true;
+        if (mounted) setState(() {});
+        try {
+          unawaited(_playCongratsBestEffort(sfxVolume));
+          if (!mounted || _leaving) return;
+          final result = await SessionSummarySheet.show(
+            context,
+            movement: widget.presentationTitle ?? _movement,
+            durationSeconds: summaryDuration,
+            assessment: sessionAssessment,
+            nextMovement: null,
+            nextProp: null,
+            evidenceJpegBytes: null,
+            onSave: (_) async {
+              if (!_isLiveTest) {
+                await widget.onCustomAssessmentComplete?.call(
+                  rubric: summaryRubric,
+                  durationSeconds: summaryDuration,
+                );
+              }
+              return 'custom-assessment';
+            },
+          );
+          if (!mounted || _leaving) return;
+          if (result == SessionSummaryResult.tryAgain) {
+            await _sfx.stop();
+            _clearSessionState();
+            _run.cancelToIdle();
+            setState(() {});
+            await _startSession();
+            return;
+          }
+          await _sfx.stop();
+          if (_leaving || !mounted) return;
+          _clearSessionState();
+          _run.cancelToIdle();
+          setState(() {});
+          _leavePractice(catalog: true);
+        } finally {
+          _isShowingSummary = false;
+        }
+        return;
+      }
+
+      if (userId == null) {
+        _run.cancelToIdle();
+        _clearSessionState();
+        if (mounted && !_leaving) setState(() {});
+        if (mounted && !_leaving) {
+          _leavePractice(catalog: true);
+        }
+        return;
+      }
+
       var saveEvidence = false;
       final evidence = _confirmedEvidenceJpegBytes;
       if (heldSteady && evidence != null) {
@@ -983,6 +1075,9 @@ class PracticeScreenState extends State<PracticeScreen>
   }
 
   String _instructionForMovement(String movement) {
+    if (widget.assessmentSpec != null) {
+      return 'Balance the bottle on your ${widget.assessmentSpec!.lateralityLabel.toLowerCase()}. ELIXR will automatically check this Wrist Stall.';
+    }
     for (final m in movementCatalog) {
       if (m.name == movement) return m.description;
     }
@@ -990,6 +1085,7 @@ class PracticeScreenState extends State<PracticeScreen>
   }
 
   String _practiceExitLocation({required bool catalog}) {
+    if (widget.exitLocation != null) return widget.exitLocation!;
     final assignment = widget.assignmentContext;
     if (assignment != null) {
       return AppRoutePaths.assignmentDetail(assignment.assignmentId);
@@ -997,8 +1093,14 @@ class PracticeScreenState extends State<PracticeScreen>
     return catalog ? AppRoutePaths.movements : AppRoutePaths.dashboard;
   }
 
-  void _goPracticeExit({required bool catalog}) {
-    context.go(_practiceExitLocation(catalog: catalog));
+  void _leavePractice({required bool catalog}) {
+    if (widget.popOnExit) {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      return;
+    }
+    GoRouter.of(context).go(_practiceExitLocation(catalog: catalog));
   }
 
   bool get _shouldConfirmAbandon =>
@@ -1007,8 +1109,6 @@ class PracticeScreenState extends State<PracticeScreen>
   Future<void> _abandonAndLeave() async {
     if (_leaving || _isShowingSummary || _stopInFlight) return;
     _leaving = true;
-    final router = GoRouter.of(context);
-    final location = _practiceExitLocation(catalog: true);
     final feedbackSub = _feedbackSub;
     final previewSub = _previewSub;
     _feedbackSub = null;
@@ -1023,7 +1123,7 @@ class PracticeScreenState extends State<PracticeScreen>
     unawaited(_sfx.stop());
     _commandInFlight = false;
     _clearSessionState();
-    router.go(location);
+    _leavePractice(catalog: true);
   }
 
   Future<void> _confirmAbandonThen(Future<void> Function() onConfirmed) async {
@@ -1056,7 +1156,7 @@ class PracticeScreenState extends State<PracticeScreen>
   Future<void> _onBack() async {
     if (_isShowingSummary || _leaving || _stopInFlight) return;
     if (!_shouldConfirmAbandon) {
-      _goPracticeExit(catalog: true);
+      _leavePractice(catalog: true);
       return;
     }
     await _confirmAbandonThen(_abandonAndLeave);
@@ -1122,9 +1222,15 @@ class PracticeScreenState extends State<PracticeScreen>
 
                 final header = TrainingSessionHeader(
                   onBack: _onBack,
-                  title: _movement,
-                  statusPill: _difficulty,
-                  statusPillColor: trainingDifficultyColor(_difficulty),
+                  title: widget.presentationTitle ?? _movement,
+                  statusPill: _isCustomAssessment
+                      ? (_isLiveTest
+                            ? 'Test Movement'
+                            : 'Automatic ELIXR Assessment')
+                      : _difficulty,
+                  statusPillColor: _isCustomAssessment
+                      ? AppColors.accent
+                      : trainingDifficultyColor(_difficulty),
                   instruction: _instructionForMovement(_movement),
                   connectionState: _ws.connectionState,
                   connecting: _connecting,
@@ -1260,7 +1366,7 @@ class PracticeScreenState extends State<PracticeScreen>
                     scale: _scorePulse,
                     child: Text(
                       assessment != null
-                          ? '${assessment.total} / ${RubricScale.maxTotal}'
+                          ? AssessmentScoreDisplay.official(assessment.total)
                           : '—',
                       style: AppTheme.sectionTitle(
                         context,

@@ -4,6 +4,7 @@ import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/assignment_review_state.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/models/rubric_assessment.dart';
 
 /// Presentation-only result for one approved student and one class assignment.
 ///
@@ -100,9 +101,6 @@ abstract final class TeacherGradebookSemantics {
     if (score != null) {
       return base(TeacherGradebookCellState.scored, score.$1, detail: score.$2);
     }
-    if (assignment.isRetiredTemplate) {
-      return base(TeacherGradebookCellState.historical, 'Historical');
-    }
     if (assignment.isTeacherCreated) {
       return base(TeacherGradebookCellState.checked, 'Checked');
     }
@@ -127,11 +125,16 @@ abstract final class TeacherGradebookSemantics {
       );
     }
     final rubricTotal = attempt.rubricTotal;
-    if ((assignment.isOfficial || assignment.isRetiredTemplate) &&
+    if ((assignment.isOfficial || assignment.isTemplateScored) &&
         rubricTotal != null &&
         rubricTotal >= 0 &&
         rubricTotal <= 12) {
-      return _split(AssessmentScoreDisplay.official(rubricTotal));
+      return (
+        AssessmentScoreDisplay.official(rubricTotal),
+        AssessmentScoreDisplay.performanceLabel(
+          PerformanceLevel.fromTotal(rubricTotal),
+        ),
+      );
     }
     return null;
   }

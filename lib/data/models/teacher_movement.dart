@@ -113,9 +113,8 @@ class TeacherMovementRevision {
   final int schemaVersion;
   final DateTime? createdAt;
 
-  /// True only for a historical revision that must not be edited, assigned,
-  /// archived, or executed.
-  bool get isRetiredTemplate => assessmentMode == AssessmentMode.templateScored;
+  /// True when this revision uses automatic ELIXR template assessment.
+  bool get isTemplateScored => assessmentMode == AssessmentMode.templateScored;
 
   static TeacherMovementRevision? tryFromMap(
     Map<String, dynamic> map, {

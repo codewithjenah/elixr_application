@@ -5,7 +5,7 @@ import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../models/assessment_mode.dart';
+import '../models/assessment_spec.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
@@ -111,13 +111,15 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
+    AssessmentSpec? automaticAssessment,
   }) async {
-    final spec = buildTeacherReviewedSpec(
+    final spec = buildTeacherMovementSpec(
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
+      automaticAssessment: automaticAssessment,
     );
     final movementRef = _movements.doc();
     final revisionRef = movementRef
@@ -163,13 +165,15 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
+    AssessmentSpec? automaticAssessment,
   }) async {
-    final spec = buildTeacherReviewedSpec(
+    final spec = buildTeacherMovementSpec(
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
+      automaticAssessment: automaticAssessment,
     );
     final movementRef = _movements.doc(movementId);
     final existing = await movementRef.get();
@@ -186,14 +190,6 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     if (current.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    final currentRevision = await getRevision(
-      movementId: movementId,
-      revisionId: current.currentRevisionId,
-    );
-    ensureRevisionAssessmentMode(
-      revision: currentRevision,
-      expected: AssessmentMode.teacherReviewed,
-    );
     final previousRevisionId = current.currentRevisionId;
     final revisionRef = movementRef
         .collection(FirestoreCollections.teacherMovementRevisions)
@@ -245,14 +241,6 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     if (current.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    final currentRevision = await getRevision(
-      movementId: movementId,
-      revisionId: current.currentRevisionId,
-    );
-    ensureRevisionAssessmentMode(
-      revision: currentRevision,
-      expected: AssessmentMode.teacherReviewed,
-    );
     await movementRef.update({
       'status': TeacherMovementStatus.archived.name,
       'updated_at': FieldValue.serverTimestamp(),
@@ -279,14 +267,6 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     if (current.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    final currentRevision = await getRevision(
-      movementId: movementId,
-      revisionId: current.currentRevisionId,
-    );
-    ensureRevisionAssessmentMode(
-      revision: currentRevision,
-      expected: AssessmentMode.teacherReviewed,
-    );
 
     final linkedAssignments = await _assignments
         .where('teacher_id', isEqualTo: teacherId)

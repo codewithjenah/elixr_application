@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -54,17 +55,39 @@ void main() {
     );
   });
 
-  test(
-    'historical template assignment never dispatches to camera practice',
-    () {
-      expect(
-        dispatchAssignedPractice(
-          _assignment(mode: AssessmentMode.templateScored),
+  test('template_scored Wrist Stall dispatches to automatic practice', () {
+    expect(
+      dispatchAssignedPractice(
+        GroupAssignment(
+          id: 'asg1',
+          teacherId: 'teacher-1',
+          groupId: 'g1',
+          movementId: 'tm1',
+          revisionId: 'rev1',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.templateScored,
+          status: GroupAssignmentStatus.active,
+          displayTitle: 'Classroom Wrist Stall',
+          teacherDisplayName: 'Grace Hopper',
+          groupName: 'BSHM 4A',
+          allowedProp: TrainingProp.bottle,
+          assessmentSpec: const AssessmentSpec(
+            laterality: AssessmentLaterality.left,
+          ),
         ),
-        AssignedPracticeDispatch.retiredTemplate,
-      );
-    },
-  );
+      ),
+      AssignedPracticeDispatch.templateScored,
+    );
+  });
+
+  test('template_scored without a Wrist Stall spec is invalid', () {
+    expect(
+      dispatchAssignedPractice(
+        _assignment(mode: AssessmentMode.templateScored),
+      ),
+      AssignedPracticeDispatch.invalid,
+    );
+  });
 
   test('archived teacher-reviewed assignment is invalid', () {
     expect(

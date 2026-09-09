@@ -196,7 +196,7 @@ class _TeacherHistorySessionRowState extends State<_TeacherHistorySessionRow> {
     final rubric = s.rubric;
     final isRubric = s.isRubricAssessed && rubric != null;
     final result = isRubric
-        ? '${AssessmentScoreDisplay.official(rubric.total)} · ${rubric.performanceLevel.label}'
+        ? AssessmentScoreDisplay.officialWithPerformance(rubric.total)
         : s.legacyScore == null
         ? 'Not scored'
         : '${s.legacyScore}%';
@@ -448,51 +448,58 @@ class _AssessmentDetails extends StatelessWidget {
         style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Overall performance',
-          style: AppTheme.caption.copyWith(
-            color: context.elixTextSecondary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          rubric.performanceLevel.label,
-          style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 4),
-        Text('Score: ${rubric.total} out of 12', style: AppTheme.bodySecondary),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Skill breakdown',
-          style: AppTheme.caption.copyWith(
-            color: context.elixTextSecondary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        for (final criterion in RubricCriterion.values)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              '${_teacherCriterionLabel(criterion)}: ${rubric.scoreFor(criterion)}/3',
-              style: AppTheme.bodySecondary,
+    return Semantics(
+      container: true,
+      label: AssessmentScoreDisplay.officialSemantics(
+        rubric.total,
+        level: rubric.performanceLevel,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'ELIXR Score',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontWeight: FontWeight.w600,
             ),
           ),
-      ],
+          const SizedBox(height: 4),
+          Text(
+            AssessmentScoreDisplay.official(rubric.total),
+            style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            AssessmentScoreDisplay.performanceLabel(rubric.performanceLevel),
+            style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Skill breakdown',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final criterion in RubricCriterion.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                AssessmentScoreDisplay.criterionScore(
+                  criterion,
+                  rubric.scoreFor(criterion),
+                  colon: true,
+                ),
+                style: AppTheme.bodySecondary,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
-
-String _teacherCriterionLabel(RubricCriterion criterion) => switch (criterion) {
-  RubricCriterion.technique => 'Technique',
-  RubricCriterion.stability => 'Stability & control',
-  RubricCriterion.completion => 'Completion',
-  RubricCriterion.propPositioning => 'Prop positioning',
-};
 
 class _HistoryEvidence extends StatelessWidget {
   const _HistoryEvidence({required this.controller, required this.session});

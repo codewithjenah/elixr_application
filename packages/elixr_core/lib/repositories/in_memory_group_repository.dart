@@ -196,16 +196,11 @@ class InMemoryGroupRepository implements GroupRepository {
     required String traineeId,
   }) {
     final key = '$traineeId::$groupId';
-    final existing = _traineeGroupControllers[key];
-    if (existing != null && !existing.isClosed) return existing.stream;
-    late final StreamController<ElixrGroup?> controller;
-    controller = StreamController<ElixrGroup?>.broadcast(
-      onListen: () => controller.add(
-        _activeGroupForTrainee(groupId: groupId, traineeId: traineeId),
-      ),
+    return _watchCurrent(
+      _traineeGroupControllers,
+      key,
+      () => _activeGroupForTrainee(groupId: groupId, traineeId: traineeId),
     );
-    _traineeGroupControllers[key] = controller;
-    return controller.stream;
   }
 
   @override
@@ -599,14 +594,11 @@ class InMemoryGroupRepository implements GroupRepository {
   }
 
   Stream<List<ElixrGroup>> _watchGroups(String teacherId) {
-    final existing = _teacherGroupControllers[teacherId];
-    if (existing != null && !existing.isClosed) return existing.stream;
-    late final StreamController<List<ElixrGroup>> controller;
-    controller = StreamController<List<ElixrGroup>>.broadcast(
-      onListen: () => controller.add(_groupsForTeacher(teacherId)),
+    return _watchCurrent(
+      _teacherGroupControllers,
+      teacherId,
+      () => _groupsForTeacher(teacherId),
     );
-    _teacherGroupControllers[teacherId] = controller;
-    return controller.stream;
   }
 
   Stream<List<GroupMembership>> _watchMemberships(
@@ -614,14 +606,41 @@ class InMemoryGroupRepository implements GroupRepository {
     String key,
     List<GroupMembership> Function() current,
   ) {
+    return _watchCurrent(controllers, key, current);
+  }
+
+  Stream<T> _watchCurrent<T>(
+    Map<String, StreamController<T>> controllers,
+    String key,
+    T Function() current,
+  ) {
     final existing = controllers[key];
-    if (existing != null && !existing.isClosed) return existing.stream;
-    late final StreamController<List<GroupMembership>> controller;
-    controller = StreamController<List<GroupMembership>>.broadcast(
-      onListen: () => controller.add(current()),
+    // Sync delivery keeps in-memory writes visible to the current awaiter.
+    // An async broadcast plus an async replay delays listeners by two
+    // microtasks, so controllers observe stale snapshots after create/seed.
+    final controller = existing != null && !existing.isClosed
+        ? existing
+        : (controllers[key] = StreamController<T>.broadcast(sync: true));
+    StreamSubscription<T>? subscription;
+    late final StreamController<T> replay;
+    replay = StreamController<T>(
+      sync: true,
+      onListen: () {
+        subscription = controller.stream.listen(
+          replay.add,
+          onError: replay.addError,
+          onDone: replay.close,
+        );
+        replay.add(current());
+      },
+      onPause: () => subscription?.pause(),
+      onResume: () => subscription?.resume(),
+      onCancel: () {
+        final cancel = subscription?.cancel();
+        if (cancel != null) unawaited(cancel);
+      },
     );
-    controllers[key] = controller;
-    return controller.stream;
+    return replay.stream;
   }
 
   List<ElixrGroup> _groupsForTeacher(String teacherId) {

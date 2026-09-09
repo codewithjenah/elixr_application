@@ -131,7 +131,6 @@ void main() {
     tester,
   ) async {
     await pumpPane(tester, const Size(1280, 720));
-
     expect(
       find.byKey(const Key('teacher_classwork_assignment_roster_workspace')),
       findsOneWidget,
@@ -166,7 +165,6 @@ void main() {
       ),
     );
     await pumpPane(tester, const Size(1280, 720));
-
     expect(
       find.byKey(const Key('teacher_classwork_student_student')),
       findsOneWidget,
@@ -389,7 +387,7 @@ void main() {
     expect(checked?.status, AssignmentAttemptStatus.checked);
     expect(checked?.gradeScore, 92);
     expect(checked?.reviewFeedback, 'Strong control.');
-    expect(find.text('Score: 92/100 • 92%'), findsOneWidget);
+    expect(find.text('Teacher Grade: 92/100 • 92%'), findsOneWidget);
   });
 
   testWidgets('scoring criteria are editable only while work awaits checking', (

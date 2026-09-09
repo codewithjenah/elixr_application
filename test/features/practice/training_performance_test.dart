@@ -4,19 +4,19 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('trainingPerformanceLabel', () {
     test('uses rubric performance-level thresholds', () {
-      expect(trainingPerformanceLabel(0), 'Beginning');
-      expect(trainingPerformanceLabel(3), 'Beginning');
-      expect(trainingPerformanceLabel(4), 'Developing');
-      expect(trainingPerformanceLabel(6), 'Developing');
-      expect(trainingPerformanceLabel(7), 'Competent');
-      expect(trainingPerformanceLabel(9), 'Competent');
-      expect(trainingPerformanceLabel(10), 'Proficient');
-      expect(trainingPerformanceLabel(11), 'Proficient');
+      expect(trainingPerformanceLabel(0), 'Getting Started');
+      expect(trainingPerformanceLabel(3), 'Getting Started');
+      expect(trainingPerformanceLabel(4), 'Learning');
+      expect(trainingPerformanceLabel(6), 'Learning');
+      expect(trainingPerformanceLabel(7), 'Good');
+      expect(trainingPerformanceLabel(9), 'Good');
+      expect(trainingPerformanceLabel(10), 'Great');
+      expect(trainingPerformanceLabel(11), 'Great');
       expect(trainingPerformanceLabel(12), 'Mastered');
     });
 
     test('clamps out-of-range totals instead of throwing', () {
-      expect(trainingPerformanceLabel(-1), 'Beginning');
+      expect(trainingPerformanceLabel(-1), 'Getting Started');
       expect(trainingPerformanceLabel(13), 'Mastered');
     });
   });

@@ -192,25 +192,17 @@ void main() {
       await tester.tap(
         find.byKey(const Key('teacher_classwork_student_trainee-1')),
       );
-      await tester.pump();
-      // The in-memory repository uses non-replaying broadcast streams. Emit the
-      // existing records once for the newly pushed production-style controller.
-      assignments.seedAssignment(assignment);
-      for (var i = 0; i < 2; i++) {
+      for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(
         find.byKey(const Key('teacher_classwork_attempts_loading')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         find.byKey(const Key('teacher_classwork_not_turned_in')),
         findsNothing,
       );
-      assignments.seedAttempt(checkedAttempt);
-      for (var i = 0; i < 3; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
       expect(
         openedClassworkUris,
         contains(
@@ -235,7 +227,7 @@ void main() {
         find.byKey(const Key('teacher_classwork_submission_detail')),
         findsOneWidget,
       );
-      expect(find.text('Score: 92/100 • 92%'), findsOneWidget);
+      expect(find.text('Teacher Grade: 92/100 • 92%'), findsOneWidget);
       expect(
         find.byKey(const Key('teacher_classwork_not_turned_in')),
         findsNothing,
@@ -333,7 +325,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Ada Lovelace'), findsOneWidget);
-      expect(find.text('Score: 92/100 • 92%'), findsOneWidget);
+      expect(find.text('Teacher Grade: 92/100 • 92%'), findsOneWidget);
       expect(
         find.byKey(const Key('teacher_classwork_not_turned_in')),
         findsNothing,

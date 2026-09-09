@@ -12,9 +12,11 @@ import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/movement_origin.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_movement_revision_spec.dart';
 import '../models/teacher_activity_assessment.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
+import '../models/rubric_assessment.dart';
 
 abstract class ClassroomAssignmentRepository {
   Future<GroupAssignment> createOfficialAssignment({
@@ -220,6 +222,15 @@ abstract class ClassroomAssignmentRepository {
   Future<AssignmentAttempt> startTeacherCreatedAttempt({
     required String traineeId,
     required GroupAssignment assignment,
+  });
+
+  /// Persists an automatic Wrist Stall score for an assigned teacher-created
+  /// movement. Never writes `sessions` or awards official XP.
+  Future<AssignmentAttempt> submitTemplateScore({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required RubricAssessment rubric,
+    required int durationSeconds,
   });
 
   /// Server-authoritative v2 reservation. A reservation does not consume a
@@ -526,7 +537,6 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   required Object updatedAt,
   bool includeGradingFields = true,
 }) {
-  ensureTeacherAssignmentMaxScore(maxScore);
   if (movement.teacherId != teacherId || revision.teacherId != teacherId) {
     throw const ClassroomException(ClassroomError.forbidden);
   }
@@ -543,15 +553,59 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     );
   }
 
+  if (revision.assessmentMode == AssessmentMode.templateScored) {
+    final templateSpec = revision.spec;
+    if (templateSpec is! TemplateScoredRevisionSpec ||
+        !templateSpec.assessment.isCanonicalWristStallV1) {
+      throw const ClassroomException(
+        ClassroomError.identityMismatch,
+        'This automatic assessment template cannot be assigned.',
+      );
+    }
+    if (templateSpec.requiredProp != TrainingProp.bottle) {
+      throw const ClassroomException(ClassroomError.identityMismatch);
+    }
+    return {
+      'teacher_id': teacherId,
+      'group_id': group.id,
+      'movement_id': movement.id,
+      'revision_id': revision.id,
+      'origin': MovementOrigin.teacherCreated.wireValue,
+      'assessment_mode': AssessmentMode.templateScored.wireValue,
+      'status': status.name,
+      'display_title': (displayTitle ?? movement.title).trim(),
+      'display_instructions': (displayInstructions ?? templateSpec.instructions)
+          .trim(),
+      'display_safety_guidance': ?(() {
+        final value = displaySafetyGuidance ?? templateSpec.safetyGuidance;
+        return value?.trim().isEmpty == true ? null : value?.trim();
+      })(),
+      'allowed_prop': TrainingProp.bottle.protocolValue,
+      'assessment_spec': templateSpec.assessment.toMap(),
+      'teacher_display_name': teacherDisplayName.trim(),
+      'group_name': group.name,
+      ...audience.toMap(),
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+      'due_at': ?dueAt,
+      'publish_at': ?_validatedPublication(
+        status: status,
+        publishAt: publishAt,
+      ),
+      if (_normalizeTopic(topic) != null) 'topic': _normalizeTopic(topic),
+    };
+  }
+
   if (revision.assessmentMode != AssessmentMode.teacherReviewed ||
       revision.spec is! TeacherReviewedMovementSpec) {
     throw const ClassroomException(
       ClassroomError.identityMismatch,
-      'Retired template-scored movements are read-only and cannot be assigned.',
+      'This Teacher Activity cannot be assigned.',
     );
   }
 
   final spec = revision.spec as TeacherReviewedMovementSpec;
+  ensureTeacherAssignmentMaxScore(maxScore);
   var resolvedAssessment = activityAssessment ?? spec.effectiveAssessment;
   if (resolvedAssessment.rubric.maximumScore != maxScore) {
     if (resolvedAssessment.rubric.template ==
@@ -627,6 +681,58 @@ void ensureTeacherAssignmentMaxScore(int maxScore) {
       'Maximum score must be between 1 and 100.',
     );
   }
+}
+
+void ensureTemplateScoreSubmission({
+  required String traineeId,
+  required GroupAssignment assignment,
+}) {
+  if (!assignment.isTemplateScored ||
+      assignment.assessmentSpec == null ||
+      !assignment.assessmentSpec!.isCanonicalWristStallV1) {
+    throw const ClassroomException(
+      ClassroomError.identityMismatch,
+      'This assignment is not an automatic ELIXR assessment.',
+    );
+  }
+  if (!assignment.isActive) {
+    throw const ClassroomException(ClassroomError.archived);
+  }
+  if (!assignment.isAvailableToTrainee(traineeId)) {
+    throw const ClassroomException(ClassroomError.forbidden);
+  }
+  if (assignment.isOverdue) {
+    throw const ClassroomException(ClassroomError.deadlinePassed);
+  }
+}
+
+AssignmentAttempt buildTemplateScoreAttempt({
+  required String id,
+  required String traineeId,
+  required GroupAssignment assignment,
+  required RubricAssessment rubric,
+  required int durationSeconds,
+  required DateTime completedAt,
+}) {
+  return AssignmentAttempt(
+    id: id,
+    traineeId: traineeId,
+    teacherId: assignment.teacherId,
+    groupId: assignment.groupId,
+    assignmentId: assignment.id,
+    movementId: assignment.movementId,
+    revisionId: assignment.revisionId,
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.templateScored,
+    attemptKind: AssignmentAttemptKind.templateScore,
+    status: AssignmentAttemptStatus.submitted,
+    awardsGlobalXp: false,
+    rubric: rubric,
+    durationSeconds: durationSeconds,
+    propType: TrainingProp.bottle,
+    completedAt: completedAt,
+    createdAt: completedAt,
+  );
 }
 
 void ensureTeacherReviewGrade({

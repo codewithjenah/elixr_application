@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../../data/repositories/progress_repository.dart';
 import 'dashboard_panel_card.dart';
 
@@ -29,7 +30,7 @@ class DashboardTrainingOverview extends StatelessWidget {
         ? stats?.averageRubricTotal
         : stats?.averageLegacyScore;
     final best = hasRubric ? stats?.bestRubricTotal : stats?.bestLegacyScore;
-    final scaleSuffix = hasRubric ? ' /12' : ' /100';
+    final scaleSuffix = hasRubric ? '/12' : '/100';
 
     final metrics = <_MetricData>[
       _MetricData(
@@ -42,9 +43,11 @@ class DashboardTrainingOverview extends StatelessWidget {
         accent: AppColors.accent,
       ),
       _MetricData(
-        label: hasRubric ? 'Average Rubric' : 'Average Legacy Score',
+        label: hasRubric ? 'Average Score' : 'Average Legacy Score',
         value: average != null
-            ? average.toStringAsFixed(hasRubric ? 1 : 0)
+            ? (hasRubric
+                  ? AssessmentScoreDisplay.points(average)
+                  : average.toStringAsFixed(0))
             : '—',
         valueSuffix: average != null ? scaleSuffix : null,
         subLabel: weeklyTrendPercent != null
@@ -54,7 +57,7 @@ class DashboardTrainingOverview extends StatelessWidget {
         accent: AppColors.accentSoft,
       ),
       _MetricData(
-        label: hasRubric ? 'Best Rubric' : 'Best Legacy Score',
+        label: hasRubric ? 'Best Score' : 'Best Legacy Score',
         value: best?.toString() ?? '—',
         valueSuffix: best != null ? scaleSuffix : null,
         subLabel: 'Personal record',

@@ -230,7 +230,7 @@ class GroupAssignment {
   final String? displaySafetyGuidance;
   final TrainingProp? allowedProp;
 
-  /// Historical `assessment_spec` payload, parsed only for retired records.
+  /// Frozen automatic assessment template for this assignment snapshot.
   final AssessmentSpec? assessmentSpec;
 
   /// Maximum score for a Teacher-created recorded assignment.
@@ -270,7 +270,7 @@ class GroupAssignment {
       (isScheduled && !instant.toUtc().isBefore(publishAt!.toUtc()));
   bool get isOfficial => origin == MovementOrigin.officialElixr;
   bool get isTeacherCreated => origin == MovementOrigin.teacherCreated;
-  bool get isRetiredTemplate => assessmentMode == AssessmentMode.templateScored;
+  bool get isTemplateScored => assessmentMode == AssessmentMode.templateScored;
   bool isAvailableToTrainee(String traineeId) =>
       audience.isAvailableToTrainee(traineeId);
 

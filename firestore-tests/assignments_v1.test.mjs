@@ -1982,4 +1982,21 @@ describe('official allowed_prop create/update negatives', () => {
       }),
     );
   });
+
+  test('teacher-created assignment cannot rewrite its revision prop', async () => {
+    await seedClassroom({secondAssignment: false});
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgCustom'),
+        teacherCreatedAssignmentDoc(),
+      );
+    });
+    const db = context('teacher').firestore();
+    await assertFails(
+      updateDoc(doc(db, 'group_assignments', 'asgCustom'), {
+        allowed_prop: 'shaker',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
 });

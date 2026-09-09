@@ -9,16 +9,19 @@ import 'package:video_player_win/video_player_win.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
-import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_scaffold_page.dart';
 import '../../../core/widgets/elixr_video_player.dart';
+import '../../../data/models/assessment_mode.dart';
+import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
+import '../../../data/models/teacher_movement_revision_spec.dart';
 import '../../../data/models/teacher_reviewed_movement_spec.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../practice/practice_screen.dart';
 import 'teacher_movement_builder_draft.dart';
 import 'teacher_demo_recording_dialog.dart';
 
@@ -46,6 +49,14 @@ typedef TeacherActivityDemoUploadCallback =
       required TeacherActivityDemoSource source,
     });
 
+typedef TeacherAutomaticSaveCallback =
+    Future<void> Function({
+      required String title,
+      required String instructions,
+      required AssessmentLaterality laterality,
+      String? safetyGuidance,
+    });
+
 typedef TeacherAssignmentActivitySaveCallback =
     Future<void> Function({
       required String title,
@@ -69,6 +80,8 @@ class TeacherMovementBuilderDialog extends StatefulWidget {
     this.onEditTeacherReviewed,
     this.onCreateActivity,
     this.onEditActivity,
+    this.onCreateAutomatic,
+    this.onEditAutomatic,
     this.onUploadDemonstration,
     this.assignment,
     this.approvedMemberships = const [],
@@ -82,6 +95,8 @@ class TeacherMovementBuilderDialog extends StatefulWidget {
   final TeacherReviewedSaveCallback? onEditTeacherReviewed;
   final TeacherActivitySaveCallback? onCreateActivity;
   final TeacherActivitySaveCallback? onEditActivity;
+  final TeacherAutomaticSaveCallback? onCreateAutomatic;
+  final TeacherAutomaticSaveCallback? onEditAutomatic;
   final TeacherActivityDemoUploadCallback? onUploadDemonstration;
   final GroupAssignment? assignment;
   final List<GroupMembership> approvedMemberships;
@@ -113,11 +128,13 @@ class _TeacherMovementBuilderDialogState
   late AssignmentAttemptPolicy _attemptPolicy;
   late AssignmentAudienceType _audienceType;
   late Set<String> _recipientIds;
+  late AssessmentMode _assessmentMode;
+  late AssessmentLaterality _laterality;
 
   bool get _isEditing => widget.existing != null || widget.assignment != null;
   bool get _isAssignmentEditor => widget.assignment != null;
-  bool get _isRetiredTemplate =>
-      widget.existingRevision?.isRetiredTemplate == true;
+  bool get _isAutomaticAssessment =>
+      !_isAssignmentEditor && _assessmentMode == AssessmentMode.templateScored;
 
   @override
   void initState() {
@@ -161,6 +178,19 @@ class _TeacherMovementBuilderDialogState
                 revision?.spec.safetyGuidance,
             assessment: existingAssessment ?? fallbackAssessment,
           );
+    final templateSpec = revision?.spec is TemplateScoredRevisionSpec
+        ? revision!.spec as TemplateScoredRevisionSpec
+        : null;
+    _assessmentMode = assignment != null
+        ? AssessmentMode.teacherReviewed
+        : (revision?.assessmentMode ?? AssessmentMode.teacherReviewed);
+    _laterality =
+        templateSpec?.assessment.laterality == AssessmentLaterality.right
+        ? AssessmentLaterality.right
+        : AssessmentLaterality.left;
+    if (_assessmentMode == AssessmentMode.templateScored) {
+      _draft.requiredProp = TrainingProp.bottle;
+    }
     _dueAt = assignment?.dueAt;
     _hasDueDate = _dueAt != null;
     _attemptPolicy =
@@ -368,7 +398,7 @@ class _TeacherMovementBuilderDialogState
   }
 
   Future<void> _save() async {
-    if (_isRetiredTemplate || _saving) return;
+    if (_saving) return;
     _syncDraftText();
     final titleError = TeacherReviewedMovementSpec.validateTitle(_draft.title);
     final instructionsError = TeacherReviewedMovementSpec.validateInstructions(
@@ -377,12 +407,12 @@ class _TeacherMovementBuilderDialogState
     final safetyError = TeacherReviewedMovementSpec.validateSafetyGuidance(
       _draft.safetyGuidance,
     );
-    final assessment = _buildAssessment();
+    final assessment = _isAutomaticAssessment ? null : _buildAssessment();
     final topic = _topic.text.trim();
     if (titleError != null ||
         instructionsError != null ||
         safetyError != null ||
-        assessment == null ||
+        (!_isAutomaticAssessment && assessment == null) ||
         topic.length > GroupAssignment.maxTopicLength) {
       setState(() {
         _validationMessage =
@@ -403,7 +433,25 @@ class _TeacherMovementBuilderDialogState
       _validationMessage = null;
     });
     try {
-      if (_isAssignmentEditor) {
+      if (_isAutomaticAssessment) {
+        final laterality = _laterality;
+        if (laterality != AssessmentLaterality.left &&
+            laterality != AssessmentLaterality.right) {
+          throw StateError('Choose Left wrist or Right wrist.');
+        }
+        final saveAutomatic = _isEditing
+            ? widget.onEditAutomatic
+            : widget.onCreateAutomatic;
+        if (saveAutomatic == null) {
+          throw StateError('Automatic ELIXR Assessment is unavailable.');
+        }
+        await saveAutomatic(
+          title: _draft.title,
+          instructions: _draft.instructions,
+          laterality: laterality,
+          safetyGuidance: _draft.safetyGuidance,
+        );
+      } else if (_isAssignmentEditor) {
         final audience = switch (_audienceType) {
           AssignmentAudienceType.entireClass =>
             const AssignmentAudience.entireClass(),
@@ -421,7 +469,7 @@ class _TeacherMovementBuilderDialogState
           instructions: _draft.instructions,
           requiredProp: _draft.requiredProp,
           safetyGuidance: _draft.safetyGuidance,
-          assessment: assessment,
+          assessment: assessment!,
           attemptPolicy: _attemptPolicy,
           audience: audience,
           dueAt: _hasDueDate ? _dueAt : null,
@@ -434,7 +482,7 @@ class _TeacherMovementBuilderDialogState
             instructions: _draft.instructions,
             requiredProp: _draft.requiredProp,
             safetyGuidance: _draft.safetyGuidance,
-            assessment: assessment,
+            assessment: assessment!,
           );
         } else {
           await widget.onEditTeacherReviewed?.call(
@@ -451,7 +499,7 @@ class _TeacherMovementBuilderDialogState
             instructions: _draft.instructions,
             requiredProp: _draft.requiredProp,
             safetyGuidance: _draft.safetyGuidance,
-            assessment: assessment,
+            assessment: assessment!,
           );
         } else {
           await widget.onCreateTeacherReviewed(
@@ -481,12 +529,32 @@ class _TeacherMovementBuilderDialogState
     if (mounted) Navigator.pop(context);
   }
 
+  Future<void> _openTestMovement() async {
+    _syncDraftText();
+    final spec = AssessmentSpec(laterality: _laterality);
+    if (!spec.isWritableWristStallV1) return;
+    final title = _draft.title.trim().isEmpty
+        ? spec.displayMovementLabel
+        : _draft.title.trim();
+    await Navigator.of(context).push<void>(
+      FluentPageRoute<void>(
+        builder: (_) => PracticeScreen(
+          movement: AssessmentSpec.protocolMovementName,
+          difficulty: 'Easy',
+          prop: TrainingProp.bottle,
+          assessmentSpec: spec,
+          sessionPurpose: 'live_test',
+          presentationTitle: title,
+          popOnExit: true,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final fieldsEnabled = !_isRetiredTemplate && !_saving;
-    final accent = _isRetiredTemplate
-        ? context.elixColors.warning
-        : context.elixColors.brandPrimary;
+    final fieldsEnabled = !_saving;
+    final accent = context.elixColors.brandPrimary;
     final heading = _isAssignmentEditor
         ? 'Edit Classroom Activity'
         : _isEditing
@@ -494,10 +562,10 @@ class _TeacherMovementBuilderDialogState
         : 'Create Teacher Activity';
     final subtitle = _isAssignmentEditor
         ? 'Update this Classroom Activity for future trainee attempts.'
-        : _isRetiredTemplate
-        ? 'Review the preserved details for this historical movement.'
+        : _isAutomaticAssessment
+        ? 'ELIXR will automatically check this movement using a supported movement template.'
         : _isEditing
-        ? 'Publish a new teacher-reviewed Activity revision for future assignments.'
+        ? 'Publish a new revision for future assignments. Existing assignments stay frozen.'
         : 'Define a focused Activity for trainees to record and submit.';
 
     return FocusTraversalGroup(
@@ -524,7 +592,29 @@ class _TeacherMovementBuilderDialogState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _ReviewModeNotice(isRetiredTemplate: _isRetiredTemplate),
+                  _AssessmentModeSection(
+                    enabled: fieldsEnabled && !_isAssignmentEditor,
+                    mode: _isAssignmentEditor
+                        ? AssessmentMode.teacherReviewed
+                        : _assessmentMode,
+                    laterality: _laterality,
+                    onModeChanged: _isAssignmentEditor
+                        ? null
+                        : (mode) {
+                            setState(() {
+                              _assessmentMode = mode;
+                              if (mode == AssessmentMode.templateScored) {
+                                _draft.requiredProp = TrainingProp.bottle;
+                              }
+                            });
+                          },
+                    onLateralityChanged: (value) {
+                      setState(() => _laterality = value);
+                    },
+                    onTestMovement: _isAutomaticAssessment && fieldsEnabled
+                        ? _openTestMovement
+                        : null,
+                  ),
                   if (_validationMessage != null) ...[
                     const SizedBox(height: AppSpacing.md),
                     _ValidationNotice(message: _validationMessage!),
@@ -607,7 +697,8 @@ class _TeacherMovementBuilderDialogState
                                     child: Text(value.displayLabel),
                                   ),
                               ],
-                              onChanged: fieldsEnabled
+                              onChanged:
+                                  fieldsEnabled && !_isAutomaticAssessment
                                   ? (value) {
                                       if (value == null) return;
                                       setState(
@@ -686,321 +777,326 @@ class _TeacherMovementBuilderDialogState
                     ),
                     const SizedBox(height: AppSpacing.lg),
                   ],
-                  _FormSection(
-                    icon: FluentIcons.heart,
-                    title: 'Practice requirements',
-                    description:
-                        'ELIXR checks the required prop plus these visibility requirements before recording.',
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final fields = [
-                          _BuilderField(
-                            label: 'Hand readiness',
-                            helperText: 'How many hands must be visible.',
-                            child: ComboBox<ActivityHandRequirement>(
-                              key: const ValueKey('builder-readiness-hands'),
-                              value: _draft.readiness.hands,
-                              isExpanded: true,
-                              items: [
-                                for (final value
-                                    in ActivityHandRequirement.values)
-                                  ComboBoxItem(
-                                    value: value,
-                                    child: Text(value.displayLabel),
-                                  ),
-                              ],
-                              onChanged: fieldsEnabled
-                                  ? (value) {
-                                      if (value == null) return;
-                                      setState(() {
-                                        _draft.readiness =
-                                            TeacherActivityReadinessSpec(
-                                              hands: value,
-                                              body: _draft.readiness.body,
-                                            );
-                                      });
-                                    }
-                                  : null,
+                  if (!_isAutomaticAssessment) ...[
+                    _FormSection(
+                      icon: FluentIcons.heart,
+                      title: 'Practice requirements',
+                      description:
+                          'ELIXR checks the required prop plus these visibility requirements before recording.',
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final fields = [
+                            _BuilderField(
+                              label: 'Hand readiness',
+                              helperText: 'How many hands must be visible.',
+                              child: ComboBox<ActivityHandRequirement>(
+                                key: const ValueKey('builder-readiness-hands'),
+                                value: _draft.readiness.hands,
+                                isExpanded: true,
+                                items: [
+                                  for (final value
+                                      in ActivityHandRequirement.values)
+                                    ComboBoxItem(
+                                      value: value,
+                                      child: Text(value.displayLabel),
+                                    ),
+                                ],
+                                onChanged: fieldsEnabled
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _draft.readiness =
+                                              TeacherActivityReadinessSpec(
+                                                hands: value,
+                                                body: _draft.readiness.body,
+                                              );
+                                        });
+                                      }
+                                    : null,
+                              ),
                             ),
-                          ),
-                          _BuilderField(
-                            label: 'Body readiness',
-                            helperText:
-                                'Whether the trainee’s upper body must be visible.',
-                            child: ComboBox<ActivityBodyRequirement>(
-                              key: const ValueKey('builder-readiness-body'),
-                              value: _draft.readiness.body,
-                              isExpanded: true,
-                              items: [
-                                for (final value
-                                    in ActivityBodyRequirement.values)
-                                  ComboBoxItem(
-                                    value: value,
-                                    child: Text(value.displayLabel),
-                                  ),
-                              ],
-                              onChanged: fieldsEnabled
-                                  ? (value) {
-                                      if (value == null) return;
-                                      setState(() {
-                                        _draft.readiness =
-                                            TeacherActivityReadinessSpec(
-                                              hands: _draft.readiness.hands,
-                                              body: value,
-                                            );
-                                      });
-                                    }
-                                  : null,
+                            _BuilderField(
+                              label: 'Body readiness',
+                              helperText:
+                                  'Whether the trainee’s upper body must be visible.',
+                              child: ComboBox<ActivityBodyRequirement>(
+                                key: const ValueKey('builder-readiness-body'),
+                                value: _draft.readiness.body,
+                                isExpanded: true,
+                                items: [
+                                  for (final value
+                                      in ActivityBodyRequirement.values)
+                                    ComboBoxItem(
+                                      value: value,
+                                      child: Text(value.displayLabel),
+                                    ),
+                                ],
+                                onChanged: fieldsEnabled
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _draft.readiness =
+                                              TeacherActivityReadinessSpec(
+                                                hands: _draft.readiness.hands,
+                                                body: value,
+                                              );
+                                        });
+                                      }
+                                    : null,
+                              ),
                             ),
-                          ),
-                        ];
-                        if (constraints.maxWidth >= 700) {
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          ];
+                          if (constraints.maxWidth >= 700) {
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (
+                                  var index = 0;
+                                  index < fields.length;
+                                  index++
+                                ) ...[
+                                  Expanded(child: fields[index]),
+                                  if (index < fields.length - 1)
+                                    const SizedBox(width: AppSpacing.md),
+                                ],
+                              ],
+                            );
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               for (
                                 var index = 0;
                                 index < fields.length;
                                 index++
                               ) ...[
-                                Expanded(child: fields[index]),
+                                fields[index],
                                 if (index < fields.length - 1)
-                                  const SizedBox(width: AppSpacing.md),
+                                  const SizedBox(height: AppSpacing.md),
                               ],
                             ],
                           );
-                        }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (
-                              var index = 0;
-                              index < fields.length;
-                              index++
-                            ) ...[
-                              fields[index],
-                              if (index < fields.length - 1)
-                                const SizedBox(height: AppSpacing.md),
-                            ],
-                          ],
-                        );
-                      },
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _FormSection(
-                    icon: FluentIcons.clipboard_list,
-                    title: 'Scoring & rubric',
-                    description:
-                        'Use a built-in rubric or define 3–5 transparent criteria.',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _BuilderField(
-                          label: 'Rubric template',
-                          helperText:
-                              'Criteria scale automatically to the maximum score.',
-                          child: ComboBox<TeacherActivityRubricTemplate>(
-                            key: const ValueKey('builder-rubric-template'),
-                            value: _draft.rubricTemplate,
-                            isExpanded: true,
-                            items: [
-                              for (final value
-                                  in TeacherActivityRubricTemplate.values)
-                                ComboBoxItem(
-                                  value: value,
-                                  child: Text(value.displayLabel),
-                                ),
-                            ],
-                            onChanged: fieldsEnabled
-                                ? (value) {
-                                    if (value == null) return;
-                                    setState(
-                                      () => _draft.rubricTemplate = value,
-                                    );
-                                  }
-                                : null,
-                          ),
-                        ),
-                        if (_draft.rubricTemplate ==
-                            TeacherActivityRubricTemplate.custom) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            'Custom criteria',
-                            style: AppTheme.label(
-                              color: context.elixTextPrimary,
+                    const SizedBox(height: AppSpacing.lg),
+                    _FormSection(
+                      icon: FluentIcons.clipboard_list,
+                      title: 'Scoring & rubric',
+                      description:
+                          'Use a built-in rubric or define 3–5 transparent criteria.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _BuilderField(
+                            label: 'Rubric template',
+                            helperText:
+                                'Criteria scale automatically to the maximum score.',
+                            child: ComboBox<TeacherActivityRubricTemplate>(
+                              key: const ValueKey('builder-rubric-template'),
+                              value: _draft.rubricTemplate,
+                              isExpanded: true,
+                              items: [
+                                for (final value
+                                    in TeacherActivityRubricTemplate.values)
+                                  ComboBoxItem(
+                                    value: value,
+                                    child: Text(value.displayLabel),
+                                  ),
+                              ],
+                              onChanged: fieldsEnabled
+                                  ? (value) {
+                                      if (value == null) return;
+                                      setState(
+                                        () => _draft.rubricTemplate = value,
+                                      );
+                                    }
+                                  : null,
                             ),
                           ),
-                          const SizedBox(height: AppSpacing.xs),
-                          Text(
-                            'Enter 3–5 criteria. Their point maximums must total ${_draft.maximumScore}.',
-                            style: AppTheme.supporting(
-                              color: context.elixTextSecondary,
+                          if (_draft.rubricTemplate ==
+                              TeacherActivityRubricTemplate.custom) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              'Custom criteria',
+                              style: AppTheme.label(
+                                color: context.elixTextPrimary,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          for (
-                            var index = 0;
-                            index < _customCriteria.length;
-                            index++
-                          ) ...[
-                            _CustomCriterionEditor(
-                              index: index,
-                              controllers: _customCriteria[index],
-                              enabled: fieldsEnabled,
-                              canRemove: _customCriteria.length > 3,
-                              onRemove: () => _removeCustomCriterion(index),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              'Enter 3–5 criteria. Their point maximums must total ${_draft.maximumScore}.',
+                              style: AppTheme.supporting(
+                                color: context.elixTextSecondary,
+                              ),
                             ),
                             const SizedBox(height: AppSpacing.sm),
+                            for (
+                              var index = 0;
+                              index < _customCriteria.length;
+                              index++
+                            ) ...[
+                              _CustomCriterionEditor(
+                                index: index,
+                                controllers: _customCriteria[index],
+                                enabled: fieldsEnabled,
+                                canRemove: _customCriteria.length > 3,
+                                onRemove: () => _removeCustomCriterion(index),
+                              ),
+                              const SizedBox(height: AppSpacing.sm),
+                            ],
+                            Button(
+                              key: const ValueKey(
+                                'builder-add-custom-criterion',
+                              ),
+                              onPressed:
+                                  fieldsEnabled && _customCriteria.length < 5
+                                  ? _addCustomCriterion
+                                  : null,
+                              child: const Text('Add criterion'),
+                            ),
                           ],
-                          Button(
-                            key: const ValueKey('builder-add-custom-criterion'),
-                            onPressed:
-                                fieldsEnabled && _customCriteria.length < 5
-                                ? _addCustomCriterion
-                                : null,
-                            child: const Text('Add criterion'),
-                          ),
-                        ],
-                        if (_draft.rubricTemplate !=
-                            TeacherActivityRubricTemplate.custom) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          _BuilderField(
-                            label: 'Maximum score',
-                            helperText:
-                                'Choose 30, 50, or 100 points, or enter a whole number from 1 to 100.',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                ComboBox<String>(
-                                  key: const ValueKey(
-                                    'builder-max-score-preset',
+                          if (_draft.rubricTemplate !=
+                              TeacherActivityRubricTemplate.custom) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            _BuilderField(
+                              label: 'Maximum score',
+                              helperText:
+                                  'Choose 30, 50, or 100 points, or enter a whole number from 1 to 100.',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  ComboBox<String>(
+                                    key: const ValueKey(
+                                      'builder-max-score-preset',
+                                    ),
+                                    value: _draft.usesCustomMaximumScore
+                                        ? 'custom'
+                                        : '${_draft.maximumScore}',
+                                    isExpanded: true,
+                                    items: const [
+                                      ComboBoxItem(
+                                        value: '30',
+                                        child: Text('30 points'),
+                                      ),
+                                      ComboBoxItem(
+                                        value: '50',
+                                        child: Text('50 points'),
+                                      ),
+                                      ComboBoxItem(
+                                        value: '100',
+                                        child: Text('100 points'),
+                                      ),
+                                      ComboBoxItem(
+                                        value: 'custom',
+                                        child: Text('Custom maximum score'),
+                                      ),
+                                    ],
+                                    onChanged: fieldsEnabled
+                                        ? (value) {
+                                            if (value == null) return;
+                                            setState(() {
+                                              if (value == 'custom') {
+                                                _draft.maximumScore = 0;
+                                              } else {
+                                                _draft.maximumScore = int.parse(
+                                                  value,
+                                                );
+                                              }
+                                            });
+                                          }
+                                        : null,
                                   ),
-                                  value: _draft.usesCustomMaximumScore
-                                      ? 'custom'
-                                      : '${_draft.maximumScore}',
+                                  if (_draft.usesCustomMaximumScore) ...[
+                                    const SizedBox(height: AppSpacing.sm),
+                                    TextBox(
+                                      key: const ValueKey(
+                                        'builder-custom-max-score',
+                                      ),
+                                      controller: _customMaximumScore,
+                                      enabled: fieldsEnabled,
+                                      placeholder: '1–100',
+                                      onChanged: (value) => setState(() {
+                                        _draft.maximumScore =
+                                            int.tryParse(value.trim()) ?? 0;
+                                      }),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              'Total: ${_customCriteria.fold<int>(0, (sum, item) => sum + (int.tryParse(item.maximumPoints.text.trim()) ?? 0))} points',
+                              style: AppTheme.label(
+                                color: context.elixTextPrimary,
+                              ),
+                            ),
+                          ],
+                          if (_draft.rubricTemplate !=
+                                  TeacherActivityRubricTemplate.custom &&
+                              _draft.hasValidMaximumScore) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            _RubricCriteriaTable(
+                              criteria: TeacherActivityRubric.builtIn(
+                                _draft.rubricTemplate,
+                                _draft.maximumScore,
+                              ).criteria,
+                            ),
+                          ],
+                          const SizedBox(height: AppSpacing.md),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final durationField = _BuilderField(
+                                label: 'Recording duration',
+                                helperText:
+                                    'The maximum length for each submitted recording.',
+                                child: ComboBox<int>(
+                                  key: const ValueKey(
+                                    'builder-recording-duration',
+                                  ),
+                                  value: _draft.recordingDurationSeconds,
                                   isExpanded: true,
-                                  items: const [
-                                    ComboBoxItem(
-                                      value: '30',
-                                      child: Text('30 points'),
-                                    ),
-                                    ComboBoxItem(
-                                      value: '50',
-                                      child: Text('50 points'),
-                                    ),
-                                    ComboBoxItem(
-                                      value: '100',
-                                      child: Text('100 points'),
-                                    ),
-                                    ComboBoxItem(
-                                      value: 'custom',
-                                      child: Text('Custom maximum score'),
-                                    ),
+                                  items: [
+                                    for (final value
+                                        in TeacherActivityAssessmentContract
+                                            .supportedRecordingDurations)
+                                      ComboBoxItem(
+                                        value: value,
+                                        child: Text('$value seconds'),
+                                      ),
                                   ],
                                   onChanged: fieldsEnabled
                                       ? (value) {
                                           if (value == null) return;
-                                          setState(() {
-                                            if (value == 'custom') {
-                                              _draft.maximumScore = 0;
-                                            } else {
-                                              _draft.maximumScore = int.parse(
-                                                value,
-                                              );
-                                            }
-                                          });
+                                          setState(
+                                            () =>
+                                                _draft.recordingDurationSeconds =
+                                                    value,
+                                          );
                                         }
                                       : null,
                                 ),
-                                if (_draft.usesCustomMaximumScore) ...[
-                                  const SizedBox(height: AppSpacing.sm),
-                                  TextBox(
-                                    key: const ValueKey(
-                                      'builder-custom-max-score',
-                                    ),
-                                    controller: _customMaximumScore,
-                                    enabled: fieldsEnabled,
-                                    placeholder: '1–100',
-                                    onChanged: (value) => setState(() {
-                                      _draft.maximumScore =
-                                          int.tryParse(value.trim()) ?? 0;
-                                    }),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ] else ...[
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            'Total: ${_customCriteria.fold<int>(0, (sum, item) => sum + (int.tryParse(item.maximumPoints.text.trim()) ?? 0))} points',
-                            style: AppTheme.label(
-                              color: context.elixTextPrimary,
-                            ),
+                              );
+                              return durationField;
+                            },
                           ),
                         ],
-                        if (_draft.rubricTemplate !=
-                                TeacherActivityRubricTemplate.custom &&
-                            _draft.hasValidMaximumScore) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          _RubricCriteriaTable(
-                            criteria: TeacherActivityRubric.builtIn(
-                              _draft.rubricTemplate,
-                              _draft.maximumScore,
-                            ).criteria,
-                          ),
-                        ],
-                        const SizedBox(height: AppSpacing.md),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final durationField = _BuilderField(
-                              label: 'Recording duration',
-                              helperText:
-                                  'The maximum length for each submitted recording.',
-                              child: ComboBox<int>(
-                                key: const ValueKey(
-                                  'builder-recording-duration',
-                                ),
-                                value: _draft.recordingDurationSeconds,
-                                isExpanded: true,
-                                items: [
-                                  for (final value
-                                      in TeacherActivityAssessmentContract
-                                          .supportedRecordingDurations)
-                                    ComboBoxItem(
-                                      value: value,
-                                      child: Text('$value seconds'),
-                                    ),
-                                ],
-                                onChanged: fieldsEnabled
-                                    ? (value) {
-                                        if (value == null) return;
-                                        setState(
-                                          () =>
-                                              _draft.recordingDurationSeconds =
-                                                  value,
-                                        );
-                                      }
-                                    : null,
-                              ),
-                            );
-                            return durationField;
-                          },
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _DemoMediaSection(
-                    metadata: _draft.demonstrationVideo,
-                    localFile: _demoFile,
-                    playback: _demoPlayback,
-                    busy: _saving || _uploadingDemo,
-                    onPickUpload: _pickAndUploadDemo,
-                    onRecord: _recordDemoWithElixr,
-                    onRemove: _removeDemo,
-                  ),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
+                  if (!_isAutomaticAssessment)
+                    _DemoMediaSection(
+                      metadata: _draft.demonstrationVideo,
+                      localFile: _demoFile,
+                      playback: _demoPlayback,
+                      busy: _saving || _uploadingDemo,
+                      onPickUpload: _pickAndUploadDemo,
+                      onRecord: _recordDemoWithElixr,
+                      onRemove: _removeDemo,
+                    ),
                   if (_isAssignmentEditor) ...[
                     const SizedBox(height: AppSpacing.lg),
                     _AssignmentSettingsSection(
@@ -1061,28 +1157,28 @@ class _TeacherMovementBuilderDialogState
             children: [
               Button(
                 onPressed: _saving ? null : () => Navigator.pop(context),
-                child: Text(_isRetiredTemplate ? 'Close' : 'Cancel'),
+                child: Text('Cancel'),
               ),
-              if (!_isRetiredTemplate) ...[
-                const SizedBox(width: AppSpacing.sm),
-                ElixPrimaryButton(
-                  key: const ValueKey('teacher-reviewed-save'),
-                  label: _isAssignmentEditor
-                      ? 'Save assignment changes'
-                      : _isEditing
-                      ? 'Save revision'
-                      : 'Create',
-                  expanded: false,
-                  dense: true,
-                  isLoading: _saving,
-                  onPressed:
-                      _isEditing &&
-                          !_isAssignmentEditor &&
-                          widget.onEditTeacherReviewed == null
-                      ? null
-                      : _save,
-                ),
-              ],
+              const SizedBox(width: AppSpacing.sm),
+              ElixPrimaryButton(
+                key: const ValueKey('teacher-reviewed-save'),
+                label: _isAssignmentEditor
+                    ? 'Save assignment changes'
+                    : _isEditing
+                    ? 'Save revision'
+                    : 'Create',
+                expanded: false,
+                dense: true,
+                isLoading: _saving,
+                onPressed:
+                    _isEditing &&
+                        !_isAssignmentEditor &&
+                        widget.onEditTeacherReviewed == null &&
+                        widget.onEditActivity == null &&
+                        widget.onEditAutomatic == null
+                    ? null
+                    : _save,
+              ),
             ],
           ),
         ),
@@ -1565,110 +1661,155 @@ class _DemoMediaSection extends StatelessWidget {
   }
 }
 
-class _ReviewModeNotice extends StatelessWidget {
-  const _ReviewModeNotice({required this.isRetiredTemplate});
+class _AssessmentModeSection extends StatelessWidget {
+  const _AssessmentModeSection({
+    required this.enabled,
+    required this.mode,
+    required this.laterality,
+    required this.onModeChanged,
+    required this.onLateralityChanged,
+    required this.onTestMovement,
+  });
 
-  final bool isRetiredTemplate;
+  final bool enabled;
+  final AssessmentMode mode;
+  final AssessmentLaterality laterality;
+  final ValueChanged<AssessmentMode>? onModeChanged;
+  final ValueChanged<AssessmentLaterality> onLateralityChanged;
+  final VoidCallback? onTestMovement;
 
   @override
   Widget build(BuildContext context) {
-    if (isRetiredTemplate) {
-      final tone = context.elixColors.warning;
-      return ElixPanelCard(
-        accent: tone,
-        showAccentBar: true,
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: _ReviewNoticeContent(tone: tone),
-      );
-    }
-
-    final tone = context.elixColors.brandSecondary;
-    return Semantics(
-      label: 'Teacher reviewed. No automatic ELIXR score is produced.',
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          color: context.isHighContrast
-              ? context.elixCardSurface
-              : tone.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: context.isHighContrast
-                ? context.elixBorder
-                : tone.withValues(alpha: 0.22),
-            width: context.isHighContrast ? 2 : 1,
+    final automatic = mode == AssessmentMode.templateScored;
+    return _FormSection(
+      icon: FluentIcons.completed,
+      title: 'Assessment Type',
+      description: automatic
+          ? 'ELIXR will automatically check this movement using a supported movement template.'
+          : 'Teacher reviews the trainee\'s recording manually.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          RadioButton(
+            key: const ValueKey('builder-assessment-teacher-review'),
+            checked: !automatic,
+            onChanged: enabled && onModeChanged != null
+                ? (checked) {
+                    if (checked) {
+                      onModeChanged!(AssessmentMode.teacherReviewed);
+                    }
+                  }
+                : null,
+            content: const Text('Teacher Review'),
           ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              FluentIcons.education,
-              size: 15,
-              color: context.isHighContrast ? context.elixTextPrimary : tone,
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Teacher reviewed',
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextPrimary,
-                fontWeight: FontWeight.w600,
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Teacher reviews the trainee\'s recording manually.',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          RadioButton(
+            key: const ValueKey('builder-assessment-automatic'),
+            checked: automatic,
+            onChanged: enabled && onModeChanged != null
+                ? (checked) {
+                    if (checked) {
+                      onModeChanged!(AssessmentMode.templateScored);
+                    }
+                  }
+                : null,
+            content: const Text('Automatic ELIXR Assessment'),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'ELIXR will automatically check this movement using a supported movement template.',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          if (automatic) ...[
+            const SizedBox(height: AppSpacing.md),
+            _BuilderField(
+              label: 'Assessment Template',
+              helperText:
+                  'Balance / Stall is the supported family in this version.',
+              child: Text(
+                'Balance / Stall',
+                style: AppTheme.body.copyWith(color: context.elixTextPrimary),
               ),
             ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
+            const SizedBox(height: AppSpacing.sm),
+            _BuilderField(
+              label: 'Movement Type',
+              helperText: 'Wrist Stall is the supported automatic movement.',
               child: Text(
-                'No automatic ELIXR score',
-                textAlign: TextAlign.end,
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
+                'Wrist Stall',
+                style: AppTheme.body.copyWith(color: context.elixTextPrimary),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _BuilderField(
+              label: 'Required Prop',
+              helperText: 'Bottle is required for Wrist Stall.',
+              child: Text(
+                'Bottle',
+                style: AppTheme.body.copyWith(color: context.elixTextPrimary),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _BuilderField(
+              label: 'Target Wrist',
+              helperText: 'Choose the wrist ELIXR should check.',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RadioButton(
+                    key: const ValueKey('builder-laterality-left'),
+                    checked: laterality == AssessmentLaterality.left,
+                    onChanged: enabled
+                        ? (checked) {
+                            if (checked) {
+                              onLateralityChanged(AssessmentLaterality.left);
+                            }
+                          }
+                        : null,
+                    content: const Text('Left wrist'),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  RadioButton(
+                    key: const ValueKey('builder-laterality-right'),
+                    checked: laterality == AssessmentLaterality.right,
+                    onChanged: enabled
+                        ? (checked) {
+                            if (checked) {
+                              onLateralityChanged(AssessmentLaterality.right);
+                            }
+                          }
+                        : null,
+                    content: const Text('Right wrist'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Hold requirement uses ELIXR\'s built-in confirmation. Detection thresholds stay under ELIXR control.',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+            if (onTestMovement != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Button(
+                  key: const ValueKey('builder-test-movement'),
+                  onPressed: onTestMovement,
+                  child: const Text('Test Movement'),
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ReviewNoticeContent extends StatelessWidget {
-  const _ReviewNoticeContent({required this.tone});
-
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          FluentIcons.warning,
-          size: 18,
-          color: context.isHighContrast ? context.elixTextPrimary : tone,
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Historical template scoring',
-                style: AppTheme.label(color: context.elixTextPrimary),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Automatic template assessment has been retired. '
-                'This historical movement is read-only; previous scores '
-                'remain available in classroom history.',
-                style: AppTheme.supporting(color: context.elixTextSecondary),
-              ),
             ],
-          ),
-        ),
-      ],
+          ],
+        ],
+      ),
     );
   }
 }

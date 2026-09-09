@@ -162,6 +162,7 @@ void main() {
     test('sharp_pour requires a rubric total of at least 10', () {
       final def = achievementById('sharp_pour')!;
       expect(def.target, 10);
+      expect(def.description, 'Reach Great (10 of 12) in a session.');
       expect(
         def.evaluator([_session(rubricTotal: 9)], null).completed,
         isFalse,
@@ -177,6 +178,10 @@ void main() {
     test('perfect_serve requires a perfect rubric total of 12', () {
       final def = achievementById('perfect_serve')!;
       expect(def.target, 12);
+      expect(
+        def.description,
+        'Reach Mastered with a perfect 12 of 12 in a session.',
+      );
       expect(
         def.evaluator([_session(rubricTotal: 11)], null).completed,
         isFalse,

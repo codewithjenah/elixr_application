@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
@@ -129,6 +130,8 @@ class _RecordingWebSocketService extends WebSocketService {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
+    String sessionPurpose = 'official',
+    AssessmentSpec? assessmentSpec,
   }) {
     final resolvedSessionId =
         sessionId ?? currentSessionId ?? beginPracticeAttempt();
@@ -143,13 +146,16 @@ class _RecordingWebSocketService extends WebSocketService {
       'camera_device_id': cameraDeviceId,
       'camera_index': ?legacyCameraIndex,
       if (allowSubmissionRecording) 'allow_submission_recording': true,
-      if (readinessSpec != null) 'readiness_spec': readinessSpec.toMap(),
-      if (sessionMode != null) 'session_mode': sessionMode,
-      if (allowedMovements != null)
-        'allowed_movements': [
-          for (final entry in allowedMovements)
-            {'movement': entry.movement, 'prop_type': entry.prop.protocolValue},
-        ],
+      'readiness_spec': ?readinessSpec?.toMap(),
+      'session_mode': ?sessionMode,
+      'allowed_movements': ?allowedMovements
+          ?.map(
+            (entry) => {
+              'movement': entry.movement,
+              'prop_type': entry.prop.protocolValue,
+            },
+          )
+          .toList(),
     });
     return prepareAck.future;
   }

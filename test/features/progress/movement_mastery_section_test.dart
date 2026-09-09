@@ -110,7 +110,7 @@ void main() {
     expect(find.text('Hand Stall'), findsNothing);
     expect(find.text('Improving'), findsNothing);
     expect(find.text('4 sessions'), findsNothing);
-    expect(find.text('Best 11 / 12'), findsNothing);
+    expect(find.text('Best 11/12'), findsNothing);
     expect(find.byType(LockedMovementMark), findsWidgets);
   });
 
@@ -157,8 +157,8 @@ void main() {
 
     expect(find.text('Normal Grip'), findsOneWidget);
     expect(find.text('Improving'), findsOneWidget);
-    expect(find.text('Recent 9 / 12'), findsOneWidget);
-    expect(find.text('Best 11 / 12'), findsOneWidget);
+    expect(find.text('Recent 9/12'), findsOneWidget);
+    expect(find.text('Best 11/12'), findsOneWidget);
     expect(find.text('4 sessions'), findsOneWidget);
   });
 }

@@ -1,4 +1,6 @@
+import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
+import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Map<String, dynamic> _golden({
@@ -137,5 +139,45 @@ void main() {
         );
       }
     });
+  });
+
+  test('left and right Wrist Stall specs round-trip', () {
+    for (final laterality in [
+      AssessmentLaterality.left,
+      AssessmentLaterality.right,
+    ]) {
+      final spec = AssessmentSpec(laterality: laterality);
+      expect(spec.isWritableWristStallV1, isTrue);
+      expect(AssessmentSpec.tryFrom(spec.toMap()), spec);
+    }
+    expect(
+      const AssessmentSpec(
+        laterality: AssessmentLaterality.either,
+      ).isWritableWristStallV1,
+      isFalse,
+    );
+    expect(
+      const AssessmentSpec(
+        laterality: AssessmentLaterality.either,
+      ).isCanonicalWristStallV1,
+      isTrue,
+    );
+  });
+
+  test('protocol identity stays out of official progression catalogs', () {
+    expect(
+      movementCatalog.any(
+        (movement) => movement.name == AssessmentSpec.protocolMovementName,
+      ),
+      isFalse,
+    );
+    expect(
+      coachingMovementNames.contains(AssessmentSpec.protocolMovementName),
+      isFalse,
+    );
+    expect(
+      officialElixrMovementNames.contains(AssessmentSpec.protocolMovementName),
+      isFalse,
+    );
   });
 }

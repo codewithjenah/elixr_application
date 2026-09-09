@@ -323,7 +323,7 @@ void main() {
       expect(result.recommended.movement.name, 'Weak Move');
       expect(
         result.reason,
-        'Your recent rubric average of 6 / 12 is your lowest current mastery '
+        'Your recent average of 6/12 is your lowest current mastery '
         'result.',
       );
     });

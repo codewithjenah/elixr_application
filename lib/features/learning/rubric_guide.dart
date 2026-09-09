@@ -3,17 +3,29 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/assessment_score_display.dart';
+import '../../data/models/rubric_assessment.dart';
 
 class RubricGuide extends StatelessWidget {
   const RubricGuide({super.key, this.compact = false});
 
   final bool compact;
 
-  static const criteria = <(String, String)>[
-    ('Form', 'Are your hands and body in the right position?'),
-    ('Control', 'Is the bottle or shaker steady and under control?'),
-    ('Finish', 'Did you complete the move?'),
-    ('Position', 'Is the bottle or shaker in the right place?'),
+  static const _criterionHelp = <RubricCriterion, String>{
+    RubricCriterion.technique: 'Are your hands and body in the right position?',
+    RubricCriterion.stability:
+        'Is the bottle or shaker steady and under control?',
+    RubricCriterion.completion: 'Did you complete the move?',
+    RubricCriterion.propPositioning:
+        'Is the bottle or shaker in the right place?',
+  };
+
+  static List<(String, String)> get criteria => [
+    for (final criterion in RubricCriterion.values)
+      (
+        AssessmentScoreDisplay.criterionLabel(criterion),
+        _criterionHelp[criterion]!,
+      ),
   ];
 
   static const _criterionIcons = <IconData>[
@@ -30,15 +42,8 @@ class RubricGuide extends StatelessWidget {
     _ => 'Shown clearly and steadily',
   };
 
-  // These labels are retained for existing callers. The guide presents simpler
-  // trainee-facing labels without changing scoring thresholds or stored values.
-  static String performanceBand(int total) => switch (total) {
-    <= 3 => 'Beginning',
-    <= 6 => 'Developing',
-    <= 9 => 'Competent',
-    <= 11 => 'Proficient',
-    _ => 'Mastered',
-  };
+  static String performanceBand(int total) =>
+      AssessmentScoreDisplay.performanceLabelForTotal(total);
 
   @override
   Widget build(BuildContext context) {
@@ -449,12 +454,32 @@ class _ScoreStep extends StatelessWidget {
 class _TotalScoreSection extends StatelessWidget {
   const _TotalScoreSection();
 
-  static const bands = <(String, String, Color)>[
-    ('0-3', 'Getting Started', AppColors.textSecondary),
-    ('4-6', 'Learning', AppColors.warning),
-    ('7-9', 'Good', AppColors.accentSoft),
-    ('10-11', 'Great', AppColors.primarySoft),
-    ('12', 'Mastered', AppColors.success),
+  static List<(String, String, Color)> get bands => [
+    (
+      '0-3',
+      AssessmentScoreDisplay.performanceLabel(PerformanceLevel.beginning),
+      AppColors.textSecondary,
+    ),
+    (
+      '4-6',
+      AssessmentScoreDisplay.performanceLabel(PerformanceLevel.developing),
+      AppColors.warning,
+    ),
+    (
+      '7-9',
+      AssessmentScoreDisplay.performanceLabel(PerformanceLevel.competent),
+      AppColors.accentSoft,
+    ),
+    (
+      '10-11',
+      AssessmentScoreDisplay.performanceLabel(PerformanceLevel.proficient),
+      AppColors.primarySoft,
+    ),
+    (
+      '12',
+      AssessmentScoreDisplay.performanceLabel(PerformanceLevel.mastered),
+      AppColors.success,
+    ),
   ];
 
   @override

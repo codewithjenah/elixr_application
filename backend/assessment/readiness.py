@@ -177,6 +177,21 @@ def _pass_upper_body_visible(obs: ReadinessObservation) -> bool:
     return _pose_has_complete_arm_chain(pose)
 
 
+def _pass_pose_available(obs: ReadinessObservation) -> bool:
+    return obs.pose is not None
+
+
+def _pass_wrist_visible(obs: ReadinessObservation, laterality: str) -> bool:
+    pose = obs.pose
+    if pose is None:
+        return False
+    if laterality == "left":
+        return pose.get(15) is not None
+    if laterality == "right":
+        return pose.get(16) is not None
+    return pose.get(15) is not None or pose.get(16) is not None
+
+
 def _pass_camera(obs: ReadinessObservation) -> bool:
     return obs.has_camera_frame
 
@@ -308,6 +323,30 @@ def _upper_body_req() -> ReadinessRequirement:
     )
 
 
+def _pose_available_req() -> ReadinessRequirement:
+    return _req(
+        "pose_visible",
+        "Keep your body in the camera so pose can be tracked.",
+        _pass_pose_available,
+        DetectorModality.POSE,
+    )
+
+
+def _wrist_visible_req(laterality: str) -> ReadinessRequirement:
+    if laterality == "left":
+        message = "Keep your left wrist visible."
+    elif laterality == "right":
+        message = "Keep your right wrist visible."
+    else:
+        message = "Keep at least one wrist visible."
+    return _req(
+        "wrist_visible",
+        message,
+        lambda obs, lat=laterality: _pass_wrist_visible(obs, lat),
+        DetectorModality.POSE,
+    )
+
+
 def _bottle_req() -> ReadinessRequirement:
     return _req(
         "bottle_detected",
@@ -398,6 +437,26 @@ def _bottle_in_tin_profile() -> ReadinessProfile:
 
 def _camera_only_profile() -> ReadinessProfile:
     return _profile(_camera_req())
+
+
+def template_readiness_profile(spec) -> ReadinessProfile:
+    """Wrist Stall readiness derived from a validated AssessmentSpec.
+
+    Not registered as an official catalog movement. Laterality selects the
+    required Pose wrist (15 left / 16 right / either).
+    """
+    template_id = getattr(spec, "template_id", None)
+    laterality = getattr(spec, "laterality", None)
+    if template_id != "balance_stall.wrist_v1":
+        raise ValueError("unsupported_assessment_spec")
+    if laterality not in {"either", "left", "right"}:
+        raise ValueError("unsupported_assessment_spec")
+    return _profile(
+        _camera_req(),
+        _bottle_req(),
+        _pose_available_req(),
+        _wrist_visible_req(laterality),
+    )
 
 
 def readiness_profile_from_activity_spec(

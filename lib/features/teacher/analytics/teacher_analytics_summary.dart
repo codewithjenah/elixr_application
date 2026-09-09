@@ -6,6 +6,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../data/models/assessment_score_display.dart';
 import 'teacher_analytics_controller.dart';
 import 'teacher_analytics_models.dart';
 
@@ -199,7 +200,7 @@ class _ScoreProgressChart extends StatelessWidget {
               getTooltipItems: (touched) => [
                 for (final spot in touched)
                   LineTooltipItem(
-                    '${buckets[spot.x.toInt()].label}\n${spot.y.toStringAsFixed(1)} / 12',
+                    '${buckets[spot.x.toInt()].label}\n${AssessmentScoreDisplay.officialAverage(spot.y)}',
                     TextStyle(
                       color: context.elixTextPrimary,
                       fontWeight: FontWeight.w700,
@@ -298,7 +299,7 @@ String _scoreChartSummary(List<AnalyticsTrendBucket> buckets) {
   final values = [
     for (final bucket in buckets)
       if (bucket.averageScore case final score?)
-        '${bucket.label}: ${score.toStringAsFixed(1)} out of 12',
+        '${bucket.label}: ${AssessmentScoreDisplay.points(score)} out of 12',
   ];
   return values.isEmpty
       ? 'Score progress chart. No scored practice yet.'
@@ -416,7 +417,7 @@ class _SummaryMetrics extends StatelessWidget {
   }
 
   static String _score(double? value) =>
-      value == null ? '—' : '${value.toStringAsFixed(1)} / 12';
+      value == null ? '—' : AssessmentScoreDisplay.officialAverage(value);
 }
 
 class _SummaryMetricData {

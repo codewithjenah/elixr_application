@@ -48,6 +48,36 @@ void main() {
     expect(first.inviteCode, isNot(equals(second.inviteCode)));
   });
 
+  test(
+    'membership watches replay current state to concurrent listeners',
+    () async {
+      const membership = GroupMembership(
+        id: 'group-1_trainee-1',
+        groupId: 'group-1',
+        teacherId: 'teacher-1',
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        teacherDisplayName: 'Grace Hopper',
+        status: GroupMembershipStatus.approved,
+      );
+      final ongoingEvents = <List<GroupMembership>>[];
+      final ongoing = groupRepository
+          .watchTraineeMemberships(traineeId: membership.traineeId)
+          .listen(ongoingEvents.add);
+      await pumpEventQueue();
+      groupRepository.seedMembership(membership);
+      await pumpEventQueue();
+
+      final refreshed = await groupRepository
+          .watchTraineeMemberships(traineeId: membership.traineeId)
+          .first;
+
+      expect(ongoingEvents.last, [membership]);
+      expect(refreshed, [membership]);
+      await ongoing.cancel();
+    },
+  );
+
   test('unrelated Teacher cannot mutate another Teacher group', () async {
     final group = await groupRepository.createGroup(
       teacherId: 'teacher-1',

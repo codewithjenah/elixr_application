@@ -482,7 +482,7 @@ class SessionMetricTiles extends StatelessWidget {
               child: _MetricTile(
                 key: const ValueKey('session-score-metric'),
                 icon: FluentIcons.trophy,
-                label: 'RUBRIC',
+                label: 'SCORE',
                 accent: AppColors.primary,
                 emphasized: true,
                 child: rubricChild,

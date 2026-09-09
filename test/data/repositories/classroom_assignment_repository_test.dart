@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
@@ -13,6 +14,7 @@ import 'package:elixr_application/data/repositories/in_memory_teacher_movement_r
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/models/rubric_assessment.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -453,8 +455,83 @@ void main() {
       expect(checked.gradeScore, assessment.rubric.maximumScore);
       expect(persisted?.criterionScores, scores);
       expect(persisted?.activityAssessmentSnapshot, assessment);
+      await expectLater(
+        assignments.saveTeacherActivityRubricReview(
+          teacherId: 'teacher-1',
+          attempt: attempt,
+          criterionScores: scores,
+          feedback: 'Duplicate review.',
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.invalidState,
+          ),
+        ),
+      );
     },
   );
+
+  test(
+    'attempt watches replay current state to concurrent listeners',
+    () async {
+      final attempt = AssignmentAttempt(
+        id: 'current-attempt',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'activity-assignment',
+        movementId: 'movement-1',
+        revisionId: 'revision-1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.inProgress,
+      );
+      final ongoingEvents = <List<AssignmentAttempt>>[];
+      final ongoing = assignments
+          .watchAttemptsForTrainee(traineeId: attempt.traineeId)
+          .listen(ongoingEvents.add);
+      await pumpEventQueue();
+      assignments.seedAttempt(attempt);
+      await pumpEventQueue();
+
+      final refreshed = await assignments
+          .watchAttemptsForTrainee(traineeId: attempt.traineeId)
+          .first;
+
+      expect(ongoingEvents.last, [attempt]);
+      expect(refreshed, [attempt]);
+      await ongoing.cancel();
+    },
+  );
+
+  test('teacher assignment watches continue after their replay', () async {
+    final initial = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      officialMovementName: 'Hand Stall',
+      allowedProp: TrainingProp.bottle,
+    );
+    final events = <List<GroupAssignment>>[];
+    final ongoing = assignments
+        .watchTeacherAssignments(teacherId: initial.teacherId)
+        .listen(events.add);
+    await pumpEventQueue();
+
+    assignments.seedAssignment(
+      initial.copyWith(
+        audience: AssignmentAudience.individualStudent(const ['trainee-a']),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(events, hasLength(2));
+    expect(events.last.single.audience.targetTraineeIds, ['trainee-a']);
+    await ongoing.cancel();
+  });
 
   test('archived Teacher movement cannot be newly assigned', () async {
     final movement = await movements.createMovement(
@@ -1004,6 +1081,109 @@ void main() {
           attempt: revised,
         ),
         throwsA(isA<ClassroomException>()),
+      );
+    },
+  );
+
+  test('automatic Wrist Stall assignment freezes the revision spec', () async {
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Classroom Wrist Stall',
+      instructions: 'Balance the bottle on the left wrist.',
+      requiredProp: TrainingProp.bottle,
+      automaticAssessment: const AssessmentSpec(
+        laterality: AssessmentLaterality.left,
+      ),
+    );
+    final firstRevision = (await movements.getRevision(
+      movementId: movement.id,
+      revisionId: movement.currentRevisionId,
+    ))!;
+    final assignment = await assignments.createTeacherCreatedAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      movement: movement,
+      revision: firstRevision,
+    );
+    expect(assignment.isTemplateScored, isTrue);
+    expect(assignment.assessmentSpec?.laterality, AssessmentLaterality.left);
+    expect(assignment.maxScore, isNull);
+
+    await movements.editMovement(
+      teacherId: 'teacher-1',
+      movementId: movement.id,
+      title: 'Classroom Wrist Stall',
+      instructions: 'Balance the bottle on the right wrist.',
+      requiredProp: TrainingProp.bottle,
+      automaticAssessment: const AssessmentSpec(
+        laterality: AssessmentLaterality.right,
+      ),
+    );
+    expect(assignment.revisionId, firstRevision.id);
+    expect(assignment.assessmentSpec?.laterality, AssessmentLaterality.left);
+  });
+
+  test(
+    'template score submit stores classroom evidence without official XP',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Classroom Wrist Stall',
+        instructions: 'Balance the bottle on the left wrist.',
+        requiredProp: TrainingProp.bottle,
+        automaticAssessment: const AssessmentSpec(
+          laterality: AssessmentLaterality.left,
+        ),
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+      );
+      final attempt = await assignments.submitTemplateScore(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+        rubric: const RubricAssessment(
+          technique: 3,
+          stability: 2,
+          completion: 3,
+          propPositioning: 2,
+        ),
+        durationSeconds: 14,
+      );
+      expect(attempt.isTemplateScore, isTrue);
+      expect(attempt.awardsGlobalXp, isFalse);
+      expect(attempt.rubricTotal, 10);
+      expect(attempt.sourceSessionId, isNull);
+
+      await expectLater(
+        assignments.submitTemplateScore(
+          traineeId: 'outsider',
+          assignment: assignment.copyWith(
+            audience: AssignmentAudience.individualStudent(['trainee-1']),
+          ),
+          rubric: const RubricAssessment(
+            technique: 3,
+            stability: 2,
+            completion: 3,
+            propPositioning: 2,
+          ),
+          durationSeconds: 14,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.forbidden,
+          ),
+        ),
       );
     },
   );

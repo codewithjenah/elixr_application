@@ -71,7 +71,15 @@ void main() {
       );
       expect(find.text('Ready'), findsOneWidget);
       expect(find.text('Waiting for assessment'), findsOneWidget);
-      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Current Score'), findsOneWidget);
+      expect(find.text('Form'), findsOneWidget);
+      expect(find.text('Control'), findsOneWidget);
+      expect(find.text('Finish'), findsOneWidget);
+      expect(find.text('Position'), findsOneWidget);
+      expect(find.text('Correct Technique'), findsNothing);
+      expect(find.text('Stability / Control'), findsNothing);
+      expect(find.text('Hold / Completion'), findsNothing);
+      expect(find.text('Prop Positioning'), findsNothing);
       expect(find.text('%'), findsNothing);
       expect(
         find.byKey(const ValueKey('practice-primary-action')),
@@ -100,7 +108,7 @@ void main() {
               rankBadge: RankBadge(level: rubric.performanceLevel),
               metrics: SessionMetricTiles(
                 elapsedDisplay: '01:12',
-                rubricChild: const Text('10 / 12'),
+                rubricChild: const Text('10/12'),
                 performanceBar: const TrainingPerformanceBar(total: 10),
                 rubricBreakdown: const RubricCriteriaTiles(assessment: rubric),
               ),
@@ -129,11 +137,17 @@ void main() {
         find.byKey(const ValueKey('session-score-metric')),
         findsOneWidget,
       );
-      expect(find.text('10 / 12'), findsWidgets);
-      expect(find.text('Proficient'), findsOneWidget);
-      expect(find.text('Pro'), findsOneWidget);
-      expect(find.text('3 / 3'), findsNWidgets(2));
-      expect(find.text('2 / 3'), findsNWidgets(2));
+      expect(find.text('10/12'), findsWidgets);
+      expect(find.text('Great'), findsWidgets);
+      expect(find.text('Proficient'), findsNothing);
+      expect(find.text('Pro'), findsNothing);
+      expect(find.text('Form'), findsOneWidget);
+      expect(find.text('Control'), findsOneWidget);
+      expect(find.text('Finish'), findsOneWidget);
+      expect(find.text('Position'), findsOneWidget);
+      expect(find.text('3/3'), findsNWidgets(2));
+      expect(find.text('2/3'), findsNWidgets(2));
+      expect(find.textContaining('%'), findsNothing);
     });
 
     testWidgets(

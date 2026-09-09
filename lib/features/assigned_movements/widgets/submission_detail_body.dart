@@ -261,7 +261,13 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
         _buildStatusPills(),
         if (_isOfficialAttempt) ...[
           const SizedBox(height: AppSpacing.md),
-          _OfficialRubricSection(attempt: attempt),
+          if (attempt.attemptKind == AssignmentAttemptKind.templateScore)
+            _AutomaticTemplateEvidence(
+              assignment: widget.assignment,
+              attempt: attempt,
+            )
+          else
+            _OfficialRubricSection(attempt: attempt),
         ],
         if (_isTeacherReviewedAttempt) ...[
           const SizedBox(height: AppSpacing.md),
@@ -452,6 +458,49 @@ class _OfficialNoClipPreview extends StatelessWidget {
   }
 }
 
+class _AutomaticTemplateEvidence extends StatelessWidget {
+  const _AutomaticTemplateEvidence({
+    required this.assignment,
+    required this.attempt,
+  });
+
+  final GroupAssignment assignment;
+  final AssignmentAttempt attempt;
+
+  @override
+  Widget build(BuildContext context) {
+    final spec = assignment.assessmentSpec;
+    final rubric = attempt.rubric;
+    return Column(
+      key: const Key('submission_automatic_template_evidence'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Teacher-Created · Automatic ELIXR Assessment',
+          style: AppTheme.headingMedium,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          [
+            spec?.templateFamilyLabel ?? 'Balance / Stall',
+            spec?.templateLabel ?? 'Wrist Stall',
+            'Bottle',
+            spec?.lateralityLabel ?? 'Wrist',
+          ].join(' · '),
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _OfficialRubricSection(attempt: attempt),
+        if (rubric == null)
+          Text(
+            'Automatic score evidence is not available for this submission.',
+            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+          ),
+      ],
+    );
+  }
+}
+
 class _OfficialRubricSection extends StatelessWidget {
   const _OfficialRubricSection({required this.attempt});
 
@@ -460,42 +509,59 @@ class _OfficialRubricSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rubric = attempt.rubric;
-    return Column(
-      key: const Key('submission_official_rubric'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (rubric != null) ...[
-          Text(
-            '${rubricTotalLabel(rubric.total)} · ${rubric.performanceLevel.label}',
-            style: AppTheme.headingMedium,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          for (final criterion in RubricCriterion.values)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                '${criterion.label}: ${rubric.scoreFor(criterion)}/3',
-                style: AppTheme.body,
+    return Semantics(
+      container: true,
+      label: rubric == null
+          ? 'Official guided score is not available for this submission.'
+          : AssessmentScoreDisplay.officialSemantics(
+              rubric.total,
+              level: rubric.performanceLevel,
+            ),
+      child: Column(
+        key: const Key('submission_official_rubric'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (rubric != null) ...[
+            Text(
+              AssessmentScoreDisplay.officialWithPerformance(rubric.total),
+              style: AppTheme.headingMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            for (final criterion in RubricCriterion.values)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  AssessmentScoreDisplay.criterionScore(
+                    criterion,
+                    rubric.scoreFor(criterion),
+                    colon: true,
+                  ),
+                  style: AppTheme.body,
+                ),
+              ),
+          ] else
+            Text(
+              'Official guided score is not available for this submission.',
+              style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+            ),
+          if (attempt.durationSeconds != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Duration ${formatTrainingDuration(attempt.durationSeconds!)}',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
               ),
             ),
-        ] else
-          Text(
-            'Official guided score is not available for this submission.',
-            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-          ),
-        if (attempt.durationSeconds != null) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Duration ${formatTrainingDuration(attempt.durationSeconds!)}',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
+          ],
+          if (attempt.completedAt != null)
+            Text(
+              'Completed ${formatSubmissionTimestamp(attempt.completedAt!)}',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
         ],
-        if (attempt.completedAt != null)
-          Text(
-            'Completed ${formatSubmissionTimestamp(attempt.completedAt!)}',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-      ],
+      ),
     );
   }
 }
@@ -627,7 +693,7 @@ class _TeacherReviewedSection extends StatelessWidget {
             )
           else
             Text(
-              'Score: ${AssessmentScoreDisplay.teacherActivity(earned: attempt.gradeScore!, maximum: attempt.gradeMaxScore!)}',
+              'Teacher Grade: ${AssessmentScoreDisplay.teacherActivity(earned: attempt.gradeScore!, maximum: attempt.gradeMaxScore!)}',
               key: const Key('submission_grade'),
               style: AppTheme.headingMedium,
             ),

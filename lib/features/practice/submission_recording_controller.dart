@@ -152,6 +152,7 @@ class SubmissionRecordingController extends ChangeNotifier {
     final attempts = await classroom
         .watchAttemptsForTrainee(traineeId: traineeId)
         .first;
+    if (_disposed) return;
     if (isTeacherActivity) {
       final activityAttempts =
           [
