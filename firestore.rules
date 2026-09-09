@@ -2,25 +2,44 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
-      return request.auth != null;
+    function isSignedIn() { return request.auth != null; }
+
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+
+    function affectedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function keysUnchanged(keys) { return !affectedKeys().hasAny(keys); }
+
+    function chatMapLockedToParticipants(map, participantIds) {
+      return map.keys().hasAll(participantIds)
+        && map.keys().hasOnly(participantIds);
     }
 
-    function sessionPath(sessionId) {
-      return /databases/$(database)/documents/sessions/$(sessionId);
+    function approvedMembershipFields(membership, groupId, traineeId, teacherId) {
+      return membership.group_id == groupId
+        && membership.trainee_id == traineeId
+        && membership.teacher_id == teacherId
+        && membership.status == 'approved';
     }
 
-    function markerPath(sessionId) {
-      return /databases/$(database)/documents/leaderboard_processed_sessions/$(sessionId);
+    function canonicalReviewSubmissionAttemptId(data) { return 'review_sub_' + data.assignment_id + '_' + data.trainee_id; }
+
+    function isCanonicalReviewSubmissionAttempt(attemptId) { return attemptId == canonicalReviewSubmissionAttemptId(resource.data); }
+
+    function isReviewSubmissionTraineeActor() {
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission';
     }
 
-    function boardPath(boardId) {
-      return /databases/$(database)/documents/daily_quest_boards/$(boardId);
-    }
+    function achievementClaimAfter(claimId) { return getAfter(achievementClaimPath(claimId)).data; }
+
+    function sessionPath(sessionId) { return /databases/$(database)/documents/sessions/$(sessionId); }
+
+    function markerPath(sessionId) { return /databases/$(database)/documents/leaderboard_processed_sessions/$(sessionId); }
+
+    function boardPath(boardId) { return /databases/$(database)/documents/daily_quest_boards/$(boardId); }
 
     // Canonical board id shape used by create + account-erasure enumeration:
     // <authUid>_<yyyyMMdd>. Used to authorize idempotent deletes of missing
@@ -37,131 +56,118 @@ service cloud.firestore {
         && planId == request.auth.uid + '_' + dayKey;
     }
 
-    function claimPath(claimId) {
-      return /databases/$(database)/documents/daily_quest_claims/$(claimId);
-    }
+    function claimPath(claimId) { return /databases/$(database)/documents/daily_quest_claims/$(claimId); }
 
-    function leaderboardPath(userId) {
-      return /databases/$(database)/documents/leaderboard/$(userId);
-    }
-
-    function leaderboardKeys() {
-      return [
-        'user_id',
-        'display_name',
-        'profile_picture_url',
-        'total_xp',
-        'sessions_completed',
-        'score_sum',
-        'average_score',
-        'best_score',
-        'last_session_at',
-        'last_active_at',
-        'updated_at',
-        'last_awarded_session_id',
-        'quest_xp',
-        'last_claim_id',
-        'equipped_border_id',
-        'daily_key',
-        'daily_xp',
-        'daily_sessions_completed',
-        'daily_score_sum',
-        'daily_average_score',
-        'daily_best_score',
-        'monthly_key',
-        'monthly_xp',
-        'monthly_sessions_completed',
-        'monthly_score_sum',
-        'monthly_average_score',
-        'monthly_best_score'
-      ];
-    }
+    function leaderboardPath(userId) { return /databases/$(database)/documents/leaderboard/$(userId); }
 
     function dailyLeaderboardKeys() {
       return [
-        'daily_key',
-        'daily_xp',
-        'daily_sessions_completed',
-        'daily_score_sum',
-        'daily_average_score',
-        'daily_best_score'
+        'daily_key', 'daily_xp', 'daily_sessions_completed',
+        'daily_score_sum', 'daily_average_score', 'daily_best_score'
       ];
     }
 
     function monthlyLeaderboardKeys() {
       return [
-        'monthly_key',
-        'monthly_xp',
-        'monthly_sessions_completed',
-        'monthly_score_sum',
-        'monthly_average_score',
-        'monthly_best_score'
+        'monthly_key', 'monthly_xp', 'monthly_sessions_completed',
+        'monthly_score_sum', 'monthly_average_score', 'monthly_best_score'
       ];
     }
 
-    function periodLeaderboardKeys() {
+    function periodLeaderboardKeys() { return dailyLeaderboardKeys().concat(monthlyLeaderboardKeys()); }
+
+    function leaderboardKeys() {
       return [
-        'daily_key',
-        'daily_xp',
-        'daily_sessions_completed',
-        'daily_score_sum',
-        'daily_average_score',
-        'daily_best_score',
-        'monthly_key',
-        'monthly_xp',
-        'monthly_sessions_completed',
-        'monthly_score_sum',
-        'monthly_average_score',
-        'monthly_best_score'
-      ];
+        'user_id', 'display_name', 'profile_picture_url', 'total_xp',
+        'sessions_completed', 'score_sum', 'average_score', 'best_score',
+        'last_session_at', 'last_active_at', 'updated_at',
+        'last_awarded_session_id', 'quest_xp', 'last_claim_id',
+        'equipped_border_id'
+      ].concat(periodLeaderboardKeys());
     }
 
-    function achievementClaimPath(claimId) {
-      return /databases/$(database)/documents/achievement_claims/$(claimId);
+    function achievementClaimPath(claimId) { return /databases/$(database)/documents/achievement_claims/$(claimId); }
+
+    function userCosmeticsPath(userId) { return /databases/$(database)/documents/user_cosmetics/$(userId); }
+
+    function validUserCosmeticsCreate(data, userId) {
+      let claimId = data.last_achievement_claim_id;
+      let claimRef = achievementClaimPath(claimId);
+      return isOwner(userId)
+        && data.keys().hasOnly(cosmeticsKeys())
+        && data.user_id == request.auth.uid
+        && data.unlocked_border_ids is list
+        && data.unlocked_border_ids.size() == 1
+        && data.unlocked_border_ids[0] is string
+        && isKnownProfileBorderId(data.unlocked_border_ids[0])
+        && claimId is string
+        && data.created_at == request.time
+        && data.updated_at == request.time
+        && !exists(claimRef)
+        && existsAfter(claimRef)
+        && achievementClaimAfter(claimId).user_id == request.auth.uid
+        && achievementClaimAfter(claimId).achievement_id in achievementIds()
+        && achievementClaimAfter(claimId).reward_border_id
+          == data.unlocked_border_ids[0]
+        && achievementClaimAfter(claimId).reward_border_id
+          == rewardBorderForAchievement(
+            achievementClaimAfter(claimId).achievement_id
+          )
+        && claimId == request.auth.uid + '_'
+          + achievementClaimAfter(claimId).achievement_id;
     }
 
-    function userCosmeticsPath(userId) {
-      return /databases/$(database)/documents/user_cosmetics/$(userId);
+    function validUserCosmeticsUpdate(data, userId) {
+      let claimId = data.last_achievement_claim_id;
+      let claimRef = achievementClaimPath(claimId);
+      return isOwner(userId)
+        && resource.data.user_id == request.auth.uid
+        && data.keys().hasOnly(cosmeticsKeys())
+        && data.user_id == resource.data.user_id
+        && data.created_at == resource.data.created_at
+        && data.updated_at == request.time
+        && data.unlocked_border_ids is list
+        && resource.data.unlocked_border_ids is list
+        && data.unlocked_border_ids.size()
+          == resource.data.unlocked_border_ids.size() + 1
+        && data.unlocked_border_ids.size() <= 10
+        && oldBordersPreserved(
+          resource.data.unlocked_border_ids,
+          data.unlocked_border_ids
+        )
+        && claimId is string
+        && claimId != resource.data.last_achievement_claim_id
+        && !exists(claimRef)
+        && existsAfter(claimRef)
+        && achievementClaimAfter(claimId).user_id == request.auth.uid
+        && achievementClaimAfter(claimId).reward_border_id
+          == rewardBorderForAchievement(
+            achievementClaimAfter(claimId).achievement_id
+          )
+        && !(achievementClaimAfter(claimId).reward_border_id
+          in resource.data.unlocked_border_ids)
+        && achievementClaimAfter(claimId).reward_border_id
+          in data.unlocked_border_ids
+        && claimId == request.auth.uid + '_'
+          + achievementClaimAfter(claimId).achievement_id;
     }
 
-    // ---- Achievement / profile-border catalog (Phase 2) --------------------
-    // Duplicated deliberately from lib/data/models/achievement.dart and
-    // lib/data/models/profile_border.dart. Guarded by
-    // test/data/models/achievement_catalog_contract_test.dart.
-    //
-    // CAPSTONE SECURITY NOTE: these rules enforce fixed reward mappings,
-    // ownership, atomic claim↔cosmetics linkage, idempotency, and
-    // equip-only-if-unlocked. They do NOT independently verify that an
-    // achievement was completed — completion remains client-evaluated.
-    // Because Phase 2 rewards are cosmetic and grant no XP, modified-client
-    // impact is limited to the attacker's own cosmetics. Trusted callable-
-    // function evaluation remains the future hostile-client hardening path.
+    // Achievement/border catalog (duplicated from Dart; contract-tested).
+    // Enforces reward mapping, ownership, atomic claim↔cosmetics, and
+    // equip-only-if-unlocked. Completion is client-evaluated; rewards are
+    // cosmetic (no XP). Callable evaluation is the future hardening path.
     function achievementIds() {
       return [
-        'first_steps',
-        'getting_started',
-        'flair_regular',
-        'century_club',
-        'sharp_pour',
-        'perfect_serve',
-        'movement_explorer',
-        'versatility_master',
-        'week_warrior',
+        'first_steps', 'getting_started', 'flair_regular', 'century_club', 'sharp_pour',
+        'perfect_serve', 'movement_explorer', 'versatility_master', 'week_warrior',
         'bottle_in_tin_specialist'
       ];
     }
 
     function profileBorderIds() {
       return [
-        'starter_glow',
-        'bronze_ember',
-        'violet_flow',
-        'gold_mastery',
-        'cyan_orbit',
-        'perfect_serve',
-        'prismatic_arc',
-        'triad_frame',
-        'week_warrior',
+        'starter_glow', 'bronze_ember', 'violet_flow', 'gold_mastery', 'cyan_orbit',
+        'perfect_serve', 'prismatic_arc', 'triad_frame', 'week_warrior',
         'tin_specialist'
       ];
     }
@@ -180,13 +186,9 @@ service cloud.firestore {
         : '';
     }
 
-    function isKnownAchievementId(id) {
-      return id in achievementIds();
-    }
+    function isKnownAchievementId(id) { return id in achievementIds(); }
 
-    function isKnownProfileBorderId(id) {
-      return id in profileBorderIds();
-    }
+    function isKnownProfileBorderId(id) { return id in profileBorderIds(); }
 
     function validTeacherProfileBorderValue(data) {
       return data.profile_border_id == null
@@ -200,27 +202,18 @@ service cloud.firestore {
         || (data.role == 'Teacher' && validTeacherProfileBorderValue(data));
     }
 
-    function achievementClaimKeys() {
-      return ['user_id', 'achievement_id', 'reward_border_id', 'claimed_at'];
-    }
+    function achievementClaimKeys() { return ['user_id', 'achievement_id', 'reward_border_id', 'claimed_at']; }
 
     function cosmeticsKeys() {
       return [
-        'user_id',
-        'unlocked_border_ids',
-        'last_achievement_claim_id',
-        'created_at',
+        'user_id', 'unlocked_border_ids', 'last_achievement_claim_id', 'created_at',
         'updated_at'
       ];
     }
 
-    function equippedBorderOf(data) {
-      return data.get('equipped_border_id', '');
-    }
+    function equippedBorderOf(data) { return data.get('equipped_border_id', ''); }
 
-    function equippedBorderUnchanged() {
-      return equippedBorderOf(request.resource.data) == equippedBorderOf(resource.data);
-    }
+    function equippedBorderUnchanged() { return equippedBorderOf(request.resource.data) == equippedBorderOf(resource.data); }
 
     function profilePictureUnchanged() {
       return (!resource.data.keys().hasAny(['profile_picture_url'])
@@ -244,41 +237,22 @@ service cloud.firestore {
         && (oldList.size() < 10 || oldList[9] in newList);
     }
 
-    function markerKeysV1() {
-      return ['session_id', 'user_id', 'score', 'xp_awarded', 'processed_at'];
-    }
+    function markerKeysV1() { return ['session_id', 'user_id', 'score', 'xp_awarded', 'processed_at']; }
 
-    function markerKeysV2() {
-      return ['session_id', 'user_id', 'rubric_total', 'xp_awarded', 'processed_at'];
-    }
+    function markerKeysV2() { return ['session_id', 'user_id', 'rubric_total', 'xp_awarded', 'processed_at']; }
 
-    function boardKeys() {
-      return ['user_id', 'day_key', 'day_start', 'quest_ids', 'created_at', 'updated_at'];
-    }
+    function boardKeys() { return ['user_id', 'day_key', 'day_start', 'quest_ids', 'created_at', 'updated_at']; }
 
-    function claimKeys() {
-      return ['user_id', 'board_id', 'day_key', 'day_start', 'quest_id', 'xp_awarded', 'claimed_at'];
-    }
+    function claimKeys() { return ['user_id', 'board_id', 'day_key', 'day_start', 'quest_id', 'xp_awarded', 'claimed_at']; }
 
-    function isNonNegInt(value) {
-      return value is int && value >= 0;
-    }
+    function isNonNegInt(value) { return value is int && value >= 0; }
 
-    function trainingPlanRestKeys() {
-      return ['user_id', 'day_key', 'plan_type', 'created_at', 'updated_at'];
-    }
+    function trainingPlanRestKeys() { return ['user_id', 'day_key', 'plan_type', 'created_at', 'updated_at']; }
 
     function trainingPlanTrainingKeys() {
       return [
-        'user_id',
-        'day_key',
-        'plan_type',
-        'movement_name',
-        'difficulty',
-        'prop_type',
-        'target_duration_minutes',
-        'created_at',
-        'updated_at'
+        'user_id', 'day_key', 'plan_type', 'movement_name', 'difficulty', 'prop_type',
+        'target_duration_minutes', 'created_at', 'updated_at'
       ];
     }
 
@@ -340,13 +314,9 @@ service cloud.firestore {
         && value == int(value);
     }
 
-    function isRubricCriterion(value) {
-      return value is int && value >= 0 && value <= 3;
-    }
+    function isRubricCriterion(value) { return value is int && value >= 0 && value <= 3; }
 
-    function isRubricTotal(value) {
-      return value is int && value >= 0 && value <= 12;
-    }
+    function isRubricTotal(value) { return value is int && value >= 0 && value <= 12; }
 
     // Authoritative thresholds: 0–3 / 4–6 / 7–9 / 10–11 / 12.
     function performanceLevelFor(total) {
@@ -370,15 +340,8 @@ service cloud.firestore {
     function validRubricSession(data) {
       return data.assessment_version == 2
         && data.keys().hasAll([
-          'user_id',
-          'movement_name',
-          'difficulty',
-          'duration_seconds',
-          'prop_type',
-          'created_at',
-          'assessment_version',
-          'rubric',
-          'rubric_total',
+          'user_id', 'movement_name', 'difficulty', 'duration_seconds', 'prop_type',
+          'created_at', 'assessment_version', 'rubric', 'rubric_total',
           'performance_level'
         ])
         && !data.keys().hasAny(['score'])
@@ -422,7 +385,7 @@ service cloud.firestore {
     // non-official movement_name values (Arm Stall, custom names, etc.) must
     // never be rewritten to an official catalog identity to gain XP.
     function sessionIdentityUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      return !affectedKeys().hasAny([
         'movement_name', 'difficulty', 'prop_type', 'duration_seconds',
         'assessment_version', 'assignment_context', 'challenge_context'
       ]);
@@ -452,35 +415,19 @@ service cloud.firestore {
     // default) here (rather than requiring the key via hasAll) means those
     // documents, and writes that never touch these fields, keep validating
     // correctly without a backfill migration.
-    function questXpOf(data) {
-      return data.get('quest_xp', 0);
-    }
+    function questXpOf(data) { return data.get('quest_xp', 0); }
 
-    function lastClaimIdOf(data) {
-      return data.get('last_claim_id', '');
-    }
+    function lastClaimIdOf(data) { return data.get('last_claim_id', ''); }
 
-    // ---- Daily quest catalog (Phase 1) -------------------------------------
-    // Duplicated deliberately from lib/data/models/daily_quest.dart because
-    // security rules cannot import Dart source. A Dart-side contract test
-    // (test/data/models/daily_quest_catalog_contract_test.dart) parses this
-    // file and fails loudly if the two ever diverge.
-    //
-    // CAPSTONE SECURITY NOTE: these rules verify XP arithmetic, catalog
-    // membership, claim-replay safety, and the Asia/Manila real-day window —
-    // they do NOT independently verify that a quest was actually completed
-    // (e.g. "did the player really finish 3 sessions today"). Quest
-    // completion is evaluated client-side (see GamificationRepository).
-    // That check is a UX / defense-in-depth guard only, not a security
-    // boundary. Moving completion verification into a trusted Firebase
-    // callable function is the recommended hardening for a future phase
-    // with a hostile-client threat model.
+    // Daily quest catalog (duplicated from Dart; contract-tested).
+    // Enforces XP arithmetic, catalog membership, claim-replay safety, and
+    // the Manila real-day window. Completion is client-evaluated, not a
+    // security boundary. Callable verification is the future hardening path.
     function questCatalogIds() {
       return [
         'session_count_1', 'session_count_3', 'session_count_5',
         'duration_10min', 'duration_20min', 'duration_30min',
-        'score_70', 'score_85', 'score_95',
-        'sessions_above_70_x2',
+        'score_70', 'score_85', 'score_95', 'sessions_above_70_x2',
         'two_movements', 'three_movements',
         'practice_easy_movement', 'practice_medium_movement', 'practice_hard_movement',
         'use_shaker', 'distinct_props_2', 'use_bottle_and_shaker_combo'
@@ -502,25 +449,15 @@ service cloud.firestore {
               'practice_hard_movement', 'use_bottle_and_shaker_combo'];
     }
 
-    function sessionCountIds() {
-      return ['session_count_1', 'session_count_3', 'session_count_5'];
-    }
+    function sessionCountIds() { return ['session_count_1', 'session_count_3', 'session_count_5']; }
 
-    function durationIds() {
-      return ['duration_10min', 'duration_20min', 'duration_30min'];
-    }
+    function durationIds() { return ['duration_10min', 'duration_20min', 'duration_30min']; }
 
-    function scoreThresholdIds() {
-      return ['score_70', 'score_85', 'score_95'];
-    }
+    function scoreThresholdIds() { return ['score_70', 'score_85', 'score_95']; }
 
-    function isKnownQuestId(id) {
-      return id in questCatalogIds();
-    }
+    function isKnownQuestId(id) { return id in questCatalogIds(); }
 
-    function questXpFor(id) {
-      return id in easyIds() ? 10 : (id in mediumIds() ? 15 : (id in hardIds() ? 20 : -1));
-    }
+    function questXpFor(id) { return id in easyIds() ? 10 : (id in mediumIds() ? 15 : (id in hardIds() ? 20 : -1)); }
 
     function countInSet(ids, allowed) {
       return (ids[0] in allowed ? 1 : 0) + (ids[1] in allowed ? 1 : 0) + (ids[2] in allowed ? 1 : 0)
@@ -532,13 +469,9 @@ service cloud.firestore {
     // never client-supplied, which is exactly why it is the only trustworthy
     // basis for "what real day is it". A client cannot spoof it by changing
     // its device clock or by passing an arbitrary day_key/day_start.
-    function manilaOffset() {
-      return duration.value(8, 'h');
-    }
+    function manilaOffset() { return duration.value(8, 'h'); }
 
-    function twoDigit(n) {
-      return n < 10 ? '0' + string(n) : string(n);
-    }
+    function twoDigit(n) { return n < 10 ? '0' + string(n) : string(n); }
 
     // Exact UTC instant of 00:00 Asia/Manila for the Manila calendar day
     // that contains server timestamp ts.
@@ -588,15 +521,8 @@ service cloud.firestore {
         && data.last_awarded_session_id.size() > 0
         && !data.keys().hasAny(['last_active_at'])
         && data.keys().hasAll([
-          'user_id',
-          'display_name',
-          'total_xp',
-          'sessions_completed',
-          'score_sum',
-          'average_score',
-          'best_score',
-          'last_session_at',
-          'updated_at',
+          'user_id', 'display_name', 'total_xp', 'sessions_completed', 'score_sum',
+          'average_score', 'best_score', 'last_session_at', 'updated_at',
           'last_awarded_session_id'
         ]);
     }
@@ -609,11 +535,8 @@ service cloud.firestore {
           || isValidHttpsProfilePictureUrl(data.profile_picture_url));
     }
 
-    // Update paths below independently validate every mutable aggregate and
-    // the equipped-border transition. The shared update shape therefore only
-    // enforces the document/key, identity, timestamp, and public-metadata
-    // contract; rechecking every unchanged field here would exceed
-    // Firestore's 1,000-expression limit for legitimate older backfills.
+    // Award/update paths independently validate aggregates. Rechecking every
+    // unchanged field here would exceed the 1,000-expression limit.
     function validLeaderboardUpdateShape(data) {
       return data.keys().hasOnly(leaderboardKeys())
         && data.user_id == request.auth.uid
@@ -621,9 +544,7 @@ service cloud.firestore {
         && validLeaderboardPublicMetadata(data);
     }
 
-    function sourceSession(sessionId) {
-      return get(sessionPath(sessionId)).data;
-    }
+    function sourceSession(sessionId) { return get(sessionPath(sessionId)).data; }
 
     function markerMatchesLegacySession(sessionId, score) {
       let marker = getAfter(markerPath(sessionId));
@@ -647,37 +568,21 @@ service cloud.firestore {
         && marker.data.xp_awarded == 25;
     }
 
-    function awardSessionId() {
-      return request.resource.data.last_awarded_session_id;
-    }
+    function awardSessionId() { return request.resource.data.last_awarded_session_id; }
 
-    function validAwardSessionTimestamp(createdAt) {
-      return createdAt is timestamp && createdAt <= request.time;
-    }
+    function validAwardSessionTimestamp(createdAt) { return createdAt is timestamp && createdAt <= request.time; }
 
-    function dailyPeriodUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys()
-        .hasAny(dailyLeaderboardKeys());
-    }
+    function dailyPeriodUnchanged() { return keysUnchanged(dailyLeaderboardKeys()); }
 
-    function monthlyPeriodUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys()
-        .hasAny(monthlyLeaderboardKeys());
-    }
+    function monthlyPeriodUnchanged() { return keysUnchanged(monthlyLeaderboardKeys()); }
 
-    function periodAggregatesUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys()
-        .hasAny(periodLeaderboardKeys());
-    }
+    function periodAggregatesUnchanged() { return keysUnchanged(periodLeaderboardKeys()); }
 
-    function lastActiveUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys()
-        .hasAny(['last_active_at']);
-    }
+    function lastActiveUnchanged() { return keysUnchanged(['last_active_at']); }
 
     function validLastActiveUpdate() {
       return resource.data.user_id == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['last_active_at'])
         && request.resource.data.last_active_at is timestamp
         && request.resource.data.last_active_at == request.time
@@ -796,33 +701,24 @@ service cloud.firestore {
         );
     }
 
-    // A fully older backfill changes lifetime aggregates while preserving all
-    // quest, cosmetic, identity, and period state. Expressing that invariant
-    // as the exact set of permitted changed keys avoids expanding both period
-    // transition trees and stays below Firestore's 1,000-expression limit.
+    // Older backfills change lifetime aggregates only; listing permitted
+    // keys avoids expanding period trees past the 1,000-expression limit.
     function sessionAwardMutableKeys() {
       return [
-        'display_name',
-        'profile_picture_url',
-        'total_xp',
-        'sessions_completed',
-        'score_sum',
-        'average_score',
-        'best_score',
-        'last_session_at',
-        'updated_at',
+        'display_name', 'profile_picture_url', 'total_xp', 'sessions_completed',
+        'score_sum', 'average_score', 'best_score', 'last_session_at', 'updated_at',
         'last_awarded_session_id'
       ];
     }
 
     function validOlderSessionAwardChanges() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+      return affectedKeys().hasOnly(
         sessionAwardMutableKeys()
       );
     }
 
     function validCurrentSessionAwardChanges() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+      return affectedKeys().hasOnly(
         sessionAwardMutableKeys().concat(periodLeaderboardKeys())
       );
     }
@@ -1075,23 +971,12 @@ service cloud.firestore {
         );
     }
 
-    // ---- Quest claim -> leaderboard update, replay-proof -------------------
-    // A leaderboard write may only add quest_xp if it points (via
-    // last_claim_id) at a daily_quest_claims document that:
-    //   - did not exist before this request (!exists), and
-    //   - exists after this request commits (existsAfter),
-    // i.e. the claim must be freshly created atomically alongside this same
-    // leaderboard write. Reusing an already-existing claim id (replay) fails
-    // the !exists() check. The claim's own create rule (below) requires the
-    // leaderboard-after state to point back at it, closing the loop in both
-    // directions.
-    function claimAfter(claimId) {
-      return getAfter(claimPath(claimId)).data;
-    }
+    // Quest claim -> leaderboard update is replay-proof: last_claim_id must
+    // point at a claim created in this same commit (!exists && existsAfter),
+    // and the claim create rule requires the leaderboard-after pointer back.
+    function claimAfter(claimId) { return getAfter(claimPath(claimId)).data; }
 
-    function leaderboardAfter(userId) {
-      return getAfter(leaderboardPath(userId)).data;
-    }
+    function leaderboardAfter(userId) { return getAfter(leaderboardPath(userId)).data; }
 
     // Single get() of the referenced board, reused for every board-derived
     // check below instead of calling get() repeatedly (stays comfortably
@@ -1106,12 +991,9 @@ service cloud.firestore {
 
     function claimMatchesLeaderboardUpdate() {
       let claimId = request.resource.data.last_claim_id;
-      // Deliberately no `let claim = claimAfter(claimId)` here: a `let`
-      // binding evaluates eagerly, so it would call getAfter(...).data
-      // (an evaluation error on a nonexistent document) before the
-      // existsAfter() guard below has a chance to short-circuit. Repeating
-      // claimAfter(claimId) inside the lazily-evaluated && chain instead
-      // keeps every `.data` access gated behind existsAfter() first.
+      // Do not `let claim = claimAfter(claimId)`: let is eager and would
+      // read .data before existsAfter() can short-circuit. Repeat claimAfter
+      // inside the && chain so .data stays gated.
       return claimId is string
         && claimId != lastClaimIdOf(resource.data)
         && !exists(claimPath(claimId))
@@ -1125,17 +1007,11 @@ service cloud.firestore {
         && request.resource.data.quest_xp == questXpOf(resource.data) + claimAfter(claimId).xp_awarded;
     }
 
-    function questAwardXp() {
-      return claimAfter(request.resource.data.last_claim_id).xp_awarded;
-    }
+    function questAwardXp() { return claimAfter(request.resource.data.last_claim_id).xp_awarded; }
 
-    function questAwardDayKey() {
-      return claimAfter(request.resource.data.last_claim_id).day_key;
-    }
+    function questAwardDayKey() { return claimAfter(request.resource.data.last_claim_id).day_key; }
 
-    function questAwardMonthKey() {
-      return manilaMonthKey(request.time);
-    }
+    function questAwardMonthKey() { return manilaMonthKey(request.time); }
 
     function dailyQuestAggregateReset() {
       return request.resource.data.daily_key == questAwardDayKey()
@@ -1232,24 +1108,18 @@ service cloud.firestore {
     // Teacher self-registration is the sole pre-claim bootstrap. The profile
     // and one-time code consumption must commit together; privileged access
     // after that point is authorized by the server-issued Auth claim.
-    function teacherAccessCodePath(code) {
-      return /databases/$(database)/documents/teacher_access_codes/$(code);
-    }
-
-    function isTeacherAccessCodeFormat(code) {
-      return code is string
-        && code.matches('^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$');
-    }
+    function teacherAccessCodePath(code) { return /databases/$(database)/documents/teacher_access_codes/$(code); }
 
     function teacherAccessCodeConsumedInSameWrite() {
       let code = request.resource.data.get('teacher_access_code', '');
+      let codePath = teacherAccessCodePath(code);
       return request.resource.data.role == 'Teacher'
-        && isTeacherAccessCodeFormat(code)
-        && exists(teacherAccessCodePath(code))
-        && get(teacherAccessCodePath(code)).data.consumed == false
-        && existsAfter(teacherAccessCodePath(code))
-        && getAfter(teacherAccessCodePath(code)).data.consumed == true
-        && getAfter(teacherAccessCodePath(code)).data.consumed_by == request.auth.uid;
+        && isNormalizedCoachCode(code)
+        && exists(codePath)
+        && get(codePath).data.consumed == false
+        && existsAfter(codePath)
+        && getAfter(codePath).data.consumed == true
+        && getAfter(codePath).data.consumed_by == request.auth.uid;
     }
 
     function validProfileName(value) {
@@ -1285,11 +1155,11 @@ service cloud.firestore {
     function validNewUserProfile() {
       let data = request.resource.data;
       return data.keys().hasOnly([
-          'first_name', 'middle_name', 'last_name', 'full_name', 'email',
-          'role', 'teacher_access_code', 'created_at', 'privacy_consent_at',
-          'privacy_policy_version', 'terms_consent_at',
-          'terms_of_service_version', 'profile_picture_url',
-          'profile_picture_storage_path', 'profile_border_id'
+        'first_name', 'middle_name', 'last_name', 'full_name', 'email',
+        'role', 'teacher_access_code', 'created_at', 'privacy_consent_at',
+        'privacy_policy_version', 'terms_consent_at',
+        'terms_of_service_version', 'profile_picture_url',
+        'profile_picture_storage_path', 'profile_border_id'
         ])
         && validStructuredName(data)
         && data.email is string
@@ -1305,14 +1175,13 @@ service cloud.firestore {
     }
 
     function validUserProfileUpdate() {
-      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let affected = affectedKeys();
       return affected.hasOnly([
-          'first_name', 'middle_name', 'last_name', 'full_name', 'email',
-          'profile_picture_path', 'profile_picture_url',
-          'profile_picture_storage_path', 'session_evidence_enabled',
-          'session_evidence_policy_version', 'session_evidence_decision_at',
-          'teacher_roster_invite_code', 'teacher_invite_code',
-          'profile_border_id'
+        'first_name', 'middle_name', 'last_name', 'full_name', 'email',
+        'profile_picture_path', 'profile_picture_url',
+        'profile_picture_storage_path', 'session_evidence_enabled',
+        'session_evidence_policy_version', 'session_evidence_decision_at',
+        'teacher_roster_invite_code', 'teacher_invite_code', 'profile_border_id'
         ])
         && request.resource.data.role == resource.data.role
         && request.resource.data.get('teacher_access_code', '')
@@ -1473,7 +1342,7 @@ service cloud.firestore {
           )
         );
 
-      // Self-erasure only (RA 10173 account deletion).
+      // Owner self-erasure (RA 10173).
       allow delete: if isOwner(userId);
     }
 
@@ -1513,7 +1382,7 @@ service cloud.firestore {
         && isOfficialElixrMovementName(sourceSession(sessionId).movement_name);
 
       allow update: if false;
-      // Self-erasure only (RA 10173 account deletion).
+      // Owner self-erasure (RA 10173).
       allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
@@ -1604,7 +1473,7 @@ service cloud.firestore {
         && leaderboardAfter(request.resource.data.user_id).last_claim_id == claimId;
 
       allow update: if false;
-      // Self-erasure only (RA 10173 account deletion).
+      // Owner self-erasure (RA 10173).
       allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
@@ -1630,7 +1499,7 @@ service cloud.firestore {
           in getAfter(userCosmeticsPath(request.auth.uid)).data.unlocked_border_ids;
 
       allow update: if false;
-      // Self-erasure only (RA 10173 account deletion).
+      // Owner self-erasure (RA 10173).
       allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
@@ -1639,153 +1508,61 @@ service cloud.firestore {
       allow get: if isOwner(userId) && (resource == null || resource.data.user_id == userId);
       allow list: if false;
 
-      allow create: if isOwner(userId)
-        && request.resource.data.keys().hasOnly(cosmeticsKeys())
-        && request.resource.data.user_id == request.auth.uid
-        && request.resource.data.unlocked_border_ids is list
-        && request.resource.data.unlocked_border_ids.size() == 1
-        && request.resource.data.unlocked_border_ids[0] is string
-        && isKnownProfileBorderId(request.resource.data.unlocked_border_ids[0])
-        && request.resource.data.last_achievement_claim_id is string
-        && request.resource.data.created_at == request.time
-        && request.resource.data.updated_at == request.time
-        && !exists(achievementClaimPath(request.resource.data.last_achievement_claim_id))
-        && existsAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id))
-        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.user_id
-          == request.auth.uid
-        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id
-          in achievementIds()
-        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
-          == request.resource.data.unlocked_border_ids[0]
-        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
-          == rewardBorderForAchievement(
-            getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id
-          )
-        && request.resource.data.last_achievement_claim_id
-          == request.auth.uid + '_'
-            + getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id;
+      allow create: if validUserCosmeticsCreate(request.resource.data, userId);
 
-      allow update: if isOwner(userId)
-        && resource.data.user_id == request.auth.uid
-        && request.resource.data.keys().hasOnly(cosmeticsKeys())
-        && request.resource.data.user_id == resource.data.user_id
-        && request.resource.data.created_at == resource.data.created_at
-        && request.resource.data.updated_at == request.time
-        && request.resource.data.unlocked_border_ids is list
-        && resource.data.unlocked_border_ids is list
-        && request.resource.data.unlocked_border_ids.size()
-          == resource.data.unlocked_border_ids.size() + 1
-        && request.resource.data.unlocked_border_ids.size() <= 10
-        && oldBordersPreserved(
-          resource.data.unlocked_border_ids,
-          request.resource.data.unlocked_border_ids
-        )
-        && request.resource.data.last_achievement_claim_id is string
-        && request.resource.data.last_achievement_claim_id
-          != resource.data.last_achievement_claim_id
-        && !exists(achievementClaimPath(request.resource.data.last_achievement_claim_id))
-        && existsAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id))
-        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.user_id
-          == request.auth.uid
-        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
-          == rewardBorderForAchievement(
-            getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id
-          )
-        && !(getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
-          in resource.data.unlocked_border_ids)
-        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
-          in request.resource.data.unlocked_border_ids
-        && request.resource.data.last_achievement_claim_id
-          == request.auth.uid + '_'
-            + getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id;
+      allow update: if validUserCosmeticsUpdate(request.resource.data, userId);
 
-      // Self-erasure only (RA 10173 account deletion).
+      // Owner self-erasure (RA 10173).
       allow delete: if isOwner(userId);
     }
 
     // ---- Public profiles (privacy-aware player profile viewing) ------------
-    function publicProfilePath(userId) {
-      return /databases/$(database)/documents/public_profiles/$(userId);
-    }
+    function publicProfilePath(userId) { return /databases/$(database)/documents/public_profiles/$(userId); }
 
     function publicProfileRootKeys() {
       return [
-        'user_id',
-        'display_name',
-        'profile_picture_url',
-        'role',
-        'visibility',
-        'created_at',
-        'updated_at',
-        'schema_version'
+        'user_id', 'display_name', 'profile_picture_url', 'role', 'visibility',
+        'created_at', 'updated_at', 'schema_version'
       ];
     }
 
     function publicProfileSummaryKeys() {
       return [
-        'total_duration_seconds',
-        'completed_movement_names',
-        'updated_at',
+        'total_duration_seconds', 'completed_movement_names', 'updated_at',
         'last_backfill_session_id'
       ];
     }
 
     function publicProfileSessionKeysV1() {
       return [
-        'session_id',
-        'user_id',
-        'movement_name',
-        'difficulty',
-        'score',
-        'duration_seconds',
-        'prop_type',
-        'created_at',
-        'evidence_available'
+        'session_id', 'user_id', 'movement_name', 'difficulty', 'score',
+        'duration_seconds', 'prop_type', 'created_at', 'evidence_available'
       ];
     }
 
     function publicProfileSessionKeysV2() {
       return [
-        'session_id',
-        'user_id',
-        'movement_name',
-        'difficulty',
-        'duration_seconds',
-        'prop_type',
-        'created_at',
-        'assessment_version',
-        'rubric',
-        'rubric_total',
-        'performance_level',
-        'evidence_available'
+        'session_id', 'user_id', 'movement_name', 'difficulty', 'duration_seconds',
+        'prop_type', 'created_at', 'assessment_version', 'rubric', 'rubric_total',
+        'performance_level', 'evidence_available'
       ];
     }
 
     function publicProfileAchievementKeys() {
       return [
-        'user_id',
-        'achievement_id',
-        'claimed_at',
-        'updated_at'
+        'user_id', 'achievement_id', 'claimed_at', 'updated_at'
       ];
     }
 
     function profileVisitKeys() {
       return [
-        'profile_owner_id',
-        'viewer_id',
-        'first_viewed_at',
-        'last_viewed_at'
+        'profile_owner_id', 'viewer_id', 'first_viewed_at', 'last_viewed_at'
       ];
     }
 
-    function publicProfileVisibility(userId) {
-      return get(publicProfilePath(userId)).data.get('visibility', 'private');
-    }
+    function publicProfileVisibility(userId) { return get(publicProfilePath(userId)).data.get('visibility', 'private'); }
 
-    function isPublicProfile(userId) {
-      return publicProfileVisibility(userId) == 'public';
-    }
+    function isPublicProfile(userId) { return publicProfileVisibility(userId) == 'public'; }
 
     // Missing legacy roles are Trainee-compatible; unknown roles fail closed.
     function isOrdinaryPlayer() {
@@ -1975,21 +1752,13 @@ service cloud.firestore {
         && value.size() <= 128;
     }
 
-    function userPath(userId) {
-      return /databases/$(database)/documents/users/$(userId);
-    }
+    function userPath(userId) { return /databases/$(database)/documents/users/$(userId); }
 
-    function invitePath(code) {
-      return /databases/$(database)/documents/teacher_invites/$(code);
-    }
+    function invitePath(code) { return /databases/$(database)/documents/teacher_invites/$(code); }
 
-    function userFullName(userId) {
-      return get(userPath(userId)).data.full_name;
-    }
+    function userFullName(userId) { return get(userPath(userId)).data.full_name; }
 
-    function inviteKeys() {
-      return ['teacher_id', 'teacher_display_name', 'created_at'];
-    }
+    function inviteKeys() { return ['teacher_id', 'teacher_display_name', 'created_at']; }
 
     function validInviteCreate(data, inviteId) {
       return isVerifiedTeacher()
@@ -2008,14 +1777,8 @@ service cloud.firestore {
 
     function linkKeys() {
       return [
-        'teacher_id',
-        'trainee_id',
-        'teacher_display_name',
-        'trainee_display_name',
-        'status',
-        'invite_id',
-        'created_at',
-        'updated_at'
+        'teacher_id', 'trainee_id', 'teacher_display_name', 'trainee_display_name',
+        'status', 'invite_id', 'created_at', 'updated_at'
       ];
     }
 
@@ -2026,9 +1789,7 @@ service cloud.firestore {
         'progress_access_version',
         'progress_access_granted_at'
       ]).concat([
-        'evidence_access',
-        'evidence_access_version',
-        'evidence_access_granted_at'
+        'evidence_access', 'evidence_access_version', 'evidence_access_granted_at'
       ]);
     }
 
@@ -2042,9 +1803,7 @@ service cloud.firestore {
     function validProgressAccessShape(data) {
       return progressAccessIsNone(data)
         || (data.keys().hasAll([
-            'progress_access',
-            'progress_access_version',
-            'progress_access_granted_at'
+          'progress_access', 'progress_access_version', 'progress_access_granted_at'
           ])
           && data.progress_access == 'granted'
           && data.progress_access_version == 1
@@ -2053,47 +1812,35 @@ service cloud.firestore {
 
     function evidenceAccessIsNone(data) {
       return !data.keys().hasAny([
-        'evidence_access',
-        'evidence_access_version',
-        'evidence_access_granted_at'
+        'evidence_access', 'evidence_access_version', 'evidence_access_granted_at'
       ]);
     }
 
     function validEvidenceAccessShape(data) {
       return evidenceAccessIsNone(data)
         || (data.keys().hasAll([
-            'evidence_access',
-            'evidence_access_version',
-            'evidence_access_granted_at'
+          'evidence_access', 'evidence_access_version', 'evidence_access_granted_at'
           ])
           && data.evidence_access == 'granted'
           && data.evidence_access_version == 1
           && data.evidence_access_granted_at is timestamp);
     }
 
-    function teacherStudentLinkPath(teacherId, traineeId) {
-      return /databases/$(database)/documents/teacher_student_links/$(teacherId + '_' + traineeId);
-    }
+    function teacherStudentLinkPath(teacherId, traineeId) { return /databases/$(database)/documents/teacher_student_links/$(teacherId + '_' + traineeId); }
 
-    function classroomTeacherAccessPath(teacherId, traineeId) {
-      return /databases/$(database)/documents/classroom_teacher_access/$(teacherId + '_' + traineeId);
-    }
+    function classroomTeacherAccessPath(teacherId, traineeId) { return /databases/$(database)/documents/classroom_teacher_access/$(teacherId + '_' + traineeId); }
 
     function hasApprovedProgressAccess(traineeId) {
+      let linkRef = teacherStudentLinkPath(request.auth.uid, traineeId);
+      let link = exists(linkRef) ? get(linkRef).data : {};
       return isTeacherClaim()
-        && exists(teacherStudentLinkPath(request.auth.uid, traineeId))
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.teacher_id
-          == request.auth.uid
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.trainee_id
-          == traineeId
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.status
-          == 'approved'
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access
-          == 'granted'
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access_version
-          == 1
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access_granted_at
-          is timestamp;
+        && exists(linkRef)
+        && link.teacher_id == request.auth.uid
+        && link.trainee_id == traineeId
+        && link.status == 'approved'
+        && link.progress_access == 'granted'
+        && link.progress_access_version == 1
+        && link.progress_access_granted_at is timestamp;
     }
 
     // The context is a repairable pointer. Protected reads must still verify
@@ -2101,16 +1848,14 @@ service cloud.firestore {
     // hasClassroomAuthorization().
     function hasApprovedClassroomProgressAccess(traineeId) {
       let contextRef = classroomTeacherAccessPath(request.auth.uid, traineeId);
+      let context = exists(contextRef) ? get(contextRef).data : {};
       return isTeacherClaim()
         && exists(contextRef)
-        && get(contextRef).data.get('teacher_id', '') == request.auth.uid
-        && get(contextRef).data.get('trainee_id', '') == traineeId
-        && get(contextRef).data.get('group_id', '') is string
-        && get(contextRef).data.get('schema_version', 0) == 1
-        && hasClassroomAuthorization(
-          get(contextRef).data.group_id,
-          traineeId
-        );
+        && context.get('teacher_id', '') == request.auth.uid
+        && context.get('trainee_id', '') == traineeId
+        && context.get('group_id', '') is string
+        && context.get('schema_version', 0) == 1
+        && hasClassroomAuthorization(context.group_id, traineeId);
     }
 
     function isLinkParticipant() {
@@ -2159,14 +1904,10 @@ service cloud.firestore {
         && data.updated_at == request.time;
     }
 
-    function linkParticipantsUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'teacher_id', 'trainee_id', 'created_at'
-      ]);
-    }
+    function linkParticipantsUnchanged() { return keysUnchanged(['teacher_id', 'trainee_id', 'created_at']); }
 
     function linkIdentitySnapshotsUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      return keysUnchanged([
         'teacher_display_name', 'trainee_display_name', 'invite_id',
         'request_version'
       ]);
@@ -2279,7 +2020,7 @@ service cloud.firestore {
     }
 
     function validTeacherAccessCodeConsume(code) {
-      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let affected = affectedKeys();
       return isSignedIn()
         && isNormalizedCoachCode(code)
         && resource.data.consumed == false
@@ -2293,7 +2034,7 @@ service cloud.firestore {
     }
 
     function validTeacherAccessCodeAnonymization() {
-      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let affected = affectedKeys();
       let ownsCreatorData = resource.data.get('created_by', '') == request.auth.uid;
       let ownsConsumerData = resource.data.get('consumed_by', '') == request.auth.uid;
       return isSignedIn()
@@ -2311,7 +2052,7 @@ service cloud.firestore {
     }
 
     match /teacher_access_codes/{code} {
-      allow get: if isSignedIn() && isTeacherAccessCodeFormat(code);
+      allow get: if isSignedIn() && isNormalizedCoachCode(code);
       allow list: if isSignedIn()
         && isTeacherClaim()
         && resource.data.get('created_by', '') == request.auth.uid;
@@ -2354,11 +2095,7 @@ service cloud.firestore {
     // membership, and writes must bind all ids to the authenticated Teacher.
     function classroomAccessContextKeys() {
       return [
-        'teacher_id',
-        'trainee_id',
-        'group_id',
-        'schema_version',
-        'updated_at'
+        'teacher_id', 'trainee_id', 'group_id', 'schema_version', 'updated_at'
       ];
     }
 
@@ -2422,26 +2159,15 @@ service cloud.firestore {
     // teacher_student_links for legacy-only relationships.
     // Assignment Submission Authorization is not implemented until Phase 6.
 
-    function groupPath(groupId) {
-      return /databases/$(database)/documents/groups/$(groupId);
-    }
+    function groupPath(groupId) { return /databases/$(database)/documents/groups/$(groupId); }
 
-    function groupInvitePath(code) {
-      return /databases/$(database)/documents/group_invites/$(code);
-    }
+    function groupInvitePath(code) { return /databases/$(database)/documents/group_invites/$(code); }
 
-    function groupMembershipPath(groupId, traineeId) {
-      return /databases/$(database)/documents/group_memberships/$(groupId + '_' + traineeId);
-    }
+    function groupMembershipPath(groupId, traineeId) { return /databases/$(database)/documents/group_memberships/$(groupId + '_' + traineeId); }
 
     function groupKeys() {
       return [
-        'teacher_id',
-        'name',
-        'status',
-        'created_at',
-        'updated_at',
-        'schema_version'
+        'teacher_id', 'name', 'status', 'created_at', 'updated_at', 'schema_version'
       ];
     }
 
@@ -2463,25 +2189,26 @@ service cloud.firestore {
     // document's active-only GET rule.
     function isApprovedTraineeForGroup(groupId) {
       let membershipRef = groupMembershipPath(groupId, request.auth.uid);
+      let membership = exists(membershipRef) ? get(membershipRef).data : {};
+      let group = exists(groupPath(groupId)) ? get(groupPath(groupId)).data : {};
       return isSignedIn()
         && exists(groupPath(groupId))
         && exists(membershipRef)
-        && get(membershipRef).data.group_id == groupId
-        && get(membershipRef).data.trainee_id == request.auth.uid
-        && get(membershipRef).data.status == 'approved'
-        && get(groupPath(groupId)).data.teacher_id
-          == get(membershipRef).data.teacher_id;
+        && approvedMembershipFields(
+          membership, groupId, request.auth.uid, membership.teacher_id
+        )
+        && group.teacher_id == membership.teacher_id;
     }
 
-    function classroomStatusPath(groupId) {
-      return /databases/$(database)/documents/groups/$(groupId)/lifecycle/status;
-    }
+    function classroomStatusPath(groupId) { return /databases/$(database)/documents/groups/$(groupId)/lifecycle/status; }
 
     function isGroupTeacher(groupId) {
       return isVerifiedTeacher()
         && exists(groupPath(groupId))
         && get(groupPath(groupId)).data.teacher_id == request.auth.uid;
     }
+
+    function isAnnouncementOwner(groupId) { return isGroupTeacher(groupId); }
 
     function isAccountDeletionInProgress() {
       return isSignedIn()
@@ -2550,13 +2277,13 @@ service cloud.firestore {
         && inviteAfter.data.group_id == groupId
         && inviteAfter.data.teacher_id == request.auth.uid
         && inviteAfter.data.teacher_display_name == userFullName(request.auth.uid)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && affectedKeys().hasOnly([
           'invite_code', 'updated_at'
         ]);
     }
 
     function validGroupTeacherUpdate(groupId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let changed = affectedKeys();
       return isVerifiedTeacher()
         && resource.data.teacher_id == request.auth.uid
         && request.resource.data.keys().hasOnly(groupAllowedKeys())
@@ -2599,12 +2326,10 @@ service cloud.firestore {
         );
     }
 
-    function announcementPath(groupId, announcementId) {
-      return /databases/$(database)/documents/groups/$(groupId)/announcements/$(announcementId);
-    }
+    function announcementPath(groupId, announcementId) { return /databases/$(database)/documents/groups/$(groupId)/announcements/$(announcementId); }
 
     function validGroupAnnouncementPinUpdate(groupId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let changed = affectedKeys();
       let hasPinnedId = request.resource.data.keys().hasAny([
         'pinned_announcement_id'
       ]);
@@ -2640,9 +2365,7 @@ service cloud.firestore {
         );
     }
 
-    function groupInviteKeys() {
-      return ['group_id', 'teacher_id', 'teacher_display_name', 'created_at'];
-    }
+    function groupInviteKeys() { return ['group_id', 'teacher_id', 'teacher_display_name', 'created_at']; }
 
     function liveGroupInviteMatchesOwner(data) {
       return isNormalizedCoachCode(data.invite_id)
@@ -2677,21 +2400,12 @@ service cloud.firestore {
 
     function membershipKeys() {
       return [
-        'group_id',
-        'teacher_id',
-        'trainee_id',
-        'teacher_display_name',
-        'trainee_display_name',
-        'status',
-        'invite_id',
-        'created_at',
-        'updated_at'
+        'group_id', 'teacher_id', 'trainee_id', 'teacher_display_name',
+        'trainee_display_name', 'status', 'invite_id', 'created_at', 'updated_at'
       ];
     }
 
-    function membershipAllowedKeys() {
-      return membershipKeys().concat(['request_version']);
-    }
+    function membershipAllowedKeys() { return membershipKeys().concat(['request_version']); }
 
     function membershipIdsMatchDocument(data, membershipId) {
       return isParticipantId(data.group_id)
@@ -2701,45 +2415,38 @@ service cloud.firestore {
         && membershipId == data.group_id + '_' + data.trainee_id;
     }
 
-    function isMembershipParticipant() {
-      return isSignedIn()
-        && (
-          (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
-          || resource.data.trainee_id == request.auth.uid
-        );
-    }
+    function isMembershipParticipant() { return isLinkParticipant(); }
 
     // Approved classmates may list other approved members in the same group.
     // Pending, rejected, cancelled, and removed rows stay hidden from peers.
     // Clients must query teacher_id + group_id + status==approved so Cloud
     // Firestore can prove every result passes this rule.
     function hasApprovedMembershipInSameGroup() {
+      let membershipRef = groupMembershipPath(resource.data.group_id, request.auth.uid);
+      let membership = exists(membershipRef) ? get(membershipRef).data : {};
       return isSignedIn()
         && resource.data.status == 'approved'
         && isParticipantId(resource.data.group_id)
-        && exists(groupMembershipPath(resource.data.group_id, request.auth.uid))
-        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.group_id
-          == resource.data.group_id
-        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.trainee_id
-          == request.auth.uid
-        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.status
-          == 'approved'
-        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.teacher_id
-          == resource.data.teacher_id;
+        && exists(membershipRef)
+        && approvedMembershipFields(
+          membership,
+          resource.data.group_id,
+          request.auth.uid,
+          resource.data.teacher_id
+        );
     }
 
     // Binds authorization to the authenticated Teacher viewer (Phase 3+).
     function hasClassroomAuthorization(groupId, traineeId) {
+      let membershipRef = groupMembershipPath(groupId, traineeId);
+      let membership = exists(membershipRef) ? get(membershipRef).data : {};
       return isTeacherClaim()
         && exists(groupPath(groupId))
         && request.auth.uid == get(groupPath(groupId)).data.teacher_id
-        && exists(groupMembershipPath(groupId, traineeId))
-        && get(groupMembershipPath(groupId, traineeId)).data.group_id == groupId
-        && get(groupMembershipPath(groupId, traineeId)).data.trainee_id
-          == traineeId
-        && get(groupMembershipPath(groupId, traineeId)).data.teacher_id
-          == request.auth.uid
-        && get(groupMembershipPath(groupId, traineeId)).data.status == 'approved';
+        && exists(membershipRef)
+        && approvedMembershipFields(
+          membership, groupId, traineeId, request.auth.uid
+        );
     }
 
     function validPendingMembershipCreate(data, membershipId) {
@@ -2759,18 +2466,9 @@ service cloud.firestore {
         && data.updated_at == request.time;
     }
 
-    function membershipParticipantsUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'group_id', 'teacher_id', 'trainee_id', 'created_at'
-      ]);
-    }
+    function membershipParticipantsUnchanged() { return keysUnchanged(['group_id', 'teacher_id', 'trainee_id', 'created_at']); }
 
-    function membershipIdentitySnapshotsUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'teacher_display_name', 'trainee_display_name', 'invite_id',
-        'request_version'
-      ]);
-    }
+    function membershipIdentitySnapshotsUnchanged() { return linkIdentitySnapshotsUnchanged(); }
 
     function classroomAccessContextAfterMembership(data) {
       let contextRef = classroomTeacherAccessPath(
@@ -2872,30 +2570,17 @@ service cloud.firestore {
       ];
     }
 
-    function validAnnouncementText(value, maxLength) {
-      return value is string
-        && value.size() > 0
-        && value.size() <= maxLength
-        && value.matches('.*[^[:space:]].*');
-    }
-
     function isApprovedAnnouncementMember(groupId) {
       let membershipRef = groupMembershipPath(groupId, request.auth.uid);
+      let membership = exists(membershipRef) ? get(membershipRef).data : {};
+      let group = exists(groupPath(groupId)) ? get(groupPath(groupId)).data : {};
       return isSignedIn()
         && exists(groupPath(groupId))
-        && get(groupPath(groupId)).data.status == 'active'
+        && group.status == 'active'
         && exists(membershipRef)
-        && get(membershipRef).data.group_id == groupId
-        && get(membershipRef).data.trainee_id == request.auth.uid
-        && get(membershipRef).data.status == 'approved'
-        && get(membershipRef).data.teacher_id
-          == get(groupPath(groupId)).data.teacher_id;
-    }
-
-    function isAnnouncementOwner(groupId) {
-      return isVerifiedTeacher()
-        && exists(groupPath(groupId))
-        && get(groupPath(groupId)).data.teacher_id == request.auth.uid;
+        && approvedMembershipFields(
+          membership, groupId, request.auth.uid, group.teacher_id
+        );
     }
 
     function validAnnouncementCreate(data, groupId) {
@@ -2906,8 +2591,8 @@ service cloud.firestore {
         && isParticipantId(data.group_id)
         && isParticipantId(data.teacher_id)
         && data.teacher_id == request.auth.uid
-        && validAnnouncementText(data.title, 120)
-        && validAnnouncementText(data.body, 2000)
+        && isBoundedText(data.title, 120)
+        && isBoundedText(data.body, 2000)
         && data.created_at == request.time
         && data.edited_at == null
         && data.trainee_visible == !data.keys().hasAny(['publish_at'])
@@ -2930,8 +2615,8 @@ service cloud.firestore {
         && before.teacher_id == request.auth.uid
         && after.created_at == before.created_at
         && after.schema_version == before.schema_version
-        && validAnnouncementText(after.title, 120)
-        && validAnnouncementText(after.body, 2000)
+        && isBoundedText(after.title, 120)
+        && isBoundedText(after.body, 2000)
         && after.edited_at == request.time
         && after.trainee_visible == !after.keys().hasAny(['publish_at'])
         && (
@@ -3003,30 +2688,14 @@ service cloud.firestore {
     }
 
     // ---- Phase 5 classroom movements, assignments, attempts ----------------
-    function assignmentPath(assignmentId) {
-      return /databases/$(database)/documents/group_assignments/$(assignmentId);
-    }
-    function assignmentRecipientPath(assignmentId, traineeId) {
-      return /databases/$(database)/documents/group_assignments/$(assignmentId)/assignment_recipients/$(traineeId);
-    }
-    function assignmentDeadlineOverridePath(assignmentId, traineeId) {
-      return /databases/$(database)/documents/group_assignments/$(assignmentId)/assignment_deadline_overrides/$(traineeId);
-    }
-    function assignmentAttemptPath(attemptId) {
-      return /databases/$(database)/documents/assignment_attempts/$(attemptId);
-    }
-    function teacherMovementPath(movementId) {
-      return /databases/$(database)/documents/teacher_movements/$(movementId);
-    }
-    function teacherMovementRevisionPath(movementId, revisionId) {
-      return /databases/$(database)/documents/teacher_movements/$(movementId)/revisions/$(revisionId);
-    }
-    function officialAssignmentAttemptId(sessionId) {
-      return 'official_ptr_' + sessionId;
-    }
-    function teacherCreatedDraftAttemptId(assignmentId, traineeId) {
-      return 'tc_draft_' + assignmentId + '_' + traineeId;
-    }
+    function assignmentPath(assignmentId) { return /databases/$(database)/documents/group_assignments/$(assignmentId); }
+    function assignmentRecipientPath(assignmentId, traineeId) { return /databases/$(database)/documents/group_assignments/$(assignmentId)/assignment_recipients/$(traineeId); }
+    function assignmentDeadlineOverridePath(assignmentId, traineeId) { return /databases/$(database)/documents/group_assignments/$(assignmentId)/assignment_deadline_overrides/$(traineeId); }
+    function assignmentAttemptPath(attemptId) { return /databases/$(database)/documents/assignment_attempts/$(attemptId); }
+    function teacherMovementPath(movementId) { return /databases/$(database)/documents/teacher_movements/$(movementId); }
+    function teacherMovementRevisionPath(movementId, revisionId) { return /databases/$(database)/documents/teacher_movements/$(movementId)/revisions/$(revisionId); }
+    function officialAssignmentAttemptId(sessionId) { return 'official_ptr_' + sessionId; }
+    function teacherCreatedDraftAttemptId(assignmentId, traineeId) { return 'tc_draft_' + assignmentId + '_' + traineeId; }
     function isClassroomDocId(value) {
       return value is string && value.size() > 0 && value.size() <= 128
         && value.matches('^[A-Za-z0-9_-]+$');
@@ -3035,9 +2704,7 @@ service cloud.firestore {
       return value is string && value.size() > 0 && value.size() <= maxLen
         && value.matches('.*[^[:space:]].*');
     }
-    function isTrainingProp(value) {
-      return value in ['bottle', 'shaker', 'bottle_and_shaker'];
-    }
+    function isTrainingProp(value) { return value in ['bottle', 'shaker', 'bottle_and_shaker']; }
     function hasApprovedTraineeMembership(groupId, traineeId) {
       let membership = get(groupMembershipPath(groupId, traineeId)).data;
       return isSignedIn()
@@ -3048,9 +2715,7 @@ service cloud.firestore {
         && membership.teacher_id is string
         && membership.status == 'approved';
     }
-    function assignmentContextKeys() {
-      return ['assignment_id', 'group_id', 'teacher_id', 'movement_id', 'revision_id'];
-    }
+    function assignmentContextKeys() { return ['assignment_id', 'group_id', 'teacher_id', 'movement_id', 'revision_id']; }
     function validAssignmentContextMap(ctx) {
       return ctx is map
         && ctx.keys().hasOnly(assignmentContextKeys())
@@ -3108,12 +2773,8 @@ service cloud.firestore {
         );
     }
 
-    function classChallengePath(challengeId) {
-      return /databases/$(database)/documents/class_challenges/$(challengeId);
-    }
-    function classChallengeAttemptPath(attemptId) {
-      return /databases/$(database)/documents/class_challenge_attempts/$(attemptId);
-    }
+    function classChallengePath(challengeId) { return /databases/$(database)/documents/class_challenges/$(challengeId); }
+    function classChallengeAttemptPath(attemptId) { return /databases/$(database)/documents/class_challenge_attempts/$(attemptId); }
     function validClassChallengeContextMap(ctx) {
       return ctx is map
         && ctx.keys().hasOnly([
@@ -3159,9 +2820,7 @@ service cloud.firestore {
       return ['movement_id', 'teacher_id', 'schema_version', 'assessment_mode',
         'spec', 'created_at'];
     }
-    function teacherReviewedSpecKeys() {
-      return ['instructions', 'required_prop', 'capability'];
-    }
+    function teacherReviewedSpecKeys() { return ['instructions', 'required_prop', 'capability']; }
     function validActivityReadiness(value) {
       return value.keys().hasOnly(['hands', 'body'])
         && value.hands in ['none', 'one_hand', 'two_hands']
@@ -3185,29 +2844,18 @@ service cloud.firestore {
       let keys = value.keys();
       let criteria = value.criteria;
       let count = criteria.size();
-      let first = criteria[0];
-      let second = criteria[1];
-      let third = criteria[2];
-      let fourth = count >= 4 ? criteria[3] : null;
-      let fifth = count >= 5 ? criteria[4] : null;
       return keys.hasOnly(['template_id', 'maximum_score', 'criteria'])
         && value.template_id in ['standard_technique', 'beginner_fundamentals',
           'control_consistency', 'performance_flow', 'custom']
         && value.maximum_score == maximumScore
         && count >= 3 && count <= 5
-        && validActivityCriterion(first)
-        && validActivityCriterion(second)
-        && validActivityCriterion(third)
-        && (count < 4
-          || validActivityCriterion(fourth))
-        && (count < 5
-          || validActivityCriterion(fifth))
-        && activityCriterionIdsUnique(
-          first, second, third, fourth, fifth, count
-        )
-        && activityCriterionTotal(
-          first, second, third, fourth, fifth, count
-        ) == maximumScore;
+        && validActivityCriterion(criteria[0])
+        && validActivityCriterion(criteria[1])
+        && validActivityCriterion(criteria[2])
+        && (count < 4 || validActivityCriterion(criteria[3]))
+        && (count < 5 || validActivityCriterion(criteria[4]))
+        && activityCriterionIdsUnique(criteria)
+        && activityCriterionTotal(criteria) == maximumScore;
     }
     function validActivityCriterion(value) {
       let keys = value.keys();
@@ -3222,24 +2870,22 @@ service cloud.firestore {
         && (!keys.hasAny(['weight'])
           || value.weight is int && value.weight >= 1 && value.weight <= 100);
     }
-    function activityCriterionIdsUnique(
-      first, second, third, fourth, fifth, count
-    ) {
+    function activityCriterionIdsUnique(criteria) {
+      let count = criteria.size();
       return count == 3
-        ? [first.id, second.id, third.id].toSet().size() == 3
+        ? [criteria[0].id, criteria[1].id, criteria[2].id].toSet().size() == 3
         : count == 4
-          ? [first.id, second.id, third.id, fourth.id]
+          ? [criteria[0].id, criteria[1].id, criteria[2].id, criteria[3].id]
               .toSet().size() == 4
-          : [first.id, second.id, third.id, fourth.id, fifth.id]
-              .toSet().size() == 5;
+          : [criteria[0].id, criteria[1].id, criteria[2].id, criteria[3].id,
+              criteria[4].id].toSet().size() == 5;
     }
-    function activityCriterionTotal(
-      first, second, third, fourth, fifth, count
-    ) {
-      return first.maximum_points + second.maximum_points
-        + third.maximum_points
-        + (count >= 4 ? fourth.maximum_points : 0)
-        + (count >= 5 ? fifth.maximum_points : 0);
+    function activityCriterionTotal(criteria) {
+      let count = criteria.size();
+      return criteria[0].maximum_points + criteria[1].maximum_points
+        + criteria[2].maximum_points
+        + (count >= 4 ? criteria[3].maximum_points : 0)
+        + (count >= 5 ? criteria[4].maximum_points : 0);
     }
     function validActivityDemo(value) {
       return value.keys().hasOnly(['storage_path', 'content_type', 'size_bytes',
@@ -3323,7 +2969,7 @@ service cloud.firestore {
         )).data.assessment_mode == 'teacher_reviewed'
         && request.resource.data.title == resource.data.title
         && request.resource.data.current_revision_id == resource.data.current_revision_id
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['status', 'updated_at']);
     }
     function validTeacherMovementPublishRevisionUpdate(movementId) {
@@ -3344,7 +2990,7 @@ service cloud.firestore {
           movementId, resource.data.current_revision_id
         )).data.assessment_mode == 'teacher_reviewed'
         && request.resource.data.current_revision_id != resource.data.current_revision_id
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['title', 'current_revision_id', 'updated_at'])
         && !exists(revisionPath)
         && existsAfter(revisionPath)
@@ -3419,7 +3065,7 @@ service cloud.firestore {
         'official_movement_name', 'display_instructions',
         'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
         'grading_locked', 'grading_locked_at', 'audience_type', 'topic',
-        'configuration_revision', 'activity_assessment', 'attempt_policy', 'deletion_state', 'publish_at',
+        'configuration_revision', 'activity_assessment', 'attempt_policy', 'deletion_state', 'publish_at'
       ]);
     }
     function teacherCreatedAssignmentAllowedKeys() {
@@ -3430,9 +3076,7 @@ service cloud.firestore {
         'deletion_state', 'publish_at'
       ]);
     }
-    function isLegacyEntireClassAssignment(data) {
-      return !data.keys().hasAny(['audience_type', 'target_trainee_ids']);
-    }
+    function isLegacyEntireClassAssignment(data) { return !data.keys().hasAny(['audience_type', 'target_trainee_ids']); }
     function validAssignmentAudienceShape(data) {
       let keys = data.keys();
       return !keys.hasAny(['target_trainee_ids'])
@@ -3724,7 +3368,7 @@ service cloud.firestore {
           || !resource.data.get('grading_locked', false)
         )
         && (
-          !request.resource.data.diff(resource.data).affectedKeys()
+          !affectedKeys()
             .hasAny(['max_score'])
           || !resource.data.get('grading_locked', false)
         )
@@ -3739,11 +3383,11 @@ service cloud.firestore {
           )
         )
         && (
-          !request.resource.data.diff(resource.data).affectedKeys()
+          !affectedKeys()
             .hasAny(['allowed_prop'])
           || resource.data.origin == 'official_elixr'
         )
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['status', 'due_at', 'updated_at', 'max_score',
           'grading_locked', 'grading_locked_at', 'topic', 'publish_at',
           'allowed_prop']);
@@ -3771,19 +3415,16 @@ service cloud.firestore {
     }
 
     function classChallengeViewer(data) {
+      let membershipRef = groupMembershipPath(data.group_id, request.auth.uid);
+      let membership = exists(membershipRef) ? get(membershipRef).data : {};
       return isSignedIn()
         && (
           (isTeacherClaim() && data.teacher_id == request.auth.uid)
           || (
-            exists(groupMembershipPath(data.group_id, request.auth.uid))
-            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.group_id
-              == data.group_id
-            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.teacher_id
-              == data.teacher_id
-            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.trainee_id
-              == request.auth.uid
-            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.status
-              == 'approved'
+            exists(membershipRef)
+            && approvedMembershipFields(
+              membership, data.group_id, request.auth.uid, data.teacher_id
+            )
           )
         );
     }
@@ -3984,9 +3625,7 @@ service cloud.firestore {
         'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
       ]);
     }
-    function teacherDraftAllowedKeys() {
-      return assignmentAttemptIdentityKeys();
-    }
+    function teacherDraftAllowedKeys() { return assignmentAttemptIdentityKeys(); }
     function teacherReviewSubmissionCreateKeys() {
       return assignmentAttemptIdentityKeys().concat([
         'supersedes_attempt_id', 'attempt_number', 'reservation_request_id',
@@ -3994,9 +3633,7 @@ service cloud.firestore {
         'recording_started_at'
       ]);
     }
-    function teacherReviewSubmissionAnchorKeys() {
-      return assignmentAttemptIdentityKeys().concat(['deletion_failed']);
-    }
+    function teacherReviewSubmissionAnchorKeys() { return assignmentAttemptIdentityKeys().concat(['deletion_failed']); }
     // A successful unsubmit returns the canonical attempt to this anchor with
     // `deletion_failed: false`. Treat it as empty work so the trainee can
     // attach a new private recording, then remove the recovery marker.
@@ -4035,7 +3672,7 @@ service cloud.firestore {
         'criterion_scores',
         'review_updated_at', 'review_revision', 'result_sent_revision',
         'result_sent_at', 'result_message_id', 'video_deleted_at',
-        'deletion_failed', 'deletion_failed_at',
+        'deletion_failed', 'deletion_failed_at'
       ]);
     }
     function canonicalAssignmentSubmissionPath(data, attemptId) {
@@ -4166,7 +3803,7 @@ service cloud.firestore {
         && data.assessment_mode == 'teacher_reviewed'
         && (
           (
-            attemptId == 'review_sub_' + data.assignment_id + '_' + data.trainee_id
+            attemptId == canonicalReviewSubmissionAttemptId(data)
             && data.status == 'in_progress'
             && data.keys().hasOnly(assignmentAttemptIdentityKeys())
             && assignmentSubmissionIsOpen(data)
@@ -4218,7 +3855,7 @@ service cloud.firestore {
         'attempt_number', 'reservation_request_id', 'recording_started_at'];
     }
     function assignmentAttemptIdentityUnchanged() {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let changed = affectedKeys();
       return resource.data.keys().hasAll(assignmentAttemptFrozenKeys())
         && request.resource.data.keys().hasAll(assignmentAttemptFrozenKeys())
         && !changed.hasAny(assignmentAttemptFrozenKeys().concat(
@@ -4228,24 +3865,24 @@ service cloud.firestore {
         && resource.data.awards_global_xp == false;
     }
     function assignmentAttemptVideoIdentityUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      return keysUnchanged([
         'video_storage_path', 'video_content_type', 'video_size_bytes',
         'video_duration_ms', 'submitted_at'
       ]);
     }
     function assignmentAttemptClipMetadataUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      return keysUnchanged([
         'video_storage_path', 'video_content_type', 'video_size_bytes',
         'video_duration_ms'
       ]);
     }
     function assignmentAttemptReviewUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      return keysUnchanged([
         'status', 'review_verdict', 'review_feedback', 'reviewed_at'
       ]);
     }
     function assignmentAttemptReviewableMetadataUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      return keysUnchanged([
         'video_content_type', 'video_size_bytes', 'video_duration_ms',
         'submitted_at', 'video_expires_at'
       ]);
@@ -4266,8 +3903,7 @@ service cloud.firestore {
     }
     function validTeacherReviewSubmissionTraineeSubmit(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
+      return isReviewSubmissionTraineeActor()
         && resource.data.status in ['draft', 'in_progress']
         && !resource.data.keys().hasAny(['abandoned_at'])
         && assignmentSubmissionIsOpen(resource.data)
@@ -4285,10 +3921,8 @@ service cloud.firestore {
     }
     function validCanonicalTeacherReviewSubmissionAttachDraft(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      return isReviewSubmissionTraineeActor()
+        && isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'in_progress'
         && isCanonicalTeacherReviewSubmissionEmptyAnchor(resource.data)
         && assignmentSubmissionIsOpen(resource.data)
@@ -4300,10 +3934,8 @@ service cloud.firestore {
     }
     function validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      return isReviewSubmissionTraineeActor()
+        && isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'in_progress'
         && resource.data.keys().hasOnly(teacherReviewSubmissionAttachedDraftKeys())
         && assignmentAttemptIdentityUnchanged()
@@ -4313,10 +3945,8 @@ service cloud.firestore {
     }
     function validCanonicalTeacherReviewSubmissionCompleteDraftRemoval(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      return isReviewSubmissionTraineeActor()
+        && isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'in_progress'
         && resource.data.keys().hasOnly(teacherReviewSubmissionDraftRemovalKeys())
         && assignmentAttemptIdentityUnchanged()
@@ -4325,10 +3955,8 @@ service cloud.firestore {
     }
     function validCanonicalTeacherReviewSubmissionPromote(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      return isReviewSubmissionTraineeActor()
+        && isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'draft'
         && after.status == 'in_progress'
         && assignmentSubmissionIsOpen(resource.data)
@@ -4337,10 +3965,8 @@ service cloud.firestore {
     }
     function validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      return isReviewSubmissionTraineeActor()
+        && isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'submitted'
         && after.status == 'unsubmitting'
         && assignmentSubmissionIsOpen(resource.data)
@@ -4351,21 +3977,19 @@ service cloud.firestore {
         ]))
         && after.deletion_failed == false
         && !after.keys().hasAny(['deletion_failed_at'])
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['status', 'deletion_failed', 'deletion_failed_at']);
     }
     function validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      return isReviewSubmissionTraineeActor()
+        && isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'unsubmitting'
         && after.status == 'in_progress'
         && assignmentAttemptIdentityUnchanged()
         && after.keys().hasOnly(teacherReviewSubmissionAnchorKeys())
         && after.deletion_failed == false
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly([
             'status', 'video_storage_path', 'video_content_type',
             'video_size_bytes', 'video_duration_ms', 'submitted_at',
@@ -4375,10 +3999,8 @@ service cloud.firestore {
     }
     function validCanonicalTeacherReviewSubmissionDeletionFailure(attemptId) {
       let after = request.resource.data;
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      return isReviewSubmissionTraineeActor()
+        && isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'unsubmitting'
         && after.status == 'unsubmitting'
         && assignmentAttemptIdentityUnchanged()
@@ -4388,7 +4010,7 @@ service cloud.firestore {
         ]))
         && after.deletion_failed == true
         && after.deletion_failed_at == request.time
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['deletion_failed', 'deletion_failed_at']);
     }
     function validCanonicalTeacherReviewSubmissionCheckedReview() {
@@ -4431,7 +4053,7 @@ service cloud.firestore {
           !after.keys().hasAny(['review_feedback'])
           || isBoundedText(after.review_feedback, 1000)
         )
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+        && affectedKeys().hasOnly(
           [
             'status', 'review_feedback', 'grade_score', 'grade_max_score',
             'checked_at', 'review_updated_at', 'review_revision',
@@ -4461,7 +4083,7 @@ service cloud.firestore {
         && after.result_sent_revision == resource.data.review_revision
         && after.result_sent_at == request.time
         && isBoundedText(after.result_message_id, 256)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && affectedKeys().hasOnly([
           'result_sent_revision', 'result_sent_at', 'result_message_id'
         ]);
     }
@@ -4470,8 +4092,7 @@ service cloud.firestore {
       return isVerifiedTeacher()
         && resource.data.teacher_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+        && !isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'submitted'
         && after.status in ['approved', 'needs_retry']
         && after.review_verdict == after.status
@@ -4491,8 +4112,7 @@ service cloud.firestore {
           (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
           || (
             resource.data.trainee_id == request.auth.uid
-            && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
-              + resource.data.trainee_id
+            && !isCanonicalReviewSubmissionAttempt(attemptId)
           )
         )
         && resource.data.attempt_kind == 'teacher_review_submission'
@@ -4502,7 +4122,7 @@ service cloud.firestore {
         && assignmentAttemptIdentityUnchanged()
         && assignmentAttemptReviewUnchanged()
         && assignmentAttemptReviewableMetadataUnchanged()
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['video_storage_path', 'video_deleted_at',
             'deletion_failed', 'deletion_failed_at'])
         && (
@@ -4535,11 +4155,9 @@ service cloud.firestore {
     }
     function validTeacherReviewSubmissionAbandon(attemptId) {
       let after = request.resource.data;
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      return resource.data.trainee_id == request.auth.uid
-        && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+      let changed = affectedKeys();
+      return isReviewSubmissionTraineeActor()
+        && !isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'draft'
         && resource.data.awards_global_xp == false
         && !resource.data.keys().hasAny(['abandoned_at'])
@@ -4581,15 +4199,14 @@ service cloud.firestore {
           || (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
         )
         && resource.data.attempt_kind == 'teacher_review_submission'
-        && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
-          + resource.data.trainee_id
+        && !isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'draft'
         && resource.data.abandoned_at is timestamp
         && after.status == 'draft'
         && after.abandoned_at == resource.data.abandoned_at
         && assignmentAttemptIdentityUnchanged()
         && teacherReviewSubmissionHasNoSubmitOrReviewPayload(after)
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && affectedKeys()
           .hasOnly(['video_storage_path', 'video_deleted_at',
             'deletion_failed', 'deletion_failed_at'])
         && (
@@ -4642,7 +4259,7 @@ service cloud.firestore {
           || (resource.data.attempt_kind == 'teacher_review_submission'
             && request.resource.data.status == 'submitted'
             && validTeacherReviewSubmissionTraineeSubmit(attemptId))
-          || (request.resource.data.diff(resource.data).affectedKeys()
+          || (affectedKeys()
                 .hasAny(['video_deleted_at'])
             && validTeacherReviewSubmissionCleanup(attemptId))
           || validTeacherDraftAttemptUpdate()
@@ -4672,15 +4289,9 @@ service cloud.firestore {
     // directory rows for Faculties; Trainees cannot read the collection.
     // Clients own participant-scoped conversations, messages, read state,
     // and one-way block records.
-    function chatConversationPath(conversationId) {
-      return /databases/$(database)/documents/chat_conversations/$(conversationId);
-    }
-    function chatMessagePath(conversationId, messageId) {
-      return /databases/$(database)/documents/chat_conversations/$(conversationId)/messages/$(messageId);
-    }
-    function chatBlockPath(blockerId, blockedId) {
-      return /databases/$(database)/documents/chat_blocks/$(blockerId)/blocked_users/$(blockedId);
-    }
+    function chatConversationPath(conversationId) { return /databases/$(database)/documents/chat_conversations/$(conversationId); }
+    function chatMessagePath(conversationId, messageId) { return /databases/$(database)/documents/chat_conversations/$(conversationId)/messages/$(messageId); }
+    function chatBlockPath(blockerId, blockedId) { return /databases/$(database)/documents/chat_blocks/$(blockerId)/blocked_users/$(blockedId); }
     function isSupportedChatAccount(userId) {
       return isParticipantId(userId)
         && exists(userPath(userId))
@@ -4752,11 +4363,11 @@ service cloud.firestore {
     }
     function validChatConversationKeys(data) {
       return data.keys().hasOnly([
-          'participant_ids', 'participant_a', 'participant_b',
-          'participant_snapshots', 'last_message_id',
-          'last_message_body', 'last_message_sender_id', 'last_message_at',
-          'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
-          'schema_version', 'cleared_at'
+        'participant_ids', 'participant_a', 'participant_b',
+        'participant_snapshots', 'last_message_id',
+        'last_message_body', 'last_message_sender_id', 'last_message_at',
+        'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
+        'schema_version', 'cleared_at'
         ]);
     }
     function validChatConversationCreate(data, conversationId) {
@@ -4776,14 +4387,12 @@ service cloud.firestore {
         && data.last_message_sender_id == sender
         && validChatBody(data.last_message_body)
         && data.unread_counts is map
-        && data.unread_counts.keys().hasAll(data.participant_ids)
-        && data.unread_counts.keys().hasOnly(data.participant_ids)
+        && chatMapLockedToParticipants(data.unread_counts, data.participant_ids)
         && data.unread_counts[sender] == 0
         && data.unread_counts[recipient] == 1
         && data.get('cleared_at', {}).size() == 0
         && data.read_at is map
-        && data.read_at.keys().hasAll(data.participant_ids)
-        && data.read_at.keys().hasOnly(data.participant_ids)
+        && chatMapLockedToParticipants(data.read_at, data.participant_ids)
         && data.read_at[sender] == request.time
         && data.read_at[recipient] == null
         && existsAfter(chatMessagePath(conversationId, data.last_message_id))
@@ -4829,12 +4438,10 @@ service cloud.firestore {
       let other = otherChatParticipant(before, caller);
       return isChatParticipant(before)
         && after.diff(before).affectedKeys().hasOnly(['unread_counts', 'read_at'])
-        && after.unread_counts.keys().hasAll(before.participant_ids)
-        && after.unread_counts.keys().hasOnly(before.participant_ids)
+        && chatMapLockedToParticipants(after.unread_counts, before.participant_ids)
         && after.unread_counts[caller] == 0
         && after.unread_counts[other] == before.unread_counts[other]
-        && after.read_at.keys().hasAll(before.participant_ids)
-        && after.read_at.keys().hasOnly(before.participant_ids)
+        && chatMapLockedToParticipants(after.read_at, before.participant_ids)
         && after.read_at[caller] == request.time
         && after.read_at[other] == before.read_at[other];
     }
@@ -4845,8 +4452,7 @@ service cloud.firestore {
       let other = otherChatParticipant(before, caller);
       return isChatParticipant(before)
         && after.diff(before).affectedKeys().hasOnly(['unread_counts'])
-        && after.unread_counts.keys().hasAll(before.participant_ids)
-        && after.unread_counts.keys().hasOnly(before.participant_ids)
+        && chatMapLockedToParticipants(after.unread_counts, before.participant_ids)
         && after.unread_counts[caller] == 1
         && after.unread_counts[other] == before.unread_counts[other];
     }
@@ -4860,12 +4466,10 @@ service cloud.firestore {
         && after.diff(before).affectedKeys().hasOnly([
           'unread_counts', 'read_at', 'cleared_at'
         ])
-        && after.unread_counts.keys().hasAll(before.participant_ids)
-        && after.unread_counts.keys().hasOnly(before.participant_ids)
+        && chatMapLockedToParticipants(after.unread_counts, before.participant_ids)
         && after.unread_counts[caller] == 0
         && after.unread_counts[other] == before.unread_counts[other]
-        && after.read_at.keys().hasAll(before.participant_ids)
-        && after.read_at.keys().hasOnly(before.participant_ids)
+        && chatMapLockedToParticipants(after.read_at, before.participant_ids)
         && after.read_at[caller] == request.time
         && after.read_at[other] == before.read_at[other]
         && after.cleared_at is map
@@ -4981,7 +4585,7 @@ service cloud.firestore {
           && (
             (
               resource.data.deleted_at == null
-              && request.resource.data.diff(resource.data).affectedKeys()
+              && affectedKeys()
                 .hasOnly(['body', 'edited_at'])
               && validChatBody(request.resource.data.body)
               && request.resource.data.edited_at == request.time
@@ -4989,7 +4593,7 @@ service cloud.firestore {
             )
             || (
               resource.data.deleted_at == null
-              && request.resource.data.diff(resource.data).affectedKeys()
+              && affectedKeys()
                 .hasOnly(['body', 'edited_at', 'deleted_at'])
               && request.resource.data.body == null
               && request.resource.data.edited_at == null
@@ -5029,9 +4633,7 @@ service cloud.firestore {
         'Reverse Forearm Stall', 'Shoulder Stall', 'Double Hand Stall',
         'Bottle in a tin'];
     }
-    function isOfficialElixrMovementName(name) {
-      return name is string && name in coachingMovementNames();
-    }
+    function isOfficialElixrMovementName(name) { return name is string && name in coachingMovementNames(); }
     // OFFICIAL_MOVEMENT_PROPS_BEGIN
     function officialMovementSupportsProp(name, prop) {
       return (name == 'Normal Grip' && prop == 'bottle')
@@ -5068,10 +4670,12 @@ service cloud.firestore {
       return movementId == '' ? '' : movementId + '_v1';
     }
     function approvedCoachingLink(teacherId, traineeId) {
-      return exists(teacherStudentLinkPath(teacherId, traineeId))
-        && get(teacherStudentLinkPath(teacherId, traineeId)).data.teacher_id == teacherId
-        && get(teacherStudentLinkPath(teacherId, traineeId)).data.trainee_id == traineeId
-        && get(teacherStudentLinkPath(teacherId, traineeId)).data.status == 'approved';
+      let linkRef = teacherStudentLinkPath(teacherId, traineeId);
+      let link = exists(linkRef) ? get(linkRef).data : {};
+      return exists(linkRef)
+        && link.teacher_id == teacherId
+        && link.trainee_id == traineeId
+        && link.status == 'approved';
     }
     function isErasingOwnCoaching(data) {
       return isSignedIn()

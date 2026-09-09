@@ -1126,7 +1126,7 @@ describe('Classroom Authorization helper contract', () => {
     assert.match(body, /request\.auth\.uid == get\(groupPath\(groupId\)\)\.data\.teacher_id/);
     assert.match(
       body,
-      /get\(groupMembershipPath\(groupId, traineeId\)\)\.data\.teacher_id\s*==\s*request\.auth\.uid/,
+      /approvedMembershipFields\(\s*membership,\s*groupId,\s*traineeId,\s*request\.auth\.uid/,
     );
     assert.doesNotMatch(body, /progress_access/);
     assert.doesNotMatch(body, /evidence_access/);
