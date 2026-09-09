@@ -53,6 +53,29 @@ List<DashboardQuest> buildActiveDashboardQuests({
   return quests;
 }
 
+/// Builds every completed, unclaimed quest on the persisted board.
+///
+/// Unlike the Dashboard's compact three-item preview, the Achievements
+/// destination uses this complete view so a completed reserve quest is not
+/// hidden behind another reward. Evaluation and Manila-window filtering stay
+/// shared with the Dashboard path.
+List<DashboardQuest> buildClaimableDailyQuests({
+  required DailyQuestBoard board,
+  required Set<String> claimedQuestIds,
+  required List<Session> sessions,
+}) {
+  final windowed = sessionsWithinBoardWindow(board, sessions);
+  final quests = <DashboardQuest>[];
+  for (final id in board.questIds) {
+    if (claimedQuestIds.contains(id)) continue;
+    final definition = questById(id);
+    if (definition == null) continue;
+    final quest = _buildQuest(definition, windowed);
+    if (quest.completed) quests.add(quest);
+  }
+  return quests;
+}
+
 /// Whether every quest on [board] has been claimed today.
 bool isDailyBoardComplete({
   required DailyQuestBoard board,

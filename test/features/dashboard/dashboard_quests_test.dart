@@ -217,6 +217,47 @@ void main() {
     });
   });
 
+  group('buildClaimableDailyQuests', () {
+    test(
+      'returns completed quests across the full board, including reserves',
+      () {
+        final quests = buildClaimableDailyQuests(
+          board: _board,
+          claimedQuestIds: const {},
+          sessions: [
+            _session(
+              movementName: 'Flair',
+              difficulty: 'Hard',
+              propType: TrainingProp.shaker,
+            ),
+            _session(movementName: 'Spin'),
+            _session(movementName: 'Pour'),
+          ],
+        );
+
+        expect(quests.map((quest) => quest.id), [
+          'two_movements',
+          'distinct_props_2',
+          'practice_hard_movement',
+          'use_shaker',
+          'three_movements',
+        ]);
+      },
+    );
+
+    test('omits incomplete and already claimed quests', () {
+      final quests = buildClaimableDailyQuests(
+        board: _board,
+        claimedQuestIds: const {'use_shaker'},
+        sessions: [
+          _session(movementName: 'Flair', propType: TrainingProp.shaker),
+        ],
+      );
+
+      expect(quests, isEmpty);
+    });
+  });
+
   group('isDailyBoardComplete', () {
     test('is false until every quest id is claimed', () {
       expect(

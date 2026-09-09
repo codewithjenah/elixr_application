@@ -1,21 +1,27 @@
 import 'dart:async';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/utils/manila_day.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/achievement.dart';
+import 'package:elixr_application/data/models/daily_quest_board.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/quest_claim.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/repositories/achievement_repository.dart';
+import 'package:elixr_application/data/repositories/gamification_repository.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/data/repositories/session_repository.dart';
 import 'package:elixr_application/features/achievements/achievements_screen.dart';
 import 'package:elixr_application/features/achievements/widgets/achievement_card.dart';
+import 'package:elixr_application/features/dashboard/widgets/dashboard_quest_card.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_identity.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/trainee_progression_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:firebase_core/firebase_core.dart';
 // Test-only Firebase bootstrap; not part of app dependencies.
@@ -152,6 +158,92 @@ class _FakeSessionRepository extends SessionRepository {
   Future<List<Session>> getSessionsForUser(String userId) async => _sessions;
 }
 
+class _FakeGamificationRepository extends GamificationRepository {
+  _FakeGamificationRepository({
+    DailyQuestBoard? board,
+    Set<String> claimedIds = const {},
+    this.throwOnClaim = false,
+  }) : _board = board ?? _todayBoard(),
+       claimed = {...claimedIds};
+
+  final DailyQuestBoard _board;
+  final Set<String> claimed;
+  final bool throwOnClaim;
+  final _claimedController = StreamController<Set<String>>.broadcast();
+  int claimCalls = 0;
+
+  @override
+  Future<DailyQuestBoard> getOrCreateDailyBoard({
+    required String userId,
+    required int currentLevel,
+    DateTime? nowUtc,
+  }) async => _board;
+
+  @override
+  Stream<Set<String>> watchClaimedQuestIds({
+    required String userId,
+    required String boardId,
+  }) async* {
+    yield {...claimed};
+    yield* _claimedController.stream;
+  }
+
+  @override
+  Future<QuestClaimResult> claimQuest({
+    required String userId,
+    required String questId,
+    required List<Session> sessionsToday,
+    DateTime? nowUtc,
+  }) async {
+    claimCalls++;
+    if (throwOnClaim) throw StateError('claim failed');
+    const result = QuestClaimResult.claimed(10);
+    if (result.status == QuestClaimStatus.claimed ||
+        result.status == QuestClaimStatus.alreadyClaimed) {
+      claimed.add(questId);
+      _claimedController.add({...claimed});
+    }
+    return result;
+  }
+
+  void emitClaimed(Set<String> ids) {
+    claimed
+      ..clear()
+      ..addAll(ids);
+    _claimedController.add({...claimed});
+  }
+
+  Future<void> close() => _claimedController.close();
+}
+
+DailyQuestBoard _todayBoard({List<String>? questIds}) {
+  final now = DateTime.now().toUtc();
+  final dayKey = ManilaDay.dayKeyFor(now);
+  return DailyQuestBoard(
+    userId: _testUserId,
+    dayKey: dayKey,
+    dayStart: ManilaDay.dayStartUtcFor(now),
+    questIds:
+        questIds ??
+        const [
+          'session_count_1',
+          'duration_20min',
+          'score_95',
+          'practice_easy_movement',
+          'sessions_above_70_x2',
+        ],
+  );
+}
+
+Session _todaySession() => Session(
+  userId: _testUserId,
+  movementName: 'Normal Grip',
+  difficulty: 'Easy',
+  legacyScore: 70,
+  durationSeconds: 60,
+  createdAt: DateTime.now().toUtc().toIso8601String(),
+);
+
 User _testUser() {
   return const User(
     id: _testUserId,
@@ -219,10 +311,15 @@ Widget _wrapAchievementsScreen({
   required List<Session> sessions,
   Set<String> claimedIds = const {},
   Stream<Set<String>>? claimedIdsStream,
+  GamificationRepository? gamificationRepository,
+  TraineeProgressionService? progression,
 }) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider<AuthService>.value(value: authService),
+      ChangeNotifierProvider<TraineeProgressionService>.value(
+        value: progression ?? TraineeProgressionService.ready(totalXp: 25),
+      ),
       Provider<PublicProfileRepository>.value(
         value: _NoopPublicProfileRepository(),
       ),
@@ -235,6 +332,55 @@ Widget _wrapAchievementsScreen({
         ),
         leaderboardRepository: _FakeLeaderboardRepository(_entry()),
         sessionRepository: _FakeSessionRepository(sessions),
+        gamificationRepository:
+            gamificationRepository ?? _FakeGamificationRepository(),
+      ),
+    ),
+  );
+}
+
+Widget _wrapAchievementsAndDashboard({
+  required AuthService authService,
+  required List<Session> sessions,
+  required _FakeGamificationRepository gamificationRepository,
+}) {
+  final progression = TraineeProgressionService.ready(totalXp: 25);
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<AuthService>.value(value: authService),
+      ChangeNotifierProvider<TraineeProgressionService>.value(
+        value: progression,
+      ),
+      Provider<PublicProfileRepository>.value(
+        value: _NoopPublicProfileRepository(),
+      ),
+    ],
+    child: FluentApp(
+      theme: AppTheme.dark,
+      home: ScaffoldPage(
+        content: Row(
+          children: [
+            Expanded(
+              child: AchievementsScreen(
+                achievementRepository: _FakeAchievementRepository(
+                  Stream.value(const {'first_steps'}),
+                ),
+                leaderboardRepository: _FakeLeaderboardRepository(_entry()),
+                sessionRepository: _FakeSessionRepository(sessions),
+                gamificationRepository: gamificationRepository,
+              ),
+            ),
+            SizedBox(
+              width: 380,
+              child: DashboardQuestCard(
+                userId: _testUserId,
+                sessions: sessions,
+                streakDays: 0,
+                repository: gamificationRepository,
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -358,13 +504,10 @@ AchievementViewData _achievementViewForBorder(String achievementId) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(_ensureFirebaseInitialized);
 
   group('AchievementsScreen filter dropdown', () {
     late AuthService authService;
-
-    setUpAll(() async {
-      await _ensureFirebaseInitialized();
-    });
 
     setUp(() {
       authService = AuthService(
@@ -432,7 +575,7 @@ void main() {
       expect(find.text('Claimed'), findsWidgets);
       expect(find.text('Locked'), findsWidgets);
       expect(find.byIcon(FluentIcons.view_all), findsWidgets);
-      expect(find.byIcon(FluentIcons.giftbox_open), findsOneWidget);
+      expect(find.byIcon(FluentIcons.giftbox_open), findsWidgets);
       expect(find.byIcon(FluentIcons.processing_run), findsOneWidget);
       expect(find.byIcon(FluentIcons.completed_solid), findsOneWidget);
       expect(find.byIcon(FluentIcons.lock_solid), findsOneWidget);
@@ -460,7 +603,13 @@ void main() {
       expect(find.text('First Steps'), findsOneWidget);
       expect(find.text('Century Club'), findsNothing);
       expect(find.text('Claimed'), findsWidgets);
-      expect(find.text('Claim'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(AchievementCard),
+          matching: find.text('Claim'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('selecting Locked shows only locked achievement cards', (
@@ -483,7 +632,13 @@ void main() {
       await _selectAchievementFilter(tester, 'Locked');
 
       expect(find.byType(AchievementCard), findsNWidgets(lockedCount));
-      expect(find.text('Claim'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(AchievementCard),
+          matching: find.text('Claim'),
+        ),
+        findsNothing,
+      );
       expect(find.text('Locked'), findsWidgets);
     });
 
@@ -526,8 +681,20 @@ void main() {
 
       await _selectAchievementFilter(tester, 'Claimable');
 
-      expect(find.text('First Steps'), findsOneWidget);
-      expect(find.text('Claim'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AchievementCard),
+          matching: find.text('First Steps'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(AchievementCard),
+          matching: find.text('Claim'),
+        ),
+        findsOneWidget,
+      );
 
       claimedController.add({'first_steps'});
       await settleUi(tester);
@@ -556,6 +723,221 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  group('Achievements gamification destination', () {
+    late AuthService authService;
+
+    setUp(() {
+      authService = AuthService(
+        repository: _StubAuthRepository(_testUser()),
+        leaderboardRepository: null,
+      );
+      authService.seedAuthenticatedUser(_testUser());
+    });
+
+    tearDown(() => authService.dispose());
+
+    testWidgets('explains canonical session and quest XP rewards', (
+      tester,
+    ) async {
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: const [],
+          claimedIds: const {'first_steps'},
+        ),
+      );
+
+      expect(find.text('How to earn XP'), findsOneWidget);
+      expect(find.text('+25 XP'), findsOneWidget);
+      expect(find.text('+10 XP'), findsOneWidget);
+      expect(find.text('+15 XP'), findsOneWidget);
+      expect(find.text('+20 XP'), findsOneWidget);
+      expect(find.text('Achievement collection'), findsOneWidget);
+    });
+
+    testWidgets('shows only completed, unclaimed Daily Quests', (tester) async {
+      final repository = _FakeGamificationRepository();
+      addTearDown(repository.close);
+
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: [_todaySession()],
+          claimedIds: const {'first_steps'},
+          gamificationRepository: repository,
+        ),
+      );
+
+      expect(
+        find.byKey(const Key('ready_quest_session_count_1')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('ready_quest_duration_20min')), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ready_quest_session_count_1')),
+          matching: find.text('Reward: +10 XP'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('renders the compact empty state when nothing is claimable', (
+      tester,
+    ) async {
+      final repository = _FakeGamificationRepository(
+        claimedIds: const {'session_count_1', 'practice_easy_movement'},
+      );
+      addTearDown(repository.close);
+
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: [_todaySession()],
+          claimedIds: const {'first_steps'},
+          gamificationRepository: repository,
+        ),
+      );
+
+      expect(find.text('Nothing to claim yet'), findsOneWidget);
+      expect(
+        find.text('Complete your quests and achievements to unlock rewards.'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ready_quest_session_count_1')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('claim awards once, removes the item, and confirms XP', (
+      tester,
+    ) async {
+      final repository = _FakeGamificationRepository();
+      addTearDown(repository.close);
+
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: [_todaySession()],
+          claimedIds: const {'first_steps'},
+          gamificationRepository: repository,
+        ),
+      );
+
+      final card = find.byKey(const Key('ready_quest_session_count_1'));
+      final claimButton = find.descendant(
+        of: card,
+        matching: find.text('Claim'),
+      );
+      await tester.tap(claimButton);
+      await tester.tap(claimButton);
+      await settleUi(tester);
+
+      expect(repository.claimCalls, 1);
+      expect(card, findsNothing);
+      expect(
+        find.text('+10 XP claimed from Complete 1 Practice Session.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('claim failure keeps the reward available', (tester) async {
+      final repository = _FakeGamificationRepository(throwOnClaim: true);
+      addTearDown(repository.close);
+
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: [_todaySession()],
+          claimedIds: const {'first_steps'},
+          gamificationRepository: repository,
+        ),
+      );
+
+      final card = find.byKey(const Key('ready_quest_session_count_1'));
+      await tester.tap(find.descendant(of: card, matching: find.text('Claim')));
+      await settleUi(tester);
+
+      expect(card, findsOneWidget);
+      expect(
+        find.text('Could not claim this quest. Please try again.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a Dashboard claim is reflected in Achievements', (
+      tester,
+    ) async {
+      final repository = _FakeGamificationRepository();
+      addTearDown(repository.close);
+      final sessions = [_todaySession()];
+
+      await _pumpAchievementsScreen(
+        tester,
+        surfaceSize: const Size(1600, 1000),
+        screen: _wrapAchievementsAndDashboard(
+          authService: authService,
+          sessions: sessions,
+          gamificationRepository: repository,
+        ),
+      );
+
+      final dashboardClaim = find.descendant(
+        of: find.byType(DashboardQuestCard),
+        matching: find.text('Claim'),
+      );
+      await tester.tap(dashboardClaim);
+      await settleUi(tester);
+
+      expect(
+        find.byKey(const Key('ready_quest_session_count_1')),
+        findsNothing,
+      );
+      expect(repository.claimCalls, 1);
+    });
+
+    testWidgets('an Achievements claim is reflected in Dashboard', (
+      tester,
+    ) async {
+      final repository = _FakeGamificationRepository();
+      addTearDown(repository.close);
+      final sessions = [_todaySession()];
+
+      await _pumpAchievementsScreen(
+        tester,
+        surfaceSize: const Size(1600, 1000),
+        screen: _wrapAchievementsAndDashboard(
+          authService: authService,
+          sessions: sessions,
+          gamificationRepository: repository,
+        ),
+      );
+
+      final achievementsCard = find.byKey(
+        const Key('ready_quest_session_count_1'),
+      );
+      await tester.tap(
+        find.descendant(of: achievementsCard, matching: find.text('Claim')),
+      );
+      await settleUi(tester);
+
+      expect(
+        find.descendant(
+          of: find.byType(DashboardQuestCard),
+          matching: find.text('Complete 1 Practice Session'),
+        ),
+        findsNothing,
+      );
+      expect(repository.claimCalls, 1);
     });
   });
 

@@ -6,21 +6,28 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/manila_day.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/achievement.dart';
 import '../../data/models/achievement_claim.dart';
+import '../../data/models/daily_quest_board.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/profile_border.dart';
+import '../../data/models/quest_claim.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/achievement_repository.dart';
+import '../../data/repositories/gamification_repository.dart';
 import '../../data/repositories/leaderboard_repository.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
+import '../../services/trainee_progression_service.dart';
+import '../dashboard/dashboard_quests.dart';
 import 'widgets/achievement_card.dart';
+import 'widgets/achievements_gamification_sections.dart';
 
 enum _AchievementFilter { all, claimable, inProgress, claimed, locked }
 
@@ -78,13 +85,16 @@ class AchievementsScreen extends StatefulWidget {
   const AchievementsScreen({
     super.key,
     AchievementRepository? achievementRepository,
+    GamificationRepository? gamificationRepository,
     LeaderboardRepository? leaderboardRepository,
     SessionRepository? sessionRepository,
   }) : _achievementRepository = achievementRepository,
+       _gamificationRepository = gamificationRepository,
        _leaderboardRepository = leaderboardRepository,
        _sessionRepository = sessionRepository;
 
   final AchievementRepository? _achievementRepository;
+  final GamificationRepository? _gamificationRepository;
   final LeaderboardRepository? _leaderboardRepository;
   final SessionRepository? _sessionRepository;
 
@@ -94,12 +104,15 @@ class AchievementsScreen extends StatefulWidget {
 
 class _AchievementsScreenState extends State<AchievementsScreen> {
   late final AchievementRepository _achievementRepo;
+  late final GamificationRepository _gamificationRepo;
   late final LeaderboardRepository _leaderboardRepo;
   late final SessionRepository _sessionRepo;
   bool _reposInitialized = false;
 
   StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
   StreamSubscription<Set<String>>? _claimsSub;
+  StreamSubscription<Set<String>>? _questClaimsSub;
+  Timer? _dayRolloverTimer;
 
   String? _userId;
   List<Session> _sessions = const [];
@@ -109,7 +122,24 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   bool _leaderboardMissing = false;
   String? _actionError;
   String? _claimingId;
+  DailyQuestBoard? _dailyQuestBoard;
+  Set<String> _claimedQuestIds = const {};
+  Set<String> _claimingQuestIds = const {};
+  bool _questBoardLoading = true;
+  bool _questBoardLoadInFlight = false;
+  String? _questBoardError;
+  String? _claimFeedback;
+  InfoBarSeverity _claimFeedbackSeverity = InfoBarSeverity.success;
   _AchievementFilter _filter = _AchievementFilter.all;
+
+  @override
+  void initState() {
+    super.initState();
+    _dayRolloverTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _checkDayRollover(),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -122,15 +152,22 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
           AchievementRepository(
             publicProfileRepository: publicProfileRepository,
           );
+      _gamificationRepo =
+          widget._gamificationRepository ?? GamificationRepository();
       _leaderboardRepo =
           widget._leaderboardRepository ?? LeaderboardRepository();
       _sessionRepo = widget._sessionRepository ?? SessionRepository();
     }
     final userId = context.watch<AuthService>().currentUser?.id;
+    final progression = context.watch<TraineeProgressionService>();
     if (userId != _userId) {
       _userId = userId;
+      _resetQuestBoard();
       _bindStreams(userId);
       unawaited(_loadSessions(userId));
+    }
+    if (userId != null && progression.isReady) {
+      _ensureQuestBoardLoaded(userId, progression.level);
     }
   }
 
@@ -138,7 +175,33 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   void dispose() {
     _leaderboardSub?.cancel();
     _claimsSub?.cancel();
+    _questClaimsSub?.cancel();
+    _dayRolloverTimer?.cancel();
     super.dispose();
+  }
+
+  void _resetQuestBoard() {
+    _questClaimsSub?.cancel();
+    _questClaimsSub = null;
+    _dailyQuestBoard = null;
+    _claimedQuestIds = const {};
+    _claimingQuestIds = const {};
+    _questBoardLoading = true;
+    _questBoardLoadInFlight = false;
+    _questBoardError = null;
+  }
+
+  void _checkDayRollover() {
+    final board = _dailyQuestBoard;
+    if (board == null) return;
+    final currentDayKey = ManilaDay.dayKeyFor(DateTime.now().toUtc());
+    if (ManilaDay.dayKeyEquals(board.dayKey, currentDayKey)) return;
+    setState(_resetQuestBoard);
+    final progression = context.read<TraineeProgressionService>();
+    final userId = _userId;
+    if (userId != null && progression.isReady) {
+      _ensureQuestBoardLoaded(userId, progression.level);
+    }
   }
 
   void _bindStreams(String? userId) {
@@ -159,7 +222,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     }
 
     _leaderboardSub = _leaderboardRepo.watchPlayer(userId).listen((entry) {
-      if (!mounted) return;
+      if (!mounted || _userId != userId) return;
       setState(() {
         _leaderboardEntry = entry;
         _leaderboardMissing = entry == null;
@@ -168,7 +231,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     _claimsSub = _achievementRepo.watchClaimedAchievementIds(userId).listen((
       ids,
     ) {
-      if (!mounted) return;
+      if (!mounted || _userId != userId) return;
       setState(() => _claimedIds = ids);
     });
   }
@@ -181,17 +244,187 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     });
     try {
       final sessions = await _sessionRepo.getSessionsForUser(userId);
-      if (!mounted) return;
+      if (!mounted || _userId != userId) return;
       setState(() {
         _sessions = sessions;
         _loadingSessions = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || _userId != userId) return;
       setState(() {
         _loadingSessions = false;
         _actionError = 'Could not load session history. Tap retry.';
       });
+    }
+  }
+
+  void _ensureQuestBoardLoaded(String userId, int currentLevel) {
+    if (_dailyQuestBoard != null ||
+        _questBoardLoadInFlight ||
+        _questBoardError != null) {
+      return;
+    }
+    unawaited(_loadQuestBoard(userId, currentLevel));
+  }
+
+  Future<void> _loadQuestBoard(String userId, int currentLevel) async {
+    if (_questBoardLoadInFlight) return;
+    _questBoardLoadInFlight = true;
+    if (mounted) {
+      setState(() {
+        _questBoardLoading = true;
+        _questBoardError = null;
+      });
+    }
+    try {
+      final board = await _gamificationRepo.getOrCreateDailyBoard(
+        userId: userId,
+        currentLevel: currentLevel,
+      );
+      if (!mounted || _userId != userId) return;
+      setState(() {
+        _dailyQuestBoard = board;
+        _questBoardLoading = false;
+      });
+      _subscribeToQuestClaims(userId, board.id);
+    } catch (_) {
+      if (!mounted || _userId != userId) return;
+      setState(() {
+        _questBoardLoading = false;
+        _questBoardError = 'Could not load today\'s quest rewards.';
+      });
+    } finally {
+      _questBoardLoadInFlight = false;
+    }
+  }
+
+  void _subscribeToQuestClaims(String userId, String boardId) {
+    _questClaimsSub?.cancel();
+    _questClaimsSub = _gamificationRepo
+        .watchClaimedQuestIds(userId: userId, boardId: boardId)
+        .listen(
+          (ids) {
+            if (!mounted || _userId != userId) return;
+            setState(() => _claimedQuestIds = ids);
+          },
+          onError: (_) {
+            if (!mounted || _userId != userId) return;
+            setState(
+              () => _questBoardError =
+                  'Could not refresh today\'s quest rewards.',
+            );
+          },
+        );
+  }
+
+  void _retryQuestBoard() {
+    setState(_resetQuestBoard);
+    final progression = context.read<TraineeProgressionService>();
+    final userId = _userId;
+    if (userId != null && progression.isReady) {
+      _ensureQuestBoardLoaded(userId, progression.level);
+    }
+  }
+
+  List<DashboardQuest> get _claimableDailyQuests {
+    final board = _dailyQuestBoard;
+    if (board == null) return const [];
+    return buildClaimableDailyQuests(
+      board: board,
+      claimedQuestIds: _claimedQuestIds,
+      sessions: _sessions,
+    );
+  }
+
+  List<AchievementViewData> get _claimableAchievements => _views
+      .where((view) => view.state == AchievementState.claimable)
+      .toList(growable: false);
+
+  Future<void> _claimQuest(String questId) async {
+    final userId = _userId;
+    final board = _dailyQuestBoard;
+    if (userId == null ||
+        board == null ||
+        _claimingQuestIds.contains(questId)) {
+      return;
+    }
+    DashboardQuest? quest;
+    for (final candidate in _claimableDailyQuests) {
+      if (candidate.id == questId) {
+        quest = candidate;
+        break;
+      }
+    }
+    if (quest == null) return;
+    final questTitle = quest.title;
+
+    setState(() {
+      _claimingQuestIds = {..._claimingQuestIds, questId};
+      _claimFeedback = null;
+    });
+    try {
+      final result = await _gamificationRepo.claimQuest(
+        userId: userId,
+        questId: questId,
+        sessionsToday: sessionsWithinBoardWindow(board, _sessions),
+      );
+      if (!mounted || _userId != userId) return;
+      switch (result.status) {
+        case QuestClaimStatus.claimed:
+          setState(() {
+            _claimedQuestIds = {..._claimedQuestIds, questId};
+            _claimFeedback =
+                '+${result.xpAwarded} XP claimed from $questTitle.';
+            _claimFeedbackSeverity = InfoBarSeverity.success;
+          });
+          break;
+        case QuestClaimStatus.alreadyClaimed:
+          setState(() {
+            _claimedQuestIds = {..._claimedQuestIds, questId};
+            _claimFeedback = 'That quest reward was already claimed.';
+            _claimFeedbackSeverity = InfoBarSeverity.info;
+          });
+          break;
+        case QuestClaimStatus.boardExpired:
+        case QuestClaimStatus.boardMissing:
+          setState(() {
+            _claimFeedback = 'Today\'s quest board changed. Refreshing it now.';
+            _claimFeedbackSeverity = InfoBarSeverity.info;
+          });
+          _retryQuestBoard();
+          break;
+        case QuestClaimStatus.leaderboardMissing:
+          setState(() {
+            _claimFeedback =
+                'Your XP profile is still loading. Try claiming again shortly.';
+            _claimFeedbackSeverity = InfoBarSeverity.warning;
+          });
+          break;
+        case QuestClaimStatus.questNotCompleted:
+          setState(() {
+            _claimFeedback = 'This quest is not complete yet.';
+            _claimFeedbackSeverity = InfoBarSeverity.warning;
+          });
+          break;
+        case QuestClaimStatus.invalidQuest:
+          setState(() {
+            _claimFeedback = 'This quest is no longer available.';
+            _claimFeedbackSeverity = InfoBarSeverity.error;
+          });
+          break;
+      }
+    } catch (_) {
+      if (!mounted || _userId != userId) return;
+      setState(() {
+        _claimFeedback = 'Could not claim this quest. Please try again.';
+        _claimFeedbackSeverity = InfoBarSeverity.error;
+      });
+    } finally {
+      if (mounted && _userId == userId) {
+        setState(() {
+          _claimingQuestIds = {..._claimingQuestIds}..remove(questId);
+        });
+      }
     }
   }
 
@@ -263,6 +496,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     setState(() {
       _claimingId = achievementId;
       _actionError = null;
+      _claimFeedback = null;
     });
     try {
       final result = await _achievementRepo.claimAchievement(
@@ -271,8 +505,26 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         sessions: _sessions,
         leaderboardEntry: _leaderboardEntry,
       );
-      if (!mounted) return;
-      if (result.status == AchievementClaimStatus.notCompleted) {
+      if (!mounted || _userId != userId) return;
+      if (result.status == AchievementClaimStatus.claimed) {
+        final definition = achievementById(achievementId);
+        final border = definition == null
+            ? null
+            : profileBorderById(definition.rewardBorderId);
+        setState(() {
+          _claimedIds = {..._claimedIds, achievementId};
+          _claimFeedback = border == null
+              ? 'Achievement reward claimed.'
+              : '${border.displayName} frame unlocked.';
+          _claimFeedbackSeverity = InfoBarSeverity.success;
+        });
+      } else if (result.status == AchievementClaimStatus.alreadyClaimed) {
+        setState(() {
+          _claimedIds = {..._claimedIds, achievementId};
+          _claimFeedback = 'That achievement reward was already claimed.';
+          _claimFeedbackSeverity = InfoBarSeverity.info;
+        });
+      } else if (result.status == AchievementClaimStatus.notCompleted) {
         setState(() => _actionError = 'Achievement is not complete yet.');
       } else if (result.status == AchievementClaimStatus.invalidAchievement) {
         setState(() => _actionError = 'Unknown achievement.');
@@ -280,16 +532,19 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         setState(() => _actionError = 'Cosmetics data looks corrupt.');
       }
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || _userId != userId) return;
       setState(() => _actionError = 'Claim failed. Please retry.');
     } finally {
-      if (mounted) setState(() => _claimingId = null);
+      if (mounted && _userId == userId) {
+        setState(() => _claimingId = null);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
+    final progression = context.watch<TraineeProgressionService>();
     final views = _views;
     final claimedCount = views
         .where((v) => v.state == AchievementState.claimed)
@@ -351,6 +606,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                             equippedBorderId:
                                 _leaderboardEntry?.equippedBorderId,
                             leaderboardMissing: _leaderboardMissing,
+                            totalXp: progression.totalXp,
+                            level: progression.level,
                           ),
                           if (_actionError != null) ...[
                             const SizedBox(height: AppSpacing.md),
@@ -371,6 +628,37 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                             ),
                           ],
                           const SizedBox(height: AppSpacing.lg),
+                          if (_claimFeedback != null) ...[
+                            InfoBar(
+                              title: Text(
+                                _claimFeedbackSeverity ==
+                                        InfoBarSeverity.success
+                                    ? 'Reward claimed'
+                                    : 'Claim update',
+                              ),
+                              content: Text(_claimFeedback!),
+                              severity: _claimFeedbackSeverity,
+                              isLong: true,
+                              onClose: () =>
+                                  setState(() => _claimFeedback = null),
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                          ],
+                          ReadyToClaimSection(
+                            quests: _claimableDailyQuests,
+                            achievements: _claimableAchievements,
+                            loadingQuests:
+                                !progression.isReady || _questBoardLoading,
+                            questLoadError: _questBoardError,
+                            claimingQuestIds: _claimingQuestIds,
+                            claimingAchievementId: _claimingId,
+                            onClaimQuest: _claimQuest,
+                            onClaimAchievement: _claim,
+                            onRetryQuests: _retryQuestBoard,
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          const HowToEarnXpSection(),
+                          const SizedBox(height: AppSpacing.xl),
                           _AchievementsSectionToolbar(
                             filter: _filter,
                             filterCounts: filterCounts,
@@ -501,7 +789,7 @@ class _AchievementsToolbarTitleGroup extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Achievements',
+                'Achievement collection',
                 style: AppTheme.headingMedium.copyWith(
                   color: context.elixTextPrimary,
                   fontSize: 18,
@@ -715,6 +1003,8 @@ class _HeaderSummary extends StatelessWidget {
     required this.legacyLocalPath,
     required this.equippedBorderId,
     required this.leaderboardMissing,
+    required this.totalXp,
+    required this.level,
   });
 
   final int claimedCount;
@@ -727,6 +1017,8 @@ class _HeaderSummary extends StatelessWidget {
   final String? legacyLocalPath;
   final String? equippedBorderId;
   final bool leaderboardMissing;
+  final int totalXp;
+  final int level;
 
   @override
   Widget build(BuildContext context) {
@@ -757,6 +1049,18 @@ class _HeaderSummary extends StatelessWidget {
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.sm,
                   children: [
+                    _StatBlock(
+                      label: 'Total XP',
+                      value: '$totalXp XP',
+                      icon: FluentIcons.lightning_bolt,
+                      color: AppColors.warning,
+                    ),
+                    _StatBlock(
+                      label: 'Level',
+                      value: '$level',
+                      icon: FluentIcons.favorite_star,
+                      color: AppColors.primary,
+                    ),
                     _StatBlock(
                       label: 'Claimed',
                       value: '$claimedCount / $totalCount',
