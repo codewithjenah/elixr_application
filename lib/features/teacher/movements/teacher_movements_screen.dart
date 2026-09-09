@@ -937,10 +937,7 @@ Future<void> _showAssignToClass(
 
 /// Read-only teacher view of the same lesson content used by trainee lessons.
 /// It deliberately has no progression-service dependency or completion action.
-Future<void> _showMovementGuide(
-  BuildContext context,
-  Movement movement,
-) async {
+Future<void> _showMovementGuide(BuildContext context, Movement movement) async {
   final lesson = MovementLesson.forMovement(movement);
   await showDialog<void>(
     context: context,

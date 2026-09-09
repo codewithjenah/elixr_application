@@ -235,9 +235,7 @@ class ClassChallengeLeaderboardEntry {
   final DateTime bestAchievedAt;
   final String sessionId;
 
-  static ClassChallengeLeaderboardEntry? tryFromMap(
-    Map<String, dynamic> map,
-  ) {
+  static ClassChallengeLeaderboardEntry? tryFromMap(Map<String, dynamic> map) {
     final score = (map['score'] as num?)?.toInt();
     final attempt = (map['best_attempt_number'] as num?)?.toInt();
     final achievedAt = _date(map['best_achieved_at']);

@@ -401,7 +401,7 @@ class FirebaseChatRepository implements ChatRepository {
           jsonEncode({
             'recipient_id': recipientId,
             'body': body,
-            if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
+            'idempotency_key': ?idempotencyKey,
           }),
         ),
       );

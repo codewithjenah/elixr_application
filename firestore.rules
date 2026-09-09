@@ -3738,9 +3738,15 @@ service cloud.firestore {
               == resource.data.configuration_revision
           )
         )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['allowed_prop'])
+          || resource.data.origin == 'official_elixr'
+        )
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'due_at', 'updated_at', 'max_score',
-          'grading_locked', 'grading_locked_at', 'topic', 'publish_at']);
+          'grading_locked', 'grading_locked_at', 'topic', 'publish_at',
+          'allowed_prop']);
     }
 
     function validAssignmentPublicationShape(data) {

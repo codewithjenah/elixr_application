@@ -60,8 +60,7 @@ class ClassChallengesPane extends StatelessWidget {
           stream: repository.watchResultsForGroup(groupId: groupId),
           builder: (context, resultSnapshot) {
             final challenges = challengeSnapshot.data!
-                .where((challenge) =>
-                    isTeacher || challenge.archivedAt == null)
+                .where((challenge) => isTeacher || challenge.archivedAt == null)
                 .toList(growable: false);
             final results = resultSnapshot.data ?? const [];
             return Column(
@@ -73,7 +72,10 @@ class ClassChallengesPane extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Class Challenges', style: AppTheme.headingMedium),
+                          Text(
+                            'Class Challenges',
+                            style: AppTheme.headingMedium,
+                          ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
                             isTeacher
@@ -129,8 +131,10 @@ class ClassChallengesPane extends StatelessWidget {
                               child: _ChallengeCard(
                                 challenge: challenge,
                                 entries: rankClassChallengeEntries(
-                                  results.where((entry) =>
-                                      entry.challengeId == challenge.id),
+                                  results.where(
+                                    (entry) =>
+                                        entry.challengeId == challenge.id,
+                                  ),
                                 ),
                                 currentUserId: currentUserId,
                                 participantCount: participantCount,
@@ -143,21 +147,21 @@ class ClassChallengesPane extends StatelessWidget {
                                 onEdit: !isTeacher || !groupIsActive
                                     ? null
                                     : () => _showChallengeEditor(
-                                          context,
-                                          repository: repository,
-                                          groupId: groupId,
-                                          teacherId: teacherId,
-                                          teacherDisplayName:
-                                              teacherDisplayName,
-                                          existing: challenge,
-                                        ),
-                                onArchive: !isTeacher || challenge.archivedAt != null
+                                        context,
+                                        repository: repository,
+                                        groupId: groupId,
+                                        teacherId: teacherId,
+                                        teacherDisplayName: teacherDisplayName,
+                                        existing: challenge,
+                                      ),
+                                onArchive:
+                                    !isTeacher || challenge.archivedAt != null
                                     ? null
                                     : () => _archiveChallenge(
-                                          context,
-                                          repository,
-                                          challenge,
-                                        ),
+                                        context,
+                                        repository,
+                                        challenge,
+                                      ),
                               ),
                             ),
                         ],
@@ -272,11 +276,13 @@ class _ChallengeCard extends StatelessWidget {
                 Button(
                   key: Key('class_challenge_start_${challenge.id}'),
                   onPressed: canStart ? onStart : null,
-                  child: Text(status == ClassChallengeStatus.upcoming
-                      ? 'Not started'
-                      : status == ClassChallengeStatus.ended
-                          ? 'Challenge ended'
-                          : 'Start Challenge'),
+                  child: Text(
+                    status == ClassChallengeStatus.upcoming
+                        ? 'Not started'
+                        : status == ClassChallengeStatus.ended
+                        ? 'Challenge ended'
+                        : 'Start Challenge',
+                  ),
                 ),
               if (onEdit != null)
                 IconButton(
@@ -324,10 +330,7 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-String _deadlineLabel(
-  ClassChallenge challenge,
-  ClassChallengeStatus status,
-) {
+String _deadlineLabel(ClassChallenge challenge, ClassChallengeStatus status) {
   final formatter = DateFormat('MMM d, y · h:mm a');
   if (status == ClassChallengeStatus.upcoming) {
     return 'Starts ${formatter.format(challenge.startAt.toLocal())}';
@@ -354,12 +357,20 @@ Future<void> _archiveChallenge(
         'Existing attempts and leaderboard results will be preserved.',
       ),
       actions: [
-        Button(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Archive')),
+        Button(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Archive'),
+        ),
       ],
     ),
   );
-  if (confirmed == true) await repository.archiveChallenge(challengeId: challenge.id);
+  if (confirmed == true) {
+    await repository.archiveChallenge(challengeId: challenge.id);
+  }
 }
 
 Future<void> _showChallengeEditor(
@@ -372,15 +383,23 @@ Future<void> _showChallengeEditor(
 }) async {
   final title = TextEditingController(text: existing?.title ?? '');
   final description = TextEditingController(text: existing?.description ?? '');
-  final attempts = TextEditingController(text: existing?.attemptLimit?.toString() ?? '');
-  final target = TextEditingController(text: existing?.targetScore?.toString() ?? '');
+  final attempts = TextEditingController(
+    text: existing?.attemptLimit?.toString() ?? '',
+  );
+  final target = TextEditingController(
+    text: existing?.targetScore?.toString() ?? '',
+  );
   Movement movement = movementCatalog.firstWhere(
     (item) => item.name == existing?.movementName,
     orElse: () => movementCatalog.first,
   );
   var prop = existing?.prop ?? movement.supportedProps.first;
-  var start = existing?.startAt.toLocal() ?? DateTime.now().add(const Duration(hours: 1));
-  var deadline = existing?.deadline.toLocal() ?? DateTime.now().add(const Duration(days: 7));
+  var start =
+      existing?.startAt.toLocal() ??
+      DateTime.now().add(const Duration(hours: 1));
+  var deadline =
+      existing?.deadline.toLocal() ??
+      DateTime.now().add(const Duration(days: 7));
   String? error;
   var saving = false;
 
@@ -388,7 +407,9 @@ Future<void> _showChallengeEditor(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setDialogState) => ContentDialog(
-        title: Text(existing == null ? 'Create Class Challenge' : 'Edit Class Challenge'),
+        title: Text(
+          existing == null ? 'Create Class Challenge' : 'Edit Class Challenge',
+        ),
         content: SizedBox(
           width: 560,
           height: 540,
@@ -398,7 +419,10 @@ Future<void> _showChallengeEditor(
               children: [
                 InfoLabel(
                   label: 'Challenge title',
-                  child: TextBox(controller: title, maxLength: ClassChallenge.maxTitleLength),
+                  child: TextBox(
+                    controller: title,
+                    maxLength: ClassChallenge.maxTitleLength,
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 InfoLabel(
@@ -417,7 +441,9 @@ Future<void> _showChallengeEditor(
                     value: movement,
                     isExpanded: true,
                     items: [
-                      for (final item in movementCatalog.where((item) => item.enabled))
+                      for (final item in movementCatalog.where(
+                        (item) => item.enabled,
+                      ))
                         ComboBoxItem(value: item, child: Text(item.name)),
                     ],
                     onChanged: (value) => setDialogState(() {
@@ -435,9 +461,13 @@ Future<void> _showChallengeEditor(
                     isExpanded: true,
                     items: [
                       for (final item in movement.supportedProps)
-                        ComboBoxItem(value: item, child: Text(item.displayLabel)),
+                        ComboBoxItem(
+                          value: item,
+                          child: Text(item.displayLabel),
+                        ),
                     ],
-                    onChanged: (value) => setDialogState(() => prop = value ?? prop),
+                    onChanged: (value) =>
+                        setDialogState(() => prop = value ?? prop),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
@@ -458,14 +488,20 @@ Future<void> _showChallengeEditor(
                     Expanded(
                       child: InfoLabel(
                         label: 'Attempt limit (optional, 1–20)',
-                        child: TextBox(controller: attempts, keyboardType: TextInputType.number),
+                        child: TextBox(
+                          controller: attempts,
+                          keyboardType: TextInputType.number,
+                        ),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: InfoLabel(
                         label: 'Target score (optional, 0–12)',
-                        child: TextBox(controller: target, keyboardType: TextInputType.number),
+                        child: TextBox(
+                          controller: target,
+                          keyboardType: TextInputType.number,
+                        ),
                       ),
                     ),
                   ],
@@ -473,48 +509,80 @@ Future<void> _showChallengeEditor(
                 const SizedBox(height: AppSpacing.sm),
                 const InfoBar(
                   title: Text('Scoring'),
-                  content: Text('Best Assessment V2 rubric total wins (maximum 12).'),
+                  content: Text(
+                    'Best Assessment V2 rubric total wins (maximum 12).',
+                  ),
                   severity: InfoBarSeverity.info,
                 ),
                 if (error != null) ...[
                   const SizedBox(height: AppSpacing.sm),
-                  InfoBar(title: const Text('Check the challenge'), content: Text(error!), severity: InfoBarSeverity.error),
+                  InfoBar(
+                    title: const Text('Check the challenge'),
+                    content: Text(error!),
+                    severity: InfoBarSeverity.error,
+                  ),
                 ],
               ],
             ),
           ),
         ),
         actions: [
-          Button(onPressed: saving ? null : () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          Button(
+            onPressed: saving ? null : () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: saving
                 ? null
                 : () async {
-                    final limit = attempts.text.trim().isEmpty ? null : int.tryParse(attempts.text.trim());
-                    final targetScore = target.text.trim().isEmpty ? null : int.tryParse(target.text.trim());
+                    final limit = attempts.text.trim().isEmpty
+                        ? null
+                        : int.tryParse(attempts.text.trim());
+                    final targetScore = target.text.trim().isEmpty
+                        ? null
+                        : int.tryParse(target.text.trim());
                     final titleValue = title.text.trim();
                     final descriptionValue = description.text.trim();
-                    if (titleValue.isEmpty || titleValue.length > ClassChallenge.maxTitleLength) {
-                      setDialogState(() => error = 'Enter a title of 80 characters or fewer.');
+                    if (titleValue.isEmpty ||
+                        titleValue.length > ClassChallenge.maxTitleLength) {
+                      setDialogState(
+                        () =>
+                            error = 'Enter a title of 80 characters or fewer.',
+                      );
                       return;
                     }
-                    if (descriptionValue.isEmpty || descriptionValue.length > ClassChallenge.maxDescriptionLength) {
-                      setDialogState(() => error = 'Enter instructions of 500 characters or fewer.');
+                    if (descriptionValue.isEmpty ||
+                        descriptionValue.length >
+                            ClassChallenge.maxDescriptionLength) {
+                      setDialogState(
+                        () => error =
+                            'Enter instructions of 500 characters or fewer.',
+                      );
                       return;
                     }
                     if (!deadline.isAfter(start)) {
-                      setDialogState(() => error = 'Deadline must be after the start time.');
+                      setDialogState(
+                        () => error = 'Deadline must be after the start time.',
+                      );
                       return;
                     }
                     if (limit != null && (limit < 1 || limit > 20)) {
-                      setDialogState(() => error = 'Attempt limit must be between 1 and 20.');
+                      setDialogState(
+                        () => error = 'Attempt limit must be between 1 and 20.',
+                      );
                       return;
                     }
-                    if (targetScore != null && (targetScore < 0 || targetScore > 12)) {
-                      setDialogState(() => error = 'Target score must be between 0 and 12.');
+                    if (targetScore != null &&
+                        (targetScore < 0 || targetScore > 12)) {
+                      setDialogState(
+                        () => error = 'Target score must be between 0 and 12.',
+                      );
                       return;
                     }
-                    setDialogState(() { saving = true; error = null; });
+                    setDialogState(() {
+                      saving = true;
+                      error = null;
+                    });
                     final value = ClassChallenge(
                       id: existing?.id ?? '',
                       groupId: groupId,
@@ -549,7 +617,9 @@ Future<void> _showChallengeEditor(
                       });
                     }
                   },
-            child: saving ? const ProgressRing(strokeWidth: 2) : const Text('Save'),
+            child: saving
+                ? const ProgressRing(strokeWidth: 2)
+                : const Text('Save'),
           ),
         ],
       ),
@@ -562,7 +632,11 @@ Future<void> _showChallengeEditor(
 }
 
 class _DateTimeField extends StatelessWidget {
-  const _DateTimeField({required this.label, required this.value, required this.onChanged});
+  const _DateTimeField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
   final String label;
   final DateTime value;
   final ValueChanged<DateTime> onChanged;
@@ -576,7 +650,15 @@ class _DateTimeField extends StatelessWidget {
           Expanded(
             child: DatePicker(
               selected: value,
-              onChanged: (date) => onChanged(DateTime(date.year, date.month, date.day, value.hour, value.minute)),
+              onChanged: (date) => onChanged(
+                DateTime(
+                  date.year,
+                  date.month,
+                  date.day,
+                  value.hour,
+                  value.minute,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
@@ -584,8 +666,22 @@ class _DateTimeField extends StatelessWidget {
             width: 105,
             child: ComboBox<int>(
               value: value.hour,
-              items: [for (var hour = 0; hour < 24; hour++) ComboBoxItem(value: hour, child: Text(hour.toString().padLeft(2, '0')))],
-              onChanged: (hour) => onChanged(DateTime(value.year, value.month, value.day, hour ?? value.hour, value.minute)),
+              items: [
+                for (var hour = 0; hour < 24; hour++)
+                  ComboBoxItem(
+                    value: hour,
+                    child: Text(hour.toString().padLeft(2, '0')),
+                  ),
+              ],
+              onChanged: (hour) => onChanged(
+                DateTime(
+                  value.year,
+                  value.month,
+                  value.day,
+                  hour ?? value.hour,
+                  value.minute,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: AppSpacing.xs),
@@ -599,7 +695,15 @@ class _DateTimeField extends StatelessWidget {
                 ComboBoxItem(value: 30, child: Text('30')),
                 ComboBoxItem(value: 45, child: Text('45')),
               ],
-              onChanged: (minute) => onChanged(DateTime(value.year, value.month, value.day, value.hour, minute ?? value.minute)),
+              onChanged: (minute) => onChanged(
+                DateTime(
+                  value.year,
+                  value.month,
+                  value.day,
+                  value.hour,
+                  minute ?? value.minute,
+                ),
+              ),
             ),
           ),
         ],

@@ -113,7 +113,8 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
           'not_started' => 'This challenge has not started yet.',
           'deadline_passed' => 'This challenge has ended.',
           'attempts_exhausted' => 'You have no attempts remaining.',
-          'attempt_in_progress' => 'A challenge attempt is already in progress.',
+          'attempt_in_progress' =>
+            'A challenge attempt is already in progress.',
           'offline' => 'You appear to be offline. Reconnect and try again.',
           _ => 'Could not start the challenge. Try again.',
         };
@@ -160,78 +161,104 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
                 ),
                 builder: (context, participantSnapshot) =>
                     StreamBuilder<List<ClassChallengeLeaderboardEntry>>(
-                  stream: _repository.watchLeaderboard(
-                    challengeId: challenge.id,
-                  ),
-                  builder: (context, leaderboardSnapshot) {
-                    final participant = participantSnapshot.data;
-                    final remaining = participant?.attemptsRemaining(
-                          challenge.attemptLimit,
-                        ) ??
-                        challenge.attemptLimit;
-                    ClassChallengeLeaderboardEntry? personal;
-                    for (final entry in leaderboardSnapshot.data ?? const []) {
-                      if (entry.traineeId == userId) personal = entry;
-                    }
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 760),
-                        child: ElixPanelCard(
-                          padding: const EdgeInsets.all(AppSpacing.xl),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(challenge.title, style: AppTheme.headingLarge),
-                              const SizedBox(height: AppSpacing.sm),
-                              Text(challenge.description, style: AppTheme.body),
-                              const SizedBox(height: AppSpacing.lg),
-                              _InfoRow(label: 'Movement', value: challenge.movementName),
-                              _InfoRow(label: 'Prop', value: challenge.prop.displayLabel),
-                              _InfoRow(label: 'Scoring', value: 'Best ELIXR rubric total (0–12)'),
-                              _InfoRow(
-                                label: 'Attempts',
-                                value: remaining == null ? 'Unlimited' : '$remaining remaining',
-                              ),
-                              _InfoRow(
-                                label: 'Personal best',
-                                value: personal == null ? 'No score yet' : '${personal.score}/12',
-                              ),
-                              if (_error != null) ...[
-                                const SizedBox(height: AppSpacing.sm),
-                                InfoBar(
-                                  title: const Text('Cannot start'),
-                                  content: Text(_error!),
-                                  severity: InfoBarSeverity.error,
-                                ),
-                              ],
-                              const SizedBox(height: AppSpacing.lg),
-                              Wrap(
-                                spacing: AppSpacing.sm,
-                                runSpacing: AppSpacing.sm,
+                      stream: _repository.watchLeaderboard(
+                        challengeId: challenge.id,
+                      ),
+                      builder: (context, leaderboardSnapshot) {
+                        final participant = participantSnapshot.data;
+                        final remaining =
+                            participant?.attemptsRemaining(
+                              challenge.attemptLimit,
+                            ) ??
+                            challenge.attemptLimit;
+                        ClassChallengeLeaderboardEntry? personal;
+                        for (final entry
+                            in leaderboardSnapshot.data ?? const []) {
+                          if (entry.traineeId == userId) personal = entry;
+                        }
+                        return Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 760),
+                            child: ElixPanelCard(
+                              padding: const EdgeInsets.all(AppSpacing.xl),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  ElixPrimaryButton(
-                                    label: 'Begin Challenge',
-                                    icon: FluentIcons.play,
-                                    expanded: false,
-                                    isLoading: _reserving,
-                                    onPressed: challenge.canStartAt(DateTime.now()) &&
-                                            (remaining == null || remaining > 0)
-                                        ? _begin
-                                        : null,
+                                  Text(
+                                    challenge.title,
+                                    style: AppTheme.headingLarge,
                                   ),
-                                  Button(
-                                    onPressed: () => _showTutorial(challenge),
-                                    child: const Text('View Tutorial'),
+                                  const SizedBox(height: AppSpacing.sm),
+                                  Text(
+                                    challenge.description,
+                                    style: AppTheme.body,
+                                  ),
+                                  const SizedBox(height: AppSpacing.lg),
+                                  _InfoRow(
+                                    label: 'Movement',
+                                    value: challenge.movementName,
+                                  ),
+                                  _InfoRow(
+                                    label: 'Prop',
+                                    value: challenge.prop.displayLabel,
+                                  ),
+                                  _InfoRow(
+                                    label: 'Scoring',
+                                    value: 'Best ELIXR rubric total (0–12)',
+                                  ),
+                                  _InfoRow(
+                                    label: 'Attempts',
+                                    value: remaining == null
+                                        ? 'Unlimited'
+                                        : '$remaining remaining',
+                                  ),
+                                  _InfoRow(
+                                    label: 'Personal best',
+                                    value: personal == null
+                                        ? 'No score yet'
+                                        : '${personal.score}/12',
+                                  ),
+                                  if (_error != null) ...[
+                                    const SizedBox(height: AppSpacing.sm),
+                                    InfoBar(
+                                      title: const Text('Cannot start'),
+                                      content: Text(_error!),
+                                      severity: InfoBarSeverity.error,
+                                    ),
+                                  ],
+                                  const SizedBox(height: AppSpacing.lg),
+                                  Wrap(
+                                    spacing: AppSpacing.sm,
+                                    runSpacing: AppSpacing.sm,
+                                    children: [
+                                      ElixPrimaryButton(
+                                        label: 'Begin Challenge',
+                                        icon: FluentIcons.play,
+                                        expanded: false,
+                                        isLoading: _reserving,
+                                        onPressed:
+                                            challenge.canStartAt(
+                                                  DateTime.now(),
+                                                ) &&
+                                                (remaining == null ||
+                                                    remaining > 0)
+                                            ? _begin
+                                            : null,
+                                      ),
+                                      Button(
+                                        onPressed: () =>
+                                            _showTutorial(challenge),
+                                        child: const Text('View Tutorial'),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                        );
+                      },
+                    ),
               ),
             ),
           ],
@@ -323,8 +350,16 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Row(
         children: [
-          SizedBox(width: 130, child: Text(label, style: AppTheme.bodySecondary)),
-          Expanded(child: Text(value, style: AppTheme.body.copyWith(fontWeight: FontWeight.w600))),
+          SizedBox(
+            width: 130,
+            child: Text(label, style: AppTheme.bodySecondary),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
         ],
       ),
     );

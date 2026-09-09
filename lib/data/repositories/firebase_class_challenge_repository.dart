@@ -67,7 +67,10 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
   Future<ClassChallenge> createChallenge({
     required ClassChallenge challenge,
   }) async {
-    final response = await _post('createClassChallenge', challenge.toFunctionPayload());
+    final response = await _post(
+      'createClassChallenge',
+      challenge.toFunctionPayload(),
+    );
     return _challengeFromResponse(response);
   }
 
@@ -107,24 +110,31 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
   @override
   Stream<List<ClassChallengeLeaderboardEntry>> watchResultsForGroup({
     required String groupId,
-  }) => _results.where('group_id', isEqualTo: groupId).snapshots().map(
-    (snapshot) => List.unmodifiable(
-      snapshot.docs
-          .map((doc) => ClassChallengeLeaderboardEntry.tryFromMap(doc.data()))
-          .whereType<ClassChallengeLeaderboardEntry>(),
-    ),
-  );
+  }) => _results
+      .where('group_id', isEqualTo: groupId)
+      .snapshots()
+      .map(
+        (snapshot) => List.unmodifiable(
+          snapshot.docs
+              .map(
+                (doc) => ClassChallengeLeaderboardEntry.tryFromMap(doc.data()),
+              )
+              .whereType<ClassChallengeLeaderboardEntry>(),
+        ),
+      );
 
   @override
   Stream<ClassChallengeParticipant?> watchParticipant({
     required String challengeId,
     required String traineeId,
   }) => _participants
-      .doc('${challengeId}__${traineeId}')
+      .doc('${challengeId}__$traineeId')
       .snapshots()
-      .map((doc) => doc.data() == null
-          ? null
-          : ClassChallengeParticipant.tryFromMap(doc.data()!));
+      .map(
+        (doc) => doc.data() == null
+            ? null
+            : ClassChallengeParticipant.tryFromMap(doc.data()!),
+      );
 
   @override
   Future<ClassChallengeAttempt> reserveAttempt({
@@ -182,9 +192,7 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
     if (raw is! Map) throw const ClassChallengeException('malformed');
     final map = Map<String, dynamic>.from(raw);
     final id = map.remove('id');
-    final parsed = id is String
-        ? ClassChallenge.tryFromMap(map, id: id)
-        : null;
+    final parsed = id is String ? ClassChallenge.tryFromMap(map, id: id) : null;
     if (parsed == null) throw const ClassChallengeException('malformed');
     return parsed;
   }
@@ -208,7 +216,10 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(payload));
       final response = await request.close().timeout(requestTimeout);
-      final body = await utf8.decoder.bind(response).join().timeout(requestTimeout);
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(requestTimeout);
       final decoded = body.isEmpty ? <String, dynamic>{} : jsonDecode(body);
       if (response.statusCode != HttpStatus.ok) {
         final code = decoded is Map ? decoded['error']?.toString() : null;

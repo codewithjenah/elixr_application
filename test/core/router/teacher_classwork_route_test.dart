@@ -19,6 +19,37 @@ Iterable<GoRoute> _goRoutes(Iterable<RouteMatchBase> matches) sync* {
 }
 
 void main() {
+  test('Class Challenge play route is registered exactly once', () {
+    final auth = phase3TeacherAuth();
+    final tutorials = TutorialProgressService();
+    final joinLinks = JoinLinkService();
+    final router = AppRouter.create(
+      auth,
+      tutorials,
+      joinLinks,
+      TraineeProgressionService.ready(),
+    );
+    addTearDown(router.dispose);
+    addTearDown(auth.dispose);
+    addTearDown(tutorials.dispose);
+    addTearDown(joinLinks.dispose);
+
+    final playPath =
+        '${AppRoutePaths.classChallengePlayPrefix}/:groupId/:challengeId';
+    final configured = router.configuration.routes.whereType<GoRoute>().where(
+      (route) => route.path == playPath,
+    );
+    final location = AppRoutePaths.classChallengePlay('group-1', 'challenge-1');
+    final matches = router.configuration.findMatch(Uri.parse(location));
+
+    expect(configured, hasLength(1));
+    expect(matches.isError, isFalse);
+    expect(matches.pathParameters, {
+      'groupId': 'group-1',
+      'challengeId': 'challenge-1',
+    });
+  });
+
   test('activity center routes remain in their owning shell trees', () {
     final auth = phase3TeacherAuth();
     final tutorials = TutorialProgressService();

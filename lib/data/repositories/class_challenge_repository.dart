@@ -17,13 +17,9 @@ abstract class ClassChallengeRepository {
 
   Future<ClassChallenge?> getChallenge({required String challengeId});
 
-  Future<ClassChallenge> createChallenge({
-    required ClassChallenge challenge,
-  });
+  Future<ClassChallenge> createChallenge({required ClassChallenge challenge});
 
-  Future<ClassChallenge> updateChallenge({
-    required ClassChallenge challenge,
-  });
+  Future<ClassChallenge> updateChallenge({required ClassChallenge challenge});
 
   Future<void> archiveChallenge({required String challengeId});
 

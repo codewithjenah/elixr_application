@@ -144,7 +144,7 @@ class _RecordingWebSocketService extends WebSocketService {
       'camera_index': ?legacyCameraIndex,
       if (allowSubmissionRecording) 'allow_submission_recording': true,
       if (readinessSpec != null) 'readiness_spec': readinessSpec.toMap(),
-      if (sessionMode != null) 'session_mode': sessionMode,
+      'session_mode': ?sessionMode,
       if (allowedMovements != null)
         'allowed_movements': [
           for (final entry in allowedMovements)

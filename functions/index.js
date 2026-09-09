@@ -705,6 +705,28 @@ function challengeParticipantId(challengeId, traineeId) {
   return `${challengeId}__${traineeId}`;
 }
 
+function isCompletedClassChallengeRetry({
+  body, uid, challenge, attempt, session, best,
+}) {
+  const context = session.challenge_context || {};
+  return Boolean(best) && attempt.status === 'completed' &&
+    attempt.session_id === body.session_id && attempt.trainee_id === uid &&
+    attempt.challenge_id === body.challenge_id &&
+    attempt.group_id === challenge.group_id &&
+    attempt.teacher_id === challenge.teacher_id &&
+    attempt.movement_name === challenge.movement_name &&
+    attempt.prop_type === challenge.prop_type && session.user_id === uid &&
+    session.movement_name === challenge.movement_name &&
+    session.prop_type === challenge.prop_type &&
+    context.challenge_id === body.challenge_id &&
+    context.group_id === challenge.group_id &&
+    context.teacher_id === challenge.teacher_id &&
+    context.attempt_id === body.attempt_id &&
+    best.challenge_id === body.challenge_id &&
+    best.group_id === challenge.group_id &&
+    best.teacher_id === challenge.teacher_id && best.trainee_id === uid;
+}
+
 function challengePayload(body) {
   const title = boundedText(body.title, 80);
   const description = boundedText(body.description, 500);
@@ -1032,15 +1054,25 @@ async function completeClassChallengeAttemptHandler(request, response, {
       const challenge = challengeSnap.data();
       const attempt = attemptSnap.data();
       const session = sessionSnap.data();
+      const existing = bestSnap.exists ? bestSnap.data() : null;
+      if (isCompletedClassChallengeRetry({
+        body, uid, challenge, attempt, session, best: existing,
+      })) return existing;
       const membership = await transaction.get(firestore.collection('group_memberships')
         .doc(`${challenge.group_id}_${uid}`));
       const context = session.challenge_context || {};
       const now = Timestamp.now();
-      if (!membership.exists || membership.get('status') !== 'approved' ||
-          membership.get('teacher_id') !== challenge.teacher_id || challenge.archived_at ||
+      if (!membership.exists || !validApprovedTraineeMembership(membership.data(), {
+        membershipId: membership.id, traineeId: uid, groupId: challenge.group_id,
+        teacherId: challenge.teacher_id,
+      }) || challenge.archived_at ||
           now.toMillis() >= challenge.deadline.toMillis() ||
           stateSnap.get('active_attempt_id') !== body.attempt_id ||
           attempt.trainee_id !== uid || attempt.challenge_id !== body.challenge_id ||
+          attempt.group_id !== challenge.group_id ||
+          attempt.teacher_id !== challenge.teacher_id ||
+          attempt.movement_name !== challenge.movement_name ||
+          attempt.prop_type !== challenge.prop_type ||
           attempt.status !== 'in_progress' || session.user_id !== uid ||
           session.assessment_version !== 2 || !Number.isInteger(session.rubric_total) ||
           session.rubric_total < 0 || session.rubric_total > 12 ||
@@ -1056,7 +1088,6 @@ async function completeClassChallengeAttemptHandler(request, response, {
       transaction.update(stateRef, {
         active_attempt_id: FieldValue.delete(), active_request_id: FieldValue.delete(), updated_at: now,
       });
-      const existing = bestSnap.exists ? bestSnap.data() : null;
       if (!existing || session.rubric_total > existing.score) {
         const displayName = boundedText(userSnap.get('full_name'), 80) || 'Trainee';
         const profileUrl = userSnap.get('profile_picture_url');
@@ -3468,6 +3499,7 @@ exports._test = {
   authenticatedTeacherUid,
   ensureTeacherRoleClaimHandler,
   assignmentAudienceAllows,
+  challengePayload,
   validTraineeProfile,
   validApprovedTraineeMembership,
   validRecipientProjection,
@@ -3503,6 +3535,7 @@ exports._test = {
   abandonClassChallengeAttemptHandler,
   completeClassChallengeAttemptHandler,
   challengeParticipantId,
+  isCompletedClassChallengeRetry,
   updateTeacherActivityAssignmentHandler,
   gradeTeacherActivityAttemptHandler,
   attemptStateId,

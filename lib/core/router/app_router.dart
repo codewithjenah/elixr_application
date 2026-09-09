@@ -7,8 +7,6 @@ import '../../features/assigned_movements/assigned_practice_screen.dart';
 import '../../features/assigned_movements/assignment_detail_screen.dart';
 import '../../features/class_challenges/class_challenge_leaderboard_screen.dart';
 import '../../features/class_challenges/class_challenge_play_screen.dart';
-import '../../features/class_challenges/class_challenge_leaderboard_screen.dart';
-import '../../features/class_challenges/class_challenge_play_screen.dart';
 import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/complete_google_profile_screen.dart';
 import '../../features/auth/login_screen.dart';
@@ -202,16 +200,6 @@ class AppRouter {
         GoRoute(
           path:
               '${AppRoutePaths.classChallengePlayPrefix}/:groupId/:challengeId',
-          pageBuilder: (context, state) => fadeTransitionPage(
-            key: state.pageKey,
-            child: ClassChallengePlayScreen(
-              groupId: state.pathParameters['groupId'] ?? '',
-              challengeId: state.pathParameters['challengeId'] ?? '',
-            ),
-          ),
-        ),
-        GoRoute(
-          path: '${AppRoutePaths.classChallengePlayPrefix}/:groupId/:challengeId',
           pageBuilder: (context, state) => fadeTransitionPage(
             key: state.pageKey,
             child: ClassChallengePlayScreen(

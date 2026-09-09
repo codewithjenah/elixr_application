@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
+import '../../core/shell/teacher_shell.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_editorial_header.dart';
@@ -86,9 +87,18 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          const Icon(FluentIcons.trophy, size: 28, color: Color(0xFFFF2FA8)),
+                          const Icon(
+                            FluentIcons.trophy,
+                            size: 28,
+                            color: Color(0xFFFF2FA8),
+                          ),
                           const SizedBox(width: AppSpacing.sm),
-                          Expanded(child: Text(challenge.title, style: AppTheme.headingLarge)),
+                          Expanded(
+                            child: Text(
+                              challenge.title,
+                              style: AppTheme.headingLarge,
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: AppSpacing.xs),
@@ -105,13 +115,16 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
                     key: Key('class_challenge_leaderboard_empty'),
                     icon: FluentIcons.trophy,
                     title: 'The leaderboard is open',
-                    message: 'No valid challenge results have been submitted yet.',
+                    message:
+                        'No valid challenge results have been submitted yet.',
                   )
                 else ...[
                   _Podium(entries: entries.take(3).toList(), userId: userId),
                   const SizedBox(height: AppSpacing.md),
                   ElixPanelCard(
-                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                    ),
                     child: Column(
                       children: [
                         for (var index = 0; index < entries.length; index++)
@@ -178,7 +191,10 @@ class _Podium extends StatelessWidget {
               padding: const EdgeInsets.all(AppSpacing.md),
               child: Column(
                 children: [
-                  Text(['🥇', '🥈', '🥉'][index], style: const TextStyle(fontSize: 30)),
+                  Text(
+                    ['🥇', '🥈', '🥉'][index],
+                    style: const TextStyle(fontSize: 30),
+                  ),
                   const SizedBox(height: AppSpacing.xs),
                   ProfileAvatarWidget(
                     initials: userInitials(entries[index].displayName),
@@ -193,8 +209,14 @@ class _Podium extends StatelessWidget {
                     style: AppTheme.headingMedium,
                   ),
                   if (entries[index].traineeId == userId)
-                    const Text('You', style: TextStyle(color: Color(0xFFFF2FA8))),
-                  Text('${entries[index].score}/12', style: AppTheme.headingLarge),
+                    const Text(
+                      'You',
+                      style: TextStyle(color: Color(0xFFFF2FA8)),
+                    ),
+                  Text(
+                    '${entries[index].score}/12',
+                    style: AppTheme.headingLarge,
+                  ),
                 ],
               ),
             ),
@@ -205,7 +227,11 @@ class _Podium extends StatelessWidget {
 }
 
 class _RankRow extends StatelessWidget {
-  const _RankRow({required this.rank, required this.entry, required this.isYou});
+  const _RankRow({
+    required this.rank,
+    required this.entry,
+    required this.isYou,
+  });
   final int rank;
   final ClassChallengeLeaderboardEntry entry;
   final bool isYou;
@@ -215,10 +241,16 @@ class _RankRow extends StatelessWidget {
     return Container(
       key: Key('class_challenge_rank_$rank'),
       color: isYou ? const Color(0x18FF2FA8) : null,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
       child: Row(
         children: [
-          SizedBox(width: 44, child: Text('#$rank', style: AppTheme.headingMedium)),
+          SizedBox(
+            width: 44,
+            child: Text('#$rank', style: AppTheme.headingMedium),
+          ),
           ProfileAvatarWidget(
             initials: userInitials(entry.displayName),
             networkImageUrl: entry.profilePictureUrl,
@@ -232,8 +264,18 @@ class _RankRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          SizedBox(width: 90, child: Text('Attempt ${entry.bestAttemptNumber}')),
-          SizedBox(width: 64, child: Text('${entry.score}/12', textAlign: TextAlign.end, style: AppTheme.headingMedium)),
+          SizedBox(
+            width: 90,
+            child: Text('Attempt ${entry.bestAttemptNumber}'),
+          ),
+          SizedBox(
+            width: 64,
+            child: Text(
+              '${entry.score}/12',
+              textAlign: TextAlign.end,
+              style: AppTheme.headingMedium,
+            ),
+          ),
         ],
       ),
     );

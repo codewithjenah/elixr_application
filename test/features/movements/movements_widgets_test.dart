@@ -49,9 +49,8 @@ Widget withProgression(Widget child, {required int level}) {
     key: ValueKey('progression-level-$level'),
     providers: [
       ChangeNotifierProvider<TraineeProgressionService>(
-        create: (_) => TraineeProgressionService.ready(
-          totalXp: (level - 1) * 250,
-        ),
+        create: (_) =>
+            TraineeProgressionService.ready(totalXp: (level - 1) * 250),
       ),
       ChangeNotifierProvider<TutorialProgressService>(
         create: (_) => _IncompleteTutorials(),
@@ -67,11 +66,7 @@ Widget wrapWithProgression(
   bool highContrast = false,
   bool disableAnimations = false,
 }) => withProgression(
-  wrap(
-    child,
-    highContrast: highContrast,
-    disableAnimations: disableAnimations,
-  ),
+  wrap(child, highContrast: highContrast, disableAnimations: disableAnimations),
   level: level,
 );
 
@@ -243,52 +238,58 @@ void main() {
   });
 
   group('MovementCard', () {
-    testWidgets('fully locked movement hides its identity and cannot activate', (
+    testWidgets(
+      'fully locked movement hides its identity and cannot activate',
+      (tester) async {
+        final navigated = <String>[];
+        final router = practiceTrackingRouter(
+          home: const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: thirdEasyMovement,
+              sessionCount: 0,
+              averageRubricTotal: null,
+            ),
+          ),
+          navigatedLocations: navigated,
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          withProgression(wrapWithRouter(router: router), level: 2),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Reverse Grip'), findsNothing);
+        expect(
+          find.text('Hold the bottle with an underhand grip.'),
+          findsNothing,
+        );
+        expect(find.text('???'), findsOneWidget);
+        expect(find.text('MYSTERY MOVEMENT'), findsOneWidget);
+        expect(find.text('Unlocks at Level 3'), findsOneWidget);
+        expect(find.text('Hands tracking'), findsNothing);
+
+        expect(
+          find.bySemanticsLabel(
+            'Mystery movement. Locked. Unlocks at Level 3.',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.bySemanticsLabel('Movement image: Reverse Grip'),
+          findsNothing,
+        );
+
+        await tester.tap(find.byType(MovementCard));
+        await tester.pumpAndSettle();
+        expect(navigated, isEmpty);
+      },
+    );
+
+    testWidgets('movement identity appears at its required level', (
       tester,
     ) async {
-      final navigated = <String>[];
-      final router = practiceTrackingRouter(
-        home: const SizedBox(
-          width: 900,
-          child: MovementCard(
-            movement: thirdEasyMovement,
-            sessionCount: 0,
-            averageRubricTotal: null,
-          ),
-        ),
-        navigatedLocations: navigated,
-      );
-      addTearDown(router.dispose);
-
-      await tester.pumpWidget(
-        withProgression(wrapWithRouter(router: router), level: 2),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Reverse Grip'), findsNothing);
-      expect(find.text('Hold the bottle with an underhand grip.'), findsNothing);
-      expect(find.text('???'), findsOneWidget);
-      expect(find.text('MYSTERY MOVEMENT'), findsOneWidget);
-      expect(find.text('Unlocks at Level 3'), findsOneWidget);
-      expect(find.text('Hands tracking'), findsNothing);
-
-      expect(
-        find.bySemanticsLabel(
-          'Mystery movement. Locked. Unlocks at Level 3.',
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsLabel('Movement image: Reverse Grip'),
-        findsNothing,
-      );
-
-      await tester.tap(find.byType(MovementCard));
-      await tester.pumpAndSettle();
-      expect(navigated, isEmpty);
-    });
-
-    testWidgets('movement identity appears at its required level', (tester) async {
       await tester.pumpWidget(
         wrapWithProgression(
           const SizedBox(
@@ -377,30 +378,31 @@ void main() {
       expect(find.text('???'), findsNothing);
     });
 
-    testWidgets('mystery card remains identifiable with high contrast and reduced motion', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapWithProgression(
-          const SizedBox(
-            width: 900,
-            child: MovementCard(
-              movement: thirdEasyMovement,
-              sessionCount: 0,
-              averageRubricTotal: null,
+    testWidgets(
+      'mystery card remains identifiable with high contrast and reduced motion',
+      (tester) async {
+        await tester.pumpWidget(
+          wrapWithProgression(
+            const SizedBox(
+              width: 900,
+              child: MovementCard(
+                movement: thirdEasyMovement,
+                sessionCount: 0,
+                averageRubricTotal: null,
+              ),
             ),
+            level: 2,
+            highContrast: true,
+            disableAnimations: true,
           ),
-          level: 2,
-          highContrast: true,
-          disableAnimations: true,
-        ),
-      );
+        );
 
-      expect(find.text('LOCKED'), findsOneWidget);
-      expect(find.text('???'), findsOneWidget);
-      expect(find.text('Unlocks at Level 3'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
+        expect(find.text('LOCKED'), findsOneWidget);
+        expect(find.text('???'), findsOneWidget);
+        expect(find.text('Unlocks at Level 3'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     testWidgets('shows new state for unpracticed movement', (tester) async {
       await tester.pumpWidget(

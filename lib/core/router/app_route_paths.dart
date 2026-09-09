@@ -136,12 +136,11 @@ abstract final class AppRoutePaths {
   static String teacherClassChallengeLeaderboard(
     String groupId,
     String challengeId,
-  ) => '${teacherGroup(groupId)}/challenges/${Uri.encodeComponent(challengeId)}';
+  ) =>
+      '${teacherGroup(groupId)}/challenges/${Uri.encodeComponent(challengeId)}';
 
-  static String classChallengeLeaderboard(
-    String groupId,
-    String challengeId,
-  ) => '${teacherAccessClass(groupId)}/challenges/${Uri.encodeComponent(challengeId)}';
+  static String classChallengeLeaderboard(String groupId, String challengeId) =>
+      '${teacherAccessClass(groupId)}/challenges/${Uri.encodeComponent(challengeId)}';
 
   static String classChallengePlay(String groupId, String challengeId) =>
       '$classChallengePlayPrefix/${Uri.encodeComponent(groupId)}/'

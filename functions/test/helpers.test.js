@@ -6,6 +6,9 @@ const {
   archivedConversationId,
   assignmentAudienceAllows,
   assignmentJsonValue,
+  challengeParticipantId,
+  challengePayload,
+  isCompletedClassChallengeRetry,
   createClassroomAssignmentHandler,
   authenticatedUid,
   ensureTeacherRoleClaimHandler,
@@ -45,6 +48,100 @@ const {
   runScheduledAnnouncementPublication,
   sendFirstChatMessageHandler,
 } = require('../index')._test;
+
+test('Class Challenge payload and response dates preserve the UTC contract', () => {
+  const payload = challengePayload({
+    group_id: 'group-1',
+    title: 'Hand Stall Sprint',
+    description: 'Set your best rubric score.',
+    movement_name: 'Hand Stall',
+    difficulty: 'Medium',
+    prop_type: 'bottle',
+    start_at: '2026-09-09T02:00:00.000Z',
+    deadline: '2026-09-10T02:00:00.000Z',
+    attempt_limit: 3,
+    target_score: 10,
+  });
+
+  assert.ok(payload);
+  assert.equal(payload.group_id, 'group-1');
+  assert.equal(payload.start_at.toDate().toISOString(), '2026-09-09T02:00:00.000Z');
+  assert.equal(payload.deadline.toDate().toISOString(), '2026-09-10T02:00:00.000Z');
+  assert.equal(payload.scoring_mode, 'rubric_total_v2');
+  assert.equal(payload.max_score, 12);
+  assert.deepEqual(assignmentJsonValue({start_at: payload.start_at}), {
+    start_at: '2026-09-09T02:00:00.000Z',
+  });
+  assert.equal(challengeParticipantId('challenge-1', 'trainee-1'),
+    'challenge-1__trainee-1');
+});
+
+test('Class Challenge payload rejects unsupported movement/prop combinations', () => {
+  assert.equal(challengePayload({
+    group_id: 'group-1',
+    title: 'Invalid prop',
+    description: 'This must not be accepted.',
+    movement_name: 'Normal Grip',
+    difficulty: 'Easy',
+    prop_type: 'shaker',
+    start_at: '2026-09-09T02:00:00.000Z',
+    deadline: '2026-09-10T02:00:00.000Z',
+  }), null);
+});
+
+test('Class Challenge completion retry accepts only the exact committed identity', () => {
+  const input = {
+    body: {
+      challenge_id: 'challenge-1',
+      attempt_id: 'attempt-1',
+      session_id: 'session-1',
+    },
+    uid: 'trainee-1',
+    challenge: {
+      group_id: 'group-1',
+      teacher_id: 'teacher-1',
+      movement_name: 'Hand Stall',
+      prop_type: 'bottle',
+    },
+    attempt: {
+      challenge_id: 'challenge-1',
+      group_id: 'group-1',
+      teacher_id: 'teacher-1',
+      trainee_id: 'trainee-1',
+      movement_name: 'Hand Stall',
+      prop_type: 'bottle',
+      status: 'completed',
+      session_id: 'session-1',
+    },
+    session: {
+      user_id: 'trainee-1',
+      movement_name: 'Hand Stall',
+      prop_type: 'bottle',
+      challenge_context: {
+        challenge_id: 'challenge-1',
+        group_id: 'group-1',
+        teacher_id: 'teacher-1',
+        attempt_id: 'attempt-1',
+      },
+    },
+    best: {
+      challenge_id: 'challenge-1',
+      group_id: 'group-1',
+      teacher_id: 'teacher-1',
+      trainee_id: 'trainee-1',
+    },
+  };
+
+  assert.equal(isCompletedClassChallengeRetry(input), true);
+  assert.equal(isCompletedClassChallengeRetry({
+    ...input,
+    body: {...input.body, session_id: 'another-session'},
+  }), false);
+  assert.equal(isCompletedClassChallengeRetry({
+    ...input,
+    uid: 'another-trainee',
+  }), false);
+});
 
 function scheduledAnnouncementDatabase(records, {failIds = []} = {}) {
   const calls = [];
