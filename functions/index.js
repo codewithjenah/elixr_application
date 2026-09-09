@@ -371,6 +371,28 @@ function assignmentAudienceAllows(data, traineeId, recipient, assignmentId) {
     recipient.audience_type === data.audience_type);
 }
 
+// Existing ELIXR profiles can predate the persisted role field. The Dart User
+// model and Firestore rules both interpret that exact legacy shape as a
+// Trainee. Unknown explicit roles still fail closed, as do missing/deleting
+// profiles.
+function validTraineeProfile(data) {
+  return Boolean(data) && typeof data === 'object' &&
+    data.lifecycle_state !== 'deleting' &&
+    (!Object.hasOwn(data, 'role') || data.role === 'Trainee');
+}
+
+function validApprovedTraineeMembership(
+  data,
+  {membershipId, traineeId, groupId, teacherId},
+) {
+  return Boolean(data) && typeof data === 'object' &&
+    membershipId === `${groupId}_${traineeId}` &&
+    data.trainee_id === traineeId &&
+    data.group_id === groupId &&
+    data.teacher_id === teacherId &&
+    data.status === 'approved';
+}
+
 function validRecipientProjection(data, assignmentId, traineeId) {
   let createdAtValid = false;
   try {
@@ -721,8 +743,7 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
       ]);
       if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
       const assignment = assignmentSnapshot.data();
-      if (!userSnapshot.exists || userSnapshot.get('role') !== 'Trainee' ||
-          userSnapshot.get('lifecycle_state') === 'deleting' ||
+      if (!userSnapshot.exists || !validTraineeProfile(userSnapshot.data()) ||
           !assignmentIsPublished(assignment) || assignment.deletion_state === 'deleting' ||
           !validActivityAssessment(assignment.activity_assessment, assignment.max_score)) {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
@@ -730,9 +751,12 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
       const membershipRef = firestore.collection('group_memberships')
         .doc(`${assignment.group_id}_${uid}`);
       const membership = await transaction.get(membershipRef);
-      if (!membership.exists || membership.get('status') !== 'approved' ||
-          membership.get('teacher_id') !== assignment.teacher_id ||
-          membership.get('group_id') !== assignment.group_id) {
+      if (!membership.exists || !validApprovedTraineeMembership(membership.data(), {
+        membershipId: membership.id,
+        traineeId: uid,
+        groupId: assignment.group_id,
+        teacherId: assignment.teacher_id,
+      })) {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
       if (assignment.audience_type !== 'entire_class') {
@@ -1412,19 +1436,24 @@ async function listTraineeAssignmentsHandler(
 
   try {
     const firestore = databaseFactory();
-    const memberships = await firestore
-      .collection('group_memberships')
-      .where('trainee_id', '==', uid)
-      .get();
+    const [user, memberships] = await Promise.all([
+      firestore.collection('users').doc(uid).get(),
+      firestore.collection('group_memberships').where('trainee_id', '==', uid).get(),
+    ]);
+    if (!user.exists || !validTraineeProfile(user.data())) {
+      response.status(403).json({error: 'forbidden'});
+      return;
+    }
     const approvedMemberships = memberships.docs
       .map((document) => ({id: document.id, data: document.data()}))
-      .filter(({id, data}) => data.trainee_id === uid &&
-        data.status === 'approved' &&
-        typeof data.group_id === 'string' &&
-        typeof data.teacher_id === 'string' &&
-        /^[A-Za-z0-9_-]{1,128}$/.test(data.group_id) &&
-        /^[A-Za-z0-9_-]{1,128}$/.test(data.teacher_id) &&
-        id === `${data.group_id}_${uid}`)
+      .filter(({id, data}) => validId(data.group_id) &&
+        validId(data.teacher_id) &&
+        validApprovedTraineeMembership(data, {
+          membershipId: id,
+          traineeId: uid,
+          groupId: data.group_id,
+          teacherId: data.teacher_id,
+        }))
       .map(({data}) => data);
     const teacherByGroupId = new Map(
       approvedMemberships.map((data) => [data.group_id, data.teacher_id]),
@@ -3024,6 +3053,8 @@ exports._test = {
   authenticatedTeacherUid,
   ensureTeacherRoleClaimHandler,
   assignmentAudienceAllows,
+  validTraineeProfile,
+  validApprovedTraineeMembership,
   validRecipientProjection,
   assignmentJsonValue,
   validActivityAssessment,

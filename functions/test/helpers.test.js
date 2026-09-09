@@ -631,7 +631,13 @@ test('Learning Material upload status returns each owner lifecycle and requires 
   assert.equal(missing.statusCode, 404);
 });
 
-function fakeAssignmentDatabase({memberships, assignments, recipients = [], overrides = []}) {
+function fakeAssignmentDatabase({
+  memberships,
+  assignments,
+  recipients = [],
+  overrides = [],
+  user = {role: 'Trainee', lifecycle_state: 'active'},
+}) {
   const assignmentQueries = [];
   const docs = (values) => values.map((value) => ({
     id: value.id,
@@ -660,6 +666,15 @@ function fakeAssignmentDatabase({memberships, assignments, recipients = [], over
     collection(name) {
       return {
         doc(id) {
+          if (name === 'users') {
+            return {
+              get: async () => ({
+                exists: Boolean(user),
+                id,
+                data: () => user,
+              }),
+            };
+          }
           const item = assignments.find((assignment) => assignment.id === id);
           return {
             get: async () => ({
@@ -1469,6 +1484,68 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
   assert.deepEqual(database.assignmentQueries, [{operator: '==', value: 'g1'}]);
 });
 
+test('trainee discovery accepts the same supported legacy profile as reservation', async () => {
+  const database = fakeAssignmentDatabase({
+    user: {lifecycle_state: 'active'},
+    memberships: [{
+      id: 'g1_trainee-a',
+      data: {
+        trainee_id: 'trainee-a', teacher_id: 'teacher-a', group_id: 'g1',
+        status: 'approved',
+      },
+    }],
+    assignments: [{
+      id: 'activity-1',
+      data: {
+        group_id: 'g1', teacher_id: 'teacher-a', status: 'active',
+        audience_type: 'entire_class',
+      },
+    }],
+  });
+  const response = fakeResponse();
+
+  await listTraineeAssignmentsHandler(
+    {method: 'GET', query: {group_id: 'g1'}},
+    response,
+    {
+      authenticate: async () => 'trainee-a',
+      databaseFactory: () => database,
+    },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body.assignments.map((item) => item.id), ['activity-1']);
+});
+
+test('trainee discovery rejects missing, deleting, and explicit non-Trainee profiles', async () => {
+  for (const user of [
+    null,
+    {role: 'Trainee', lifecycle_state: 'deleting'},
+    {role: 'Teacher', lifecycle_state: 'active'},
+    {role: 'Admin', lifecycle_state: 'active'},
+  ]) {
+    const database = fakeAssignmentDatabase({
+      user,
+      memberships: [],
+      assignments: [],
+    });
+    const response = fakeResponse();
+
+    await listTraineeAssignmentsHandler(
+      {method: 'GET', query: {}},
+      response,
+      {
+        authenticate: async () => 'trainee-a',
+        databaseFactory: () => database,
+      },
+    );
+
+    assert.equal(response.statusCode, 403, JSON.stringify(user));
+    assert.deepEqual(response.body, {error: 'forbidden'});
+    assert.equal(database.assignmentQueries.length, 0);
+  }
+});
+
 test('trainee assignment handler rejects missing auth before database access', async () => {
   const response = fakeResponse();
   let databaseAccessed = false;
@@ -2018,7 +2095,8 @@ function fakeTeacherActivityAttemptDatabase({
       role: 'Trainee', lifecycle_state: 'active', ...userOverrides,
     }],
     ['group_memberships/g1_trainee', {
-      group_id: 'g1', teacher_id: 'teacher', status: 'approved', ...membershipOverrides,
+      group_id: 'g1', teacher_id: 'teacher', trainee_id: 'trainee',
+      status: 'approved', ...membershipOverrides,
     }],
   ]);
   if (state) docs.set('assignment_attempt_states/assignment-1__trainee', state);
@@ -2135,6 +2213,112 @@ test('Teacher Activity reservation succeeds when no attempt is active', async ()
   assert.equal(state.consumed_count, 0);
   assert.equal(state.active_attempt_id, response.body.attempt.id);
   assert.equal(state.active_consumed, false);
+});
+
+test('Teacher Activity reservation accepts a supported legacy Trainee profile', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  database.docs.set('users/trainee', {lifecycle_state: 'active'});
+
+  const response = await invokeReserve(database);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.attempt.trainee_id, 'trainee');
+});
+
+test('Teacher Activity reservation succeeds for selected and individual Trainees', async () => {
+  for (const audienceType of ['selected_students', 'individual_student']) {
+    const database = fakeTeacherActivityAttemptDatabase({
+      assignmentOverrides: {audience_type: audienceType},
+    });
+    database.docs.set(
+      'group_assignments/assignment-1/assignment_recipients/trainee',
+      {
+        assignment_id: 'assignment-1', group_id: 'g1', teacher_id: 'teacher',
+        trainee_id: 'trainee', audience_type: audienceType, schema_version: 1,
+        created_at: Timestamp.fromMillis(Date.now()),
+      },
+    );
+
+    const response = await invokeReserve(database);
+
+    assert.equal(response.statusCode, 200, audienceType);
+    assert.equal(response.body.attempt.trainee_id, 'trainee', audienceType);
+  }
+});
+
+test('Teacher Activity reservation rejects unauthorized membership and audience states', async () => {
+  const cases = [
+    {
+      name: 'missing membership',
+      configure(database) {
+        database.docs.delete('group_memberships/g1_trainee');
+      },
+    },
+    {
+      name: 'pending membership',
+      options: {membershipOverrides: {status: 'pending'}},
+    },
+    {
+      name: 'removed membership',
+      options: {membershipOverrides: {status: 'removed'}},
+    },
+    {
+      name: 'wrong classroom membership',
+      options: {membershipOverrides: {group_id: 'g2'}},
+    },
+    {
+      name: 'wrong teacher membership',
+      options: {membershipOverrides: {teacher_id: 'another-teacher'}},
+    },
+    {
+      name: 'non-recipient',
+      options: {assignmentOverrides: {audience_type: 'individual_student'}},
+    },
+  ];
+
+  for (const entry of cases) {
+    const database = fakeTeacherActivityAttemptDatabase(entry.options);
+    entry.configure?.(database);
+    const response = await invokeReserve(database);
+    assert.equal(response.statusCode, 403, entry.name);
+    assert.deepEqual(response.body, {error: 'forbidden'}, entry.name);
+  }
+});
+
+test('Teacher Activity reservation rejects malformed assessment without creating an attempt', async () => {
+  const database = fakeTeacherActivityAttemptDatabase({
+    assignmentOverrides: {
+      activity_assessment: {
+        ...updateAssessment(), recording_duration_seconds: 20,
+      },
+    },
+  });
+
+  const response = await invokeReserve(database);
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.body, {error: 'forbidden'});
+  assert.equal(
+    [...database.docs.keys()].some((path) => path.startsWith('assignment_attempts/')),
+    false,
+  );
+});
+
+test('Teacher Activity reservation rejects unsupported account states', async () => {
+  const cases = [
+    {name: 'missing profile', configure: (database) => database.docs.delete('users/trainee')},
+    {name: 'deleting profile', options: {userOverrides: {lifecycle_state: 'deleting'}}},
+    {name: 'Teacher profile', options: {userOverrides: {role: 'Teacher'}}},
+    {name: 'unknown profile role', options: {userOverrides: {role: 'Admin'}}},
+  ];
+
+  for (const entry of cases) {
+    const database = fakeTeacherActivityAttemptDatabase(entry.options);
+    entry.configure?.(database);
+    const response = await invokeReserve(database);
+    assert.equal(response.statusCode, 403, entry.name);
+    assert.deepEqual(response.body, {error: 'forbidden'}, entry.name);
+  }
 });
 
 test('Teacher Activity reservation reuses the same request id', async () => {
