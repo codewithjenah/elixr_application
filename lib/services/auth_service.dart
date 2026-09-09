@@ -80,6 +80,9 @@ class AuthService extends ChangeNotifier {
     Duration? verificationResendCooldown,
     JoinLinkService? joinLinkService,
     @visibleForTesting Future<void> Function()? awaitInitialAuthState,
+    @visibleForTesting Stream<String?>? firebaseAuthUidChanges,
+    @visibleForTesting String? Function()? currentFirebaseAuthUid,
+    Future<void> Function()? accountScopeTeardownBarrier,
   }) : _repository =
            repository ??
            AuthRepository(
@@ -105,7 +108,10 @@ class AuthService extends ChangeNotifier {
        _verificationResendCooldown =
            verificationResendCooldown ?? const Duration(seconds: 60),
        _joinLinkService = joinLinkService,
-       _awaitInitialAuthState = awaitInitialAuthState {
+       _awaitInitialAuthState = awaitInitialAuthState,
+       _firebaseAuthUidChangesOverride = firebaseAuthUidChanges,
+       _currentFirebaseAuthUidOverride = currentFirebaseAuthUid,
+       _accountScopeTeardownBarrier = accountScopeTeardownBarrier {
     _joinLinkService?.authCallbackHandler = handleEmailActionCallback;
   }
 
@@ -135,6 +141,9 @@ class AuthService extends ChangeNotifier {
   final Duration _verificationResendCooldown;
   final JoinLinkService? _joinLinkService;
   final Future<void> Function()? _awaitInitialAuthState;
+  final Stream<String?>? _firebaseAuthUidChangesOverride;
+  final String? Function()? _currentFirebaseAuthUidOverride;
+  final Future<void> Function()? _accountScopeTeardownBarrier;
 
   // Lazily constructed so tests that never touch profile-image upload do not
   // need Firebase Storage initialized.
@@ -162,6 +171,9 @@ class AuthService extends ChangeNotifier {
   String? _teacherAuthErrorMessage;
   Future<void>? _pendingEmailCheckInFlight;
   StreamSubscription<Uri>? _emailCallbackSubscription;
+  StreamSubscription<String?>? _firebaseAuthUidSubscription;
+  Completer<void>? _firstFirebaseAuthState;
+  int _accountSessionGeneration = 0;
   Uri? _emailCallbackBaseUri;
   Timer? _emailVerificationPollTimer;
   bool _emailVerificationWatchActive = false;
@@ -183,6 +195,12 @@ class AuthService extends ChangeNotifier {
   AuthInitializationState get initializationState => _initializationState;
   AuthInitializationFailure? get initializationFailure =>
       _initializationFailure;
+  int get accountSessionGeneration => _accountSessionGeneration;
+  bool get isAuthenticatedSessionReady =>
+      !_disposed &&
+      _initializationState == AuthInitializationState.ready &&
+      !_isLoading &&
+      _currentUser != null;
   bool get needsEmailVerification =>
       _currentUser != null &&
       _hasSupportedProductRole(_currentUser!) &&
@@ -236,6 +254,7 @@ class AuthService extends ChangeNotifier {
   @visibleForTesting
   void seedAuthenticatedUser(User user) {
     _currentUser = user;
+    _accountSessionGeneration++;
     _providerKinds = const {AuthProviderKind.password};
     _isLoading = false;
     _initializationState = AuthInitializationState.ready;
@@ -264,7 +283,7 @@ class AuthService extends ChangeNotifier {
       if (awaitInitialAuthState != null) {
         await awaitInitialAuthState();
       } else {
-        await fb.FirebaseAuth.instance.authStateChanges().first;
+        await _waitForInitialFirebaseAuthState();
       }
 
       final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
@@ -320,7 +339,116 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  Future<void> _waitForInitialFirebaseAuthState() {
+    final existing = _firstFirebaseAuthState;
+    if (existing != null) return existing.future;
+
+    final firstState = Completer<void>();
+    _firstFirebaseAuthState = firstState;
+    final stream =
+        _firebaseAuthUidChangesOverride ??
+        fb.FirebaseAuth.instance.authStateChanges().map((user) => user?.uid);
+    _firebaseAuthUidSubscription = stream.listen(
+      (firebaseUid) {
+        if (!firstState.isCompleted) firstState.complete();
+        _handleFirebaseAuthIdentityChanged(firebaseUid);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!firstState.isCompleted) {
+          firstState.completeError(error, stackTrace);
+        } else if (kDebugMode) {
+          debugPrint('Firebase Auth state listener failed: $error');
+          debugPrint('$stackTrace');
+        }
+      },
+    );
+    return firstState.future;
+  }
+
+  @visibleForTesting
+  void handleFirebaseAuthIdentityChanged(String? firebaseUid) {
+    _handleFirebaseAuthIdentityChanged(firebaseUid);
+  }
+
+  void _handleFirebaseAuthIdentityChanged(String? firebaseUid) {
+    if (_disposed) return;
+    final productUid = _currentUser?.id?.trim();
+    final normalizedFirebaseUid = firebaseUid?.trim();
+    if (productUid == null || productUid.isEmpty) return;
+    if (normalizedFirebaseUid == productUid) return;
+
+    _clearPendingEmailChange(clearError: true);
+    _invalidatePublishedAccount();
+    notifyListeners();
+  }
+
+  Future<void> _beginFirebaseAuthTransition() async {
+    if (_disposed) return;
+    final hadPublishedAccount = _currentUser != null;
+    final hadPendingProfile = _pendingGoogleProfile != null;
+    final pendingEmailCheck = _pendingEmailCheckInFlight;
+    final hadPendingEmailChange = _pendingEmailChange != null;
+    _invalidatePublishedAccount();
+    _pendingGoogleProfile = null;
+    _clearPendingEmailChange(clearError: true);
+    if (!hadPublishedAccount &&
+        !hadPendingProfile &&
+        !hadPendingEmailChange &&
+        pendingEmailCheck == null) {
+      return;
+    }
+
+    notifyListeners();
+    await _accountScopeTeardownBarrier?.call();
+    if (pendingEmailCheck != null) {
+      try {
+        await pendingEmailCheck;
+      } catch (error, stackTrace) {
+        if (kDebugMode) {
+          debugPrint('Abandoned pending email recovery failed: $error');
+          debugPrint('$stackTrace');
+        }
+      }
+    }
+  }
+
+  void _invalidatePublishedAccount() {
+    _accountSessionGeneration++;
+    _currentUser = null;
+    _providerKinds = const {};
+    _emailVerified = null;
+  }
+
+  void _markAuthenticatedSessionReady() {
+    _accountSessionGeneration++;
+    _initializationFailure = null;
+    _initializationState = AuthInitializationState.ready;
+    _isLoading = false;
+  }
+
+  String? _readCurrentFirebaseAuthUid() {
+    try {
+      return (_currentFirebaseAuthUidOverride?.call() ??
+              fb.FirebaseAuth.instance.currentUser?.uid)
+          ?.trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _isCurrentAccountTask({
+    required String userId,
+    required int generation,
+  }) {
+    return !_disposed &&
+        generation == _accountSessionGeneration &&
+        isAuthenticatedSessionReady &&
+        _currentUser?.id?.trim() == userId &&
+        _readCurrentFirebaseAuthUid() == userId;
+  }
+
   void _beginInitialization() {
+    _accountSessionGeneration++;
     _currentUser = null;
     _pendingGoogleProfile = null;
     _providerKinds = const {};
@@ -340,6 +468,7 @@ class AuthService extends ChangeNotifier {
   }) {
     if (_disposed) return;
     _currentUser = currentUser;
+    _accountSessionGeneration++;
     _pendingGoogleProfile = pendingGoogleProfile;
     _providerKinds = Set.unmodifiable(providerKinds);
     _emailVerified = emailVerified;
@@ -407,6 +536,7 @@ class AuthService extends ChangeNotifier {
     required String password,
     required RegistrationLegalConsent legalConsent,
   }) async {
+    await _beginFirebaseAuthTransition();
     _clearTeacherAuthMessages();
     final user = await _repository.register(
       firstName: firstName,
@@ -418,6 +548,7 @@ class AuthService extends ChangeNotifier {
       legalConsent: legalConsent,
     );
     _currentUser = user;
+    _markAuthenticatedSessionReady();
     _pendingGoogleProfile = null;
     await _refreshProviderKinds();
     try {
@@ -467,6 +598,7 @@ class AuthService extends ChangeNotifier {
     required String teacherAccessCode,
     required RegistrationLegalConsent legalConsent,
   }) async {
+    await _beginFirebaseAuthTransition();
     _clearTeacherAuthMessages();
     final user = await _repository.register(
       firstName: firstName,
@@ -484,6 +616,7 @@ class AuthService extends ChangeNotifier {
     }
     await _ensureTeacherRoleClaim(user);
     _currentUser = user;
+    _markAuthenticatedSessionReady();
     try {
       await _repository.requestCurrentEmailVerification();
       _teacherAuthInfoMessage = TeacherAuthMessages.verificationSent;
@@ -498,6 +631,7 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> login({required String email, required String password}) async {
+    await _beginFirebaseAuthTransition();
     _clearTeacherAuthMessages();
     User user;
     try {
@@ -519,6 +653,7 @@ class AuthService extends ChangeNotifier {
     }
     await _ensureTeacherRoleClaim(user);
     _currentUser = user;
+    _markAuthenticatedSessionReady();
     _pendingGoogleProfile = null;
     await _refreshProviderKinds();
     await _refreshEmailVerificationState();
@@ -528,6 +663,7 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> signInWithGoogle() async {
+    await _beginFirebaseAuthTransition();
     _clearTeacherAuthMessages();
     final googleRepository = _googleRepository;
     if (googleRepository == null) {
@@ -551,8 +687,10 @@ class AuthService extends ChangeNotifier {
       _providerKinds = const {};
       throw Exception(TeacherAuthMessages.unsupportedRole);
     }
+    await _ensureTeacherRoleClaim(user);
     _pendingGoogleProfile = null;
     _currentUser = user;
+    _markAuthenticatedSessionReady();
     await _refreshProviderKinds();
     await _refreshEmailVerificationState();
     notifyListeners();
@@ -579,6 +717,7 @@ class AuthService extends ChangeNotifier {
   Future<void> signInWithGoogleTeacher({
     required String teacherAccessCode,
   }) async {
+    await _beginFirebaseAuthTransition();
     _clearTeacherAuthMessages();
     final normalizedCode = CoachCode.tryNormalize(teacherAccessCode);
     if (normalizedCode == null) {
@@ -617,6 +756,7 @@ class AuthService extends ChangeNotifier {
     await _ensureTeacherRoleClaim(user);
     _pendingGoogleProfile = null;
     _currentUser = user;
+    _markAuthenticatedSessionReady();
     await _refreshProviderKinds();
     await _refreshEmailVerificationState();
     notifyListeners();
@@ -656,6 +796,7 @@ class AuthService extends ChangeNotifier {
     }
     _pendingGoogleProfile = null;
     _currentUser = user;
+    _markAuthenticatedSessionReady();
     await _refreshProviderKinds();
     if (pending.identityProvider == ProfileIdentityProvider.google) {
       _emailVerified = true;
@@ -707,6 +848,7 @@ class AuthService extends ChangeNotifier {
     await _ensureTeacherRoleClaim(user);
     _pendingGoogleProfile = null;
     _currentUser = user;
+    _markAuthenticatedSessionReady();
     await _refreshProviderKinds();
     if (pending.identityProvider == ProfileIdentityProvider.google) {
       _emailVerified = true;
@@ -720,10 +862,7 @@ class AuthService extends ChangeNotifier {
 
   Future<void> cancelGoogleOnboarding() async {
     final pending = _pendingGoogleProfile;
-    _pendingGoogleProfile = null;
-    _currentUser = null;
-    _emailVerified = null;
-    _providerKinds = const {};
+    await _beginFirebaseAuthTransition();
     try {
       if (pending != null) {
         final googleRepository = _googleRepository;
@@ -820,20 +959,28 @@ class AuthService extends ChangeNotifier {
 
     final repository = _leaderboardRepository;
     if (repository == null) return;
+    final generation = _accountSessionGeneration;
 
-    unawaited(() async {
-      try {
-        await repository.touchLastActive(userId: userId);
-      } catch (error, stackTrace) {
-        if (kDebugMode) {
-          debugPrint(
-            'Leaderboard last-active touch failed: '
-            'userId=$userId error=$error',
-          );
-          debugPrint('$stackTrace');
+    unawaited(
+      Future<void>.microtask(() async {
+        if (!_isCurrentAccountTask(userId: userId, generation: generation)) {
+          return;
         }
-      }
-    }());
+        try {
+          await repository.touchLastActive(userId: userId);
+        } catch (error, stackTrace) {
+          if (kDebugMode) {
+            debugPrint(
+              'Leaderboard last-active touch failed: '
+              'requestedUserId=$userId '
+              'firebaseUserId=${_readCurrentFirebaseAuthUid()} '
+              'productUserId=${_currentUser?.id?.trim()} error=$error',
+            );
+            debugPrint('$stackTrace');
+          }
+        }
+      }),
+    );
   }
 
   /// Best-effort owner-side repair of missing public achievement projections.
@@ -849,27 +996,36 @@ class AuthService extends ChangeNotifier {
 
     final repository = _publicProfileRepository;
     if (repository == null) return;
+    final generation = _accountSessionGeneration;
 
-    unawaited(() async {
-      try {
-        await repository.syncClaimedAchievementProjections(
-          userId: userId,
-          displayName: user.fullName,
-          profilePictureUrl: user.profilePictureUrl,
-        );
-      } catch (error, stackTrace) {
-        if (kDebugMode) {
-          debugPrint(
-            'Public achievement projection sync failed: '
-            'userId=$userId error=$error',
-          );
-          debugPrint('$stackTrace');
+    unawaited(
+      Future<void>.microtask(() async {
+        if (!_isCurrentAccountTask(userId: userId, generation: generation)) {
+          return;
         }
-      }
-    }());
+        try {
+          await repository.syncClaimedAchievementProjections(
+            userId: userId,
+            displayName: user.fullName,
+            profilePictureUrl: user.profilePictureUrl,
+            isCurrentIdentity: () =>
+                _isCurrentAccountTask(userId: userId, generation: generation),
+          );
+        } catch (error, stackTrace) {
+          if (kDebugMode) {
+            debugPrint(
+              'Public achievement projection sync failed: '
+              'userId=$userId error=$error',
+            );
+            debugPrint('$stackTrace');
+          }
+        }
+      }),
+    );
   }
 
   Future<void> logout() async {
+    await _beginFirebaseAuthTransition();
     _clearPendingEmailChange(clearError: true);
     _clearTeacherAuthMessages();
     _emailVerified = null;
@@ -879,11 +1035,7 @@ class AuthService extends ChangeNotifier {
     _passwordResetConfirmed = false;
     _clearVerificationResendCooldown();
     await _stopEmailCallbackServer();
-    _currentUser = null;
-    _pendingGoogleProfile = null;
-    _providerKinds = const {};
     await _repository.clearCurrentUser();
-    notifyListeners();
   }
 
   Future<bool> resendVerificationEmail() async {
@@ -1674,6 +1826,7 @@ class AuthService extends ChangeNotifier {
     }
 
     final pending = _pendingEmailChange!;
+    final generation = _accountSessionGeneration;
     if (_isPendingEmailExpired) {
       _onPendingEmailTimeout();
       return;
@@ -1691,6 +1844,25 @@ class AuthService extends ChangeNotifier {
         recoveryPassword: pending.password,
         originalEmail: pending.originalEmail,
       );
+      final stale =
+          _disposed ||
+          generation != _accountSessionGeneration ||
+          _pendingEmailChange?.originalUid != pending.originalUid ||
+          _readCurrentFirebaseAuthUid() != pending.originalUid;
+      if (stale) {
+        if (!_disposed &&
+            _readCurrentFirebaseAuthUid() == pending.originalUid) {
+          try {
+            await _repository.clearCurrentUser();
+          } catch (error, stackTrace) {
+            if (kDebugMode) {
+              debugPrint('Failed to clear a stale recovered session: $error');
+              debugPrint('$stackTrace');
+            }
+          }
+        }
+        return;
+      }
       _handlePendingEmailRecoveryResult(result, manual: manual);
     } finally {
       _checkingPendingEmail = false;
@@ -1718,6 +1890,7 @@ class AuthService extends ChangeNotifier {
           return;
         }
         _currentUser = user;
+        _markAuthenticatedSessionReady();
         _clearPendingEmailChange(clearError: true);
         if (!manual) {
           _pendingEmailChangeSuccessMessage =
@@ -1776,6 +1949,7 @@ class AuthService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _accountSessionGeneration++;
     if (_joinLinkService?.authCallbackHandler == handleEmailActionCallback) {
       _joinLinkService?.authCallbackHandler = null;
     }
@@ -1784,6 +1958,8 @@ class AuthService extends ChangeNotifier {
     _clearVerificationResendCooldown();
     _emailVerificationWatchActive = false;
     _awaitingPasswordResetCallback = false;
+    unawaited(_firebaseAuthUidSubscription?.cancel());
+    _firebaseAuthUidSubscription = null;
     unawaited(_stopEmailCallbackServer());
     super.dispose();
   }

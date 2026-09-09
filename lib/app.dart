@@ -17,6 +17,7 @@ import 'package:elixr_core/repositories/firebase_chat_repository.dart';
 import 'package:elixr_core/repositories/classroom_announcement_repository.dart';
 import 'package:elixr_core/repositories/firebase_classroom_announcement_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -93,7 +94,9 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _backendService = widget.backendService ?? BackendService();
     _publicProfileRepository = PublicProfileRepository();
-    _leaderboardRepository = LeaderboardRepository();
+    _leaderboardRepository = LeaderboardRepository(
+      productUserId: () => _authService.currentUser?.id,
+    );
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
     _groupRepository = FirebaseGroupRepository();
     _teacherEvidenceRepository = FirebaseTeacherEvidenceRepository();
@@ -104,6 +107,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
       leaderboardRepository: _leaderboardRepository,
       publicProfileRepository: _publicProfileRepository,
       joinLinkService: _joinLinkService,
+      accountScopeTeardownBarrier: () => SchedulerBinding.instance.endOfFrame,
     );
     unawaited(_authService.initialize());
     _settingsService = SettingsService()..initialize();
@@ -133,6 +137,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _authService.dispose();
     _backendService.dispose();
     _cameraDeviceService.dispose();
     _joinLinkService.dispose();
@@ -235,7 +240,10 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
               publicProfileRepository: context.read<PublicProfileRepository>(),
             );
             controller.setTeacher(
-              auth.currentUser?.isTeacher == true ? auth.currentUser?.id : null,
+              auth.isAuthenticatedSessionReady &&
+                      auth.currentUser?.isTeacher == true
+                  ? auth.currentUser?.id
+                  : null,
             );
             return controller;
           },
@@ -258,7 +266,10 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
               readStore: context.read<ActivityReadStore>(),
             );
             controller.setTrainee(
-              auth.currentUser?.isTrainee == true ? auth.currentUser?.id : null,
+              auth.isAuthenticatedSessionReady &&
+                      auth.currentUser?.isTrainee == true
+                  ? auth.currentUser?.id
+                  : null,
             );
             return controller;
           },
@@ -316,7 +327,10 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
                         },
                       );
                     }
-                    return child ?? const SizedBox.shrink();
+                    return KeyedSubtree(
+                      key: ValueKey(auth.accountSessionGeneration),
+                      child: child ?? const SizedBox.shrink(),
+                    );
                   },
                 ),
               );

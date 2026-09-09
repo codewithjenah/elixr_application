@@ -459,6 +459,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    bool Function()? isCurrentIdentity,
   }) {
     final trimmedUserId = userId.trim();
     if (trimmedUserId.isEmpty) return Future<void>.value();
@@ -470,6 +471,7 @@ class PublicProfileRepository {
         displayName: displayName,
         profilePictureUrl: profilePictureUrl,
         ensureIdentity: true,
+        isCurrentIdentity: isCurrentIdentity,
       ),
     );
   }
@@ -601,12 +603,14 @@ class PublicProfileRepository {
     required String displayName,
     String? profilePictureUrl,
     required bool ensureIdentity,
+    bool Function()? isCurrentIdentity,
   }) async {
     final trimmedName = displayName.trim().isEmpty
         ? 'Trainee'
         : displayName.trim();
 
     try {
+      if (isCurrentIdentity?.call() == false) return;
       if (ensureIdentity) {
         await _ensureRootDocument(
           userId: userId,
@@ -614,6 +618,7 @@ class PublicProfileRepository {
           profilePictureUrl: profilePictureUrl,
           initialVisibility: ProfileVisibility.private,
         );
+        if (isCurrentIdentity?.call() == false) return;
         await _syncIdentity(
           userId: userId,
           displayName: trimmedName,
@@ -622,11 +627,13 @@ class PublicProfileRepository {
         );
       }
 
+      if (isCurrentIdentity?.call() == false) return;
       final claimsSnap = await _firestore
           .collection(FirestoreCollections.achievementClaims)
           .where('user_id', isEqualTo: userId)
           .get();
 
+      if (isCurrentIdentity?.call() == false) return;
       final projectedSnap = await _rootRef(
         userId,
       ).collection('achievements').get();
@@ -642,6 +649,7 @@ class PublicProfileRepository {
       // Firestore batches are capped at 500 operations.
       const batchLimit = 500;
       for (var offset = 0; offset < drafts.length; offset += batchLimit) {
+        if (isCurrentIdentity?.call() == false) return;
         final chunk = drafts.skip(offset).take(batchLimit);
         final batch = _firestore.batch();
         for (final draft in chunk) {

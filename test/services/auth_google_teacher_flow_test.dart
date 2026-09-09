@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/user.dart';
@@ -32,10 +34,12 @@ class _TeacherGoogleRepository extends Fake
   String? completedCode;
   GoogleSignInResult? restoreResult;
   int ensureTeacherRoleClaimCalls = 0;
+  Completer<void>? teacherClaimGate;
 
   @override
   Future<void> ensureTeacherRoleClaim() async {
     ensureTeacherRoleClaimCalls++;
+    await teacherClaimGate?.future;
   }
 
   @override
@@ -206,6 +210,36 @@ void main() {
     expect(auth.currentUser, isNull);
     expect(auth.hasPendingGoogleProfile, isFalse);
   });
+
+  test(
+    'generic Google Teacher is not published before claim readiness',
+    () async {
+      final claimGate = Completer<void>();
+      repository
+        ..teacherClaimGate = claimGate
+        ..teacherResult = const ExistingGoogleProfile(
+          User(
+            id: 'teacher-existing',
+            firstName: 'Existing',
+            lastName: 'Teacher',
+            email: 'teacher@gmail.com',
+            role: User.roleTeacher,
+          ),
+        );
+
+      final signIn = auth.signInWithGoogle();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(repository.ensureTeacherRoleClaimCalls, 1);
+      expect(auth.currentUser, isNull);
+      expect(auth.isAuthenticatedSessionReady, isFalse);
+
+      claimGate.complete();
+      await signIn;
+      expect(auth.currentUser?.id, 'teacher-existing');
+      expect(auth.isAuthenticatedSessionReady, isTrue);
+    },
+  );
 
   test(
     'restored incomplete Google onboarding is explicitly unspecified',

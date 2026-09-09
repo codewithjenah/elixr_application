@@ -562,7 +562,8 @@ class _GroupDetailBody extends StatelessWidget {
             groupId: group.id,
             teacherId: controller.teacherId,
             teacherDisplayName: controller.teacherDisplayName,
-            currentUserId: controller.teacherId,
+            currentUserId:
+                context.read<AuthService>().currentUser?.id?.trim() ?? '',
             isTeacher: true,
             groupIsActive: group.isActive,
             participantCount: controller.approvedMemberships.length,

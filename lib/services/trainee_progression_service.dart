@@ -25,6 +25,8 @@ class TraineeProgressionService extends ChangeNotifier {
   String? _userId;
   bool _ready = false;
   int _totalXp = 0;
+  int _generation = 0;
+  bool _disposed = false;
 
   bool get isReady => _ready;
   int get totalXp => _totalXp;
@@ -35,10 +37,13 @@ class TraineeProgressionService extends ChangeNotifier {
 
   Future<void> setUser(String? userId) async {
     final normalized = userId?.trim();
-    if (_userId == normalized && _ready) return;
+    final next = normalized == null || normalized.isEmpty ? null : normalized;
+    if (_userId == next && _ready) return;
+    final generation = ++_generation;
     await _sub?.cancel();
+    if (_disposed || generation != _generation) return;
     _sub = null;
-    _userId = normalized?.isEmpty == true ? null : normalized;
+    _userId = next;
     _ready = false;
     _totalXp = 0;
     notifyListeners();
@@ -53,11 +58,17 @@ class TraineeProgressionService extends ChangeNotifier {
         .watchPlayer(uid)
         .listen(
           (entry) {
+            if (_disposed || generation != _generation || _userId != uid) {
+              return;
+            }
             _totalXp = entry?.totalXp ?? 0;
             _ready = true;
             notifyListeners();
           },
           onError: (_) {
+            if (_disposed || generation != _generation || _userId != uid) {
+              return;
+            }
             // Fail closed: keep not-ready so gated personal actions do not unlock.
             _ready = false;
             notifyListeners();
@@ -67,6 +78,8 @@ class TraineeProgressionService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _generation++;
     unawaited(_sub?.cancel());
     super.dispose();
   }

@@ -28,10 +28,13 @@ class _FakeAuthRepository implements AuthRepositoryBase {
   User? persistedUser;
   User? loginUser;
   User? registerUser;
+  Completer<void>? clearGate;
+  Completer<User>? loginGate;
 
   @override
   Future<void> clearCurrentUser() async {
     persistedUser = null;
+    await clearGate?.future;
   }
 
   @override
@@ -47,7 +50,7 @@ class _FakeAuthRepository implements AuthRepositoryBase {
 
   @override
   Future<User> login({required String email, required String password}) async {
-    return loginUser ?? _user();
+    return await loginGate?.future ?? loginUser ?? _user();
   }
 
   @override
@@ -123,6 +126,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
   Completer<void>? gate;
   Object? syncError;
   Object? seedError;
+  bool? identityAfterGate;
 
   @override
   Future<void> seedNewAccountPublicProfile({
@@ -141,6 +145,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    bool Function()? isCurrentIdentity,
   }) async {
     syncCalls++;
     callOrder.add('sync');
@@ -148,6 +153,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
     syncDisplayNames.add(displayName);
     syncPictureUrls.add(profilePictureUrl);
     if (gate != null) await gate!.future;
+    identityAfterGate = isCurrentIdentity?.call();
     if (syncError != null) throw syncError!;
   }
 }
@@ -179,6 +185,7 @@ void main() {
       repository: _FakeAuthRepository(persisted: _user()),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
 
     await auth.initialize();
@@ -197,6 +204,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -215,6 +223,7 @@ void main() {
       ),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u2',
     );
 
     await auth.register(
@@ -242,6 +251,7 @@ void main() {
       ),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u2',
     );
 
     await auth.register(
@@ -268,6 +278,7 @@ void main() {
       ),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u2',
     );
 
     await auth.register(
@@ -291,6 +302,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -336,6 +348,7 @@ void main() {
       repository: _FakeAuthRepository(persisted: _user()),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
 
     await auth.initialize();
@@ -352,6 +365,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -368,6 +382,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -391,4 +406,150 @@ void main() {
 
     expect(leaderboard.touchCalls, 0);
   });
+
+  test('presence touch is abandoned when Firebase switches accounts', () async {
+    var firebaseUid = 'trainee-a';
+    final leaderboard = _RecordingLeaderboardRepository();
+    final auth = AuthService(
+      repository: _FakeAuthRepository(),
+      leaderboardRepository: leaderboard,
+      awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => firebaseUid,
+    );
+    auth.seedAuthenticatedUser(_user(id: 'trainee-a'));
+
+    auth.touchLeaderboardPresence();
+    firebaseUid = 'teacher-b';
+    auth.handleFirebaseAuthIdentityChanged(firebaseUid);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(auth.currentUser, isNull);
+    expect(leaderboard.touchCalls, 0);
+  });
+
+  test('presence touch is abandoned when Firebase becomes null', () async {
+    String? firebaseUid = 'teacher-a';
+    final leaderboard = _RecordingLeaderboardRepository();
+    final auth = AuthService(
+      repository: _FakeAuthRepository(),
+      leaderboardRepository: leaderboard,
+      awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => firebaseUid,
+    );
+    auth.seedAuthenticatedUser(_user(id: 'teacher-a'));
+
+    auth.touchLeaderboardPresence();
+    firebaseUid = null;
+    auth.handleFirebaseAuthIdentityChanged(null);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(auth.currentUser, isNull);
+    expect(leaderboard.touchCalls, 0);
+  });
+
+  test('presence touch is abandoned when AuthService is disposed', () async {
+    final leaderboard = _RecordingLeaderboardRepository();
+    final auth = AuthService(
+      repository: _FakeAuthRepository(),
+      leaderboardRepository: leaderboard,
+      awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
+    );
+    auth.seedAuthenticatedUser(_user());
+
+    auth.touchLeaderboardPresence();
+    auth.dispose();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(leaderboard.touchCalls, 0);
+  });
+
+  test('in-flight projection observes account invalidation', () async {
+    String? firebaseUid = 'account-a';
+    final gate = Completer<void>();
+    final profiles = _RecordingPublicProfileRepository()..gate = gate;
+    final auth = AuthService(
+      repository: _FakeAuthRepository(loginUser: _user(id: 'account-a')),
+      publicProfileRepository: profiles,
+      awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => firebaseUid,
+    );
+    await auth.login(email: 'a@example.com', password: 'secret');
+    await Future<void>.delayed(Duration.zero);
+    firebaseUid = 'account-b';
+    auth.handleFirebaseAuthIdentityChanged(firebaseUid);
+    gate.complete();
+    await pumpEventQueue();
+
+    expect(profiles.identityAfterGate, isFalse);
+  });
+
+  test('Firebase auth stream invalidates the published account', () async {
+    String? firebaseUid = 'account-a';
+    var listenCount = 0;
+    final authStates = StreamController<String?>.broadcast(
+      onListen: () => listenCount++,
+    );
+    addTearDown(authStates.close);
+    final auth = AuthService(
+      repository: _FakeAuthRepository(persisted: _user(id: 'account-a')),
+      firebaseAuthUidChanges: authStates.stream,
+      currentFirebaseAuthUid: () => firebaseUid,
+    );
+    addTearDown(auth.dispose);
+
+    final initialization = auth.initialize();
+    authStates.add(firebaseUid);
+    await initialization;
+    expect(auth.currentUser?.id, 'account-a');
+    expect(listenCount, 1);
+
+    firebaseUid = null;
+    authStates.add(null);
+    await pumpEventQueue();
+    expect(auth.currentUser, isNull);
+    expect(listenCount, 1);
+  });
+
+  test('logout publishes null before Firebase sign-out completes', () async {
+    final clearGate = Completer<void>();
+    final repository = _FakeAuthRepository()..clearGate = clearGate;
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    auth.seedAuthenticatedUser(_user(id: 'account-a'));
+    var notifications = 0;
+    auth.addListener(() => notifications++);
+
+    final logout = auth.logout();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(auth.currentUser, isNull);
+    expect(notifications, greaterThan(0));
+    expect(clearGate.isCompleted, isFalse);
+    clearGate.complete();
+    await logout;
+  });
+
+  test(
+    'second-account login invalidates the first account before auth work',
+    () async {
+      final loginGate = Completer<User>();
+      final repository = _FakeAuthRepository()..loginGate = loginGate;
+      final auth = AuthService(
+        repository: repository,
+        awaitInitialAuthState: () async {},
+      );
+      auth.seedAuthenticatedUser(_user(id: 'account-a'));
+
+      final login = auth.login(email: 'b@example.com', password: 'secret');
+      await Future<void>.delayed(Duration.zero);
+      expect(auth.currentUser, isNull);
+
+      loginGate.complete(_user(id: 'account-b'));
+      await login;
+      expect(auth.currentUser?.id, 'account-b');
+    },
+  );
 }

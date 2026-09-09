@@ -119,6 +119,30 @@ void main() {
       );
     });
 
+    test('permits presence only for the current Firebase owner', () {
+      expect(
+        LeaderboardPresencePolicy.isAuthenticatedOwner(
+          requestedUserId: 'user-a',
+          currentFirebaseUid: 'user-a',
+        ),
+        isTrue,
+      );
+      expect(
+        LeaderboardPresencePolicy.isAuthenticatedOwner(
+          requestedUserId: 'user-a',
+          currentFirebaseUid: 'user-b',
+        ),
+        isFalse,
+      );
+      expect(
+        LeaderboardPresencePolicy.isAuthenticatedOwner(
+          requestedUserId: 'user-a',
+          currentFirebaseUid: null,
+        ),
+        isFalse,
+      );
+    });
+
     test('update payload only contains last_active_at', () {
       const sentinel = 'server-timestamp';
       expect(LeaderboardPresencePolicy.buildUpdate(sentinel), {

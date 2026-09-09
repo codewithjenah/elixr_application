@@ -13,16 +13,34 @@ class MessageUnreadService extends ChangeNotifier {
   String? _userId;
   int _unreadCount = 0;
   bool _disposed = false;
+  int _generation = 0;
 
   int get unreadCount => _unreadCount;
 
   void setUser(String? userId) {
-    if (_userId == userId) return;
-    _userId = userId;
-    unawaited(_subscription?.cancel());
+    final normalized = userId?.trim();
+    final next = normalized == null || normalized.isEmpty ? null : normalized;
+    if (_userId == next) return;
+    _userId = next;
+    final generation = ++_generation;
+    final oldSubscription = _subscription;
     _subscription = null;
     _setUnreadCount(0);
+    unawaited(_restart(next, generation, oldSubscription));
+  }
 
+  Future<void> _restart(
+    String? userId,
+    int generation,
+    StreamSubscription<List<ChatConversation>>? oldSubscription,
+  ) async {
+    try {
+      await oldSubscription?.cancel();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to cancel the previous inbox listener: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+    if (_disposed || generation != _generation || _userId != userId) return;
     if (userId == null) return;
     _subscription = repository
         .watchInbox(userId)
@@ -50,6 +68,7 @@ class MessageUnreadService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _generation++;
     unawaited(_subscription?.cancel());
     super.dispose();
   }

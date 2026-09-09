@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/constants/coaching_movement_names.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/constants/gamification_rules.dart';
@@ -82,13 +83,21 @@ class LeaderboardPage {
 }
 
 class LeaderboardRepository {
-  LeaderboardRepository({FirebaseFirestore? firestore})
-    : _firestoreOverride = firestore;
+  LeaderboardRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    String? Function()? productUserId,
+  }) : _firestoreOverride = firestore,
+       _authOverride = auth,
+       _productUserId = productUserId;
 
   final FirebaseFirestore? _firestoreOverride;
+  final FirebaseAuth? _authOverride;
+  final String? Function()? _productUserId;
 
   FirebaseFirestore get _firestore =>
       _firestoreOverride ?? FirebaseFirestore.instance;
+  FirebaseAuth get _auth => _authOverride ?? FirebaseAuth.instance;
 
   /// In-flight sync futures keyed by userId to prevent duplicate concurrent runs.
   static final Map<String, Future<LeaderboardSyncResult>> _syncInFlight = {};
@@ -115,6 +124,7 @@ class LeaderboardRepository {
   Future<bool> touchLastActive({required String userId, DateTime? nowUtc}) {
     final trimmed = userId.trim();
     if (trimmed.isEmpty) return Future<bool>.value(false);
+    if (!_isCurrentFirebaseOwner(trimmed)) return Future<bool>.value(false);
 
     final existing = _lastActiveInFlight[trimmed];
     if (existing != null) return existing;
@@ -131,6 +141,7 @@ class LeaderboardRepository {
     required String userId,
     DateTime? nowUtc,
   }) async {
+    if (!_isCurrentFirebaseOwner(userId)) return false;
     final now = (nowUtc ?? DateTime.now()).toUtc();
     final lastWrite = _lastActiveWriteAt[userId];
     final ref = _firestore
@@ -146,6 +157,7 @@ class LeaderboardRepository {
 
     try {
       final snap = await ref.get();
+      if (!_isCurrentFirebaseOwner(userId)) return false;
       final data = snap.data();
       final exists = snap.exists && data != null;
       final persistedLastActiveAt =
@@ -164,6 +176,7 @@ class LeaderboardRepository {
         return false;
       }
 
+      if (!_isCurrentFirebaseOwner(userId)) return false;
       await ref.update(
         LeaderboardPresencePolicy.buildUpdate(FieldValue.serverTimestamp()),
       );
@@ -175,6 +188,7 @@ class LeaderboardRepository {
         return false;
       }
       if (error.code == 'permission-denied') {
+        if (!_isCurrentFirebaseOwner(userId)) return false;
         // A second process can update last_active_at after our document read
         // and before update(). Suppress only that expected timing race; other
         // permission failures still surface through the repository diagnostic.
@@ -202,6 +216,21 @@ class LeaderboardRepository {
     } catch (error, stackTrace) {
       _logError('touchLastActive', error, stackTrace, userId: userId);
       return false;
+    }
+  }
+
+  bool _isCurrentFirebaseOwner(String requestedUserId) {
+    return LeaderboardPresencePolicy.isAuthenticatedOwner(
+      requestedUserId: requestedUserId,
+      currentFirebaseUid: _currentFirebaseUid,
+    );
+  }
+
+  String? get _currentFirebaseUid {
+    try {
+      return _auth.currentUser?.uid;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -879,7 +908,7 @@ class LeaderboardRepository {
     return null;
   }
 
-  static void _logError(
+  void _logError(
     String operation,
     Object error,
     StackTrace stackTrace, {
@@ -894,6 +923,8 @@ class LeaderboardRepository {
       '${code != null ? ' code=$code' : ''}'
       '${message != null ? ' message=$message' : ''}'
       '${userId != null ? ' userId=$userId' : ''}'
+      ' currentFirebaseUid=$_currentFirebaseUid'
+      ' currentProductUserId=${_productUserId?.call()}'
       '${sessionId != null ? ' sessionId=$sessionId' : ''}'
       ' error=$error',
     );
@@ -904,6 +935,15 @@ class LeaderboardRepository {
 /// Client-side last-active write policy. Ranking fields are never included.
 abstract final class LeaderboardPresencePolicy {
   static const Duration minInterval = Duration(minutes: 10);
+
+  static bool isAuthenticatedOwner({
+    required String requestedUserId,
+    required String? currentFirebaseUid,
+  }) {
+    final requested = requestedUserId.trim();
+    final current = currentFirebaseUid?.trim();
+    return requested.isNotEmpty && current != null && current == requested;
+  }
 
   static bool shouldWrite({
     required bool documentExists,

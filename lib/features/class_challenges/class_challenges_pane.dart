@@ -16,6 +16,14 @@ import '../../data/models/movement.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/repositories/class_challenge_repository.dart';
 
+bool canStartTeacherChallengeSubscription({
+  required String currentUserId,
+  required String teacherId,
+}) {
+  final current = currentUserId.trim();
+  return current.isNotEmpty && current == teacherId.trim();
+}
+
 class ClassChallengesPane extends StatelessWidget {
   const ClassChallengesPane({
     super.key,
@@ -44,6 +52,13 @@ class ClassChallengesPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (isTeacher &&
+        !canStartTeacherChallengeSubscription(
+          currentUserId: currentUserId,
+          teacherId: teacherId,
+        )) {
+      return const SizedBox.shrink();
+    }
     return StreamBuilder<List<ClassChallenge>>(
       stream: repository.watchChallengesForGroup(
         groupId: groupId,
