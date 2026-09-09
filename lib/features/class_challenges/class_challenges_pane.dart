@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 
@@ -43,13 +45,25 @@ class ClassChallengesPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<ClassChallenge>>(
-      stream: repository.watchChallengesForGroup(groupId: groupId),
+      stream: repository.watchChallengesForGroup(
+        groupId: groupId,
+        teacherId: teacherId,
+      ),
       builder: (context, challengeSnapshot) {
         if (challengeSnapshot.hasError) {
-          return const ElixStatusPanel(
+          developer.log(
+            'Class Challenge query failed for group $groupId.',
+            name: 'ClassChallengesPane',
+            error: challengeSnapshot.error,
+            stackTrace: challengeSnapshot.stackTrace,
+          );
+          final accessDenied = _isPermissionDenied(challengeSnapshot.error);
+          return ElixStatusPanel(
             key: Key('class_challenges_error'),
             title: 'Challenges unavailable',
-            message: 'Check your connection and try again.',
+            message: accessDenied
+                ? 'You no longer have access to this classroom.'
+                : 'Check your connection and try again.',
             isError: true,
           );
         }
@@ -57,8 +71,28 @@ class ClassChallengesPane extends StatelessWidget {
           return const Center(child: ProgressRing());
         }
         return StreamBuilder<List<ClassChallengeLeaderboardEntry>>(
-          stream: repository.watchResultsForGroup(groupId: groupId),
+          stream: repository.watchResultsForGroup(
+            groupId: groupId,
+            teacherId: teacherId,
+          ),
           builder: (context, resultSnapshot) {
+            if (resultSnapshot.hasError) {
+              developer.log(
+                'Class Challenge results query failed for group $groupId.',
+                name: 'ClassChallengesPane',
+                error: resultSnapshot.error,
+                stackTrace: resultSnapshot.stackTrace,
+              );
+              final accessDenied = _isPermissionDenied(resultSnapshot.error);
+              return ElixStatusPanel(
+                key: const Key('class_challenge_results_error'),
+                title: 'Challenge results unavailable',
+                message: accessDenied
+                    ? 'You no longer have access to this classroom.'
+                    : 'Check your connection and try again.',
+                isError: true,
+              );
+            }
             final challenges = challengeSnapshot.data!
                 .where((challenge) => isTeacher || challenge.archivedAt == null)
                 .toList(growable: false);
@@ -176,6 +210,9 @@ class ClassChallengesPane extends StatelessWidget {
     );
   }
 }
+
+bool _isPermissionDenied(Object? error) =>
+    error is FirebaseException && error.code == 'permission-denied';
 
 class _ChallengeCard extends StatelessWidget {
   const _ChallengeCard({

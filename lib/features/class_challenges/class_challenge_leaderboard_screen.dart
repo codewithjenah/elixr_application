@@ -55,7 +55,11 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
           );
         }
         return StreamBuilder<List<ClassChallengeLeaderboardEntry>>(
-          stream: repository.watchLeaderboard(challengeId: challengeId),
+          stream: repository.watchLeaderboard(
+            challengeId: challenge.id,
+            groupId: challenge.groupId,
+            teacherId: challenge.teacherId,
+          ),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return const ElixStatusPanel(

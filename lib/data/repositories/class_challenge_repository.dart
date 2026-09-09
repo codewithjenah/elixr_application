@@ -13,6 +13,7 @@ class ClassChallengeException implements Exception {
 abstract class ClassChallengeRepository {
   Stream<List<ClassChallenge>> watchChallengesForGroup({
     required String groupId,
+    required String teacherId,
   });
 
   Future<ClassChallenge?> getChallenge({required String challengeId});
@@ -25,10 +26,13 @@ abstract class ClassChallengeRepository {
 
   Stream<List<ClassChallengeLeaderboardEntry>> watchLeaderboard({
     required String challengeId,
+    required String groupId,
+    required String teacherId,
   });
 
   Stream<List<ClassChallengeLeaderboardEntry>> watchResultsForGroup({
     required String groupId,
+    required String teacherId,
   });
 
   Stream<ClassChallengeParticipant?> watchParticipant({

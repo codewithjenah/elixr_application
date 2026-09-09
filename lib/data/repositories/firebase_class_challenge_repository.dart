@@ -41,17 +41,20 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
   @override
   Stream<List<ClassChallenge>> watchChallengesForGroup({
     required String groupId,
+    required String teacherId,
   }) {
-    return _challenges.where('group_id', isEqualTo: groupId).snapshots().map((
-      snapshot,
-    ) {
-      final values = snapshot.docs
-          .map((doc) => ClassChallenge.tryFromMap(doc.data(), id: doc.id))
-          .whereType<ClassChallenge>()
-          .toList();
-      values.sort((a, b) => a.startAt.compareTo(b.startAt));
-      return List.unmodifiable(values);
-    });
+    return _challenges
+        .where('group_id', isEqualTo: groupId)
+        .where('teacher_id', isEqualTo: teacherId)
+        .snapshots()
+        .map((snapshot) {
+          final values = snapshot.docs
+              .map((doc) => ClassChallenge.tryFromMap(doc.data(), id: doc.id))
+              .whereType<ClassChallenge>()
+              .toList();
+          values.sort((a, b) => a.startAt.compareTo(b.startAt));
+          return List.unmodifiable(values);
+        });
   }
 
   @override
@@ -93,9 +96,13 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
   @override
   Stream<List<ClassChallengeLeaderboardEntry>> watchLeaderboard({
     required String challengeId,
+    required String groupId,
+    required String teacherId,
   }) {
     return _results
         .where('challenge_id', isEqualTo: challengeId)
+        .where('group_id', isEqualTo: groupId)
+        .where('teacher_id', isEqualTo: teacherId)
         .snapshots()
         .map((snapshot) {
           final values = snapshot.docs
@@ -110,8 +117,10 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
   @override
   Stream<List<ClassChallengeLeaderboardEntry>> watchResultsForGroup({
     required String groupId,
+    required String teacherId,
   }) => _results
       .where('group_id', isEqualTo: groupId)
+      .where('teacher_id', isEqualTo: teacherId)
       .snapshots()
       .map(
         (snapshot) => List.unmodifiable(

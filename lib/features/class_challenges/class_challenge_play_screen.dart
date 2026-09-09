@@ -163,6 +163,8 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
                     StreamBuilder<List<ClassChallengeLeaderboardEntry>>(
                       stream: _repository.watchLeaderboard(
                         challengeId: challenge.id,
+                        groupId: challenge.groupId,
+                        teacherId: challenge.teacherId,
                       ),
                       builder: (context, leaderboardSnapshot) {
                         final participant = participantSnapshot.data;
@@ -273,7 +275,11 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
   ) {
     final userId = context.read<AuthService>().currentUser?.id ?? '';
     return StreamBuilder<List<ClassChallengeLeaderboardEntry>>(
-      stream: _repository.watchLeaderboard(challengeId: challenge.id),
+      stream: _repository.watchLeaderboard(
+        challengeId: challenge.id,
+        groupId: challenge.groupId,
+        teacherId: challenge.teacherId,
+      ),
       builder: (context, snapshot) {
         int? previousBest;
         for (final entry in snapshot.data ?? const []) {
@@ -304,7 +310,11 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
             int? rank;
             try {
               final ranking = await _repository
-                  .watchLeaderboard(challengeId: challenge.id)
+                  .watchLeaderboard(
+                    challengeId: challenge.id,
+                    groupId: challenge.groupId,
+                    teacherId: challenge.teacherId,
+                  )
                   .first
                   .timeout(const Duration(seconds: 5));
               final index = ranking.indexWhere(

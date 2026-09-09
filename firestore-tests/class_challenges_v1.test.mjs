@@ -8,10 +8,14 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   Timestamp,
+  collection,
   doc,
   getDoc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
+  where,
 } from 'firebase/firestore';
 
 let testEnv;
@@ -66,21 +70,24 @@ async function seedChallenge({
   challengeId = 'challenge-1',
   attemptId = 'attempt-1',
   traineeId = 'alice',
+  groupId = 'group-1',
+  teacherId = 'teacher-1',
+  membershipStatus = 'approved',
   archived = false,
   expired = false,
 } = {}) {
   const now = Date.now();
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
-    await setDoc(doc(db, 'group_memberships', 'group-1_alice'), {
-      group_id: 'group-1',
-      teacher_id: 'teacher-1',
-      trainee_id: 'alice',
-      status: 'approved',
+    await setDoc(doc(db, 'group_memberships', `${groupId}_${traineeId}`), {
+      group_id: groupId,
+      teacher_id: teacherId,
+      trainee_id: traineeId,
+      status: membershipStatus,
     });
     await setDoc(doc(db, 'class_challenges', challengeId), {
-      group_id: 'group-1',
-      teacher_id: 'teacher-1',
+      group_id: groupId,
+      teacher_id: teacherId,
       movement_name: 'Hand Stall',
       prop_type: 'bottle',
       scoring_mode: 'rubric_total_v2',
@@ -90,23 +97,112 @@ async function seedChallenge({
     });
     await setDoc(doc(db, 'class_challenge_attempts', attemptId), {
       challenge_id: challengeId,
-      group_id: 'group-1',
-      teacher_id: 'teacher-1',
+      group_id: groupId,
+      teacher_id: teacherId,
       trainee_id: traineeId,
       movement_name: 'Hand Stall',
       prop_type: 'bottle',
       status: 'in_progress',
     });
-    await setDoc(doc(db, 'class_challenge_results', 'challenge-1__alice'), {
-      challenge_id: 'challenge-1',
-      group_id: 'group-1',
-      teacher_id: 'teacher-1',
-      trainee_id: 'alice',
+    await setDoc(doc(db, 'class_challenge_results', `${challengeId}__${traineeId}`), {
+      challenge_id: challengeId,
+      group_id: groupId,
+      teacher_id: teacherId,
+      trainee_id: traineeId,
     });
   });
 }
 
 describe('Class Challenge authorization', () => {
+  test('collection queries require canonical classroom scope', async () => {
+    await seedChallenge();
+    await seedChallenge({
+      challengeId: 'other-teacher-challenge',
+      attemptId: 'other-teacher-attempt',
+      teacherId: 'teacher-2',
+      traineeId: 'bob',
+    });
+    const teacher = testEnv.authenticatedContext('teacher-1', {
+      role: 'Teacher',
+    }).firestore();
+    const alice = testEnv.authenticatedContext('alice').firestore();
+    const outsider = testEnv.authenticatedContext('mallory').firestore();
+
+    const classroomChallenges = query(
+      collection(teacher, 'class_challenges'),
+      where('group_id', '==', 'group-1'),
+      where('teacher_id', '==', 'teacher-1'),
+    );
+    await assertSucceeds(getDocs(classroomChallenges));
+    await assertFails(
+      getDocs(
+        query(
+          collection(teacher, 'class_challenges'),
+          where('group_id', '==', 'group-1'),
+        ),
+      ),
+    );
+
+    const traineeChallenges = query(
+      collection(alice, 'class_challenges'),
+      where('group_id', '==', 'group-1'),
+      where('teacher_id', '==', 'teacher-1'),
+    );
+    await assertSucceeds(getDocs(traineeChallenges));
+    await assertFails(
+      getDocs(
+        query(
+          collection(outsider, 'class_challenges'),
+          where('group_id', '==', 'group-1'),
+          where('teacher_id', '==', 'teacher-1'),
+        ),
+      ),
+    );
+  });
+
+  test('unapproved and removed trainees cannot query classroom challenges', async () => {
+    await seedChallenge({traineeId: 'pending', membershipStatus: 'pending'});
+    await seedChallenge({traineeId: 'removed', membershipStatus: 'removed'});
+    const classroomQuery = (db) => query(
+      collection(db, 'class_challenges'),
+      where('group_id', '==', 'group-1'),
+      where('teacher_id', '==', 'teacher-1'),
+    );
+
+    await assertFails(
+      getDocs(classroomQuery(testEnv.authenticatedContext('pending').firestore())),
+    );
+    await assertFails(
+      getDocs(classroomQuery(testEnv.authenticatedContext('removed').firestore())),
+    );
+  });
+
+  test('authorized classroom users can query results and a challenge leaderboard', async () => {
+    await seedChallenge();
+    const teacher = testEnv.authenticatedContext('teacher-1', {
+      role: 'Teacher',
+    }).firestore();
+    const alice = testEnv.authenticatedContext('alice').firestore();
+    const outsider = testEnv.authenticatedContext('mallory').firestore();
+    const resultsForClassroom = (db) => query(
+      collection(db, 'class_challenge_results'),
+      where('group_id', '==', 'group-1'),
+      where('teacher_id', '==', 'teacher-1'),
+    );
+    const leaderboardForChallenge = (db) => query(
+      collection(db, 'class_challenge_results'),
+      where('challenge_id', '==', 'challenge-1'),
+      where('group_id', '==', 'group-1'),
+      where('teacher_id', '==', 'teacher-1'),
+    );
+
+    await assertSucceeds(getDocs(resultsForClassroom(teacher)));
+    await assertSucceeds(getDocs(resultsForClassroom(alice)));
+    await assertSucceeds(getDocs(leaderboardForChallenge(alice)));
+    await assertFails(getDocs(resultsForClassroom(outsider)));
+    await assertFails(getDocs(leaderboardForChallenge(outsider)));
+  });
+
   test('approved trainee can read the challenge and save its reserved session', async () => {
     await seedChallenge();
     const alice = testEnv.authenticatedContext('alice').firestore();
@@ -203,6 +299,9 @@ describe('Class Challenge authorization', () => {
 
     await assertFails(
       setDoc(doc(alice, 'class_challenge_attempts', 'client-attempt'), {}),
+    );
+    await assertFails(
+      setDoc(doc(alice, 'class_challenge_participants', 'client-participant'), {}),
     );
     await assertFails(
       setDoc(doc(teacher, 'class_challenges', 'client-challenge'), {}),
