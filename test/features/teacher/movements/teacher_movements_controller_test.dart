@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
@@ -86,4 +87,86 @@ void main() {
       'This Teacher Activity cannot be deleted because it is used by an assignment.',
     );
   });
+
+  test(
+    'createMovement refreshes Teacher authorization before writing',
+    () async {
+      final groups = InMemoryGroupRepository();
+      final movements = InMemoryTeacherMovementRepository();
+      final assignments = InMemoryClassroomAssignmentRepository();
+      addTearDown(groups.dispose);
+      addTearDown(movements.dispose);
+      addTearDown(assignments.dispose);
+      var authorizationCalls = 0;
+      final controller = TeacherMovementsController(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        groupRepository: groups,
+        movementRepository: movements,
+        assignmentRepository: assignments,
+        ensureTeacherAuthorization: () async {
+          authorizationCalls += 1;
+          return false;
+        },
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+
+      await controller.createMovement(
+        title: 'Tin Balance',
+        instructions: 'Balance the tin upright.',
+        requiredProp: TrainingProp.bottle,
+      );
+
+      expect(authorizationCalls, 1);
+      expect(movements.movements, isEmpty);
+      expect(
+        controller.errorMessage,
+        TeacherAuthMessages.teacherAuthorizationRefreshRequired,
+      );
+    },
+  );
+
+  test(
+    'createMovement permission-denied shows a safe Teacher Activity message',
+    () async {
+      final groups = InMemoryGroupRepository();
+      final movements = InMemoryTeacherMovementRepository();
+      final assignments = InMemoryClassroomAssignmentRepository();
+      addTearDown(groups.dispose);
+      addTearDown(movements.dispose);
+      addTearDown(assignments.dispose);
+      movements.throwOnNextCreate = Exception(
+        '[cloud_firestore/permission-denied] Missing or insufficient permissions.',
+      );
+      var authorizationCalls = 0;
+      final controller = TeacherMovementsController(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        groupRepository: groups,
+        movementRepository: movements,
+        assignmentRepository: assignments,
+        ensureTeacherAuthorization: () async {
+          authorizationCalls += 1;
+          return true;
+        },
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+
+      await controller.createMovement(
+        title: 'Tin Balance',
+        instructions: 'Balance the tin upright.',
+        requiredProp: TrainingProp.bottle,
+      );
+
+      expect(authorizationCalls, 1);
+      expect(
+        controller.errorMessage,
+        TeacherAuthMessages.teacherActivityCreateDenied,
+      );
+      expect(controller.errorMessage, isNot(contains('cloud_firestore')));
+      expect(controller.errorMessage, isNot(contains('permission-denied')));
+    },
+  );
 }

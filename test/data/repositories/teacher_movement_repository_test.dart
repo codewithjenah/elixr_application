@@ -9,6 +9,7 @@ import 'package:elixr_application/data/models/teacher_movement_revision_spec.dar
 import 'package:elixr_application/data/models/teacher_reviewed_movement_spec.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
+import 'package:elixr_application/data/repositories/teacher_movement_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -251,6 +252,209 @@ void main() {
         ),
         throwsA(isA<ClassroomException>()),
       );
+    },
+  );
+
+  test(
+    'createMovement Teacher Review payload matches repository batch maps',
+    () {
+      const teacherId = 'teacher-1';
+      const movementId = 'tmTeacherReview';
+      const revisionId = 'revTeacherReview';
+      const createdAt = 'SERVER_TIMESTAMP';
+      final spec = buildTeacherMovementSpec(
+        title: 'Tin Balance',
+        instructions: 'Balance the tin upright.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final root = teacherMovementRootPayload(
+        teacherId: teacherId,
+        title: 'Tin Balance',
+        currentRevisionId: revisionId,
+        status: TeacherMovementStatus.active.name,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      );
+      final revision = teacherMovementRevisionPayload(
+        movementId: movementId,
+        teacherId: teacherId,
+        spec: spec,
+        createdAt: createdAt,
+      );
+
+      expect(root.keys.toSet(), {
+        'teacher_id',
+        'title',
+        'status',
+        'current_revision_id',
+        'schema_version',
+        'created_at',
+        'updated_at',
+      });
+      expect(root['teacher_id'], teacherId);
+      expect(root['title'], 'Tin Balance');
+      expect(root['status'], 'active');
+      expect(root['current_revision_id'], revisionId);
+      expect(root['schema_version'], 1);
+      expect(root['created_at'], createdAt);
+      expect(root['updated_at'], createdAt);
+
+      expect(revision.keys.toSet(), {
+        'movement_id',
+        'teacher_id',
+        'schema_version',
+        'assessment_mode',
+        'spec',
+        'created_at',
+      });
+      expect(revision['movement_id'], movementId);
+      expect(revision['teacher_id'], teacherId);
+      expect(revision['schema_version'], 2);
+      expect(revision['assessment_mode'], 'teacher_reviewed');
+      expect(revision['created_at'], createdAt);
+
+      final specMap = revision['spec'] as Map<String, dynamic>;
+      expect(specMap.keys.toSet(), {
+        'instructions',
+        'required_prop',
+        'capability',
+        'activity_assessment',
+      });
+      expect(specMap['instructions'], 'Balance the tin upright.');
+      expect(specMap['required_prop'], 'bottle');
+      expect(specMap['capability'], 'teacher_review_only');
+
+      final assessment = specMap['activity_assessment'] as Map<String, dynamic>;
+      expect(assessment.keys.toSet(), {
+        'schema_version',
+        'readiness',
+        'rubric',
+        'recording_duration_seconds',
+      });
+      expect(assessment['schema_version'], 3);
+      expect(assessment['readiness'], {'hands': 'none', 'body': 'none'});
+      expect(assessment['recording_duration_seconds'], 30);
+      final rubric = assessment['rubric'] as Map<String, dynamic>;
+      expect(rubric['template_id'], 'standard_technique');
+      expect(rubric['maximum_score'], 50);
+      final criteria = rubric['criteria'] as List<dynamic>;
+      expect(criteria, hasLength(4));
+      expect(criteria.map((item) => (item as Map)['id']), [
+        'setup',
+        'technique',
+        'control',
+        'finish',
+      ]);
+      expect(criteria[0], {
+        'id': 'setup',
+        'label': 'Setup',
+        'description': 'Uses the required setup and starting position.',
+        'maximum_points': 10,
+        'weight': 20,
+      });
+      expect(criteria[1], {
+        'id': 'technique',
+        'label': 'Technique',
+        'description':
+            'Performs the demonstrated technique safely and accurately.',
+        'maximum_points': 20,
+        'weight': 40,
+      });
+      expect(criteria[2], {
+        'id': 'control',
+        'label': 'Control',
+        'description':
+            'Maintains deliberate control of props and body position.',
+        'maximum_points': 13,
+        'weight': 25,
+      });
+      expect(criteria[3], {
+        'id': 'finish',
+        'label': 'Finish',
+        'description':
+            'Completes the movement with a stable, intentional finish.',
+        'maximum_points': 7,
+        'weight': 15,
+      });
+      expect(
+        criteria.fold<int>(
+          0,
+          (sum, item) => sum + ((item as Map)['maximum_points'] as int),
+        ),
+        50,
+      );
+      for (final criterion in criteria) {
+        expect((criterion as Map).keys.toSet(), {
+          'id',
+          'label',
+          'description',
+          'maximum_points',
+          'weight',
+        });
+      }
+    },
+  );
+
+  test(
+    'createMovement Automatic Wrist Stall Left payload matches repository batch maps',
+    () {
+      const teacherId = 'teacher-1';
+      const movementId = 'tmWristLeft';
+      const revisionId = 'revWristLeft';
+      const createdAt = 'SERVER_TIMESTAMP';
+      final spec = buildTeacherMovementSpec(
+        title: 'Classroom Wrist Stall',
+        instructions: 'Balance the bottle on the left wrist.',
+        requiredProp: TrainingProp.bottle,
+        automaticAssessment: const AssessmentSpec(
+          laterality: AssessmentLaterality.left,
+        ),
+      );
+      final root = teacherMovementRootPayload(
+        teacherId: teacherId,
+        title: 'Classroom Wrist Stall',
+        currentRevisionId: revisionId,
+        status: TeacherMovementStatus.active.name,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      );
+      final revision = teacherMovementRevisionPayload(
+        movementId: movementId,
+        teacherId: teacherId,
+        spec: spec,
+        createdAt: createdAt,
+      );
+
+      expect(root.keys.toSet(), {
+        'teacher_id',
+        'title',
+        'status',
+        'current_revision_id',
+        'schema_version',
+        'created_at',
+        'updated_at',
+      });
+      expect(root['teacher_id'], teacherId);
+      expect(root['status'], 'active');
+      expect(root['current_revision_id'], revisionId);
+      expect(root['schema_version'], 1);
+
+      expect(revision['schema_version'], 1);
+      expect(revision['assessment_mode'], 'template_scored');
+      final specMap = revision['spec'] as Map<String, dynamic>;
+      expect(specMap.keys.toSet(), {
+        'instructions',
+        'required_prop',
+        'assessment',
+      });
+      expect(specMap['required_prop'], 'bottle');
+      expect(specMap['assessment'], {
+        'schema_version': 1,
+        'template_id': 'balance_stall.wrist_v1',
+        'prop': 'bottle',
+        'target': 'wrist',
+        'laterality': 'left',
+      });
     },
   );
 }

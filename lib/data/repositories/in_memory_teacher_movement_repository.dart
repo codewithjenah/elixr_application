@@ -24,6 +24,7 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
   final Map<String, TeacherMovementRevision> revisions = {};
   final Map<String, TeacherActivityVideoMetadata> demonstrationMedia = {};
   final Map<String, File> demonstrationFiles = {};
+  Object? throwOnNextCreate;
   int _counter = 0;
 
   final _teacherControllers =
@@ -99,6 +100,11 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     TeacherActivityAssessmentConfig? assessment,
     AssessmentSpec? automaticAssessment,
   }) async {
+    final pending = throwOnNextCreate;
+    if (pending != null) {
+      throwOnNextCreate = null;
+      throw pending;
+    }
     final spec = buildTeacherMovementSpec(
       title: title,
       instructions: instructions,
