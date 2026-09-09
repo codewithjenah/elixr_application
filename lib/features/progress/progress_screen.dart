@@ -10,7 +10,6 @@ import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
-import '../../data/models/assessment_score_display.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
@@ -128,38 +127,34 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (stats == null) return '—';
     final average = stats.averageRubricTotal;
     if (stats.hasRubricData && average != null) {
-      return AssessmentScoreDisplay.performanceLabel(
-        PerformanceLevel.fromAverage(average.clamp(0, 12)),
-      );
+      return PerformanceLevel.fromAverage(average.clamp(0, 12)).label;
     }
     return stats.hasLegacyOnly ? 'Legacy scoring' : '—';
   }
 
   String get _averageLabel =>
-      _stats?.hasRubricData == true ? 'Average Score' : 'Average Legacy Score';
+      _stats?.hasRubricData == true ? 'Average Rubric' : 'Average Legacy Score';
 
   String get _averageValue {
     final stats = _stats;
     if (stats == null) return '—';
     if (stats.hasRubricData) {
       final average = stats.averageRubricTotal;
-      return average == null
-          ? '—'
-          : AssessmentScoreDisplay.officialAverage(average);
+      return average == null ? '—' : '${average.toStringAsFixed(1)} / 12';
     }
     final legacy = stats.averageLegacyScore;
     return legacy == null ? '—' : '${legacy.toStringAsFixed(0)} / 100';
   }
 
   String get _bestLabel =>
-      _stats?.hasRubricData == true ? 'Best Score' : 'Best Legacy Score';
+      _stats?.hasRubricData == true ? 'Best Rubric' : 'Best Legacy Score';
 
   String get _bestValue {
     final stats = _stats;
     if (stats == null) return '—';
     if (stats.hasRubricData) {
       final best = stats.bestRubricTotal;
-      return best == null ? '—' : AssessmentScoreDisplay.official(best);
+      return best == null ? '—' : '$best / 12';
     }
     final legacy = stats.bestLegacyScore;
     return legacy == null ? '—' : '$legacy / 100';
@@ -463,13 +458,9 @@ class _RubricTrendChart extends StatelessWidget {
                   ? formatElixrDate(DateTime.parse(s.createdAt!).toLocal())
                   : '';
               final total = s.rubricTotal ?? 0;
-              final level = s.performanceLevel == null
-                  ? ''
-                  : AssessmentScoreDisplay.performanceLabel(
-                      s.performanceLevel!,
-                    );
+              final level = s.performanceLevel?.label ?? '';
               return LineTooltipItem(
-                '${AssessmentScoreDisplay.official(total)}\n',
+                '$total / 12\n',
                 const TextStyle(
                   color: AppColors.primarySoft,
                   fontWeight: FontWeight.w800,

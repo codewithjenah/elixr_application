@@ -3,8 +3,9 @@ import 'training_prop.dart';
 
 /// Shared presentation contract for Teacher-created revision specs.
 ///
-/// [TeacherReviewedMovementSpec] remains the teacher-reviewed document.
-/// [TemplateScoredRevisionSpec] wraps a validated automatic AssessmentSpec.
+/// [TeacherReviewedMovementSpec] remains the Phase 5/6 teacher-reviewed
+/// document. [TemplateScoredRevisionSpec] only parses the retired historical
+/// Phase 7 wrapper.
 abstract interface class TeacherMovementRevisionSpec {
   String get instructions;
   TrainingProp get requiredProp;
@@ -12,8 +13,8 @@ abstract interface class TeacherMovementRevisionSpec {
   bool get isTeacherReviewOnly;
 }
 
-/// Parser and serializer for a Teacher-created revision that names a locked
-/// automatic assessment template.
+/// Historical-only parser for a Teacher-created revision that named a locked
+/// automatic assessment. It has no serialization path by design.
 class TemplateScoredRevisionSpec implements TeacherMovementRevisionSpec {
   static const _allowedKeys = {
     'instructions',
@@ -46,15 +47,6 @@ class TemplateScoredRevisionSpec implements TeacherMovementRevisionSpec {
 
   @override
   bool get isTeacherReviewOnly => false;
-
-  Map<String, dynamic> toMap() {
-    return {
-      'instructions': instructions,
-      'required_prop': requiredProp.protocolValue,
-      'assessment': assessment.toMap(),
-      if (safetyGuidance != null) 'safety_guidance': safetyGuidance,
-    };
-  }
 
   static TemplateScoredRevisionSpec? tryFrom(Object? raw) {
     if (raw is! Map) return null;

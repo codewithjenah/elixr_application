@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
-import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/activity_learning_material.dart';
@@ -128,7 +127,6 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
-    AssessmentSpec? automaticAssessment,
   }) async {
     final movement = await super.createMovement(
       teacherId: teacherId,
@@ -137,7 +135,6 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
-      automaticAssessment: automaticAssessment,
     );
     failRevisionReads = true;
     return movement;
@@ -1327,56 +1324,5 @@ void main() {
     expect(find.byKey(const Key('teacher_assignment_error')), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
-
-  test(
-    'shared creation service assigns automatic Wrist Stall without a teacher rubric',
-    () async {
-      final movement = await movements.createMovement(
-        teacherId: 'teacher-1',
-        title: 'Classroom Wrist Stall',
-        instructions: 'Balance the bottle on the left wrist.',
-        requiredProp: TrainingProp.bottle,
-        automaticAssessment: const AssessmentSpec(
-          laterality: AssessmentLaterality.left,
-        ),
-      );
-      final assignment = await service().create(
-        group: group,
-        teacherCreatedMovement: movement,
-        maxScore: 101,
-      );
-      expect(assignment.isTemplateScored, isTrue);
-      expect(assignment.maxScore, isNull);
-      expect(assignment.activityAssessment, isNull);
-      expect(assignment.assessmentSpec?.laterality, AssessmentLaterality.left);
-      expect(assignments.teacherCreatedCalls, 1);
-    },
-  );
-
-  testWidgets('automatic Wrist Stall movements are assignable', (tester) async {
-    final movement = await movements.createMovement(
-      teacherId: 'teacher-1',
-      title: 'Classroom Wrist Stall',
-      instructions: 'Balance the bottle on the left wrist.',
-      requiredProp: TrainingProp.bottle,
-      automaticAssessment: const AssessmentSpec(
-        laterality: AssessmentLaterality.left,
-      ),
-    );
-    await pumpComposer(tester, creationService: service());
-    await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_source_mine')),
-    );
-    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(Key('teacher_assignment_custom_${movement.id}')),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Automatic ELIXR Assessment · Left wrist'),
-      findsOneWidget,
-    );
   });
 }

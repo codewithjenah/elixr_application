@@ -6,7 +6,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/locked_movement_mark.dart';
 import '../../../core/widgets/movement_image.dart';
-import '../../../data/models/assessment_score_display.dart';
 import '../../movements/movements_presentation.dart';
 import '../training_recommendation.dart';
 
@@ -233,10 +232,10 @@ class _RevealedMasteryRow extends StatelessWidget {
     final accent = difficultyAccentColor(mastery.movement.difficulty);
     final recentAverage = mastery.recentAverageRubric;
     final recentLabel = recentAverage != null
-        ? AssessmentScoreDisplay.official(recentAverage.round())
+        ? '${recentAverage.round()} / 12'
         : '—';
     final bestLabel = mastery.bestRubricTotal != null
-        ? AssessmentScoreDisplay.official(mastery.bestRubricTotal!)
+        ? '${mastery.bestRubricTotal} / 12'
         : '—';
     final statusLabel = masteryStatusLabel(mastery.status);
 
@@ -392,9 +391,7 @@ class _MasteryProgressBar extends StatelessWidget {
         SizedBox(
           width: 44,
           child: Text(
-            rubricAverage == null
-                ? '—'
-                : AssessmentScoreDisplay.official(rubricAverage!.round()),
+            rubricAverage == null ? '—' : '${rubricAverage!.round()}/12',
             textAlign: TextAlign.right,
             style: TextStyle(
               fontSize: 11,

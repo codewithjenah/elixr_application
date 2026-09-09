@@ -175,7 +175,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Weak Move'), findsOneWidget);
-      expect(find.textContaining('Recent: 6/12'), findsOneWidget);
+      expect(find.textContaining('Recent: 6 / 12'), findsOneWidget);
     });
 
     testWidgets('Practice this navigates with encoded query parameters', (

@@ -260,7 +260,7 @@ String formStrengthMessageFor(String movement) =>
 
 String cleanSessionMessageFor(String movement) =>
     movementCoachingProfileFor(movement)?.cleanSessionMessage ??
-    'No recurring form issue met the session threshold.';
+    'No recurring technique issue met the session threshold.';
 
 String successfulRecommendationReasonFor(String movement) =>
     movementCoachingProfileFor(movement)?.successfulRecommendationReason ??

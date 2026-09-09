@@ -260,7 +260,7 @@ class FirebaseChatRepository implements ChatRepository {
       // participant-scoped Firestore transaction below.
       final existingConversation = await conversationRef.get();
       if (!existingConversation.exists) {
-        return await _sendFirstMessage(
+        return _sendFirstMessage(
           senderId: sender.id,
           recipientId: recipient.id,
           conversationId: conversationId,
@@ -401,7 +401,7 @@ class FirebaseChatRepository implements ChatRepository {
           jsonEncode({
             'recipient_id': recipientId,
             'body': body,
-            'idempotency_key': ?idempotencyKey,
+            if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
           }),
         ),
       );

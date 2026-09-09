@@ -1,4 +1,3 @@
-import 'package:elixr_application/data/models/assessment_score_display.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -61,7 +60,7 @@ void main() {
     expect(performanceCalloutCopy(null), isNull);
     expect(
       performanceCalloutCopy(PerformanceLevel.mastered)?.detail,
-      AssessmentScoreDisplay.performanceLabel(PerformanceLevel.mastered),
+      PerformanceLevel.mastered.label,
     );
   });
 

@@ -50,7 +50,7 @@ class OnboardingOverlay {
     _OnboardingStep(
       title: 'Understand your score',
       description:
-          'ELIXR scores Form, Control, Finish, and Position from 0 to 3. A confirmed hold completes the movement.',
+          'ELIXR scores Technique, Stability, Completion, and Prop Positioning from 0 to 3. A confirmed hold completes the movement.',
       icon: FluentIcons.trophy,
     ),
   ];

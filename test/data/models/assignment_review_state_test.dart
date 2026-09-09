@@ -3,7 +3,6 @@ import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/assignment_review_state.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
-import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -97,39 +96,13 @@ void main() {
       AssignmentReviewState.missing,
     );
   });
-
-  test('versioned Teacher Activity submission is actionable', () {
-    final submitted = _attempt(
-      AssignmentAttemptStatus.submitted,
-      id: 'activity_assignment_student_1',
-      activityAssessmentSnapshot:
-          TeacherActivityAssessmentConfig.newActivityDefaults(),
-      assignmentConfigurationRevision: 1,
-    );
-
-    expect(submitted.isCanonicalTeacherReviewSubmission, isFalse);
-    expect(
-      AssignmentReviewSemantics.isActionablePending(
-        submitted,
-        now: DateTime.utc(2026, 9, 2),
-      ),
-      isTrue,
-    );
-  });
 }
 
-AssignmentAttempt _attempt(
-  AssignmentAttemptStatus status, {
-  String? id,
-  TeacherActivityAssessmentConfig? activityAssessmentSnapshot,
-  int? assignmentConfigurationRevision,
-}) => AssignmentAttempt(
-  id:
-      id ??
-      assignmentAttemptIdForCanonicalTeacherReviewSubmission(
-        assignmentId: 'assignment',
-        traineeId: 'student',
-      ),
+AssignmentAttempt _attempt(AssignmentAttemptStatus status) => AssignmentAttempt(
+  id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+    assignmentId: 'assignment',
+    traineeId: 'student',
+  ),
   traineeId: 'student',
   teacherId: 'teacher',
   groupId: 'group',
@@ -143,6 +116,4 @@ AssignmentAttempt _attempt(
   submittedAt: DateTime.utc(2026, 9, 1, 16),
   videoStoragePath: 'assignment_submissions/clip.mp4',
   videoExpiresAt: DateTime.utc(2026, 10, 1),
-  activityAssessmentSnapshot: activityAssessmentSnapshot,
-  assignmentConfigurationRevision: assignmentConfigurationRevision,
 );

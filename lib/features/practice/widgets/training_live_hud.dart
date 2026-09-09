@@ -5,7 +5,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/coaching_verdict_style.dart';
-import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/practice_feedback.dart';
 import '../../../data/models/rubric_assessment.dart';
 import '../practice_feedback_controller.dart';
@@ -57,19 +56,11 @@ class TrainingLiveHud extends StatelessWidget {
               builder: (context, assessment, _) {
                 final level = assessment?.performanceLevel;
                 return _HudChip(
-                  label: 'SCORE',
+                  label: 'RUBRIC',
                   value: assessment == null
                       ? '—'
-                      : AssessmentScoreDisplay.official(assessment.total),
-                  supporting: level == null
-                      ? null
-                      : AssessmentScoreDisplay.performanceLabel(level),
-                  semanticLabel: assessment == null
-                      ? 'ELIXR Score waiting for assessment'
-                      : AssessmentScoreDisplay.officialSemantics(
-                          assessment.total,
-                          level: level,
-                        ),
+                      : '${assessment.total} / ${RubricScale.maxTotal}',
+                  supporting: level?.label,
                   accent: performanceLevelColor(level),
                 );
               },
@@ -153,22 +144,18 @@ class _HudChip extends StatelessWidget {
     required this.value,
     required this.accent,
     this.supporting,
-    this.semanticLabel,
   });
 
   final String label;
   final String value;
   final String? supporting;
-  final String? semanticLabel;
   final Color accent;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       container: true,
-      label:
-          semanticLabel ??
-          (supporting == null ? '$label $value' : '$label $value $supporting'),
+      label: supporting == null ? '$label $value' : '$label $value $supporting',
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
@@ -273,7 +260,7 @@ class _CriteriaStrip extends StatelessWidget {
             if (criterion != RubricCriterion.values.first)
               const SizedBox(width: 8),
             _CriterionDot(
-              label: AssessmentScoreDisplay.criterionLabel(criterion),
+              label: criterion.shortHudLabel,
               score: assessment?.scoreFor(criterion),
             ),
           ],
@@ -355,4 +342,13 @@ class _HoldChip extends StatelessWidget {
       ),
     );
   }
+}
+
+extension on RubricCriterion {
+  String get shortHudLabel => switch (this) {
+    RubricCriterion.technique => 'TECH',
+    RubricCriterion.stability => 'STAB',
+    RubricCriterion.completion => 'HOLD',
+    RubricCriterion.propPositioning => 'PROP',
+  };
 }

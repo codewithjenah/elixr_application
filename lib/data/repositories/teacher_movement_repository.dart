@@ -1,11 +1,9 @@
 import 'dart:io';
 
 import '../models/assessment_mode.dart';
-import '../models/assessment_spec.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
-import '../models/teacher_movement_revision_spec.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
 
@@ -35,7 +33,6 @@ abstract class TeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
-    AssessmentSpec? automaticAssessment,
   });
 
   /// Publishes a new immutable revision and points [currentRevisionId] at it.
@@ -47,7 +44,6 @@ abstract class TeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
-    AssessmentSpec? automaticAssessment,
   });
 
   Future<void> archiveMovement({
@@ -75,72 +71,6 @@ abstract class TeacherMovementRepository {
 
 ClassroomException _malformed(String message) =>
     ClassroomException(ClassroomError.malformed, message);
-
-TeacherMovementRevisionSpec buildTeacherMovementSpec({
-  required String title,
-  required String instructions,
-  required TrainingProp requiredProp,
-  String? safetyGuidance,
-  TeacherActivityAssessmentConfig? assessment,
-  AssessmentSpec? automaticAssessment,
-}) {
-  if (automaticAssessment != null && assessment != null) {
-    throw _malformed(
-      'Choose Teacher Review or Automatic ELIXR Assessment, not both.',
-    );
-  }
-  if (automaticAssessment != null) {
-    return buildTemplateScoredSpec(
-      title: title,
-      instructions: instructions,
-      requiredProp: requiredProp,
-      safetyGuidance: safetyGuidance,
-      assessment: automaticAssessment,
-    );
-  }
-  return buildTeacherReviewedSpec(
-    title: title,
-    instructions: instructions,
-    requiredProp: requiredProp,
-    safetyGuidance: safetyGuidance,
-    assessment: assessment,
-  );
-}
-
-TemplateScoredRevisionSpec buildTemplateScoredSpec({
-  required String title,
-  required String instructions,
-  required TrainingProp requiredProp,
-  required AssessmentSpec assessment,
-  String? safetyGuidance,
-}) {
-  final titleError = TeacherReviewedMovementSpec.validateTitle(title);
-  if (titleError != null) throw _malformed(titleError);
-  final instructionsError = TeacherReviewedMovementSpec.validateInstructions(
-    instructions,
-  );
-  if (instructionsError != null) throw _malformed(instructionsError);
-  final safetyError = TeacherReviewedMovementSpec.validateSafetyGuidance(
-    safetyGuidance,
-  );
-  if (safetyError != null) throw _malformed(safetyError);
-  if (requiredProp != TrainingProp.bottle) {
-    throw _malformed('Wrist Stall uses a Bottle.');
-  }
-  if (!assessment.isWritableWristStallV1) {
-    throw _malformed('Choose Left wrist or Right wrist.');
-  }
-  return TemplateScoredRevisionSpec(
-    instructions: instructions.trim(),
-    requiredProp: TrainingProp.bottle,
-    safetyGuidance: () {
-      final trimmed = safetyGuidance?.trim();
-      if (trimmed == null || trimmed.isEmpty) return null;
-      return trimmed;
-    }(),
-    assessment: assessment,
-  );
-}
 
 TeacherReviewedMovementSpec buildTeacherReviewedSpec({
   required String title,
@@ -194,25 +124,15 @@ Map<String, dynamic> teacherMovementRootPayload({
 Map<String, dynamic> teacherMovementRevisionPayload({
   required String movementId,
   required String teacherId,
-  required TeacherMovementRevisionSpec spec,
+  required TeacherReviewedMovementSpec spec,
   required Object createdAt,
 }) {
-  final mode = spec is TemplateScoredRevisionSpec
-      ? AssessmentMode.templateScored
-      : AssessmentMode.teacherReviewed;
-  final schemaVersion = spec is TemplateScoredRevisionSpec
-      ? TeacherMovement.currentSchemaVersion
-      : TeacherReviewedMovementSpec.currentSchemaVersion;
   return {
     'movement_id': movementId,
     'teacher_id': teacherId,
-    'schema_version': schemaVersion,
-    'assessment_mode': mode.wireValue,
-    'spec': switch (spec) {
-      final TeacherReviewedMovementSpec reviewed => reviewed.toMap(),
-      final TemplateScoredRevisionSpec template => template.toMap(),
-      _ => throw StateError('Unsupported Teacher-created revision spec.'),
-    },
+    'schema_version': TeacherReviewedMovementSpec.currentSchemaVersion,
+    'assessment_mode': AssessmentMode.teacherReviewed.wireValue,
+    'spec': spec.toMap(),
     'created_at': createdAt,
   };
 }

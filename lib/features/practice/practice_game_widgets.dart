@@ -5,7 +5,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
-import '../../data/models/assessment_score_display.dart';
 import '../../data/models/rubric_assessment.dart';
 import 'widgets/training_performance.dart';
 
@@ -485,7 +484,7 @@ class _PerformanceCalloutState extends State<PerformanceCallout>
     final color = performanceLevelColor(widget.level);
     final detail = widget.total == null
         ? copy.detail
-        : '${copy.detail} · ${AssessmentScoreDisplay.official(widget.total!)}';
+        : '${copy.detail} · ${widget.total} / ${RubricScale.maxTotal}';
 
     return AnimatedBuilder(
       animation: _controller,
@@ -542,7 +541,7 @@ class _PerformanceCalloutState extends State<PerformanceCallout>
   }
 }
 
-/// Compact performance-level badge using beginner-friendly labels.
+/// Compact performance-level badge (Beg/Dev/Cmp/Pro/Mst).
 class RankBadge extends StatelessWidget {
   const RankBadge({super.key, required this.level});
 
@@ -553,26 +552,11 @@ class RankBadge extends StatelessWidget {
     required Color milestone,
   }) => switch (level) {
     null => ('—', AppColors.textSecondary),
-    PerformanceLevel.mastered => (
-      AssessmentScoreDisplay.performanceCompactLabel(level),
-      milestone,
-    ),
-    PerformanceLevel.proficient => (
-      AssessmentScoreDisplay.performanceCompactLabel(level),
-      AppColors.success,
-    ),
-    PerformanceLevel.competent => (
-      AssessmentScoreDisplay.performanceCompactLabel(level),
-      AppColors.primary,
-    ),
-    PerformanceLevel.developing => (
-      AssessmentScoreDisplay.performanceCompactLabel(level),
-      AppColors.primarySoft,
-    ),
-    PerformanceLevel.beginning => (
-      AssessmentScoreDisplay.performanceCompactLabel(level),
-      AppColors.textSecondary,
-    ),
+    PerformanceLevel.mastered => (level.shortLabel, milestone),
+    PerformanceLevel.proficient => (level.shortLabel, AppColors.success),
+    PerformanceLevel.competent => (level.shortLabel, AppColors.primary),
+    PerformanceLevel.developing => (level.shortLabel, AppColors.primarySoft),
+    PerformanceLevel.beginning => (level.shortLabel, AppColors.textSecondary),
   };
 
   @override
@@ -582,47 +566,28 @@ class RankBadge extends StatelessWidget {
       milestone: context.elixColors.milestone,
     );
     final highContrast = context.isHighContrast;
-    final fontSize = rank.length > 5 ? 10.0 : 14.0;
-    return Semantics(
-      label: level == null
-          ? 'No ELIXR performance level yet'
-          : AssessmentScoreDisplay.performanceLabel(level!),
-      excludeSemantics: true,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color.withValues(alpha: 0.12),
-          border: Border.all(
-            color: color.withValues(alpha: highContrast ? 1 : 0.6),
-            width: 2,
-          ),
-          boxShadow: highContrast
-              ? const <BoxShadow>[]
-              : [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.3),
-                    blurRadius: 14,
-                  ),
-                ],
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color.withValues(alpha: 0.12),
+        border: Border.all(
+          color: color.withValues(alpha: highContrast ? 1 : 0.6),
+          width: 2,
         ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                rank,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.w900,
-                  color: color,
-                ),
-              ),
-            ),
+        boxShadow: highContrast
+            ? const <BoxShadow>[]
+            : [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 14)],
+      ),
+      child: Center(
+        child: Text(
+          rank,
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w900,
+            color: color,
           ),
         ),
       ),

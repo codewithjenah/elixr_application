@@ -15,7 +15,6 @@ import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
-import '../../../data/models/assessment_score_display.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
 import '../export/teacher_csv_export.dart';
@@ -505,11 +504,11 @@ class _MetricGrid extends StatelessWidget {
   }
 
   static String _score(double? value) =>
-      value == null ? '—' : AssessmentScoreDisplay.officialAverage(value);
+      value == null ? '—' : '${value.toStringAsFixed(1)} / 12';
 
   static String _signedScore(double value) {
-    final formatted = AssessmentScoreDisplay.officialAverage(value.abs());
-    return '${value >= 0 ? '+' : '-'}$formatted';
+    final sign = value >= 0 ? '+' : '';
+    return '$sign${value.toStringAsFixed(1)} / 12';
   }
 
   static String _improvementLabel(AnalyticsPeriod period) => switch (period) {
@@ -642,7 +641,7 @@ class _TrendChart extends StatelessWidget {
             getTooltipItems: (spots) => [
               for (final spot in spots)
                 LineTooltipItem(
-                  '${buckets[spot.x.toInt()].label}\n${AssessmentScoreDisplay.officialAverage(spot.y)}',
+                  '${buckets[spot.x.toInt()].label}\n${spot.y.toStringAsFixed(1)} / 12',
                   TextStyle(
                     color: context.elixTextPrimary,
                     fontWeight: FontWeight.w700,
@@ -748,7 +747,7 @@ class _MovementInsights extends StatelessWidget {
                 emptyCopy:
                     'Not enough practice yet (need 3 sessions from 2 students).',
                 details: (value) =>
-                    '${value.averageScore == null ? '—' : AssessmentScoreDisplay.officialAverage(value.averageScore!)} · '
+                    '${value.averageScore?.toStringAsFixed(1) ?? '—'} / 12 · '
                     '${value.sessionCount} sessions · ${value.distinctStudentCount} students',
               ),
             ];
@@ -993,7 +992,7 @@ class _WideGroupComparison extends StatelessWidget {
   }
 
   static String _score(double? value) =>
-      value == null ? '—' : AssessmentScoreDisplay.officialAverage(value);
+      value == null ? '—' : '${value.toStringAsFixed(1)} / 12';
   static String _signed(double value) =>
       '${value >= 0 ? '+' : ''}${value.toStringAsFixed(1)}';
 }
@@ -1166,7 +1165,7 @@ class _NarrowGroupComparison extends StatelessWidget {
   }
 
   static String _score(double? value) =>
-      value == null ? '—' : AssessmentScoreDisplay.officialAverage(value);
+      value == null ? '—' : '${value.toStringAsFixed(1)} / 12';
   static String _signed(double value) =>
       '${value >= 0 ? '+' : ''}${value.toStringAsFixed(1)}';
 }

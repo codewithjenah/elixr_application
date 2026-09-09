@@ -221,8 +221,8 @@ void main() {
 
   group('history rubric formatting', () {
     test('rubric helpers report the 0..12 scale', () {
-      expect(rubricTotalLabel(10), '10/12');
-      expect(rubricAverageLabel(8.25), '8.3/12');
+      expect(rubricTotalLabel(10), '10/12 • 83.3%');
+      expect(rubricAverageLabel(8.25), '8.3/12 • 68.8%');
       expect(rubricPerformanceLevel(10), PerformanceLevel.proficient);
       expect(rubricPerformanceLevel(12), PerformanceLevel.mastered);
       expect(rubricPerformanceLevel(0), PerformanceLevel.beginning);
@@ -242,19 +242,19 @@ void main() {
     ) async {
       await _pumpDetails(tester, session: _rubricSession());
 
-      expect(find.text('ELIXR Score'), findsOneWidget);
-      expect(find.text('Great'), findsOneWidget);
-      expect(find.text('10/12'), findsOneWidget);
+      expect(find.text('Performance'), findsOneWidget);
+      expect(find.text('Proficient'), findsOneWidget);
+      expect(find.text('Rubric Total'), findsOneWidget);
+      expect(find.text('10/12 • 83.3%'), findsOneWidget);
 
-      expect(find.text('Form'), findsOneWidget);
-      expect(find.text('Control'), findsOneWidget);
-      expect(find.text('Finish'), findsOneWidget);
-      expect(find.text('Position'), findsOneWidget);
-      expect(find.text('3/3'), findsNWidgets(2));
-      expect(find.text('2/3'), findsNWidgets(2));
+      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Stability / Control'), findsOneWidget);
+      expect(find.text('Hold / Completion'), findsOneWidget);
+      expect(find.text('Prop Positioning'), findsOneWidget);
+      expect(find.text('3 / 3'), findsNWidgets(2));
+      expect(find.text('2 / 3'), findsNWidgets(2));
 
       expect(find.textContaining('Legacy Score'), findsNothing);
-      expect(find.textContaining('%'), findsNothing);
       expect(find.text('No confirmed movement image'), findsOneWidget);
     });
 
@@ -265,7 +265,7 @@ void main() {
 
       expect(find.text('Legacy Score: 84/100'), findsOneWidget);
       expect(find.text('Correct Technique'), findsNothing);
-      expect(find.text('ELIXR Score'), findsNothing);
+      expect(find.text('Rubric Total'), findsNothing);
       expect(find.textContaining('/ 12'), findsNothing);
     });
 
@@ -300,7 +300,7 @@ void main() {
         loadEvidence: (_) async => _onePixelPng,
       );
 
-      expect(find.text('Form'), findsOneWidget);
+      expect(find.text('Correct Technique'), findsOneWidget);
       expect(find.text('Confirmed movement image'), findsOneWidget);
       expect(find.text('Click to enlarge'), findsOneWidget);
       expect(find.byKey(const Key('history-evidence-preview')), findsOneWidget);
@@ -427,12 +427,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Average Score'), findsOneWidget);
-      expect(find.text('9.5/12'), findsOneWidget);
-      expect(find.text('Best Score'), findsOneWidget);
-      expect(find.text('11/12'), findsOneWidget);
-      expect(find.text('Average Rubric'), findsNothing);
-      expect(find.text('Best Rubric'), findsNothing);
+      expect(find.text('Average Rubric'), findsOneWidget);
+      expect(find.text('9.5/12 • 79.2%'), findsOneWidget);
+      expect(find.text('Best Rubric'), findsOneWidget);
+      expect(find.text('11/12 • 91.7%'), findsOneWidget);
+      expect(find.text('Average Score'), findsNothing);
+      expect(find.text('Best Score'), findsNothing);
     });
 
     testWidgets('legacy-only cohort keeps the 0..100 labels', (tester) async {
@@ -479,8 +479,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Average Score'), findsOneWidget);
-      expect(find.text('9/12'), findsOneWidget);
+      expect(find.text('Average Rubric'), findsOneWidget);
+      expect(find.text('9/12 • 75%'), findsOneWidget);
       expect(find.byKey(const Key('history-legacy-info')), findsOneWidget);
       expect(find.byIcon(FluentIcons.info), findsOneWidget);
       expect(
@@ -679,9 +679,9 @@ void main() {
       await tester.tap(find.text('Hand Stall'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Form'), findsOneWidget);
-      expect(find.text('ELIXR Score'), findsOneWidget);
-      expect(find.text('10/12'), findsWidgets);
+      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Performance'), findsOneWidget);
+      expect(find.text('10/12 • 83.3%'), findsWidgets);
     });
   });
 }

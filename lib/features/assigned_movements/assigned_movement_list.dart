@@ -51,18 +51,6 @@ int _classworkColumnCount(double width) {
   return 1;
 }
 
-String _teacherCreatedSectionSubtitle(List<AssignedMovementItem> items) {
-  final hasTemplate = items.any((item) => item.assignment.isTemplateScored);
-  final hasReview = items.any((item) => !item.assignment.isTemplateScored);
-  if (hasTemplate && !hasReview) {
-    return 'ELIXR automatically checks these activities. No recording clip is required.';
-  }
-  if (hasTemplate && hasReview) {
-    return 'Teacher Review recordings and Automatic ELIXR Assessment activities.';
-  }
-  return 'Record a clip for your teacher to review. Preview it after you submit.';
-}
-
 /// Shared assignment cards for Assigned Movements and the class detail page.
 class AssignedMovementList extends StatelessWidget {
   const AssignedMovementList({
@@ -167,7 +155,8 @@ class AssignedMovementContent extends StatelessWidget {
                 sectionKey: const Key('assigned_movements_teacher_section'),
                 icon: FluentIcons.assign,
                 title: 'Teacher-created',
-                subtitle: _teacherCreatedSectionSubtitle(teacherCreated),
+                subtitle:
+                    'Record a clip for your teacher to review. Preview it after you submit.',
                 accent: AppColors.primary,
                 assignmentCount: teacherCreated.length,
               ),
@@ -930,9 +919,7 @@ String assignedMovementActionLabel(
   GroupAssignment assignment,
   AssignmentAttempt? attempt,
 ) {
-  if (assignment.isTemplateScored) {
-    return attempt == null ? 'Start practice' : 'Try again';
-  }
+  if (assignment.isRetiredTemplate) return 'Retired';
   if (assignment.isTeacherCreated &&
       (attempt == null ||
           attempt.status == AssignmentAttemptStatus.draft ||
@@ -976,10 +963,7 @@ bool canStartAssignedMovement(
   AssignmentAttempt? submission, {
   Iterable<AssignmentAttempt> activityAttempts = const [],
 }) {
-  if (!assignment.isActive) return false;
-  if (assignment.isTemplateScored) {
-    return isTeacherAssignmentSubmissionOpen(assignment: assignment);
-  }
+  if (!assignment.isActive || assignment.isRetiredTemplate) return false;
   if (!assignment.isTeacherCreated) return true;
   if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) return false;
   if (assignment.activityAssessment != null) {
@@ -1076,10 +1060,7 @@ String assignedMovementStatusLabel(
   AssignmentAttempt? attempt,
   AssignmentAttempt? submission,
 ) {
-  if (assignment.isTemplateScored) {
-    if (attempt == null) return 'Not started';
-    return attempt.rubricTotal == null ? 'Submitted' : 'Scored';
-  }
+  if (assignment.isRetiredTemplate) return 'Historical';
   if (assignment.isTeacherCreated) {
     final current = submission ?? attempt;
     if (current == null ||
@@ -1116,7 +1097,7 @@ Color assignedMovementStatusColor(
   AssignmentAttempt? attempt,
   AssignmentAttempt? submission,
 ) {
-  if (assignment.isTemplateScored) return AppColors.accent;
+  if (assignment.isRetiredTemplate) return AppColors.warning;
   final label = assignedMovementStatusLabel(assignment, attempt, submission);
   return switch (label) {
     'Approved' || 'Checked' => AppColors.success,
@@ -1133,11 +1114,12 @@ String assignedMovementStatusLine(
   AssignmentAttempt? attempt,
   AssignmentAttempt? submission,
 ) {
-  if (assignment.isTemplateScored) {
+  if (assignment.isRetiredTemplate) {
     final total = attempt?.rubricTotal;
-    return total == null
-        ? 'Automatic ELIXR Assessment · Wrist Stall'
-        : 'Automatic ELIXR Assessment · ${AssessmentScoreDisplay.officialWithPerformance(total)}';
+    final level = attempt?.performanceLevel?.label;
+    return 'Historical · Automatic template assessment retired'
+        '${total == null ? '' : ' · Previous score ${AssessmentScoreDisplay.official(total)}'}'
+        '${level == null ? '' : ' · $level'}';
   }
   final dueText = assignedMovementDueLabel(assignment);
   final attemptText = assignedMovementStatusLabel(
@@ -1154,7 +1136,7 @@ String? assignedMovementDetailLine(
   AssignmentAttempt? attempt,
   AssignmentAttempt? submission,
 ) {
-  if (assignment.isTemplateScored) {
+  if (assignment.isRetiredTemplate) {
     return assignedMovementStatusLine(assignment, attempt, submission);
   }
   if (assignment.isTeacherCreated) {
@@ -1164,7 +1146,7 @@ String? assignedMovementDetailLine(
         current?.gradeScore != null &&
         current?.gradeMaxScore != null) {
       final score =
-          'Teacher Grade ${AssessmentScoreDisplay.teacherActivity(earned: current!.gradeScore!, maximum: current.gradeMaxScore!)}';
+          'Score ${AssessmentScoreDisplay.teacherActivity(earned: current!.gradeScore!, maximum: current.gradeMaxScore!)}';
       if (feedback != null && feedback.isNotEmpty) {
         return '$score · $feedback';
       }

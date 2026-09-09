@@ -40,7 +40,6 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
-    AssessmentSpec? automaticAssessment,
   }) {
     createCalls += 1;
     lastAssessment = assessment;
@@ -51,7 +50,6 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
-      automaticAssessment: automaticAssessment,
     );
   }
 
@@ -64,7 +62,6 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
-    AssessmentSpec? automaticAssessment,
   }) {
     editCalls += 1;
     lastAssessment = assessment;
@@ -76,7 +73,6 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
-      automaticAssessment: automaticAssessment,
     );
   }
 }
@@ -125,8 +121,6 @@ void main() {
     TeacherMovementRevision? existingRevision,
     TeacherReviewedSaveCallback? onCreate,
     TeacherActivitySaveCallback? onCreateActivity,
-    TeacherAutomaticSaveCallback? onCreateAutomatic,
-    TeacherAutomaticSaveCallback? onEditAutomatic,
     Size size = const Size(1280, 900),
     FluentThemeData? theme,
     TextScaler? textScaler,
@@ -174,39 +168,6 @@ void main() {
                   safetyGuidance: safetyGuidance,
                 ),
           onCreateActivity: onCreateActivity,
-          onCreateAutomatic:
-              onCreateAutomatic ??
-              ({
-                required title,
-                required instructions,
-                required laterality,
-                safetyGuidance,
-              }) => controller.createMovement(
-                title: title,
-                instructions: instructions,
-                requiredProp: TrainingProp.bottle,
-                safetyGuidance: safetyGuidance,
-                automaticAssessment: AssessmentSpec(laterality: laterality),
-              ),
-          onEditAutomatic:
-              onEditAutomatic ??
-              (existing == null
-                  ? null
-                  : ({
-                      required title,
-                      required instructions,
-                      required laterality,
-                      safetyGuidance,
-                    }) => controller.editMovement(
-                      movement: existing,
-                      title: title,
-                      instructions: instructions,
-                      requiredProp: TrainingProp.bottle,
-                      safetyGuidance: safetyGuidance,
-                      automaticAssessment: AssessmentSpec(
-                        laterality: laterality,
-                      ),
-                    )),
         ),
       ),
     );
@@ -256,8 +217,8 @@ void main() {
   testWidgets('builder exposes only teacher-reviewed fields', (tester) async {
     await pumpBuilder(tester);
 
-    expect(find.text('Teacher Review'), findsOneWidget);
-    expect(find.text('Automatic ELIXR Assessment'), findsOneWidget);
+    expect(find.text('Teacher reviewed'), findsOneWidget);
+    expect(find.textContaining('No automatic ELIXR score'), findsOneWidget);
     expect(find.byKey(const ValueKey('builder-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('builder-instructions')), findsOneWidget);
     expect(find.byKey(const ValueKey('builder-safety')), findsOneWidget);
@@ -387,10 +348,10 @@ void main() {
 
     await pumpBuilder(tester, existing: existing, existingRevision: revision);
 
-    expect(find.text('Teacher Review'), findsOneWidget);
+    expect(find.text('Teacher reviewed'), findsOneWidget);
     expect(find.text('Save revision'), findsOneWidget);
-    expect(find.text('Automatic ELIXR Assessment'), findsOneWidget);
-    expect(find.text('Test Movement'), findsNothing);
+    expect(find.text('Template scored'), findsNothing);
+    expect(find.text('Live Test'), findsNothing);
 
     await tester.enterText(
       find.byKey(const ValueKey('builder-instructions')),
@@ -975,42 +936,7 @@ void main() {
     expect(find.text('Template scored'), findsNothing);
   });
 
-  testWidgets(
-    'automatic Wrist Stall save publishes a left or right template revision',
-    (tester) async {
-      await pumpBuilder(tester);
-      await tester.tap(
-        find.byKey(const ValueKey('builder-assessment-automatic')),
-      );
-      await tester.pump();
-      expect(find.text('Test Movement'), findsOneWidget);
-      expect(find.text('Balance / Stall'), findsWidgets);
-      expect(find.text('Wrist Stall'), findsWidgets);
-      await tester.tap(find.byKey(const ValueKey('builder-laterality-right')));
-      await tester.pump();
-      await tester.enterText(
-        find.byKey(const ValueKey('builder-title')),
-        'Classroom Wrist Stall',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('builder-instructions')),
-        'Balance the bottle on the right wrist.',
-      );
-      await tester.tap(find.text('Create'));
-      await tester.pumpAndSettle();
-
-      expect(movements.createCalls, 1);
-      final revision = movements.revisions.values.single;
-      expect(revision.assessmentMode, AssessmentMode.templateScored);
-      expect(revision.spec, isA<TemplateScoredRevisionSpec>());
-      expect(
-        (revision.spec as TemplateScoredRevisionSpec).assessment.laterality,
-        AssessmentLaterality.right,
-      );
-    },
-  );
-
-  testWidgets('historical template movement stays editable as automatic', (
+  testWidgets('historical template movement is read-only in the builder', (
     tester,
   ) async {
     const movementId = 'legacy-movement';
@@ -1036,15 +962,18 @@ void main() {
 
     await pumpBuilder(tester, existing: movement, existingRevision: revision);
 
-    expect(find.text('Automatic ELIXR Assessment'), findsWidgets);
-    expect(find.text('Test Movement'), findsOneWidget);
-    expect(find.text('Save revision'), findsOneWidget);
-    expect(find.text('Historical template scoring'), findsNothing);
+    expect(find.text('Historical template scoring'), findsOneWidget);
+    expect(
+      find.textContaining('Automatic template assessment has been retired'),
+      findsOneWidget,
+    );
+    expect(find.text('Save revision'), findsNothing);
+    expect(find.text('Template scored'), findsNothing);
     expect(
       tester
           .widget<TextBox>(find.byKey(const ValueKey('builder-title')))
           .enabled,
-      isTrue,
+      isFalse,
     );
   });
 }

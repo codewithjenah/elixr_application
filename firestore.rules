@@ -3234,34 +3234,6 @@ service cloud.firestore {
           )
         );
     }
-    function validAssessmentSpecV1(value) {
-      return value is map
-        && value.keys().hasOnly([
-          'schema_version', 'template_id', 'prop', 'target', 'laterality'
-        ])
-        && value.schema_version == 1
-        && value.template_id == 'balance_stall.wrist_v1'
-        && value.prop == 'bottle'
-        && value.target == 'wrist'
-        && value.laterality in ['left', 'right', 'either'];
-    }
-    function validTemplateScoredSpec(spec) {
-      return spec is map
-        && (
-          spec.keys().hasOnly(['instructions', 'required_prop', 'assessment'])
-          || spec.keys().hasOnly([
-            'instructions', 'required_prop', 'assessment', 'safety_guidance'
-          ])
-        )
-        && isBoundedText(spec.instructions, 2000)
-        && spec.required_prop == 'bottle'
-        && (
-          !spec.keys().hasAny(['safety_guidance'])
-          || isBoundedText(spec.safety_guidance, 1000)
-        )
-        && validAssessmentSpecV1(spec.assessment)
-        && spec.assessment.prop == spec.required_prop;
-    }
     function validTeacherMovementCreate(data, movementId) {
       return isVerifiedTeacher()
         && isClassroomDocId(movementId)
@@ -3294,7 +3266,7 @@ service cloud.firestore {
         && request.resource.data.status == 'archived'
         && get(teacherMovementRevisionPath(
           movementId, resource.data.current_revision_id
-        )).data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        )).data.assessment_mode == 'teacher_reviewed'
         && request.resource.data.title == resource.data.title
         && request.resource.data.current_revision_id == resource.data.current_revision_id
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -3316,7 +3288,7 @@ service cloud.firestore {
         && request.resource.data.status == 'active'
         && get(teacherMovementRevisionPath(
           movementId, resource.data.current_revision_id
-        )).data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        )).data.assessment_mode == 'teacher_reviewed'
         && request.resource.data.current_revision_id != resource.data.current_revision_id
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'current_revision_id', 'updated_at'])
@@ -3343,13 +3315,8 @@ service cloud.firestore {
         && data.movement_id == movementId
         && data.teacher_id == request.auth.uid
         && data.schema_version in [1, 2]
-        && (
-          (data.assessment_mode == 'teacher_reviewed'
-            && validTeacherReviewedSpec(data.spec))
-          || (data.assessment_mode == 'template_scored'
-            && validTemplateScoredSpec(data.spec)
-            && data.spec.assessment.laterality in ['left', 'right'])
-        )
+        && data.assessment_mode == 'teacher_reviewed'
+        && validTeacherReviewedSpec(data.spec)
         && data.created_at == request.time
         && afterRoot.teacher_id == request.auth.uid
         && afterRoot.current_revision_id == revisionId;
@@ -3363,7 +3330,10 @@ service cloud.firestore {
         && isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid
         && (
-          isVerifiedTeacher()
+          (get(teacherMovementRevisionPath(
+            movementId, resource.data.current_revision_id
+          )).data.assessment_mode != 'template_scored'
+            && isVerifiedTeacher())
           || !exists(userPath(request.auth.uid))
         );
 
@@ -3378,7 +3348,8 @@ service cloud.firestore {
           && isTeacherClaim()
           && resource.data.teacher_id == request.auth.uid
           && (
-            isVerifiedTeacher()
+            (resource.data.assessment_mode != 'template_scored'
+              && isVerifiedTeacher())
             || !exists(userPath(request.auth.uid))
           );
       }
@@ -3403,13 +3374,6 @@ service cloud.firestore {
         'due_at', 'max_score', 'grading_locked', 'audience_type', 'topic',
         'configuration_revision', 'activity_assessment', 'attempt_policy',
         'deletion_state', 'publish_at'
-      ]);
-    }
-    function templateScoredAssignmentAllowedKeys() {
-      return groupAssignmentRequiredKeys().concat([
-        'display_instructions', 'display_safety_guidance', 'allowed_prop',
-        'due_at', 'audience_type', 'topic', 'deletion_state', 'publish_at',
-        'assessment_spec'
       ]);
     }
     function isLegacyEntireClassAssignment(data) {
@@ -3648,36 +3612,11 @@ service cloud.firestore {
               && validTeacherCreatedAssignmentCreate(data, teacherId)
         );
     }
-    function validTemplateScoredAssignmentUpdate() {
-      return resource.data.assessment_mode == 'template_scored'
-        && request.resource.data.assessment_mode == 'template_scored'
-        && request.resource.data.origin == resource.data.origin
-        && request.resource.data.movement_id == resource.data.movement_id
-        && request.resource.data.revision_id == resource.data.revision_id
-        && request.resource.data.assessment_spec == resource.data.assessment_spec
-        && request.resource.data.allowed_prop == resource.data.allowed_prop
-        && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
-        && request.resource.data.keys().hasOnly(templateScoredAssignmentAllowedKeys())
-        && validAssignmentPublicationShape(request.resource.data)
-        && validAssignmentLifecycleTransition(resource.data, request.resource.data)
-        && request.resource.data.updated_at == request.time
-        && (
-          !request.resource.data.keys().hasAny(['due_at'])
-          || request.resource.data.due_at is timestamp
-        )
-        && (!request.resource.data.keys().hasAny(['topic'])
-          || isBoundedText(request.resource.data.topic, 80))
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'due_at', 'updated_at', 'topic', 'publish_at']);
-    }
     function validGroupAssignmentUpdate() {
       return isVerifiedTeacher()
         && resource.data.teacher_id == request.auth.uid
-        && (
-          validTemplateScoredAssignmentUpdate()
-          || (
-            resource.data.assessment_mode != 'template_scored'
-            && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
+        && resource.data.assessment_mode != 'template_scored'
+        && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
         && request.resource.data.keys().hasOnly(groupAssignmentAllowedKeys())
         && validAssignmentPublicationShape(request.resource.data)
         && validAssignmentLifecycleTransition(resource.data, request.resource.data)
@@ -3689,8 +3628,8 @@ service cloud.firestore {
         && (!request.resource.data.keys().hasAny(['topic'])
           || isBoundedText(request.resource.data.topic, 80))
         && (
-          resource.data.origin == 'official_elixr'
-          ? (
+          resource.data.origin != 'official_elixr'
+          || (
             !request.resource.data.keys().hasAny(['max_score',
               'grading_locked', 'grading_locked_at'])
             && (
@@ -3710,8 +3649,6 @@ service cloud.firestore {
               )
             )
           )
-          : !request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['allowed_prop'])
         )
         && (
           !request.resource.data.keys().hasAny(['max_score'])
@@ -3749,10 +3686,7 @@ service cloud.firestore {
         )
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'due_at', 'updated_at', 'max_score',
-          'grading_locked', 'grading_locked_at', 'topic', 'publish_at',
-          'allowed_prop'])
-          )
-        );
+          'grading_locked', 'grading_locked_at', 'topic', 'publish_at']);
     }
 
     function validAssignmentPublicationShape(data) {
@@ -3784,11 +3718,6 @@ service cloud.firestore {
         );
       allow list: if isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid;
-      // Teacher Activity snapshots stay on this client create path.
-      // Template-scored assignments are written by createClassroomAssignment
-      // (Admin SDK) so they skip these rules. Client creates cannot inject
-      // assessment_spec without exceeding the 1000-expression budget on
-      // five-criterion Activity writes.
       allow create: if request.resource.data.origin == 'teacher_created'
         && request.resource.data.keys().hasAny([
           'activity_assessment', 'configuration_revision'
@@ -3951,12 +3880,6 @@ service cloud.firestore {
         'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
       ]);
     }
-    function templateScoreAllowedKeys() {
-      return assignmentAttemptIdentityKeys().concat([
-        'assessment_version', 'rubric', 'rubric_total',
-        'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
-      ]);
-    }
     function teacherDraftAllowedKeys() {
       return assignmentAttemptIdentityKeys();
     }
@@ -4107,30 +4030,6 @@ service cloud.firestore {
         && data.completed_at == session.created_at
         && data.completed_at == request.time;
     }
-    function validTemplateScoreAttemptCreate(data, attemptId) {
-      return data.attempt_kind == 'template_score'
-        && attemptId.matches('^template_score_[A-Za-z0-9]+$')
-        && data.origin == 'teacher_created'
-        && data.assessment_mode == 'template_scored'
-        && data.status == 'submitted'
-        && data.keys().hasOnly(templateScoreAllowedKeys())
-        && data.awards_global_xp == false
-        && !data.keys().hasAny(['source_session_id'])
-        && data.assessment_version == 2
-        && validRubricMap(data.rubric)
-        && isRubricTotal(data.rubric_total)
-        && data.rubric_total
-          == data.rubric.technique
-            + data.rubric.stability
-            + data.rubric.completion
-            + data.rubric.prop_positioning
-        && data.performance_level == performanceLevelFor(data.rubric_total)
-        && data.prop_type == 'bottle'
-        && data.duration_seconds is int
-        && data.duration_seconds >= 0
-        && data.completed_at == request.time
-        && assignmentSubmissionIsOpen(data);
-    }
     function validTeacherDraftAttemptCreate(data, attemptId) {
       return data.attempt_kind == 'teacher_review_draft'
         && attemptId == teacherCreatedDraftAttemptId(data.assignment_id, data.trainee_id)
@@ -4201,9 +4100,7 @@ service cloud.firestore {
             ? validOfficialPointerCreate(data, attemptId)
             : data.attempt_kind == 'teacher_review_draft'
               ? validTeacherDraftAttemptCreate(data, attemptId)
-              : data.attempt_kind == 'template_score'
-                ? validTemplateScoreAttemptCreate(data, attemptId)
-                : validTeacherReviewSubmissionCreate(data, attemptId)
+              : validTeacherReviewSubmissionCreate(data, attemptId)
         );
     }
     function assignmentAttemptFrozenKeys() {
@@ -5033,16 +4930,17 @@ service cloud.firestore {
     }
     // OFFICIAL_MOVEMENT_PROPS_BEGIN
     function officialMovementSupportsProp(name, prop) {
-      // Grouping by prop keeps valid legacy backfills below Firestore's
-      // 1,000-expression evaluation limit without widening the catalog.
-      return (prop == 'bottle' && name in [
-          'Normal Grip', "Bartender's Grip", 'Reverse Grip', 'Claw Grip',
-          'Hand Stall', 'One Finger Stall', 'Forearm Stall', 'Elbow Stall',
-          'Reverse Forearm Stall', 'Shoulder Stall', 'Double Hand Stall'
-        ])
-        || (prop == 'shaker' && name in [
-          'Hand Stall', 'One Finger Stall', 'Forearm Stall', 'Elbow Stall'
-        ])
+      return (name == 'Normal Grip' && prop == 'bottle')
+        || (name == "Bartender's Grip" && prop == 'bottle')
+        || (name == 'Reverse Grip' && prop == 'bottle')
+        || (name == 'Claw Grip' && prop == 'bottle')
+        || (name == 'Hand Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'One Finger Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'Forearm Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'Elbow Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'Reverse Forearm Stall' && prop == 'bottle')
+        || (name == 'Shoulder Stall' && prop == 'bottle')
+        || (name == 'Double Hand Stall' && prop == 'bottle')
         || (name == 'Bottle in a tin' && prop == 'bottle_and_shaker');
     }
     // OFFICIAL_MOVEMENT_PROPS_END

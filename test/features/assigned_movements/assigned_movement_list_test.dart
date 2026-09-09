@@ -900,7 +900,7 @@ void main() {
   );
 
   testWidgets(
-    'Automatic score metadata does not make a Teacher-created card taller than Approved',
+    'Historical metadata does not make a Teacher-created card taller than Approved',
     (tester) async {
       await _pumpList(
         tester,
@@ -909,7 +909,7 @@ void main() {
         items: [
           _teacherItem(
             id: 'hist',
-            title: 'Automatic wrist stall',
+            title: 'Retired template stall',
             assessmentMode: AssessmentMode.templateScored,
             attempt: _historicalAttempt('hist'),
           ),
@@ -921,13 +921,10 @@ void main() {
         ],
       );
 
-      expect(find.text('Scored'), findsOneWidget);
+      expect(find.text('Historical'), findsOneWidget);
       expect(find.text('Approved'), findsOneWidget);
       expect(
-        find.descendant(
-          of: _card('hist'),
-          matching: find.textContaining('Automatic ELIXR Assessment'),
-        ),
+        find.textContaining('Automatic template assessment retired'),
         findsOneWidget,
       );
       expect(

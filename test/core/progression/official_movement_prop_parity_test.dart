@@ -84,15 +84,5 @@ Set<PracticeVariant> _parseRulesOfficialProps(String block) {
       );
     }
   }
-  final grouped = RegExp(r"""\(prop == '([^']+)' && name in \[([^\]]+)\]\)""");
-  for (final match in grouped.allMatches(block)) {
-    final prop = match.group(1)!;
-    for (final nameMatch in RegExp(
-      r'''(?:'([^']+)'|"([^"]+)")''',
-    ).allMatches(match.group(2)!)) {
-      final name = nameMatch.group(1) ?? nameMatch.group(2)!;
-      result.add(PracticeVariant.tryParsePersistenceKey('$name|$prop')!);
-    }
-  }
   return result;
 }

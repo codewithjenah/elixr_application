@@ -11,7 +11,6 @@ import '../models/assignment_attempt_ids.dart';
 import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
-import '../models/rubric_assessment.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
 import '../models/training_prop.dart';
@@ -262,6 +261,12 @@ class InMemoryClassroomAssignmentRepository
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (existing.isRetiredTemplate) {
+      throw const ClassroomException(
+        ClassroomError.identityMismatch,
+        'Retired template-scored assignments are read-only.',
+      );
+    }
     if (existing.status != GroupAssignmentStatus.active) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
@@ -358,10 +363,7 @@ class InMemoryClassroomAssignmentRepository
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    if (!existing.isActive) {
-      throw const ClassroomException(ClassroomError.invalidState);
-    }
-    if (existing.isTemplateScored && maxScore != null) {
+    if (!existing.isActive || existing.isRetiredTemplate) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
     if (maxScore != null) {
@@ -556,7 +558,7 @@ class InMemoryClassroomAssignmentRepository
     return _watch(
       _teacherControllers,
       teacherId,
-      () => _teacherAssignments(teacherId),
+      () => _emitTeacher(teacherId),
     );
   }
 
@@ -647,7 +649,7 @@ class InMemoryClassroomAssignmentRepository
     return _watch(
       _assignmentAttemptControllers,
       '$teacherId|$assignmentId',
-      () => _assignmentAttempts(teacherId, assignmentId),
+      () => _emitAssignmentAttempts(teacherId, assignmentId),
     );
   }
 
@@ -658,7 +660,7 @@ class InMemoryClassroomAssignmentRepository
     return _watch(
       _traineeAttemptControllers,
       traineeId,
-      () => _traineeAttempts(traineeId),
+      () => _emitTraineeAttempts(traineeId),
     );
   }
 
@@ -669,7 +671,7 @@ class InMemoryClassroomAssignmentRepository
     return _watch(
       _teacherAttemptControllers,
       teacherId,
-      () => _teacherAttempts(teacherId),
+      () => _emitTeacherAttempts(teacherId),
     );
   }
 
@@ -880,33 +882,6 @@ class InMemoryClassroomAssignmentRepository
         confirmation: 'DELETE ASSIGNMENT',
       );
     }
-  }
-
-  @override
-  Future<AssignmentAttempt> submitTemplateScore({
-    required String traineeId,
-    required GroupAssignment assignment,
-    required RubricAssessment rubric,
-    required int durationSeconds,
-  }) async {
-    ensureTemplateScoreSubmission(traineeId: traineeId, assignment: assignment);
-    if (durationSeconds < 0) {
-      throw const ClassroomException(ClassroomError.malformed);
-    }
-    final completed = now;
-    final attempt = buildTemplateScoreAttempt(
-      id: newTemplateScoreAttemptId(),
-      traineeId: traineeId,
-      assignment: assignment,
-      rubric: rubric,
-      durationSeconds: durationSeconds,
-      completedAt: completed,
-    );
-    attempts[attempt.id] = attempt;
-    _emitAssignmentAttempts(assignment.teacherId, assignment.id);
-    _emitTraineeAttempts(traineeId);
-    _emitTeacherAttempts(assignment.teacherId);
-    return attempt;
   }
 
   @override
@@ -1410,16 +1385,9 @@ class InMemoryClassroomAssignmentRepository
     required Map<String, int> criterionScores,
     String? feedback,
   }) async {
-    final current = attempts[attempt.id];
-    if (current == null) {
-      throw const ClassroomException(ClassroomError.notFound);
-    }
-    final snapshot = current.activityAssessmentSnapshot;
-    if (snapshot == null || current.teacherId != teacherId) {
+    final snapshot = attempt.activityAssessmentSnapshot;
+    if (snapshot == null || attempt.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
-    }
-    if (current.status != AssignmentAttemptStatus.submitted) {
-      throw const ClassroomException(ClassroomError.invalidState);
     }
     var total = 0;
     for (final criterion in snapshot.rubric.criteria) {
@@ -1432,7 +1400,7 @@ class InMemoryClassroomAssignmentRepository
     if (criterionScores.length != snapshot.rubric.criteria.length) {
       throw const ClassroomException(ClassroomError.invalidGrade);
     }
-    final reviewed = current.copyWith(
+    final reviewed = attempt.copyWith(
       status: AssignmentAttemptStatus.checked,
       gradeScore: total,
       gradeMaxScore: snapshot.rubric.maximumScore,
@@ -1440,7 +1408,7 @@ class InMemoryClassroomAssignmentRepository
       reviewFeedback: feedback,
       checkedAt: now,
       reviewUpdatedAt: now,
-      reviewRevision: (current.reviewRevision ?? 0) + 1,
+      reviewRevision: (attempt.reviewRevision ?? 0) + 1,
     );
     return _storeAttempt(reviewed);
   }
@@ -1651,93 +1619,58 @@ class InMemoryClassroomAssignmentRepository
   void _emitTeacher(String teacherId) {
     final controller = _teacherControllers[teacherId];
     if (controller == null || controller.isClosed) return;
-    controller.add(_teacherAssignments(teacherId));
-  }
-
-  List<GroupAssignment> _teacherAssignments(String teacherId) {
     final items = assignments.values
         .where((assignment) => assignment.teacherId == teacherId)
         .toList();
     _sortAssignments(items);
-    return items;
+    controller.add(items);
   }
 
   void _emitAssignmentAttempts(String teacherId, String assignmentId) {
     final controller =
         _assignmentAttemptControllers['$teacherId|$assignmentId'];
     if (controller == null || controller.isClosed) return;
-    controller.add(_assignmentAttempts(teacherId, assignmentId));
-  }
-
-  List<AssignmentAttempt> _assignmentAttempts(
-    String teacherId,
-    String assignmentId,
-  ) {
-    return attempts.values
+    final items = attempts.values
         .where(
           (attempt) =>
               attempt.teacherId == teacherId &&
               attempt.assignmentId == assignmentId,
         )
         .toList();
+    controller.add(items);
   }
 
   void _emitTraineeAttempts(String traineeId) {
     final controller = _traineeAttemptControllers[traineeId];
     if (controller == null || controller.isClosed) return;
-    controller.add(_traineeAttempts(traineeId));
-  }
-
-  List<AssignmentAttempt> _traineeAttempts(String traineeId) {
-    return attempts.values
-        .where((attempt) => attempt.traineeId == traineeId)
-        .toList();
+    controller.add(
+      attempts.values
+          .where((attempt) => attempt.traineeId == traineeId)
+          .toList(),
+    );
   }
 
   void _emitTeacherAttempts(String teacherId) {
     final controller = _teacherAttemptControllers[teacherId];
     if (controller == null || controller.isClosed) return;
-    controller.add(_teacherAttempts(teacherId));
-  }
-
-  List<AssignmentAttempt> _teacherAttempts(String teacherId) {
-    return attempts.values
-        .where((attempt) => attempt.teacherId == teacherId)
-        .toList();
+    controller.add(
+      attempts.values
+          .where((attempt) => attempt.teacherId == teacherId)
+          .toList(),
+    );
   }
 
   Stream<List<T>> _watch<T>(
     Map<String, StreamController<List<T>>> controllers,
     String key,
-    List<T> Function() snapshot,
+    void Function() emit,
   ) {
     final existing = controllers[key];
-    // Sync delivery keeps in-memory writes visible to the current awaiter.
-    // An async broadcast plus an async replay delays listeners by two
-    // microtasks, so controllers observe stale snapshots after create/seed.
-    final controller = existing != null && !existing.isClosed
-        ? existing
-        : (controllers[key] = StreamController<List<T>>.broadcast(sync: true));
-    StreamSubscription<List<T>>? subscription;
-    late final StreamController<List<T>> replay;
-    replay = StreamController<List<T>>(
-      sync: true,
-      onListen: () {
-        subscription = controller.stream.listen(
-          replay.add,
-          onError: replay.addError,
-          onDone: replay.close,
-        );
-        replay.add(snapshot());
-      },
-      onPause: () => subscription?.pause(),
-      onResume: () => subscription?.resume(),
-      onCancel: () {
-        final cancel = subscription?.cancel();
-        if (cancel != null) unawaited(cancel);
-      },
-    );
-    return replay.stream;
+    if (existing != null && !existing.isClosed) return existing.stream;
+    late final StreamController<List<T>> controller;
+    controller = StreamController<List<T>>.broadcast(onListen: emit);
+    controllers[key] = controller;
+    return controller.stream;
   }
 
   static void _sortAssignments(List<GroupAssignment> items) {

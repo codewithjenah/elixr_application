@@ -11,7 +11,6 @@ import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_practice_screen.dart';
-import 'package:elixr_application/features/assigned_movements/template_scored_practice_screen.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/group_membership.dart';
@@ -29,7 +28,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'template-scored assignment opens automatic practice, not Teacher Review recording',
+    'historical template assignment stays read-only and never opens the camera',
     (tester) async {
       final auth =
           AuthService(
@@ -52,8 +51,8 @@ void main() {
         groups.dispose();
       });
 
-      assignments.assignments['template-assignment'] = const GroupAssignment(
-        id: 'template-assignment',
+      assignments.assignments['retired-assignment'] = const GroupAssignment(
+        id: 'retired-assignment',
         teacherId: 'teacher-1',
         groupId: 'group-1',
         movementId: 'movement-1',
@@ -61,25 +60,11 @@ void main() {
         origin: MovementOrigin.teacherCreated,
         assessmentMode: AssessmentMode.templateScored,
         status: GroupAssignmentStatus.active,
-        displayTitle: 'Classroom Wrist Stall',
+        displayTitle: 'Historical Wrist Stall',
         teacherDisplayName: 'Grace Hopper',
         groupName: 'BSHM 4A',
         allowedProp: TrainingProp.bottle,
-        assessmentSpec: AssessmentSpec(laterality: AssessmentLaterality.left),
-      );
-      groups.seedMembership(
-        GroupMembership(
-          id: GroupMembership.documentId(
-            groupId: 'group-1',
-            traineeId: 'trainee-1',
-          ),
-          groupId: 'group-1',
-          teacherId: 'teacher-1',
-          traineeId: 'trainee-1',
-          traineeDisplayName: 'Ada Lovelace',
-          teacherDisplayName: 'Grace Hopper',
-          status: GroupMembershipStatus.approved,
-        ),
+        assessmentSpec: AssessmentSpec(laterality: AssessmentLaterality.either),
       );
 
       await tester.pumpWidget(
@@ -94,26 +79,18 @@ void main() {
             home: const SizedBox(
               width: 1200,
               height: 800,
-              child: AssignedPracticeScreen(
-                assignmentId: 'template-assignment',
-              ),
+              child: AssignedPracticeScreen(assignmentId: 'retired-assignment'),
             ),
           ),
         ),
       );
-      await tester.pump();
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      expect(find.byType(TemplateScoredPracticeScreen), findsOneWidget);
-      expect(find.byType(LivePracticeScreen), findsNothing);
-      expect(find.text('Automatic ELIXR Assessment'), findsOneWidget);
-      expect(find.text('Bottle'), findsOneWidget);
-      expect(find.text('Left wrist'), findsOneWidget);
-      expect(find.text('Start Activity'), findsOneWidget);
       expect(
         find.textContaining('Automatic template assessment has been retired'),
-        findsNothing,
+        findsOneWidget,
       );
+      expect(find.byType(LivePracticeScreen), findsNothing);
     },
   );
 

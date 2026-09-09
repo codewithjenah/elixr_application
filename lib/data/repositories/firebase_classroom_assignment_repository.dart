@@ -16,7 +16,6 @@ import '../models/assignment_attempt_ids.dart';
 import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
-import '../models/rubric_assessment.dart';
 import '../models/phase6_submission_diagnostics.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
@@ -241,6 +240,12 @@ class FirebaseClassroomAssignmentRepository
     if (current.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (current.isRetiredTemplate) {
+      throw const ClassroomException(
+        ClassroomError.identityMismatch,
+        'Retired template-scored assignments are read-only.',
+      );
+    }
     if (current.status != GroupAssignmentStatus.active) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
@@ -340,10 +345,7 @@ class FirebaseClassroomAssignmentRepository
     if (current.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    if (!current.isActive) {
-      throw const ClassroomException(ClassroomError.invalidState);
-    }
-    if (current.isTemplateScored && maxScore != null) {
+    if (!current.isActive || current.isRetiredTemplate) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
     if (maxScore != null) {
@@ -810,42 +812,6 @@ class FirebaseClassroomAssignmentRepository
       'group_id': groupId,
       'confirmation': confirmation,
     }, timeout: const Duration(minutes: 9));
-  }
-
-  @override
-  Future<AssignmentAttempt> submitTemplateScore({
-    required String traineeId,
-    required GroupAssignment assignment,
-    required RubricAssessment rubric,
-    required int durationSeconds,
-  }) async {
-    ensureTemplateScoreSubmission(traineeId: traineeId, assignment: assignment);
-    if (durationSeconds < 0) {
-      throw const ClassroomException(ClassroomError.malformed);
-    }
-    final user = _auth.currentUser;
-    if (user == null || user.uid != traineeId) {
-      throw const ClassroomException(ClassroomError.forbidden);
-    }
-    final attemptId = newTemplateScoreAttemptId();
-    final attempt = buildTemplateScoreAttempt(
-      id: attemptId,
-      traineeId: traineeId,
-      assignment: assignment,
-      rubric: rubric,
-      durationSeconds: durationSeconds,
-      completedAt: DateTime.now().toUtc(),
-    );
-    final payload = attempt.toCreateMap(
-      createdAt: FieldValue.serverTimestamp(),
-    );
-    payload['completed_at'] = FieldValue.serverTimestamp();
-    await _attempts.doc(attemptId).set(payload);
-    final stored = await getAttempt(attemptId: attemptId);
-    if (stored == null) {
-      throw const ClassroomException(ClassroomError.malformed);
-    }
-    return stored;
   }
 
   @override

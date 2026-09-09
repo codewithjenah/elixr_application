@@ -2,7 +2,6 @@ import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
-import 'package:elixr_application/data/models/assessment_score_display.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/widgets/training_session_header.dart';
@@ -143,11 +142,7 @@ void main() {
     await tester.pump();
 
     final label = tester.widget<Text>(
-      find.text(
-        AssessmentScoreDisplay.performanceCompactLabel(
-          PerformanceLevel.mastered,
-        ),
-      ),
+      find.text(PerformanceLevel.mastered.shortLabel),
     );
     expect(label.style!.color, milestone);
   });

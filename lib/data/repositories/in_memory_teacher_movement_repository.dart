@@ -2,11 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import '../models/assessment_mode.dart';
-import '../models/assessment_spec.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
-import '../models/teacher_movement_revision_spec.dart';
 import '../models/training_prop.dart';
 import 'teacher_movement_repository.dart';
 
@@ -97,15 +95,13 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
-    AssessmentSpec? automaticAssessment,
   }) async {
-    final spec = buildTeacherMovementSpec(
+    final spec = buildTeacherReviewedSpec(
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
-      automaticAssessment: automaticAssessment,
     );
     final movementId = _generateId();
     final revisionId = '${movementId}_v${++_counter}';
@@ -114,9 +110,7 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
       id: revisionId,
       movementId: movementId,
       teacherId: teacherId,
-      assessmentMode: spec is TemplateScoredRevisionSpec
-          ? AssessmentMode.templateScored
-          : AssessmentMode.teacherReviewed,
+      assessmentMode: AssessmentMode.teacherReviewed,
       spec: spec,
       createdAt: created,
     );
@@ -144,7 +138,6 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     required TrainingProp requiredProp,
     String? safetyGuidance,
     TeacherActivityAssessmentConfig? assessment,
-    AssessmentSpec? automaticAssessment,
   }) async {
     final existing = movements[movementId];
     if (existing == null) {
@@ -153,13 +146,16 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    final spec = buildTeacherMovementSpec(
+    ensureRevisionAssessmentMode(
+      revision: revisions['$movementId/${existing.currentRevisionId}'],
+      expected: AssessmentMode.teacherReviewed,
+    );
+    final spec = buildTeacherReviewedSpec(
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
-      automaticAssessment: automaticAssessment,
     );
     final previousRevisionId = existing.currentRevisionId;
     final revisionId = '${movementId}_v${++_counter}';
@@ -168,9 +164,7 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
       id: revisionId,
       movementId: movementId,
       teacherId: teacherId,
-      assessmentMode: spec is TemplateScoredRevisionSpec
-          ? AssessmentMode.templateScored
-          : AssessmentMode.teacherReviewed,
+      assessmentMode: AssessmentMode.teacherReviewed,
       spec: spec,
       createdAt: created,
     );
@@ -201,6 +195,10 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    ensureRevisionAssessmentMode(
+      revision: revisions['$movementId/${existing.currentRevisionId}'],
+      expected: AssessmentMode.teacherReviewed,
+    );
     movements[movementId] = TeacherMovement(
       id: existing.id,
       teacherId: existing.teacherId,
@@ -225,6 +223,10 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    ensureRevisionAssessmentMode(
+      revision: revisions['$movementId/${existing.currentRevisionId}'],
+      expected: AssessmentMode.teacherReviewed,
+    );
     movements.remove(movementId);
     revisions.removeWhere((key, _) => key.startsWith('$movementId/'));
     _emit(teacherId);

@@ -1,6 +1,5 @@
 import '../../core/constants/movements.dart';
 import '../../core/progression/practice_variant.dart';
-import '../../data/models/assessment_score_display.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
@@ -388,14 +387,14 @@ String _buildReason(
   }
 
   if (recommended.scoreTrend == ScoreTrend.declining) {
-    return 'Your recent scores are declining, so this movement needs reinforcement.';
+    return 'Your recent rubric totals are declining, so this movement needs reinforcement.';
   }
 
   final recent = recommended.recentAverageRubric;
   if (recent == null) {
-    return 'This movement has no ELIXR score yet, so practice it next.';
+    return 'This movement has no rubric assessment yet, so practice it next.';
   }
-  return 'Your recent average of ${AssessmentScoreDisplay.official(recent.round())} is your lowest '
+  return 'Your recent rubric average of ${recent.round()} / 12 is your lowest '
       'current mastery result.';
 }
 

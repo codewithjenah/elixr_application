@@ -21,16 +21,18 @@ import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
 import '../../services/auth_service.dart';
 import '../../services/tutorial_progress_service.dart';
-import 'template_scored_practice_screen.dart';
 
 enum AssignedPracticeDispatch {
   officialGuided,
   teacherReviewed,
-  templateScored,
+  retiredTemplate,
   invalid,
 }
 
 AssignedPracticeDispatch dispatchAssignedPractice(GroupAssignment assignment) {
+  if (assignment.isRetiredTemplate) {
+    return AssignedPracticeDispatch.retiredTemplate;
+  }
   if (!assignment.isActive) return AssignedPracticeDispatch.invalid;
   if (assignment.isOfficial) {
     if (assignment.assessmentMode != AssessmentMode.officialGuided) {
@@ -43,13 +45,6 @@ AssignedPracticeDispatch dispatchAssignedPractice(GroupAssignment assignment) {
       return AssignedPracticeDispatch.invalid;
     }
     return AssignedPracticeDispatch.teacherReviewed;
-  }
-  if (assignment.assessmentMode == AssessmentMode.templateScored) {
-    if (assignment.assessmentSpec == null ||
-        !assignment.assessmentSpec!.isCanonicalWristStallV1) {
-      return AssignedPracticeDispatch.invalid;
-    }
-    return AssignedPracticeDispatch.templateScored;
   }
   return AssignedPracticeDispatch.invalid;
 }
@@ -141,6 +136,14 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         return;
       }
       _assignment = assignment;
+      if (assignment.isRetiredTemplate) {
+        setState(() {
+          _loading = false;
+          _error =
+              'Automatic template assessment has been retired. This historical assignment is read-only; previous scores remain available.';
+        });
+        return;
+      }
       if (!assignment.isActive) {
         setState(() {
           _loading = false;
@@ -178,8 +181,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         return;
       }
       AssignmentAttempt? reservedActivityAttempt;
-      if (assignment.isTeacherCreated &&
-          assignment.assessmentMode == AssessmentMode.teacherReviewed) {
+      if (assignment.isTeacherCreated) {
         final attempts = await assignments
             .watchAttemptsForTrainee(traineeId: traineeId)
             .first;
@@ -260,10 +262,11 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
               ),
             );
           });
-        case AssignedPracticeDispatch.templateScored:
+        case AssignedPracticeDispatch.retiredTemplate:
           setState(() {
             _loading = false;
-            _child = TemplateScoredPracticeScreen(assignment: assignment);
+            _error =
+                'Automatic template assessment has been retired. This historical assignment is read-only.';
           });
         case AssignedPracticeDispatch.invalid:
           setState(() {

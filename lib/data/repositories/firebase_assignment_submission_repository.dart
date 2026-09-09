@@ -286,22 +286,15 @@ class FirebaseAssignmentSubmissionRepository
       movementId: attempt.movementId,
       revisionId: attempt.revisionId,
     );
-    final reference = _storage.ref(storagePath);
-    final alreadyUploaded = await _matchingSubmissionObjectExists(
-      reference: reference,
-      expectedSizeBytes: clip.sizeBytes,
-      expectedContentType: AssignmentSubmissionLimits.contentType,
-      expectedCustomMetadata: metadata,
-    );
-    if (!alreadyUploaded) {
-      await reference.putFile(
-        file,
-        SettableMetadata(
-          contentType: AssignmentSubmissionLimits.contentType,
-          customMetadata: metadata,
-        ),
-      );
-    }
+    await _storage
+        .ref(storagePath)
+        .putFile(
+          file,
+          SettableMetadata(
+            contentType: AssignmentSubmissionLimits.contentType,
+            customMetadata: metadata,
+          ),
+        );
     final submittedAt = DateTime.now().toUtc();
     try {
       final submitted = await _classroom.markTeacherReviewSubmitted(
@@ -425,43 +418,6 @@ class FirebaseAssignmentSubmissionRepository
 
   bool _isObjectNotFound(Object error) {
     return error is FirebaseException && error.code == 'object-not-found';
-  }
-
-  Future<bool> _matchingSubmissionObjectExists({
-    required Reference reference,
-    required int expectedSizeBytes,
-    required String expectedContentType,
-    required Map<String, String> expectedCustomMetadata,
-  }) async {
-    final FullMetadata stored;
-    try {
-      stored = await reference.getMetadata();
-    } on FirebaseException catch (error) {
-      // A missing object has no metadata with which the read rule can prove
-      // access, so Firebase may report unauthorized instead of not-found.
-      // The following putFile still evaluates the narrower create/update rule.
-      if (_isObjectNotFound(error) ||
-          error.code == 'unauthorized' ||
-          error.code == 'unauthenticated') {
-        return false;
-      }
-      rethrow;
-    }
-    final customMetadata = stored.customMetadata;
-    final metadataMatches =
-        customMetadata != null &&
-        customMetadata.length == expectedCustomMetadata.length &&
-        expectedCustomMetadata.entries.every(
-          (entry) => customMetadata[entry.key] == entry.value,
-        );
-    if (stored.size != expectedSizeBytes ||
-        stored.contentType != expectedContentType ||
-        !metadataMatches) {
-      throw const AssignmentSubmissionException(
-        'The uploaded Teacher Activity clip does not match this retry.',
-      );
-    }
-    return true;
   }
 
   Future<void> _emitDebugStorageUploadIntent({

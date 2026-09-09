@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/recognition_event.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -1676,48 +1675,6 @@ void main() {
     expect(payload['prop_type'], 'shaker');
     expect(payload['bottle_detection_enabled'], isTrue);
   });
-
-  test('official prepare omits custom assessment fields', () {
-    final payload = WebSocketService.buildPreparePayload(
-      movement: 'Hand Stall',
-      difficulty: 'Medium',
-      sessionId: 'session-official',
-      requestId: 'req-official',
-    );
-    expect(payload.containsKey('session_purpose'), isFalse);
-    expect(payload.containsKey('assessment_spec'), isFalse);
-    expect(payload['movement'], 'Hand Stall');
-  });
-
-  test(
-    'template and live_test prepare send the validated Wrist Stall spec',
-    () {
-      final spec = const AssessmentSpec(laterality: AssessmentLaterality.left);
-      final assigned = WebSocketService.buildPreparePayload(
-        movement: AssessmentSpec.protocolMovementName,
-        difficulty: 'Easy',
-        sessionId: 'session-template',
-        requestId: 'req-template',
-        sessionPurpose: 'template_scored',
-        assessmentSpec: spec,
-      );
-      expect(assigned['session_purpose'], 'template_scored');
-      expect(assigned['assessment_spec'], spec.toMap());
-      expect(assigned.containsKey('allow_submission_recording'), isFalse);
-
-      final liveTest = WebSocketService.buildPreparePayload(
-        movement: AssessmentSpec.protocolMovementName,
-        difficulty: 'Easy',
-        sessionId: 'session-live-test',
-        requestId: 'req-live-test',
-        sessionPurpose: 'live_test',
-        assessmentSpec: spec,
-      );
-      expect(liveTest['session_purpose'], 'live_test');
-      expect(liveTest['assessment_spec'], spec.toMap());
-      expect(liveTest.containsKey('allow_submission_recording'), isFalse);
-    },
-  );
 
   test('bottle_and_shaker prepare/start payloads carry the combined prop', () {
     final preparePayload = WebSocketService.buildPreparePayload(

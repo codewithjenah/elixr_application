@@ -105,26 +105,6 @@ String assignmentAttemptIdForTeacherReviewSubmission(String uniquePart) {
   return 'review_sub_$token';
 }
 
-final _templateScoreIdPattern = RegExp(r'^[A-Za-z0-9]+$');
-
-/// Automatic teacher-created score identity. Each completion writes a new
-/// document so historical attempts stay immutable.
-String assignmentAttemptIdForTemplateScore(String uniquePart) {
-  final token = uniquePart.trim();
-  if (token.isEmpty) {
-    throw ArgumentError('uniquePart is required');
-  }
-  if (!_templateScoreIdPattern.hasMatch(token)) {
-    throw ArgumentError('uniquePart must be alphanumeric');
-  }
-  return 'template_score_$token';
-}
-
-String newTemplateScoreAttemptId({String Function()? entropy}) {
-  final raw = entropy?.call() ?? _defaultEntropy();
-  return assignmentAttemptIdForTemplateScore(raw);
-}
-
 String newTeacherReviewSubmissionAttemptId({String Function()? entropy}) {
   final raw = entropy?.call() ?? _defaultEntropy();
   return assignmentAttemptIdForTeacherReviewSubmission(raw);

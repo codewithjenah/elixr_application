@@ -171,17 +171,4 @@ void main() {
       isNull,
     );
   });
-
-  test('template_score toCreateMap writes classroom evidence without XP', () {
-    final attempt = AssignmentAttempt.tryFromMap(
-      _canonical(),
-      id: 'template_score_abc',
-    )!;
-    final map = attempt.toCreateMap(createdAt: DateTime.utc(2026, 8, 22));
-    expect(map['awards_global_xp'], isFalse);
-    expect(map.containsKey('source_session_id'), isFalse);
-    expect(map['attempt_kind'], 'template_score');
-    expect(map['assessment_mode'], 'template_scored');
-    expect(map['prop_type'], 'bottle');
-  });
 }

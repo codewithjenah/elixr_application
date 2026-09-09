@@ -180,7 +180,7 @@ void main() {
       );
       expect(
         (official.label, official.detail, official.state),
-        ('10/12', 'Great', TeacherGradebookCellState.scored),
+        ('10/12', '83.3%', TeacherGradebookCellState.scored),
       );
     },
   );

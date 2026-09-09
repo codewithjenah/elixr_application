@@ -393,24 +393,6 @@ class _AssignmentHeader extends StatelessWidget {
                     : context.elixTextSecondary,
                 compact: true,
               ),
-              if (assignment.isTemplateScored) ...[
-                const ElixPill(
-                  text: 'Automatic ELIXR Assessment',
-                  color: AppColors.accent,
-                  compact: true,
-                ),
-                const ElixPill(
-                  text: 'Bottle',
-                  color: AppColors.accent,
-                  compact: true,
-                ),
-                if (assignment.assessmentSpec != null)
-                  ElixPill(
-                    text: assignment.assessmentSpec!.lateralityLabel,
-                    color: AppColors.accent,
-                    compact: true,
-                  ),
-              ],
               if (!assignment.isActive)
                 ElixPill(
                   text: 'Archived',
@@ -419,17 +401,6 @@ class _AssignmentHeader extends StatelessWidget {
                 ),
             ],
           ),
-          if (assignment.isTemplateScored) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'ELIXR will automatically check this Wrist Stall using a Bottle '
-              'and the selected wrist. This activity does not use official '
-              'ELIXR progression.',
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ],
           if (assignment.isOfficial) ...[
             const SizedBox(height: AppSpacing.sm),
             Builder(

@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../data/models/assessment_spec.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/recognition_event.dart';
 import '../data/models/training_prop.dart';
@@ -156,8 +155,6 @@ class WebSocketService extends ChangeNotifier {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
-    String sessionPurpose = 'official',
-    AssessmentSpec? assessmentSpec,
   }) {
     final resolvedSessionId =
         sessionId ?? _currentSessionId ?? beginPracticeAttempt();
@@ -179,8 +176,6 @@ class WebSocketService extends ChangeNotifier {
         readinessSpec: readinessSpec,
         sessionMode: sessionMode,
         allowedMovements: allowedMovements,
-        sessionPurpose: sessionPurpose,
-        assessmentSpec: assessmentSpec,
       ),
     );
   }
@@ -578,8 +573,6 @@ class WebSocketService extends ChangeNotifier {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
-    String sessionPurpose = 'official',
-    AssessmentSpec? assessmentSpec,
   }) {
     return _buildSessionPayload(
       action: 'prepare',
@@ -594,8 +587,6 @@ class WebSocketService extends ChangeNotifier {
       readinessSpec: readinessSpec,
       sessionMode: sessionMode,
       allowedMovements: allowedMovements,
-      sessionPurpose: sessionPurpose,
-      assessmentSpec: assessmentSpec,
     );
   }
 
@@ -749,8 +740,6 @@ class WebSocketService extends ChangeNotifier {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
-    String sessionPurpose = 'official',
-    AssessmentSpec? assessmentSpec,
   }) {
     final payload = <String, dynamic>{
       'protocol_version': wsProtocolVersion,
@@ -786,12 +775,6 @@ class WebSocketService extends ChangeNotifier {
         for (final entry in allowedMovements ?? const [])
           {'movement': entry.movement, 'prop_type': entry.prop.protocolValue},
       ];
-    }
-    if (sessionPurpose != 'official' || assessmentSpec != null) {
-      payload['session_purpose'] = sessionPurpose;
-      if (assessmentSpec != null) {
-        payload['assessment_spec'] = assessmentSpec.toMap();
-      }
     }
     return payload;
   }

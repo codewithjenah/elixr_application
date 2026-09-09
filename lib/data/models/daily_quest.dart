@@ -1,7 +1,5 @@
-import 'assessment_score_display.dart';
-import 'rubric_assessment.dart';
-import 'session.dart';
-import 'training_prop.dart';
+import '../models/session.dart';
+import '../models/training_prop.dart';
 
 /// Category used only to enforce "never assign multiple X quests to the same
 /// board" constraints during board generation. Not shown in the UI.
@@ -160,8 +158,7 @@ final List<QuestDefinition> questCatalog = [
   ),
   QuestDefinition(
     id: 'score_70',
-    title:
-        'Reach ${AssessmentScoreDisplay.performanceLabel(PerformanceLevel.competent)} in a Session',
+    title: 'Reach Competent in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.easy,
     minimumLevel: 1,
@@ -216,8 +213,7 @@ final List<QuestDefinition> questCatalog = [
   ),
   QuestDefinition(
     id: 'score_85',
-    title:
-        'Reach ${AssessmentScoreDisplay.performanceLabel(PerformanceLevel.proficient)} in a Session',
+    title: 'Reach Proficient in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.medium,
     minimumLevel: 1,
@@ -226,8 +222,7 @@ final List<QuestDefinition> questCatalog = [
   ),
   QuestDefinition(
     id: 'sessions_above_70_x2',
-    title:
-        '${AssessmentScoreDisplay.performanceLabel(PerformanceLevel.competent)} in 2 Sessions',
+    title: 'Competent in 2 Sessions',
     category: QuestCategory.scoreCount,
     tier: QuestTier.medium,
     minimumLevel: 1,
@@ -284,8 +279,7 @@ final List<QuestDefinition> questCatalog = [
   ),
   QuestDefinition(
     id: 'score_95',
-    title:
-        'Reach ${AssessmentScoreDisplay.performanceLabel(PerformanceLevel.mastered)} in a Session',
+    title: 'Reach Mastered in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.hard,
     minimumLevel: 1,

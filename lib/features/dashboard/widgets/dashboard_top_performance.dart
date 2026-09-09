@@ -3,7 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
-import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/session.dart';
 import 'dashboard_panel_card.dart';
 
@@ -21,11 +20,9 @@ class DashboardTopPerformance extends StatelessWidget {
     final recordValue = isRubric
         ? '$rubricTotal'
         : (session?.legacyScore?.toString() ?? '—');
-    final recordLabel = isRubric ? 'Best Score' : 'Best Legacy Score';
-    final recordScale = isRubric ? '/12' : '/100';
-    final levelLabel = session?.performanceLevel == null
-        ? null
-        : AssessmentScoreDisplay.performanceLabel(session!.performanceLevel!);
+    final recordLabel = isRubric ? 'Best Rubric' : 'Best Legacy Score';
+    final recordScale = isRubric ? ' / 12' : ' / 100';
+    final levelLabel = session?.performanceLevel?.label;
     final gold = context.elixColors.milestone;
 
     return DashboardPanelCard(

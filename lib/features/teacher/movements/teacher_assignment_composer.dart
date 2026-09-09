@@ -19,7 +19,6 @@ import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/assessment_mode.dart';
-import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/activity_learning_material.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/assignment_submission_limits.dart';
@@ -28,7 +27,6 @@ import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
-import '../../../data/models/teacher_movement_revision_spec.dart';
 import '../../../data/models/teacher_reviewed_movement_spec.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -91,6 +89,9 @@ class TeacherAssignmentCreationService {
       );
     }
 
+    if (hasTeacherCreated) {
+      ensureTeacherAssignmentMaxScore(maxScore);
+    }
     await _ensureTeacherAuthorization();
     if (!audience.isEntireClass) {
       final members = await groupRepository
@@ -175,9 +176,6 @@ class TeacherAssignmentCreationService {
     if (revision == null) {
       throw const ClassroomException(ClassroomError.notFound);
     }
-    if (revision.assessmentMode == AssessmentMode.teacherReviewed) {
-      ensureTeacherAssignmentMaxScore(maxScore);
-    }
     final normalizedTopic = topic?.trim();
     if (normalizedTopic == null || normalizedTopic.isEmpty) {
       return assignmentRepository.createTeacherCreatedAssignment(
@@ -240,30 +238,6 @@ class TeacherAssignmentCreationService {
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
       assessment: assessment,
-    );
-  }
-
-  Future<TeacherMovement> createAutomaticMovement({
-    required String title,
-    required String instructions,
-    required AssessmentLaterality laterality,
-    String? safetyGuidance,
-  }) async {
-    final movementRepository = this.movementRepository;
-    if (movementRepository == null) {
-      throw const ClassroomException(
-        ClassroomError.notFound,
-        'Teacher Activity data is unavailable right now.',
-      );
-    }
-    await _ensureTeacherAuthorization();
-    return movementRepository.createMovement(
-      teacherId: teacherId,
-      title: title,
-      instructions: instructions,
-      requiredProp: TrainingProp.bottle,
-      safetyGuidance: safetyGuidance,
-      automaticAssessment: AssessmentSpec(laterality: laterality),
     );
   }
 
@@ -498,22 +472,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return spec is TeacherReviewedMovementSpec ? spec : null;
   }
 
-  TemplateScoredRevisionSpec? get _selectedTemplateSpec {
-    final movement = _selectedTeacherCreatedMovement;
-    final revision = movement == null
-        ? null
-        : _teacherMovementRevisions[movement.id];
-    final spec = revision?.spec;
-    return spec is TemplateScoredRevisionSpec ? spec : null;
-  }
-
-  bool get _isSelectedAutomaticAssessment {
-    if (_isEditing) return _editingAssignment?.isTemplateScored == true;
-    return _selectedTemplateSpec != null;
-  }
-
   bool get _hasValidMaxScore {
-    if (!_isTeacherCreated || _isSelectedAutomaticAssessment) return true;
+    if (!_isTeacherCreated) return true;
     if (_isEditing && !_customizeActivity) {
       final value = int.tryParse(_maxScoreController.text.trim());
       return value != null && value >= 1 && value <= 100;
@@ -586,7 +546,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   bool get _hasValidActivityAssessment =>
       !_isTeacherCreated ||
-      _isSelectedAutomaticAssessment ||
       (_isEditing && !_customizeActivity) ||
       _activityAssessment != null;
 
@@ -900,18 +859,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   bool _isAssignableTeacherRevision(TeacherMovementRevision revision) {
-    if (revision.teacherId != widget.teacherId) return false;
-    if (revision.assessmentMode == AssessmentMode.teacherReviewed &&
-        revision.spec is TeacherReviewedMovementSpec) {
-      return true;
-    }
-    if (revision.assessmentMode == AssessmentMode.templateScored) {
-      final spec = revision.spec;
-      return spec is TemplateScoredRevisionSpec &&
-          spec.requiredProp == TrainingProp.bottle &&
-          spec.assessment.isCanonicalWristStallV1;
-    }
-    return false;
+    return revision.teacherId == widget.teacherId &&
+        revision.assessmentMode == AssessmentMode.teacherReviewed &&
+        revision.spec is TeacherReviewedMovementSpec;
   }
 
   @override
@@ -1183,7 +1133,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const _AutomaticScoringCard(),
         ],
         if ((!_isEditing || _canEditTeacherActivity) &&
-            !_isSelectedAutomaticAssessment &&
             ((_isTeacherCreated && _hasValidTeacherMovement) ||
                 _selectedOfficialMovement != null)) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -1265,24 +1214,19 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 onChanged: (_) => setState(() => _validationError = null),
               ),
             ),
-            if (!_isSelectedAutomaticAssessment) ...[
-              const SizedBox(height: AppSpacing.xl),
-              _ComposerSectionHeading(
-                icon: FluentIcons.calculator,
-                eyebrow: 'ASSESSMENT',
-                title: 'Configure this activity assignment',
-                description:
-                    'These settings override the reusable Teacher Activity defaults for this classroom only.',
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _activityAssessmentFields(context),
-            ],
+            const SizedBox(height: AppSpacing.xl),
+            _ComposerSectionHeading(
+              icon: FluentIcons.calculator,
+              eyebrow: 'ASSESSMENT',
+              title: 'Configure this activity assignment',
+              description:
+                  'These settings override the reusable Teacher Activity defaults for this classroom only.',
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _activityAssessmentFields(context),
           ],
         ],
-        if (_isEditing &&
-            _isTeacherCreated &&
-            !_canEditTeacherActivity &&
-            !_isSelectedAutomaticAssessment) ...[
+        if (_isEditing && _isTeacherCreated && !_canEditTeacherActivity) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
             icon: FluentIcons.calculator,
@@ -1941,13 +1885,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   String get _activityInheritanceSummary {
-    if (_isSelectedAutomaticAssessment) {
-      final spec =
-          _editingAssignment?.assessmentSpec ??
-          _selectedTemplateSpec?.assessment;
-      return 'Automatic ELIXR Assessment · Wrist Stall · Bottle · '
-          '${spec?.lateralityLabel ?? 'selected wrist'}';
-    }
     final existingAssessment = _editingAssignment?.activityAssessment;
     if (existingAssessment != null) {
       return '${existingAssessment.readiness.hands.displayLabel} · '
@@ -1972,16 +1909,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   void _initializeCustomizationFromActivity() {
     final movement = _selectedTeacherCreatedMovement;
-    if (movement == null) return;
-    final template = _selectedTemplateSpec;
-    if (template != null) {
-      _assignmentTitleController.text = movement.title;
-      _instructionsController.text = template.instructions;
-      _safetyGuidanceController.text = template.safetyGuidance ?? '';
-      return;
-    }
     final spec = _selectedActivitySpec;
-    if (spec == null) return;
+    if (movement == null || spec == null) return;
     final assessment = spec.effectiveAssessment;
     for (final draft in _customCriteria) {
       draft.dispose();
@@ -2025,18 +1954,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (_isEditing && _editingAssignment!.isOfficial) {
       return 'Official ELIXR guided assessment';
     }
-    if (_isEditing && _editingAssignment!.isTemplateScored) {
-      return 'Automatic ELIXR Assessment · Wrist Stall';
-    }
     if (_isEditing && _editingAssignment!.isTeacherCreated) {
       return 'Teacher reviewed · No automatic ELIXR score';
     }
     final custom = _selectedTeacherCreatedMovement;
     if (_selectedOfficialMovement != null) {
       return 'Official ELIXR guided assessment';
-    }
-    if (_isSelectedAutomaticAssessment) {
-      return 'Automatic ELIXR Assessment · Wrist Stall';
     }
     if (custom != null) return 'Teacher reviewed · No automatic ELIXR score';
     return 'Choose an assignable movement.';
@@ -2152,17 +2075,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (spec is TeacherReviewedMovementSpec) {
       return 'Teacher reviewed · ${spec.requiredProp.displayLabel}';
     }
-    if (spec is TemplateScoredRevisionSpec) {
-      return 'Automatic ELIXR Assessment · ${spec.assessment.lateralityLabel}';
-    }
-    return 'Teacher Activity';
+    return 'Teacher reviewed';
   }
 
   String _teacherMovementDescription(TeacherMovement movement) {
     final spec = _teacherMovementRevisions[movement.id]?.spec;
     if (spec is TeacherReviewedMovementSpec) return spec.instructions;
-    if (spec is TemplateScoredRevisionSpec) return spec.instructions;
-    return 'Trainees complete this Activity in class.';
+    return 'Trainees submit a recording for your review.';
   }
 
   Widget _teacherMovementLoadingState(BuildContext context) {
@@ -2519,28 +2438,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                     creationError = 'That Activity could not be created.';
                   }
                 },
-            onCreateAutomatic:
-                ({
-                  required title,
-                  required instructions,
-                  required laterality,
-                  safetyGuidance,
-                }) async {
-                  try {
-                    created = await widget.creationService
-                        .createAutomaticMovement(
-                          title: title,
-                          instructions: instructions,
-                          laterality: laterality,
-                          safetyGuidance: safetyGuidance,
-                        );
-                  } on ClassroomException catch (error) {
-                    creationError =
-                        error.message ?? 'That movement could not be created.';
-                  } catch (_) {
-                    creationError = 'That movement could not be created.';
-                  }
-                },
             onUploadDemonstration: widget.movementRepository == null
                 ? null
                 : ({required localFile, required duration, required source}) =>
@@ -2634,8 +2531,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
     if (!mounted ||
         _selectedTeacherCreatedMovement?.id != selectedMovementId ||
-        revision == null ||
-        !_isAssignableTeacherRevision(revision)) {
+        revision?.spec is! TeacherReviewedMovementSpec) {
       return;
     }
     setState(() {
@@ -2881,7 +2777,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       final savedAssignment = _savedEditAssignment;
       if (savedAssignment == null &&
           assignment.isTeacherCreated &&
-          !assignment.isTemplateScored &&
           _customizeActivity) {
         final assessment = _activityAssessment;
         final requiredProp = assignment.allowedProp;
@@ -2909,10 +2804,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               teacherId: widget.teacherId,
               assignmentId: assignment.id,
               dueAt: _dueAt,
-              maxScore:
-                  assignment.isTeacherCreated &&
-                      !assignment.gradingLocked &&
-                      !assignment.isTemplateScored
+              maxScore: assignment.isTeacherCreated && !assignment.gradingLocked
                   ? _maximumScore
                   : null,
               topic: _topicController.text.trim(),

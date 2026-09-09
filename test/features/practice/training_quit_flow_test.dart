@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
-import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
@@ -63,8 +62,6 @@ class _TestWebSocket extends WebSocketService {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
-    String sessionPurpose = 'official',
-    AssessmentSpec? assessmentSpec,
   }) {
     return prepareAck.future;
   }

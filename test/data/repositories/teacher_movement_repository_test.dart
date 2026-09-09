@@ -175,7 +175,7 @@ void main() {
   });
 
   test(
-    'historical template movements remain readable and archivable',
+    'historical template movements remain readable but not archivable',
     () async {
       const movementId = 'legacy-movement';
       const revisionId = 'legacy-revision';
@@ -203,53 +203,21 @@ void main() {
         (await repo.getRevision(
           movementId: movementId,
           revisionId: revisionId,
-        ))!.isTemplateScored,
+        ))!.isRetiredTemplate,
         isTrue,
       );
-      await repo.archiveMovement(
-        teacherId: 'teacher-1',
-        movementId: movementId,
-      );
       expect(
-        (await repo.getMovement(movementId: movementId))!.status,
-        TeacherMovementStatus.archived,
-      );
-    },
-  );
-
-  test(
-    'create publishes an immutable Wrist Stall automatic revision',
-    () async {
-      final movement = await repo.createMovement(
-        teacherId: 'teacher-1',
-        title: 'Classroom Wrist Stall',
-        instructions: 'Balance the bottle on the left wrist.',
-        requiredProp: TrainingProp.bottle,
-        automaticAssessment: const AssessmentSpec(
-          laterality: AssessmentLaterality.left,
-        ),
-      );
-      final revision = await repo.getRevision(
-        movementId: movement.id,
-        revisionId: movement.currentRevisionId,
-      );
-      expect(revision!.assessmentMode, AssessmentMode.templateScored);
-      expect(
-        (revision.spec as TemplateScoredRevisionSpec).assessment.laterality,
-        AssessmentLaterality.left,
-      );
-
-      await expectLater(
-        repo.createMovement(
+        () => repo.archiveMovement(
           teacherId: 'teacher-1',
-          title: 'Either Wrist Stall',
-          instructions: 'Balance the bottle on either wrist.',
-          requiredProp: TrainingProp.bottle,
-          automaticAssessment: const AssessmentSpec(
-            laterality: AssessmentLaterality.either,
+          movementId: movementId,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.identityMismatch,
           ),
         ),
-        throwsA(isA<ClassroomException>()),
       );
     },
   );

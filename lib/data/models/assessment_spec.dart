@@ -1,6 +1,10 @@
-/// Validated Wrist Stall AssessmentSpec v1 for teacher-created automatic
-/// assessment. Unknown keys and values outside the Bottle + Wrist matrix
-/// fail closed. Teachers cannot set CV thresholds or executable expressions.
+/// Historical Firestore compatibility parser for the retired Phase 7
+/// AssessmentSpec v1 Wrist Stall records.
+///
+/// Unknown keys and values outside the locked Bottle + Wrist matrix fail
+/// closed. This is not a runtime evaluator, does not accept teacher
+/// thresholds or executable expressions, and intentionally has no serializer:
+/// current application payloads cannot emit retired template data.
 enum AssessmentTemplateId {
   balanceStallWristV1('balance_stall.wrist_v1');
 
@@ -70,10 +74,6 @@ enum AssessmentLaterality {
 class AssessmentSpec {
   static const currentSchemaVersion = 1;
 
-  /// Protocol identity for custom template sessions. Never an official catalog
-  /// movement name and never used as a rule-engine key.
-  static const protocolMovementName = 'Template Assessment';
-
   static const _allowedKeys = {
     'schema_version',
     'template_id',
@@ -101,38 +101,6 @@ class AssessmentSpec {
         templateId == AssessmentTemplateId.balanceStallWristV1 &&
         prop == AssessmentProp.bottle &&
         target == AssessmentTarget.wrist;
-  }
-
-  /// New teacher writes must pick a specific wrist. Historical `either`
-  /// records remain readable and executable.
-  bool get isWritableWristStallV1 {
-    return isCanonicalWristStallV1 &&
-        (laterality == AssessmentLaterality.left ||
-            laterality == AssessmentLaterality.right);
-  }
-
-  String get templateFamilyLabel => 'Balance / Stall';
-
-  String get templateLabel => 'Wrist Stall';
-
-  String get lateralityLabel => switch (laterality) {
-    AssessmentLaterality.left => 'Left wrist',
-    AssessmentLaterality.right => 'Right wrist',
-    AssessmentLaterality.either => 'Either wrist',
-  };
-
-  String get displayMovementLabel => laterality == AssessmentLaterality.either
-      ? templateLabel
-      : '$templateLabel (${laterality == AssessmentLaterality.left ? 'Left' : 'Right'})';
-
-  Map<String, dynamic> toMap() {
-    return {
-      'schema_version': schemaVersion,
-      'template_id': templateId.wireValue,
-      'prop': prop.wireValue,
-      'target': target.wireValue,
-      'laterality': laterality.wireValue,
-    };
   }
 
   static AssessmentSpec? tryFrom(Object? raw) {

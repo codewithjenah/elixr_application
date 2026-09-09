@@ -10,7 +10,6 @@ import '../../../core/progression/progression_access.dart';
 import '../../../core/progression/progression_catalog.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/movement_image.dart';
-import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../services/trainee_progression_service.dart';
@@ -289,7 +288,7 @@ class _MovementCardState extends State<MovementCard>
       builder: (context, constraints) {
         final alwaysRevealMetadata = constraints.maxWidth < 680;
         final statsLabel = _practiced
-            ? '${widget.sessionCount} session${widget.sessionCount == 1 ? '' : 's'}, ${widget.averageRubricTotal == null ? 'no score yet' : 'average ${AssessmentScoreDisplay.official(widget.averageRubricTotal!.round())}'}'
+            ? '${widget.sessionCount} session${widget.sessionCount == 1 ? '' : 's'}, ${widget.averageRubricTotal == null ? 'no rubric result yet' : 'average rubric ${widget.averageRubricTotal!.round()} of 12'}'
             : (_enabled ? 'Ready to learn' : 'Coming soon');
         final card = Semantics(
           button: cardInteractive,
@@ -786,8 +785,8 @@ class _MovementCardState extends State<MovementCard>
         _MetaChip(
           icon: FluentIcons.completed,
           label: widget.averageRubricTotal == null
-              ? 'No score yet'
-              : 'Average ${AssessmentScoreDisplay.official(widget.averageRubricTotal!.round())}',
+              ? 'No rubric result yet'
+              : 'Average rubric ${widget.averageRubricTotal!.round()} / 12',
           color: context.elixTextSecondary,
         ),
       );

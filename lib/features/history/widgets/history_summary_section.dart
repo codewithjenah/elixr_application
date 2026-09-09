@@ -4,7 +4,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
-import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/rubric_assessment.dart';
 import '../history_format.dart';
 
@@ -43,7 +42,7 @@ class HistorySummarySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final averageLabel = 'Average Score';
+    final averageLabel = _hasRubricData ? 'Average Rubric' : 'Average Score';
     final averageValue = _hasRubricData
         ? (averageRubricTotal == null
               ? '—'
@@ -51,7 +50,7 @@ class HistorySummarySection extends StatelessWidget {
         : (averageLegacyScore == null
               ? '—'
               : averageLegacyScore!.toStringAsFixed(0));
-    final bestLabel = 'Best Score';
+    final bestLabel = _hasRubricData ? 'Best Rubric' : 'Best Score';
     final bestValue = _hasRubricData
         ? (bestRubricTotal == null ? '—' : rubricTotalLabel(bestRubricTotal!))
         : (bestLegacyScore?.toString() ?? '—');
@@ -62,9 +61,7 @@ class HistorySummarySection extends StatelessWidget {
               ? 'from $legacySessionCount ${legacySessionCount == 1 ? 'session' : 'sessions'}'
               : null);
     final bestDetail = _hasRubricData && bestRubricTotal != null
-        ? AssessmentScoreDisplay.performanceLabel(
-            PerformanceLevel.fromTotal(bestRubricTotal!),
-          )
+        ? PerformanceLevel.fromTotal(bestRubricTotal!).label
         : null;
     final timeDetail = totalSessions > 0
         ? 'across $totalSessions ${totalSessions == 1 ? 'session' : 'sessions'}'

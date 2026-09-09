@@ -202,10 +202,7 @@ void main() {
     final generation = controller.start()!;
     expect(controller.markPrepared(generation), isTrue);
     expect(controller.phase, FreestyleSessionPhase.ready);
-    expect(
-      controller.applyEvent(generation, _event(eventId: 'during-activate')),
-      isTrue,
-    );
+    expect(controller.applyEvent(generation, _event(eventId: 'during-activate')), isTrue);
     expect(controller.stats.combo, 1);
     expect(controller.liveLabel, 'Normal Grip');
     expect(

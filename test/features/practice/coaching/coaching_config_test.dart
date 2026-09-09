@@ -283,7 +283,7 @@ void main() {
     );
     expect(
       cleanSessionMessageFor('Coming Soon Stall'),
-      'No recurring form issue met the session threshold.',
+      'No recurring technique issue met the session threshold.',
     );
     expect(
       successfulRecommendationReasonFor('Coming Soon Stall'),

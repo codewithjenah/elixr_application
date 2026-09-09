@@ -517,11 +517,11 @@ void main() {
     await tester.pumpWidget(
       _app(
         const ProgressOverviewStats(
-          overallPerformanceLabel: 'Great',
-          averageLabel: 'Average Score',
-          averageValue: '8.5/12',
-          bestLabel: 'Best Score',
-          bestValue: '11/12',
+          overallPerformanceLabel: 'Proficient',
+          averageLabel: 'Average Rubric',
+          averageValue: '8.5 / 12',
+          bestLabel: 'Best Rubric',
+          bestValue: '11 / 12',
           totalSessions: 12,
           mostPracticed: 'Normal Grip',
         ),
@@ -529,7 +529,7 @@ void main() {
     );
 
     expect(find.byType(ElixStatCard), findsWidgets);
-    final best = tester.widget<Text>(find.text('11/12'));
+    final best = tester.widget<Text>(find.text('11 / 12'));
     expect(best.style!.fontSize, 44);
     expect(best.style!.color, ElixSemanticColors.dark.milestone);
     final sessions = tester.widget<Text>(find.text('12'));

@@ -2,13 +2,11 @@ import 'dart:async';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
-import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
-import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/features/assigned_movements/widgets/submission_detail_body.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -245,94 +243,14 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('submission_clip_preview')), findsNothing);
-    expect(find.textContaining('8/12 · Good'), findsOneWidget);
-    expect(find.textContaining('Competent'), findsNothing);
-    expect(find.textContaining('Form: 3/3'), findsOneWidget);
-    expect(find.textContaining('Control: 2/3'), findsOneWidget);
-    expect(find.textContaining('Finish: 2/3'), findsOneWidget);
-    expect(find.textContaining('Position: 1/3'), findsOneWidget);
-    expect(find.textContaining('%'), findsNothing);
+    expect(find.textContaining('8/12 • 66.7%'), findsOneWidget);
+    expect(find.textContaining('Competent'), findsOneWidget);
+    expect(find.textContaining('Correct Technique: 3/3'), findsOneWidget);
+    expect(find.textContaining('Stability / Control: 2/3'), findsOneWidget);
+    expect(find.textContaining('Hold / Completion: 2/3'), findsOneWidget);
+    expect(find.textContaining('Prop Positioning: 1/3'), findsOneWidget);
     expect(find.text('AI coaching'), findsNothing);
     expect(find.textContaining('does not save a video clip'), findsOneWidget);
-  });
-
-  testWidgets('automatic Wrist Stall evidence names the template and score', (
-    tester,
-  ) async {
-    await _pumpBody(
-      tester,
-      assignment: const GroupAssignment(
-        id: 'asg-template',
-        teacherId: 'teacher-1',
-        groupId: 'g1',
-        movementId: 'tm1',
-        revisionId: 'rev1',
-        origin: MovementOrigin.teacherCreated,
-        assessmentMode: AssessmentMode.templateScored,
-        status: GroupAssignmentStatus.active,
-        displayTitle: 'Classroom Wrist Stall',
-        teacherDisplayName: 'Grace Hopper',
-        groupName: 'BSHM 4A',
-        allowedProp: TrainingProp.bottle,
-        assessmentSpec: AssessmentSpec(laterality: AssessmentLaterality.left),
-      ),
-      attempt: AssignmentAttempt(
-        id: 'template_score_abc',
-        traineeId: 'trainee-1',
-        teacherId: 'teacher-1',
-        groupId: 'g1',
-        assignmentId: 'asg-template',
-        movementId: 'tm1',
-        revisionId: 'rev1',
-        origin: MovementOrigin.teacherCreated,
-        assessmentMode: AssessmentMode.templateScored,
-        attemptKind: AssignmentAttemptKind.templateScore,
-        status: AssignmentAttemptStatus.submitted,
-        rubric: const RubricAssessment(
-          technique: 3,
-          stability: 2,
-          completion: 2,
-          propPositioning: 1,
-        ),
-        durationSeconds: 18,
-        completedAt: DateTime.utc(2026, 8, 20, 8, 30),
-        createdAt: DateTime.utc(2026, 8, 20, 8, 30),
-      ),
-      viewerRole: SubmissionDetailViewerRole.teacher,
-    );
-    await tester.pump();
-
-    expect(
-      find.byKey(const Key('submission_automatic_template_evidence')),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Teacher-Created · Automatic ELIXR Assessment'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Left wrist'), findsOneWidget);
-    expect(find.textContaining('8/12 · Good'), findsOneWidget);
-  });
-
-  testWidgets('teacher viewer uses the same Official ELIXR score terminology', (
-    tester,
-  ) async {
-    await _pumpBody(
-      tester,
-      assignment: _officialAssignment(),
-      attempt: _officialPointer(),
-      viewerRole: SubmissionDetailViewerRole.teacher,
-    );
-    await tester.pump();
-
-    expect(find.textContaining('8/12 · Good'), findsOneWidget);
-    expect(find.textContaining('Form: 3/3'), findsOneWidget);
-    expect(find.textContaining('Control: 2/3'), findsOneWidget);
-    expect(find.textContaining('Finish: 2/3'), findsOneWidget);
-    expect(find.textContaining('Position: 1/3'), findsOneWidget);
-    expect(find.textContaining('Competent'), findsNothing);
-    expect(find.textContaining('Correct Technique'), findsNothing);
-    expect(find.textContaining('%'), findsNothing);
   });
 
   testWidgets(
