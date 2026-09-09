@@ -701,6 +701,391 @@ function attemptStateId(assignmentId, traineeId) {
   return `${assignmentId}__${traineeId}`;
 }
 
+function challengeParticipantId(challengeId, traineeId) {
+  return `${challengeId}__${traineeId}`;
+}
+
+function challengePayload(body) {
+  const title = boundedText(body.title, 80);
+  const description = boundedText(body.description, 500);
+  const difficulty = boundedText(body.difficulty, 20);
+  const start = new Date(body.start_at);
+  const deadline = new Date(body.deadline);
+  const attemptLimit = body.attempt_limit == null ? null : body.attempt_limit;
+  const targetScore = body.target_score == null ? null : body.target_score;
+  if (!validId(body.group_id) || !title || !description || !difficulty ||
+      !OFFICIAL_ASSIGNMENTS.has(body.movement_name) ||
+      !officialMovementSupportsProp(body.movement_name, body.prop_type) ||
+      Number.isNaN(start.getTime()) || Number.isNaN(deadline.getTime()) ||
+      start.getTime() >= deadline.getTime() ||
+      (attemptLimit != null && (!Number.isInteger(attemptLimit) ||
+        attemptLimit < 1 || attemptLimit > 20)) ||
+      (targetScore != null && (!Number.isInteger(targetScore) ||
+        targetScore < 0 || targetScore > 12))) return null;
+  return {
+    group_id: body.group_id,
+    title,
+    description,
+    movement_name: body.movement_name,
+    difficulty,
+    prop_type: body.prop_type,
+    start_at: Timestamp.fromDate(start),
+    deadline: Timestamp.fromDate(deadline),
+    ...(attemptLimit == null ? {} : {attempt_limit: attemptLimit}),
+    ...(targetScore == null ? {} : {target_score: targetScore}),
+    scoring_mode: 'rubric_total_v2',
+    max_score: 12,
+  };
+}
+
+async function createClassChallengeHandler(request, response, {
+  authenticate = authenticatedTeacherUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const payload = challengePayload(request.body || {});
+  if (!payload) return response.status(400).json({error: 'invalid_payload'});
+  const firestore = databaseFactory();
+  const challengeRef = firestore.collection('class_challenges').doc();
+  try {
+    const [group, user] = await Promise.all([
+      firestore.collection('groups').doc(payload.group_id).get(),
+      firestore.collection('users').doc(uid).get(),
+    ]);
+    if (!group.exists || group.get('teacher_id') !== uid ||
+        group.get('status') !== 'active' || !user.exists) {
+      return response.status(403).json({error: 'forbidden'});
+    }
+    const displayName = boundedText(user.get('full_name'), 80);
+    if (!displayName) return response.status(403).json({error: 'forbidden'});
+    const now = Timestamp.now();
+    const challenge = {
+      ...payload,
+      teacher_id: uid,
+      teacher_display_name: displayName,
+      created_at: now,
+      updated_at: now,
+      schema_version: 1,
+      completed_count: 0,
+    };
+    await challengeRef.create(challenge);
+    return response.status(200).json({
+      challenge: {id: challengeRef.id, ...assignmentJsonValue(challenge)},
+    });
+  } catch (error) {
+    console.error('Class Challenge create failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function updateClassChallengeHandler(request, response, {
+  authenticate = authenticatedTeacherUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body || {};
+  const payload = challengePayload(body);
+  if (!validId(body.challenge_id) || !payload) {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+  const firestore = databaseFactory();
+  const challengeRef = firestore.collection('class_challenges').doc(body.challenge_id);
+  try {
+    const result = await firestore.runTransaction(async (transaction) => {
+      const challengeSnapshot = await transaction.get(challengeRef);
+      if (!challengeSnapshot.exists) {
+        const error = new Error('not_found'); error.code = 'not_found'; throw error;
+      }
+      const current = challengeSnapshot.data();
+      if (current.teacher_id !== uid || current.group_id !== payload.group_id ||
+          current.archived_at) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      const participantStates = await transaction.get(
+        firestore.collection('class_challenge_participants')
+          .where('challenge_id', '==', body.challenge_id).limit(1),
+      );
+      if (!participantStates.empty) {
+        const fairnessChanged = current.movement_name !== payload.movement_name ||
+          current.difficulty !== payload.difficulty || current.prop_type !== payload.prop_type ||
+          current.start_at.toMillis() !== payload.start_at.toMillis() ||
+          current.deadline.toMillis() !== payload.deadline.toMillis() ||
+          (current.attempt_limit || null) !== (payload.attempt_limit || null);
+        if (fairnessChanged) {
+          const error = new Error('attempts_exist'); error.code = 'attempts_exist'; throw error;
+        }
+      }
+      const next = {
+        ...current,
+        ...payload,
+        teacher_id: current.teacher_id,
+        teacher_display_name: current.teacher_display_name,
+        created_at: current.created_at,
+        updated_at: Timestamp.now(),
+      };
+      transaction.set(challengeRef, next);
+      return next;
+    });
+    return response.status(200).json({
+      challenge: {id: body.challenge_id, ...assignmentJsonValue(result)},
+    });
+  } catch (error) {
+    if (['not_found', 'attempts_exist'].includes(error.code)) {
+      return response.status(409).json({error: error.code});
+    }
+    if (error.code === 'forbidden') return response.status(403).json({error: 'forbidden'});
+    console.error('Class Challenge update failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function archiveClassChallengeHandler(request, response, {
+  authenticate = authenticatedTeacherUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  const body = request.body || {};
+  if (!uid || !validId(body.challenge_id)) {
+    return response.status(uid ? 400 : 401).json({error: uid ? 'invalid_payload' : 'unauthenticated'});
+  }
+  const ref = databaseFactory().collection('class_challenges').doc(body.challenge_id);
+  try {
+    const snapshot = await ref.get();
+    if (!snapshot.exists) return response.status(409).json({error: 'not_found'});
+    if (snapshot.get('teacher_id') !== uid) return response.status(403).json({error: 'forbidden'});
+    if (!snapshot.get('archived_at')) {
+      await ref.update({archived_at: Timestamp.now(), updated_at: Timestamp.now()});
+    }
+    return response.status(200).json({archived: true});
+  } catch (error) {
+    console.error('Class Challenge archive failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function reserveClassChallengeAttemptHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  const body = request.body || {};
+  if (!uid || !validId(body.challenge_id) || !validId(body.request_id)) {
+    return response.status(uid ? 400 : 401).json({error: uid ? 'invalid_payload' : 'unauthenticated'});
+  }
+  const firestore = databaseFactory();
+  try {
+    const result = await firestore.runTransaction(async (transaction) => {
+      const challengeRef = firestore.collection('class_challenges').doc(body.challenge_id);
+      const stateRef = firestore.collection('class_challenge_participants')
+        .doc(challengeParticipantId(body.challenge_id, uid));
+      const [challengeSnapshot, stateSnapshot, userSnapshot] = await Promise.all([
+        transaction.get(challengeRef), transaction.get(stateRef),
+        transaction.get(firestore.collection('users').doc(uid)),
+      ]);
+      if (!challengeSnapshot.exists || !userSnapshot.exists ||
+          !validTraineeProfile(userSnapshot.data())) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      const challenge = challengeSnapshot.data();
+      const membership = await transaction.get(firestore.collection('group_memberships')
+        .doc(`${challenge.group_id}_${uid}`));
+      if (!membership.exists || !validApprovedTraineeMembership(membership.data(), {
+        membershipId: membership.id, traineeId: uid, groupId: challenge.group_id,
+        teacherId: challenge.teacher_id,
+      })) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      const now = Timestamp.now();
+      if (challenge.archived_at || now.toMillis() < challenge.start_at.toMillis()) {
+        const error = new Error('not_started'); error.code = 'not_started'; throw error;
+      }
+      if (now.toMillis() >= challenge.deadline.toMillis()) {
+        const error = new Error('deadline_passed'); error.code = 'deadline_passed'; throw error;
+      }
+      const state = stateSnapshot.exists ? stateSnapshot.data() : {};
+      if (state.active_attempt_id) {
+        if (state.active_request_id === body.request_id) {
+          return {attemptId: state.active_attempt_id};
+        }
+        const error = new Error('attempt_in_progress'); error.code = 'attempt_in_progress'; throw error;
+      }
+      const attemptsStarted = Number.isInteger(state.attempts_started) ? state.attempts_started : 0;
+      if (Number.isInteger(challenge.attempt_limit) && attemptsStarted >= challenge.attempt_limit) {
+        const error = new Error('attempts_exhausted'); error.code = 'attempts_exhausted'; throw error;
+      }
+      const ordinal = attemptsStarted + 1;
+      const attemptId = `challenge_${body.challenge_id}_${uid}_${ordinal}`;
+      const attemptRef = firestore.collection('class_challenge_attempts').doc(attemptId);
+      transaction.create(attemptRef, {
+        challenge_id: body.challenge_id, group_id: challenge.group_id,
+        teacher_id: challenge.teacher_id, trainee_id: uid,
+        attempt_number: ordinal, request_id: body.request_id,
+        movement_name: challenge.movement_name, prop_type: challenge.prop_type,
+        status: 'in_progress', started_at: now,
+      });
+      transaction.set(stateRef, {
+        challenge_id: body.challenge_id, group_id: challenge.group_id,
+        teacher_id: challenge.teacher_id, trainee_id: uid,
+        attempts_started: ordinal, active_attempt_id: attemptId,
+        active_request_id: body.request_id, updated_at: now,
+      });
+      return {attemptId};
+    });
+    const attempt = await firestore.collection('class_challenge_attempts').doc(result.attemptId).get();
+    return response.status(200).json({
+      attempt: {id: attempt.id, ...assignmentJsonValue(attempt.data())},
+    });
+  } catch (error) {
+    const known = ['forbidden', 'not_started', 'deadline_passed', 'attempt_in_progress', 'attempts_exhausted'];
+    if (known.includes(error.code)) {
+      return response.status(error.code === 'forbidden' ? 403 : 409).json({error: error.code});
+    }
+    console.error('Class Challenge reservation failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function abandonClassChallengeAttemptHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  const body = request.body || {};
+  if (!uid || !validId(body.challenge_id) || !validId(body.attempt_id)) {
+    return response.status(uid ? 400 : 401).json({error: uid ? 'invalid_payload' : 'unauthenticated'});
+  }
+  const firestore = databaseFactory();
+  try {
+    await firestore.runTransaction(async (transaction) => {
+      const stateRef = firestore.collection('class_challenge_participants')
+        .doc(challengeParticipantId(body.challenge_id, uid));
+      const attemptRef = firestore.collection('class_challenge_attempts').doc(body.attempt_id);
+      const [state, attempt] = await Promise.all([
+        transaction.get(stateRef), transaction.get(attemptRef),
+      ]);
+      if (!state.exists || state.get('active_attempt_id') !== body.attempt_id) return;
+      if (!attempt.exists || attempt.get('trainee_id') !== uid ||
+          attempt.get('challenge_id') !== body.challenge_id || attempt.get('status') !== 'in_progress') {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      const now = Timestamp.now();
+      transaction.update(attemptRef, {status: 'abandoned', abandoned_at: now});
+      transaction.update(stateRef, {
+        active_attempt_id: FieldValue.delete(), active_request_id: FieldValue.delete(), updated_at: now,
+      });
+    });
+    return response.status(200).json({released: true});
+  } catch (error) {
+    if (error.code === 'forbidden') return response.status(403).json({error: 'forbidden'});
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function completeClassChallengeAttemptHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  const body = request.body || {};
+  if (!uid || !validId(body.challenge_id) || !validId(body.attempt_id) || !validId(body.session_id)) {
+    return response.status(uid ? 400 : 401).json({error: uid ? 'invalid_payload' : 'unauthenticated'});
+  }
+  const firestore = databaseFactory();
+  try {
+    const best = await firestore.runTransaction(async (transaction) => {
+      const challengeRef = firestore.collection('class_challenges').doc(body.challenge_id);
+      const stateRef = firestore.collection('class_challenge_participants')
+        .doc(challengeParticipantId(body.challenge_id, uid));
+      const attemptRef = firestore.collection('class_challenge_attempts').doc(body.attempt_id);
+      const sessionRef = firestore.collection('sessions').doc(body.session_id);
+      const bestRef = firestore.collection('class_challenge_results')
+        .doc(challengeParticipantId(body.challenge_id, uid));
+      const [challengeSnap, stateSnap, attemptSnap, sessionSnap, bestSnap, userSnap] = await Promise.all([
+        transaction.get(challengeRef), transaction.get(stateRef), transaction.get(attemptRef),
+        transaction.get(sessionRef), transaction.get(bestRef),
+        transaction.get(firestore.collection('users').doc(uid)),
+      ]);
+      if (!challengeSnap.exists || !stateSnap.exists || !attemptSnap.exists ||
+          !sessionSnap.exists || !userSnap.exists) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      const challenge = challengeSnap.data();
+      const attempt = attemptSnap.data();
+      const session = sessionSnap.data();
+      const membership = await transaction.get(firestore.collection('group_memberships')
+        .doc(`${challenge.group_id}_${uid}`));
+      const context = session.challenge_context || {};
+      const now = Timestamp.now();
+      if (!membership.exists || membership.get('status') !== 'approved' ||
+          membership.get('teacher_id') !== challenge.teacher_id || challenge.archived_at ||
+          now.toMillis() >= challenge.deadline.toMillis() ||
+          stateSnap.get('active_attempt_id') !== body.attempt_id ||
+          attempt.trainee_id !== uid || attempt.challenge_id !== body.challenge_id ||
+          attempt.status !== 'in_progress' || session.user_id !== uid ||
+          session.assessment_version !== 2 || !Number.isInteger(session.rubric_total) ||
+          session.rubric_total < 0 || session.rubric_total > 12 ||
+          session.movement_name !== challenge.movement_name || session.prop_type !== challenge.prop_type ||
+          context.challenge_id !== body.challenge_id || context.group_id !== challenge.group_id ||
+          context.teacher_id !== challenge.teacher_id || context.attempt_id !== body.attempt_id) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      transaction.update(attemptRef, {
+        status: 'completed', session_id: body.session_id,
+        score: session.rubric_total, completed_at: now,
+      });
+      transaction.update(stateRef, {
+        active_attempt_id: FieldValue.delete(), active_request_id: FieldValue.delete(), updated_at: now,
+      });
+      const existing = bestSnap.exists ? bestSnap.data() : null;
+      if (!existing || session.rubric_total > existing.score) {
+        const displayName = boundedText(userSnap.get('full_name'), 80) || 'Trainee';
+        const profileUrl = userSnap.get('profile_picture_url');
+        const next = {
+          challenge_id: body.challenge_id, group_id: challenge.group_id,
+          teacher_id: challenge.teacher_id, trainee_id: uid,
+          display_name: displayName,
+          ...(typeof profileUrl === 'string' && profileUrl ? {profile_picture_url: profileUrl} : {}),
+          score: session.rubric_total, best_attempt_number: attempt.attempt_number,
+          best_achieved_at: now, session_id: body.session_id, updated_at: now,
+        };
+        transaction.set(bestRef, next);
+        transaction.update(challengeRef, {
+          completed_count: (challenge.completed_count || 0) + (existing ? 0 : 1),
+          top_score: Math.max(challenge.top_score || 0, session.rubric_total),
+          updated_at: now,
+        });
+        return next;
+      }
+      return existing;
+    });
+    return response.status(200).json({best_result: assignmentJsonValue(best)});
+  } catch (error) {
+    if (error.code === 'forbidden') return response.status(403).json({error: 'forbidden'});
+    console.error('Class Challenge completion failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
 // Overrides are private, assignment-scoped projections.  Never trust a
 // client-supplied deadline or an override whose immutable identity disagrees
 // with the parent assignment.
@@ -2501,6 +2886,36 @@ exports.abandonTeacherActivityAttempt = onRequest(
   abandonTeacherActivityAttemptHandler,
 );
 
+exports.createClassChallenge = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  createClassChallengeHandler,
+);
+
+exports.updateClassChallenge = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  updateClassChallengeHandler,
+);
+
+exports.archiveClassChallenge = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  archiveClassChallengeHandler,
+);
+
+exports.reserveClassChallengeAttempt = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  reserveClassChallengeAttemptHandler,
+);
+
+exports.abandonClassChallengeAttempt = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  abandonClassChallengeAttemptHandler,
+);
+
+exports.completeClassChallengeAttempt = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  completeClassChallengeAttemptHandler,
+);
+
 exports.updateTeacherActivityAssignment = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 60},
   updateTeacherActivityAssignmentHandler,
@@ -3081,6 +3496,13 @@ exports._test = {
   reserveTeacherActivityAttemptHandler,
   consumeTeacherActivityAttemptHandler,
   abandonTeacherActivityAttemptHandler,
+  createClassChallengeHandler,
+  updateClassChallengeHandler,
+  archiveClassChallengeHandler,
+  reserveClassChallengeAttemptHandler,
+  abandonClassChallengeAttemptHandler,
+  completeClassChallengeAttemptHandler,
+  challengeParticipantId,
   updateTeacherActivityAssignmentHandler,
   gradeTeacherActivityAttemptHandler,
   attemptStateId,

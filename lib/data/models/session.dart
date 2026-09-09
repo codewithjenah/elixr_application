@@ -1,3 +1,4 @@
+import 'class_challenge_session_context.dart';
 import 'rubric_assessment.dart';
 import 'session_assignment_context.dart';
 import 'training_prop.dart';
@@ -18,6 +19,7 @@ class Session {
     this.evidenceKind,
     this.evidenceSizeBytes,
     this.assignmentContext,
+    this.challengeContext,
   });
 
   final String? id;
@@ -44,6 +46,9 @@ class Session {
   /// Present only for official guided sessions launched from an assignment.
   final SessionAssignmentContext? assignmentContext;
 
+  /// Present only for a run reserved from a classroom Class Challenge.
+  final ClassChallengeSessionContext? challengeContext;
+
   bool get isRubricAssessed => assessmentVersion == 2 && rubric != null;
 
   /// Convenience: rubric total for V2, else null (never mix with legacyScore).
@@ -67,6 +72,8 @@ class Session {
       if (evidenceSizeBytes != null) 'evidence_size_bytes': evidenceSizeBytes,
       if (assignmentContext != null)
         'assignment_context': assignmentContext!.toMap(),
+      if (challengeContext != null)
+        'challenge_context': challengeContext!.toMap(),
     };
     if (isRubricAssessed && rubric != null) {
       map.addAll(rubric!.toFirestoreFields());
@@ -107,6 +114,9 @@ class Session {
         assignmentContext: SessionAssignmentContext.tryFrom(
           map['assignment_context'],
         ),
+        challengeContext: ClassChallengeSessionContext.tryFrom(
+          map['challenge_context'],
+        ),
       );
     }
 
@@ -125,6 +135,9 @@ class Session {
       evidenceSizeBytes: (map['evidence_size_bytes'] as num?)?.toInt(),
       assignmentContext: SessionAssignmentContext.tryFrom(
         map['assignment_context'],
+      ),
+      challengeContext: ClassChallengeSessionContext.tryFrom(
+        map['challenge_context'],
       ),
     );
   }

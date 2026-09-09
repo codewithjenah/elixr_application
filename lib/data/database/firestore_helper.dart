@@ -71,6 +71,7 @@ class FirestoreHelper implements UserProfileStore {
       'evidence_kind': data['evidence_kind'],
       'evidence_size_bytes': data['evidence_size_bytes'],
       'assignment_context': data['assignment_context'],
+      'challenge_context': data['challenge_context'],
     };
   }
 
@@ -162,6 +163,8 @@ class FirestoreHelper implements UserProfileStore {
         'evidence_size_bytes': session.evidenceSizeBytes,
       if (session.assignmentContext != null)
         'assignment_context': session.assignmentContext!.toMap(),
+      if (session.challengeContext != null)
+        'challenge_context': session.challengeContext!.toMap(),
     };
     if (session.isRubricAssessed && session.rubric != null) {
       sessionPayload.addAll(session.rubric!.toFirestoreFields());

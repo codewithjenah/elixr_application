@@ -31,6 +31,7 @@ import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
+import '../../../data/repositories/class_challenge_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
@@ -44,6 +45,7 @@ import '../movements/teacher_demo_recording_dialog.dart';
 import '../../teacher_access/trainee_class_card.dart';
 import '../../classroom_announcements/classroom_announcements_controller.dart';
 import '../../classroom_announcements/classroom_announcements_pane.dart';
+import '../../class_challenges/class_challenges_pane.dart';
 import 'teacher_groups_controller.dart';
 
 class TeacherGroupDetailScreen extends StatefulWidget {
@@ -336,6 +338,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
 TeacherGroupDetailTab _teacherTabFromQuery(String? value) {
   return switch (value?.trim().toLowerCase()) {
     'classwork' => TeacherGroupDetailTab.classwork,
+    'challenges' => TeacherGroupDetailTab.challenges,
     'grades' || 'progress' => TeacherGroupDetailTab.grades,
     'people' || 'students' => TeacherGroupDetailTab.students,
     _ => TeacherGroupDetailTab.announcements,
@@ -552,6 +555,24 @@ class _GroupDetailBody extends StatelessWidget {
                   )
                 : null,
           )
+        else if (controller.tab == TeacherGroupDetailTab.challenges)
+          ClassChallengesPane(
+            key: const Key('teacher_group_challenges_section'),
+            repository: context.read<ClassChallengeRepository>(),
+            groupId: group.id,
+            teacherId: controller.teacherId,
+            teacherDisplayName: controller.teacherDisplayName,
+            currentUserId: controller.teacherId,
+            isTeacher: true,
+            groupIsActive: group.isActive,
+            participantCount: controller.approvedMemberships.length,
+            onOpenLeaderboard: (challenge) => context.push(
+              AppRoutePaths.teacherClassChallengeLeaderboard(
+                group.id,
+                challenge.id,
+              ),
+            ),
+          )
         else if (controller.tab == TeacherGroupDetailTab.announcements)
           announcementsController == null
               ? const ElixStatusPanel(
@@ -642,6 +663,13 @@ class _GroupDetailTabBar extends StatelessWidget {
           icon: FluentIcons.education,
           selected: selectedTab == TeacherGroupDetailTab.classwork,
           onPressed: () => onChanged(TeacherGroupDetailTab.classwork),
+        ),
+        _GroupDetailTab(
+          key: const Key('teacher_group_tab_challenges'),
+          label: 'Challenges',
+          icon: FluentIcons.trophy,
+          selected: selectedTab == TeacherGroupDetailTab.challenges,
+          onPressed: () => onChanged(TeacherGroupDetailTab.challenges),
         ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_grades'),

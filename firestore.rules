@@ -424,7 +424,7 @@ service cloud.firestore {
     function sessionIdentityUnchanged() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'movement_name', 'difficulty', 'prop_type', 'duration_seconds',
-        'assessment_version', 'assignment_context'
+        'assessment_version', 'assignment_context', 'challenge_context'
       ]);
     }
 
@@ -934,6 +934,7 @@ service cloud.firestore {
       let createdAt = session.data.created_at;
       return session != null
         && session.data.user_id == request.auth.uid
+        && !session.data.keys().hasAny(['challenge_context'])
         && isOfficialElixrMovementName(session.data.movement_name)
         && validAwardSessionTimestamp(createdAt)
         && request.resource.data.sessions_completed == 1
@@ -994,6 +995,7 @@ service cloud.firestore {
         && request.resource.data.last_awarded_session_id
           != resource.data.last_awarded_session_id
         && session.data.user_id == request.auth.uid
+        && !session.data.keys().hasAny(['challenge_context'])
         && isOfficialElixrMovementName(session.data.movement_name)
         && validAwardSessionTimestamp(createdAt)
         && (
@@ -3093,8 +3095,60 @@ service cloud.firestore {
         && pointer.awards_global_xp == false;
     }
     function validSessionAssignmentContext(data, sessionId) {
-      return !data.keys().hasAny(['assignment_context'])
-        || validOfficialAssignedSessionCreate(data, sessionId);
+      return (
+          !data.keys().hasAny(['assignment_context', 'challenge_context'])
+        ) || (
+          data.keys().hasAny(['assignment_context'])
+          && !data.keys().hasAny(['challenge_context'])
+          && validOfficialAssignedSessionCreate(data, sessionId)
+        ) || (
+          data.keys().hasAny(['challenge_context'])
+          && !data.keys().hasAny(['assignment_context'])
+          && validClassChallengeSessionCreate(data)
+        );
+    }
+
+    function classChallengePath(challengeId) {
+      return /databases/$(database)/documents/class_challenges/$(challengeId);
+    }
+    function classChallengeAttemptPath(attemptId) {
+      return /databases/$(database)/documents/class_challenge_attempts/$(attemptId);
+    }
+    function validClassChallengeContextMap(ctx) {
+      return ctx is map
+        && ctx.keys().hasOnly([
+          'challenge_id', 'group_id', 'teacher_id', 'attempt_id'
+        ])
+        && isClassroomDocId(ctx.challenge_id)
+        && isClassroomDocId(ctx.group_id)
+        && isClassroomDocId(ctx.teacher_id)
+        && isClassroomDocId(ctx.attempt_id);
+    }
+    function validClassChallengeSessionCreate(data) {
+      let ctx = data.challenge_context;
+      let challenge = get(classChallengePath(ctx.challenge_id)).data;
+      let attempt = get(classChallengeAttemptPath(ctx.attempt_id)).data;
+      let membership = get(
+        groupMembershipPath(ctx.group_id, request.auth.uid)
+      ).data;
+      return validClassChallengeContextMap(ctx)
+        && challenge.group_id == ctx.group_id
+        && challenge.teacher_id == ctx.teacher_id
+        && !challenge.keys().hasAny(['archived_at'])
+        && challenge.start_at <= request.time
+        && challenge.deadline > request.time
+        && challenge.movement_name == data.movement_name
+        && challenge.prop_type == data.prop_type
+        && challenge.scoring_mode == 'rubric_total_v2'
+        && attempt.challenge_id == ctx.challenge_id
+        && attempt.group_id == ctx.group_id
+        && attempt.teacher_id == ctx.teacher_id
+        && attempt.trainee_id == request.auth.uid
+        && attempt.status == 'in_progress'
+        && membership.group_id == ctx.group_id
+        && membership.teacher_id == ctx.teacher_id
+        && membership.trainee_id == request.auth.uid
+        && membership.status == 'approved';
     }
 
     function teacherMovementRootKeys() {
@@ -3708,6 +3762,50 @@ service cloud.firestore {
         || (before.status == 'scheduled' && after.status in ['scheduled', 'active'])
         || (before.status == 'active' && after.status == 'archived')
         || (before.status == 'archived' && after.status == 'active');
+    }
+
+    function classChallengeViewer(data) {
+      return isSignedIn()
+        && (
+          (isTeacherClaim() && data.teacher_id == request.auth.uid)
+          || (
+            exists(groupMembershipPath(data.group_id, request.auth.uid))
+            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.group_id
+              == data.group_id
+            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.teacher_id
+              == data.teacher_id
+            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.trainee_id
+              == request.auth.uid
+            && get(groupMembershipPath(data.group_id, request.auth.uid)).data.status
+              == 'approved'
+          )
+        );
+    }
+
+    // Functions own all challenge mutations and server-maintained attempt/
+    // best-result projections. Clients receive only classroom-scoped reads.
+    match /class_challenges/{challengeId} {
+      allow read: if classChallengeViewer(resource.data);
+      allow write: if false;
+    }
+
+    match /class_challenge_attempts/{attemptId} {
+      allow read: if classChallengeViewer(resource.data)
+        && (resource.data.teacher_id == request.auth.uid
+          || resource.data.trainee_id == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /class_challenge_participants/{participantId} {
+      allow read: if classChallengeViewer(resource.data)
+        && (resource.data.teacher_id == request.auth.uid
+          || resource.data.trainee_id == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /class_challenge_results/{resultId} {
+      allow read: if classChallengeViewer(resource.data);
+      allow write: if false;
     }
 
     match /group_assignments/{assignmentId} {

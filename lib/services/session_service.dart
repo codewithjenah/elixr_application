@@ -10,6 +10,7 @@ import '../data/models/assessment_mode.dart';
 import '../data/models/assignment_attempt.dart';
 import '../data/models/assignment_attempt_ids.dart';
 import '../data/models/classroom_exceptions.dart';
+import '../data/models/class_challenge_session_context.dart';
 import '../data/models/feedback.dart';
 import '../data/models/movement_origin.dart';
 import '../data/models/practice_feedback.dart';
@@ -149,6 +150,7 @@ class SessionService extends ChangeNotifier {
     Uint8List? evidenceJpegBytes,
     bool saveEvidence = false,
     SessionAssignmentContext? assignmentContext,
+    ClassChallengeSessionContext? challengeContext,
   }) async {
     if (!isOfficialElixrMovementName(movementName)) {
       throw UnofficialMovementException(movementName);
@@ -163,6 +165,11 @@ class SessionService extends ChangeNotifier {
           'Assignment context does not match this official movement.',
         );
       }
+    }
+    if (assignmentContext != null && challengeContext != null) {
+      throw ArgumentError(
+        'A session cannot be both an assignment and a class challenge.',
+      );
     }
     final allocateSessionId =
         _allocateSessionIdOverride ?? repository.allocateSessionId;
@@ -194,6 +201,7 @@ class SessionService extends ChangeNotifier {
           ? null
           : evidenceJpegBytes!.lengthInBytes,
       assignmentContext: assignmentContext,
+      challengeContext: challengeContext,
     );
     final feedbacks = _buildSessionImprovementFeedbacks(
       sessionId,
@@ -269,13 +277,17 @@ class SessionService extends ChangeNotifier {
     // Authoritative persistence already succeeded. Leaderboard XP and public
     // profile projection are idempotent side effects and must not keep the
     // Session Complete UI pending if a Firestore Future never resolves.
-    _synchronizeAfterSessionCommit(
-      sessionId: sessionId,
-      session: session,
-      userId: userId,
-      displayName: displayName,
-      profilePictureUrl: profilePictureUrl,
-    );
+    // Challenge sessions are classroom-scoped competitive results. They must
+    // never award global XP or appear in the global leaderboard projection.
+    if (challengeContext == null) {
+      _synchronizeAfterSessionCommit(
+        sessionId: sessionId,
+        session: session,
+        userId: userId,
+        displayName: displayName,
+        profilePictureUrl: profilePictureUrl,
+      );
+    }
 
     notifyListeners();
     return sessionId;

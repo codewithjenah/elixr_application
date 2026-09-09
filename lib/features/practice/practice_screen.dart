@@ -15,6 +15,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/rubric_assessment.dart';
+import '../../data/models/class_challenge.dart';
+import '../../data/models/class_challenge_session_context.dart';
 import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
@@ -57,6 +59,10 @@ class PracticeScreen extends StatefulWidget {
     required this.difficulty,
     this.prop = TrainingProp.bottle,
     this.assignmentContext,
+    this.challengeContext,
+    this.onChallengeComplete,
+    this.challengeReturnLocation,
+    this.previousChallengeBest,
     @visibleForTesting this.websocketService,
   });
 
@@ -67,6 +73,12 @@ class PracticeScreen extends StatefulWidget {
   /// Trusted official assignment identity from `/assigned-practice/:id`.
   /// Ordinary catalog practice leaves this null.
   final SessionAssignmentContext? assignmentContext;
+
+  final ClassChallengeSessionContext? challengeContext;
+  final Future<ClassChallengeCompletionReceipt> Function(String sessionId)?
+  onChallengeComplete;
+  final String? challengeReturnLocation;
+  final int? previousChallengeBest;
 
   /// Test injection. Production constructs [WebSocketService] in [createState].
   @visibleForTesting
@@ -97,6 +109,12 @@ class PracticeScreen extends StatefulWidget {
 
   @override
   State<PracticeScreen> createState() => PracticeScreenState();
+}
+
+class ClassChallengeCompletionReceipt {
+  const ClassChallengeCompletionReceipt({required this.bestResult, this.rank});
+  final ClassChallengeLeaderboardEntry bestResult;
+  final int? rank;
 }
 
 class PracticeScreenState extends State<PracticeScreen>
@@ -821,6 +839,7 @@ class PracticeScreenState extends State<PracticeScreen>
         final nextStep = widget.assignmentContext == null
             ? nextEnabledPracticeAfter(_movement, _prop)
             : null;
+        ClassChallengeCompletionReceipt? challengeReceipt;
         final result = await SessionSummarySheet.show(
           context,
           movement: _movement,
@@ -829,21 +848,27 @@ class PracticeScreenState extends State<PracticeScreen>
           nextMovement: nextStep?.movement,
           nextProp: nextStep?.prop,
           evidenceJpegBytes: evidence,
-          onSave: (existingSessionId) => sessionService.saveCompletedSession(
-            existingSessionId: existingSessionId,
-            userId: userId,
-            displayName: displayName,
-            profilePictureUrl: authUser?.profilePictureUrl,
-            movementName: _movement,
-            difficulty: _difficulty,
-            prop: _prop,
-            rubric: summaryRubric,
-            durationSeconds: summaryDuration,
-            sessionImprovements: sessionAssessment.improvementFeedbacks,
-            evidenceJpegBytes: evidence,
-            saveEvidence: saveEvidence,
-            assignmentContext: widget.assignmentContext,
-          ),
+          onSave: (existingSessionId) async {
+            final sessionId = await sessionService.saveCompletedSession(
+              existingSessionId: existingSessionId,
+              userId: userId,
+              displayName: displayName,
+              profilePictureUrl: authUser?.profilePictureUrl,
+              movementName: _movement,
+              difficulty: _difficulty,
+              prop: _prop,
+              rubric: summaryRubric,
+              durationSeconds: summaryDuration,
+              sessionImprovements: sessionAssessment.improvementFeedbacks,
+              evidenceJpegBytes: evidence,
+              saveEvidence: saveEvidence,
+              assignmentContext: widget.assignmentContext,
+              challengeContext: widget.challengeContext,
+            );
+            final complete = widget.onChallengeComplete;
+            if (complete != null) challengeReceipt = await complete(sessionId);
+            return sessionId;
+          },
         );
 
         if (!mounted || _leaving) return;
@@ -881,6 +906,13 @@ class PracticeScreenState extends State<PracticeScreen>
 
         if (result == SessionSummaryResult.saved) {
           unawaited(tutorialProgress.completeFirstSessionGuidance());
+          final receipt = challengeReceipt;
+          if (receipt != null && mounted && !_leaving) {
+            await _showChallengeResult(
+              score: summaryRubric.total,
+              receipt: receipt,
+            );
+          }
         }
 
         _clearSessionState();
@@ -898,6 +930,31 @@ class PracticeScreenState extends State<PracticeScreen>
     } finally {
       _stopInFlight = false;
     }
+  }
+
+  Future<void> _showChallengeResult({
+    required int score,
+    required ClassChallengeCompletionReceipt receipt,
+  }) {
+    final previous = widget.previousChallengeBest;
+    final isNewBest = previous == null || score > previous;
+    return showDialog<void>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text(isNewBest ? 'New personal best!' : 'Challenge complete'),
+        content: Text(
+          'Final score: $score/12\n'
+          '${previous == null ? 'Previous best: —' : 'Previous best: $previous/12'}\n'
+          'Current class rank: ${receipt.rank == null ? '—' : '#${receipt.rank}'}',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('View Class Leaderboard'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _playCongratsBestEffort(double volume) async {
@@ -990,6 +1047,8 @@ class PracticeScreenState extends State<PracticeScreen>
   }
 
   String _practiceExitLocation({required bool catalog}) {
+    final challengeLocation = widget.challengeReturnLocation;
+    if (challengeLocation != null) return challengeLocation;
     final assignment = widget.assignmentContext;
     if (assignment != null) {
       return AppRoutePaths.assignmentDetail(assignment.assignmentId);
@@ -1122,7 +1181,9 @@ class PracticeScreenState extends State<PracticeScreen>
 
                 final header = TrainingSessionHeader(
                   onBack: _onBack,
-                  title: _movement,
+                  title: widget.challengeContext == null
+                      ? _movement
+                      : 'Class Challenge · $_movement',
                   statusPill: _difficulty,
                   statusPillColor: trainingDifficultyColor(_difficulty),
                   instruction: _instructionForMovement(_movement),

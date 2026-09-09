@@ -17,11 +17,13 @@ import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/class_challenge_repository.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import '../assigned_movements/assigned_movement_list.dart';
 import '../classroom_announcements/classroom_announcements_controller.dart';
 import '../classroom_announcements/classroom_announcements_pane.dart';
+import '../class_challenges/class_challenges_pane.dart';
 import 'trainee_class_card.dart';
 import 'trainee_class_detail_controller.dart';
 
@@ -140,6 +142,7 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
 TraineeClassDetailTab _traineeTabFromQuery(String? value) {
   return switch (value?.trim().toLowerCase()) {
     'classwork' => TraineeClassDetailTab.classwork,
+    'challenges' => TraineeClassDetailTab.challenges,
     'people' => TraineeClassDetailTab.people,
     _ => TraineeClassDetailTab.announcements,
   };
@@ -245,6 +248,14 @@ class _ClassDetailBody extends StatelessWidget {
                   controller.setTab(TraineeClassDetailTab.classwork),
             ),
             _ClassDetailTab(
+              key: const Key('teacher_access_class_tab_challenges'),
+              label: 'Challenges',
+              icon: FluentIcons.trophy,
+              selected: controller.tab == TraineeClassDetailTab.challenges,
+              onPressed: () =>
+                  controller.setTab(TraineeClassDetailTab.challenges),
+            ),
+            _ClassDetailTab(
               key: const Key('teacher_access_class_tab_people'),
               label: 'People',
               icon: FluentIcons.people,
@@ -260,6 +271,30 @@ class _ClassDetailBody extends StatelessWidget {
         ],
         if (controller.tab == TraineeClassDetailTab.classwork)
           _ClassworkPane(controller: controller)
+        else if (controller.tab == TraineeClassDetailTab.challenges)
+          ClassChallengesPane(
+            key: const Key('teacher_access_class_challenges'),
+            repository: context.read<ClassChallengeRepository>(),
+            groupId: controller.groupId,
+            teacherId: controller.membership?.teacherId ?? '',
+            teacherDisplayName: controller.teacherDisplayName,
+            currentUserId: controller.traineeId,
+            isTeacher: false,
+            groupIsActive: controller.group?.isActive == true,
+            participantCount: controller.classmates.length,
+            onOpenLeaderboard: (challenge) => context.push(
+              AppRoutePaths.classChallengeLeaderboard(
+                controller.groupId,
+                challenge.id,
+              ),
+            ),
+            onStart: (challenge) => context.go(
+              AppRoutePaths.classChallengePlay(
+                controller.groupId,
+                challenge.id,
+              ),
+            ),
+          )
         else if (controller.tab == TraineeClassDetailTab.announcements)
           announcements == null
               ? const ElixStatusPanel(

@@ -26,6 +26,7 @@ abstract final class AppRoutePaths {
   static const movements = '/movements';
   static const assignedMovements = '/assigned-movements';
   static const assignedPracticePrefix = '/assigned-practice';
+  static const classChallengePlayPrefix = '/class-challenge-play';
   static const learn = '/learn';
   static const training = '/training';
   static const history = '/history';
@@ -131,6 +132,20 @@ abstract final class AppRoutePaths {
     if (student == null || student.isEmpty) return path;
     return '$path?traineeId=${Uri.encodeQueryComponent(student)}';
   }
+
+  static String teacherClassChallengeLeaderboard(
+    String groupId,
+    String challengeId,
+  ) => '${teacherGroup(groupId)}/challenges/${Uri.encodeComponent(challengeId)}';
+
+  static String classChallengeLeaderboard(
+    String groupId,
+    String challengeId,
+  ) => '${teacherAccessClass(groupId)}/challenges/${Uri.encodeComponent(challengeId)}';
+
+  static String classChallengePlay(String groupId, String challengeId) =>
+      '$classChallengePlayPrefix/${Uri.encodeComponent(groupId)}/'
+      '${Uri.encodeComponent(challengeId)}';
 
   static String groupIdFromTeacherGroup(String location) {
     final prefix = '$teacherGroups/';
@@ -238,6 +253,7 @@ abstract final class AppRoutePaths {
     return location == practice ||
         location.startsWith('$practice?') ||
         location == livePractice ||
+        location.startsWith('$classChallengePlayPrefix/') ||
         location.startsWith('$livePractice?') ||
         location == assignedPracticePrefix ||
         location.startsWith('$assignedPracticePrefix/');
