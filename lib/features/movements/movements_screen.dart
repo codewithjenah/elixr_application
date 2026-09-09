@@ -24,6 +24,7 @@ class MovementsScreen extends StatefulWidget {
 class _MovementsScreenState extends State<MovementsScreen> {
   final _sessionRepo = SessionRepository();
   Map<String, MovementStats> _movementStats = const {};
+  Set<String> _practicedVariants = const {};
   SessionService? _sessionService;
 
   @override
@@ -53,7 +54,13 @@ class _MovementsScreenState extends State<MovementsScreen> {
     if (user?.id == null) return;
     final sessions = await _sessionRepo.getSessionsForUser(user!.id!);
     if (!mounted) return;
-    setState(() => _movementStats = _computeStats(sessions));
+    setState(() {
+      _movementStats = _computeStats(sessions);
+      _practicedVariants = {
+        for (final session in sessions)
+          practiceVariantKey(session.movementName, session.propType),
+      };
+    });
   }
 
   /// Aggregates per movement, averaging only Assessment V2 rubric totals.
@@ -84,7 +91,10 @@ class _MovementsScreenState extends State<MovementsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final summary = computeMovementsSummary(_movementStats);
+    final summary = computeMovementsSummary(
+      _movementStats,
+      practicedVariants: _practicedVariants,
+    );
 
     return ElixScaffoldPage(
       // The page content owns its spacing. Removing ScaffoldPage's default
@@ -97,42 +107,47 @@ class _MovementsScreenState extends State<MovementsScreen> {
             final horizontalPadding = constraints.maxWidth < 680
                 ? AppSpacing.md
                 : AppSpacing.xl;
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                AppSpacing.pageTopInset,
-                horizontalPadding,
-                AppSpacing.xxl,
-              ),
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: _kMovementsContentMaxWidth,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      MovementsHeader(summary: summary),
-                      const SizedBox(height: AppSpacing.xl),
-                      MovementDifficultySection(
-                        difficulty: 'Easy',
-                        movements: movementsByDifficulty('Easy'),
-                        stats: _movementStats,
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                      MovementDifficultySection(
-                        difficulty: 'Medium',
-                        movements: movementsByDifficulty('Medium'),
-                        stats: _movementStats,
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                      MovementDifficultySection(
-                        difficulty: 'Hard',
-                        movements: movementsByDifficulty('Hard'),
-                        stats: _movementStats,
-                      ),
-                    ],
+            return ScrollConfiguration(
+              behavior: ScrollConfiguration.of(
+                context,
+              ).copyWith(scrollbars: false),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  AppSpacing.pageTopInset,
+                  horizontalPadding,
+                  AppSpacing.xxl,
+                ),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: _kMovementsContentMaxWidth,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        MovementsHeader(summary: summary),
+                        const SizedBox(height: AppSpacing.xl),
+                        MovementDifficultySection(
+                          difficulty: 'Easy',
+                          movements: movementsByDifficulty('Easy'),
+                          stats: _movementStats,
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        MovementDifficultySection(
+                          difficulty: 'Medium',
+                          movements: movementsByDifficulty('Medium'),
+                          stats: _movementStats,
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        MovementDifficultySection(
+                          difficulty: 'Hard',
+                          movements: movementsByDifficulty('Hard'),
+                          stats: _movementStats,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

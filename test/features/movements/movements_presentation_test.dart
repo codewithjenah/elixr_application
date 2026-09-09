@@ -13,7 +13,7 @@ void main() {
       final summary = computeMovementsSummary(const {});
 
       expect(summary.practicedCount, 0);
-      expect(summary.totalMovements, movementCatalog.length);
+      expect(summary.totalMovements, enabledPracticeSteps().length);
       expect(summary.totalSessions, 0);
       expect(summary.rubricSessionCount, 0);
       expect(summary.overallAverageRubric, isNull);

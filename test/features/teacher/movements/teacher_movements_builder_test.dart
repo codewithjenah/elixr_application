@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:elixr_application/core/constants/app_colors.dart';
+import 'package:elixr_application/core/layout/balanced_card_grid.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
@@ -622,38 +623,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('wide Official ELIXR layout places four Easy cards in one row', (
+  testWidgets('wide Official ELIXR layout keeps five Easy cards in one row', (
     tester,
   ) async {
     await pumpScreen(tester, size: const Size(1280, 900));
 
     final grid = tester.widget<SliverGrid>(find.byType(SliverGrid).first);
-    final delegate =
-        grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-    expect(delegate.crossAxisCount, 4);
-    expect(
-      tester.getTopLeft(find.text('Normal Grip')).dy,
-      closeTo(tester.getTopLeft(find.text('Claw Grip')).dy, 1),
-    );
-    expect(
-      tester
-          .getTopLeft(
-            find.byKey(
-              const Key('teacher_movement_assign_official_Normal Grip'),
-            ),
-          )
-          .dy,
-      closeTo(
-        tester
-            .getTopLeft(
-              find.byKey(
-                const Key('teacher_movement_assign_official_Claw Grip'),
-              ),
-            )
-            .dy,
-        1,
-      ),
-    );
+    final delegate = grid.gridDelegate as BalancedSliverGridDelegate;
+    expect(delegate.crossAxisCount, 5);
+    final firstY = tester.getTopLeft(find.text('Normal Grip')).dy;
+    for (final name in [
+      "Bartender's Grip",
+      'Reverse Grip',
+      'Claw Grip',
+      'Body Grip',
+    ]) {
+      expect(tester.getTopLeft(find.text(name)).dy, closeTo(firstY, 1));
+    }
   });
 
   testWidgets('keyboard focus gives an Official ELIXR card a visible border', (

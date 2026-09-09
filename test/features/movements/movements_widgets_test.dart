@@ -954,91 +954,101 @@ void main() {
   });
 
   group('MovementDifficultySection', () {
-    testWidgets('renders three equal-height columns at desktop width', (
-      tester,
-    ) async {
-      await setSurface(tester, const Size(1280, 1200));
-      await tester.pumpWidget(
-        wrap(
-          const SizedBox(
-            width: 1050,
-            child: MovementDifficultySection(
-              difficulty: 'Easy',
-              movements: [
-                easyMovement,
-                secondEasyMovement,
-                thirdEasyMovement,
-                fourthEasyMovement,
-              ],
-              stats: {
-                'Normal Grip': (
-                  count: 1,
-                  rubricSessionCount: 1,
-                  averageRubricTotal: 8,
-                ),
-              },
+    testWidgets(
+      'balances four cards into two centered rows when three would orphan one',
+      (tester) async {
+        await setSurface(tester, const Size(1280, 1200));
+        await tester.pumpWidget(
+          wrap(
+            const SizedBox(
+              width: 1050,
+              child: MovementDifficultySection(
+                difficulty: 'Easy',
+                movements: [
+                  easyMovement,
+                  secondEasyMovement,
+                  thirdEasyMovement,
+                  fourthEasyMovement,
+                ],
+                stats: {
+                  'Normal Grip': (
+                    count: 1,
+                    rubricSessionCount: 1,
+                    averageRubricTotal: 8,
+                  ),
+                },
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('Easy — Foundations'), findsOneWidget);
-      expect(find.text('1 of 4 practiced'), findsOneWidget);
-      expect(find.byType(MovementCard), findsNWidgets(4));
-      expect(find.byType(GridView), findsNothing);
+        expect(find.text('Easy — Foundations'), findsOneWidget);
+        expect(find.text('1 of 4 practiced'), findsOneWidget);
+        expect(find.byType(MovementCard), findsNWidgets(4));
+        expect(find.byType(GridView), findsNothing);
 
-      final banner = find.byKey(const ValueKey('difficulty-banner'));
+        final banner = find.byKey(const ValueKey('difficulty-banner'));
 
-      final first = find.ancestor(
-        of: find.text('Normal Grip'),
-        matching: find.byType(MovementCard),
-      );
-      final second = find.ancestor(
-        of: find.text("Bartender's Grip"),
-        matching: find.byType(MovementCard),
-      );
-      final third = find.ancestor(
-        of: find.text('Reverse Grip'),
-        matching: find.byType(MovementCard),
-      );
-      final fourth = find.ancestor(
-        of: find.text('Claw Grip'),
-        matching: find.byType(MovementCard),
-      );
-      final positions = [
-        tester.getTopLeft(first),
-        tester.getTopLeft(second),
-        tester.getTopLeft(third),
-        tester.getTopLeft(fourth),
-      ];
+        final first = find.ancestor(
+          of: find.text('Normal Grip'),
+          matching: find.byType(MovementCard),
+        );
+        final second = find.ancestor(
+          of: find.text("Bartender's Grip"),
+          matching: find.byType(MovementCard),
+        );
+        final third = find.ancestor(
+          of: find.text('Reverse Grip'),
+          matching: find.byType(MovementCard),
+        );
+        final fourth = find.ancestor(
+          of: find.text('Claw Grip'),
+          matching: find.byType(MovementCard),
+        );
+        final positions = [
+          tester.getTopLeft(first),
+          tester.getTopLeft(second),
+          tester.getTopLeft(third),
+          tester.getTopLeft(fourth),
+        ];
 
-      expect(positions[0].dy, closeTo(positions[1].dy, 1));
-      expect(positions[1].dy, closeTo(positions[2].dy, 1));
-      expect(positions[0].dx, lessThan(positions[1].dx));
-      expect(positions[1].dx, lessThan(positions[2].dx));
-      expect(positions[3].dx, closeTo(positions[0].dx, 1));
-      expect(positions[3].dy, greaterThan(positions[0].dy));
-      expect(
-        positions[0].dy - tester.getRect(banner).bottom,
-        greaterThanOrEqualTo(30),
-      );
+        expect(positions[0].dy, closeTo(positions[1].dy, 1));
+        expect(positions[0].dx, lessThan(positions[1].dx));
+        expect(positions[2].dy, closeTo(positions[3].dy, 1));
+        expect(positions[2].dy, greaterThan(positions[0].dy));
+        expect(
+          (tester.getRect(third).center.dx + tester.getRect(fourth).center.dx) /
+              2,
+          closeTo(
+            tester
+                .getRect(find.byKey(const ValueKey('movement-grid')))
+                .center
+                .dx,
+            1,
+          ),
+        );
+        expect(
+          positions[0].dy - tester.getRect(banner).bottom,
+          greaterThanOrEqualTo(30),
+        );
 
-      final cardHeights = [
-        first,
-        second,
-        third,
-        fourth,
-      ].map((finder) => tester.getSize(finder).height).toList();
-      expect(cardHeights.first, 448);
-      for (final height in cardHeights.skip(1)) {
-        expect(height, closeTo(cardHeights.first, 1));
-      }
-      expect(
-        positions[3].dy - (positions[0].dy + cardHeights.first),
-        closeTo(32, 1),
-      );
-    });
+        final cardHeights = [
+          first,
+          second,
+          third,
+          fourth,
+        ].map((finder) => tester.getSize(finder).height).toList();
+        expect(cardHeights.first, 448);
+        for (final height in cardHeights.skip(1)) {
+          expect(height, closeTo(cardHeights.first, 1));
+        }
+        expect(
+          positions[2].dy - (positions[0].dy + cardHeights.first),
+          closeTo(32, 1),
+        );
+      },
+    );
 
     testWidgets('renders four movements in one wide-desktop row', (
       tester,
@@ -1076,7 +1086,7 @@ void main() {
       await expectNoOverflow(tester);
     });
 
-    testWidgets('uses two columns from 680 through 1049 pixels', (
+    testWidgets('uses three columns when the available width supports them', (
       tester,
     ) async {
       await setSurface(tester, const Size(1200, 1200));
@@ -1114,6 +1124,8 @@ void main() {
       );
       expect(first.dy, closeTo(second.dy, 1));
       expect(first.dx, lessThan(second.dx));
+      expect(second.dy, closeTo(third.dy, 1));
+      expect(second.dx, lessThan(third.dx));
       expect(
         tester
             .getSize(
@@ -1135,8 +1147,86 @@ void main() {
           1,
         ),
       );
-      expect(third.dx, closeTo(first.dx, 1));
-      expect(third.dy, greaterThan(first.dy));
+    });
+
+    testWidgets('five cards use one wide catalog row when space permits', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1500, 1400));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 1280,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [
+                easyMovement,
+                secondEasyMovement,
+                thirdEasyMovement,
+                fourthEasyMovement,
+                easyMovement,
+              ],
+              stats: {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final cards = find.byType(MovementCard);
+      for (var index = 1; index < 5; index++) {
+        expect(
+          tester.getTopLeft(cards.at(index)).dy,
+          closeTo(tester.getTopLeft(cards.first).dy, 1),
+        );
+      }
+    });
+
+    testWidgets('nine cards use five plus four rows without an orphan card', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1500, 1800));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 1280,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [
+                easyMovement,
+                secondEasyMovement,
+                thirdEasyMovement,
+                fourthEasyMovement,
+                easyMovement,
+                secondEasyMovement,
+                thirdEasyMovement,
+                fourthEasyMovement,
+                easyMovement,
+              ],
+              stats: {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final cards = find.byType(MovementCard);
+      for (var index = 1; index < 5; index++) {
+        expect(
+          tester.getTopLeft(cards.at(index)).dy,
+          closeTo(tester.getTopLeft(cards.first).dy, 1),
+        );
+      }
+      expect(
+        tester.getTopLeft(cards.at(5)).dy,
+        greaterThan(tester.getTopLeft(cards.first).dy),
+      );
+      for (var index = 6; index < 9; index++) {
+        expect(
+          tester.getTopLeft(cards.at(index)).dy,
+          closeTo(tester.getTopLeft(cards.at(5)).dy, 1),
+        );
+      }
     });
 
     testWidgets('multi-prop cards fit the three-column reserved height', (

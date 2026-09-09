@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
@@ -218,7 +219,6 @@ class _OfficialList extends StatelessWidget {
     const difficulties = ['Easy', 'Medium', 'Hard'];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = _gridColumnsFor(constraints.maxWidth);
         return Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
@@ -226,72 +226,93 @@ class _OfficialList extends StatelessWidget {
             0,
             AppSpacing.lg,
           ),
-          child: CustomScrollView(
-            clipBehavior: Clip.hardEdge,
-            slivers: [
-              for (final difficulty in difficulties) ...[
-                SliverPadding(
-                  padding: const EdgeInsets.only(right: AppSpacing.lg),
-                  sliver: SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.only(
-                        top: AppSpacing.sm,
-                        bottom: AppSpacing.md,
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(
+              context,
+            ).copyWith(scrollbars: false),
+            child: CustomScrollView(
+              clipBehavior: Clip.hardEdge,
+              slivers: [
+                for (final difficulty in difficulties) ...[
+                  SliverPadding(
+                    padding: const EdgeInsets.only(right: AppSpacing.lg),
+                    sliver: SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          top: AppSpacing.sm,
+                          bottom: AppSpacing.md,
+                        ),
+                        child: _DifficultyHeading(
+                          difficulty: difficulty,
+                          count: controller.officialCatalog
+                              .where(
+                                (movement) => movement.difficulty == difficulty,
+                              )
+                              .length,
+                        ),
                       ),
-                      child: _DifficultyHeading(
-                        difficulty: difficulty,
-                        count: controller.officialCatalog
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.only(right: AppSpacing.lg),
+                    sliver: SliverGrid(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final movement = controller.officialCatalog
+                              .where((item) => item.difficulty == difficulty)
+                              .elementAt(index);
+                          return _OfficialMovementCard(
+                            movement: movement,
+                            busy: controller.busy,
+                            onViewGuide: () =>
+                                _showMovementGuide(context, movement),
+                            onAssign: () => _showAssignToClass(
+                              context,
+                              controller,
+                              official: movement,
+                            ),
+                          );
+                        },
+                        childCount: controller.officialCatalog
                             .where(
                               (movement) => movement.difficulty == difficulty,
                             )
                             .length,
                       ),
-                    ),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.only(right: AppSpacing.lg),
-                  sliver: SliverGrid(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final movement = controller.officialCatalog
-                            .where((item) => item.difficulty == difficulty)
-                            .elementAt(index);
-                        return _OfficialMovementCard(
-                          movement: movement,
-                          busy: controller.busy,
-                          onViewGuide: () =>
-                              _showMovementGuide(context, movement),
-                          onAssign: () => _showAssignToClass(
-                            context,
-                            controller,
-                            official: movement,
-                          ),
-                        );
-                      },
-                      childCount: controller.officialCatalog
-                          .where(
-                            (movement) => movement.difficulty == difficulty,
-                          )
-                          .length,
-                    ),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      mainAxisExtent: _cardExtent(
-                        context,
-                        base: 430,
-                        growth: 180,
+                      gridDelegate: BalancedSliverGridDelegate(
+                        crossAxisCount: _gridColumnsFor(
+                          constraints.maxWidth,
+                          controller.officialCatalog
+                              .where(
+                                (movement) => movement.difficulty == difficulty,
+                              )
+                              .length,
+                        ),
+                        childCount: controller.officialCatalog
+                            .where(
+                              (movement) => movement.difficulty == difficulty,
+                            )
+                            .length,
+                        mainAxisExtent: _cardExtent(
+                          context,
+                          // Five-column cards use the compact vertical layout;
+                          // reserve a little extra height for full metadata and
+                          // actions rather than clipping the content.
+                          base: 480,
+                          growth: 180,
+                        ),
+                        crossAxisSpacing: AppSpacing.md,
+                        mainAxisSpacing: AppSpacing.md,
+                        maxSingleCardWidth: 460,
                       ),
-                      crossAxisSpacing: AppSpacing.md,
-                      mainAxisSpacing: AppSpacing.md,
                     ),
                   ),
-                ),
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: AppSpacing.lg),
-                ),
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: AppSpacing.lg),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         );
       },
@@ -322,38 +343,49 @@ class _MyMovementsList extends StatelessWidget {
       );
     }
     return LayoutBuilder(
-      builder: (context, constraints) => GridView.builder(
-        clipBehavior: Clip.hardEdge,
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          4,
-          AppSpacing.lg,
-          AppSpacing.lg,
-        ),
-        itemCount: controller.myMovements.length,
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: _gridColumnsFor(constraints.maxWidth),
-          mainAxisExtent: _cardExtent(context, base: 450, growth: 200),
-          crossAxisSpacing: AppSpacing.md,
-          mainAxisSpacing: AppSpacing.md,
-        ),
-        itemBuilder: (context, index) => _CustomMovementCard(
-          movement: controller.myMovements[index],
-          controller: controller,
+      builder: (context, constraints) => ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: GridView.builder(
+          clipBehavior: Clip.hardEdge,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            4,
+            AppSpacing.lg,
+            AppSpacing.lg,
+          ),
+          itemCount: controller.myMovements.length,
+          gridDelegate: BalancedSliverGridDelegate(
+            crossAxisCount: _gridColumnsFor(
+              constraints.maxWidth,
+              controller.myMovements.length,
+            ),
+            childCount: controller.myMovements.length,
+            maxSingleCardWidth: 460,
+            mainAxisExtent: _cardExtent(context, base: 450, growth: 200),
+            crossAxisSpacing: AppSpacing.md,
+            mainAxisSpacing: AppSpacing.md,
+          ),
+          itemBuilder: (context, index) => _CustomMovementCard(
+            movement: controller.myMovements[index],
+            controller: controller,
+          ),
         ),
       ),
     );
   }
 }
 
-int _gridColumnsFor(double availableWidth) {
-  // Four compact catalog cards fit comfortably in the Teacher workspace at
-  // normal 1920px desktop widths after the persistent sidebar is accounted for.
-  if (availableWidth >= 1100) return 4;
-  if (availableWidth >= 850) return 3;
-  if (availableWidth >= 620) return 2;
-  return 1;
-}
+int _gridColumnsFor(double availableWidth, int itemCount) =>
+    BalancedCardGrid.columnsFor(
+      availableWidth: availableWidth,
+      itemCount: itemCount,
+      // Teacher cards use a compact vertical composition below 760px, so a
+      // 180px track keeps the five-card desktop catalog in one clean row
+      // after the teacher shell reserves its sidebar.
+      minCardWidth: 180,
+      maxColumns: 5,
+      spacing: AppSpacing.md,
+    );
 
 double _cardExtent(
   BuildContext context, {
@@ -448,7 +480,7 @@ class _OfficialMovementCard extends StatelessWidget {
                   const SizedBox(height: AppSpacing.md),
                   Expanded(child: details),
                   const SizedBox(height: AppSpacing.md),
-                  actions,
+                  SizedBox(width: double.infinity, child: actions),
                 ],
               );
             }
@@ -542,16 +574,16 @@ class _OfficialMovementActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.end,
-      spacing: AppSpacing.sm,
-      runSpacing: AppSpacing.sm,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Button(
           key: Key('teacher_movement_guide_${movement.name}'),
           onPressed: onViewGuide,
           child: const Text('View guide'),
         ),
+        const SizedBox(height: AppSpacing.sm),
         FilledButton(
           key: Key('teacher_movement_assign_official_${movement.name}'),
           onPressed: busy ? null : onAssign,

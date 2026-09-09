@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/movement.dart';
 import '../movements_presentation.dart';
@@ -26,9 +27,6 @@ class MovementDifficultySection extends StatefulWidget {
 class _MovementDifficultySectionState extends State<MovementDifficultySection>
     with SingleTickerProviderStateMixin {
   static const _animationDuration = Duration(milliseconds: 240);
-  static const _fourColumnBreakpoint = 1200.0;
-  static const _threeColumnBreakpoint = 1050.0;
-  static const _twoColumnBreakpoint = 680.0;
   // Sized for the densest card variant (two prop actions) so every card keeps
   // the same footprint without clipping or moving neighboring content.
   static const _cardHeight = 448.0;
@@ -233,63 +231,44 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                 padding: const EdgeInsets.only(top: _sectionToGridGap),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final columns =
-                        constraints.maxWidth >= _fourColumnBreakpoint
-                        ? 4
-                        : constraints.maxWidth >= _threeColumnBreakpoint
-                        ? 3
-                        : constraints.maxWidth >= _twoColumnBreakpoint
-                        ? 2
-                        : 1;
-
-                    final columnChildren = List.generate(
-                      columns,
-                      (_) => <Widget>[],
-                    );
-                    for (
-                      var index = 0;
-                      index < widget.movements.length;
-                      index++
-                    ) {
-                      final movement = widget.movements[index];
-                      final children = columnChildren[index % columns];
-                      if (children.isNotEmpty) {
-                        children.add(const SizedBox(height: _cardRowGap));
-                      }
-                      children.add(
-                        SizedBox(
-                          width: double.infinity,
-                          height: _cardHeight,
-                          child: MovementCard(
-                            movement: movement,
-                            sessionCount:
-                                widget.stats[movement.name]?.count ?? 0,
-                            averageRubricTotal:
-                                widget.stats[movement.name]?.averageRubricTotal,
-                          ),
-                        ),
-                      );
-                    }
-
                     // Cards scale on hover. Reserve a small outer gutter so
                     // the first and last cards stay inside the content lane
                     // instead of painting into the navigation sidebar.
+                    final availableWidth = constraints.maxWidth - 20;
+                    final columns = BalancedCardGrid.columnsFor(
+                      availableWidth: availableWidth,
+                      itemCount: widget.movements.length,
+                      // Five compact cards retain a single, polished catalog
+                      // row on wide desktops; narrower surfaces still reflow
+                      // from the actual available width.
+                      minCardWidth: 220,
+                      maxColumns: 5,
+                      spacing: AppSpacing.md,
+                    );
+                    final cardWidth =
+                        (availableWidth - AppSpacing.md * (columns - 1)) /
+                        columns;
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
+                      child: Wrap(
                         key: const ValueKey('movement-grid'),
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        alignment: WrapAlignment.center,
+                        spacing: AppSpacing.md,
+                        runSpacing: _cardRowGap,
                         children: [
-                          for (var index = 0; index < columns; index++) ...[
-                            if (index > 0) const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: columnChildren[index],
+                          for (final movement in widget.movements)
+                            SizedBox(
+                              width: cardWidth,
+                              height: _cardHeight,
+                              child: MovementCard(
+                                movement: movement,
+                                sessionCount:
+                                    widget.stats[movement.name]?.count ?? 0,
+                                averageRubricTotal: widget
+                                    .stats[movement.name]
+                                    ?.averageRubricTotal,
                               ),
                             ),
-                          ],
                         ],
                       ),
                     );

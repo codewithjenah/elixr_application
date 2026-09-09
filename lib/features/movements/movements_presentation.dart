@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/movements.dart';
+import '../../data/models/training_prop.dart';
 
 /// Per-movement aggregates.
 ///
@@ -34,7 +35,16 @@ class MovementsSummary {
 }
 
 /// Builds page-level summary values from per-movement session aggregates.
-MovementsSummary computeMovementsSummary(Map<String, MovementStats> stats) {
+String practiceVariantKey(String movementName, TrainingProp prop) =>
+    '$movementName\u0000${prop.protocolValue}';
+
+/// Builds page-level summary values from movement aggregates and the set of
+/// practiced catalog variants. Bottle and Cocktail Shaker are separate
+/// trainee practice steps even when they share the same movement card.
+MovementsSummary computeMovementsSummary(
+  Map<String, MovementStats> stats, {
+  Set<String> practicedVariants = const {},
+}) {
   var practiced = 0;
   var totalSessions = 0;
   var rubricSessions = 0;
@@ -42,8 +52,20 @@ MovementsSummary computeMovementsSummary(Map<String, MovementStats> stats) {
 
   for (final movement in movementCatalog) {
     final entry = stats[movement.name];
+    if (practicedVariants.isEmpty) {
+      // Compatibility for callers and pre-prop session summaries: treat a
+      // completed movement aggregate as one completed default variant.
+      if (entry != null && entry.count > 0) practiced++;
+    } else {
+      for (final prop in movement.supportedProps) {
+        if (practicedVariants.contains(
+          practiceVariantKey(movement.name, prop),
+        )) {
+          practiced++;
+        }
+      }
+    }
     if (entry == null || entry.count <= 0) continue;
-    practiced++;
     totalSessions += entry.count;
 
     final average = entry.averageRubricTotal;
@@ -55,7 +77,7 @@ MovementsSummary computeMovementsSummary(Map<String, MovementStats> stats) {
 
   return MovementsSummary(
     practicedCount: practiced,
-    totalMovements: movementCatalog.length,
+    totalMovements: enabledPracticeSteps().length,
     totalSessions: totalSessions,
     rubricSessionCount: rubricSessions,
     overallAverageRubric: rubricSessions > 0
