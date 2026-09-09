@@ -29,9 +29,13 @@ def _pose(*, left: bool = False, right: bool = False) -> PoseLandmarks:
     points: dict[int, Point2D] = {}
     visibility: dict[int, float] = {}
     if left:
+        points[13] = Point2D(0.45, 0.70)
+        visibility[13] = 1.0
         points[15] = Point2D(0.45, 0.55)
         visibility[15] = 1.0
     if right:
+        points[14] = Point2D(0.65, 0.70)
+        visibility[14] = 1.0
         points[16] = Point2D(0.65, 0.55)
         visibility[16] = 1.0
     return PoseLandmarks(points=points, visibility=visibility)
@@ -180,6 +184,30 @@ def test_wrong_wrist_does_not_pass_selected_laterality():
         has_camera_frame=True,
         bottles=[PropDetection(x1=20, y1=20, x2=60, y2=100, confidence=0.9)],
         pose=_pose(right=True),
+    )
+    snap = tracker.update(obs)
+    assert _item(snap, "pose_visible").status == "ready"
+    assert _item(snap, "wrist_visible").status == "waiting"
+    assert snap.readiness_complete is False
+
+
+def test_selected_wrist_without_elbow_does_not_pass_readiness():
+    tracker = ReadinessTracker(
+        "Template Assessment",
+        "bottle",
+        profile=template_readiness_profile(AssessmentSpec.model_validate(_spec("left"))),
+        pass_frames=1,
+        fail_frames=1,
+        stable_duration_s=0.1,
+    )
+    pose = PoseLandmarks(
+        points={15: Point2D(0.45, 0.55)},
+        visibility={15: 1.0},
+    )
+    obs = ReadinessObservation(
+        has_camera_frame=True,
+        bottles=[PropDetection(x1=20, y1=20, x2=60, y2=100, confidence=0.9)],
+        pose=pose,
     )
     snap = tracker.update(obs)
     assert _item(snap, "pose_visible").status == "ready"

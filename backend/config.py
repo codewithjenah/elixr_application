@@ -226,6 +226,12 @@ SHOULDER_STALL_PROXIMITY = 0.16
 # Bottle centers farther below the shoulder than this are treated as chest/below.
 SHOULDER_BELOW_REJECT = 0.03
 
+# Wrist Stall template: body-relative to the selected elbow→wrist segment.
+# These ratios multiply observed forearm length; they do not change STALL_PROXIMITY.
+WRIST_STALL_LOCAL_RADIUS_RATIO = 0.28
+WRIST_STALL_FOREARM_ALONG_RATIO = 0.15
+WRIST_STALL_FOREARM_BAND_RATIO = 0.30
+
 # Hand Stall: one upright bottle resting on a single open palm.
 # Independently tunable from Double Hand Stall (same units: normalized 0-1).
 HAND_STALL_UPRIGHT_ASPECT_RATIO = 1.25
