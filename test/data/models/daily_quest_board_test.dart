@@ -1,5 +1,6 @@
 import 'package:elixr_application/data/models/daily_quest.dart';
 import 'package:elixr_application/data/models/daily_quest_board.dart';
+import 'package:elixr_application/data/models/daily_quest_eligibility.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,8 +30,11 @@ void _assertBoardShape(List<String> ids, {required int currentLevel}) {
     QuestTier.medium,
     QuestTier.hard,
   ]);
+  final pool = DailyQuestUnlockPool.fromPersonalLevel(effective);
   for (final id in ids) {
-    expect(questById(id)!.minimumLevel, lessThanOrEqualTo(effective));
+    final quest = questById(id)!;
+    expect(quest.minimumLevel, lessThanOrEqualTo(effective));
+    expect(isEligibleForDailyQuestGeneration(quest, pool), isTrue, reason: id);
   }
   final categories = ids.map(_categoryOf).toList();
   expect(
@@ -210,7 +214,7 @@ void main() {
     test(
       'representative levels keep a valid 2 Easy + 2 Medium + 1 Hard board',
       () {
-        const levels = [1, 2, 3, 5, 6, 7, 16, 19, 20, 21];
+        const levels = [1, 2, 3, 5, 6, 7, 9, 16, 17, 19, 20, 21];
         for (final level in levels) {
           for (final ids in _sampleBoards(
             currentLevel: level,
@@ -223,25 +227,11 @@ void main() {
       },
     );
 
-    test('Level 1 never generates progression-gated quests', () {
-      const forbidden = {
-        'two_movements',
-        'three_movements',
-        'use_shaker',
-        'practice_medium_movement',
-        'distinct_props_2',
-        'practice_hard_movement',
-        'use_bottle_and_shaker_combo',
-      };
-      for (final ids in _sampleBoards(currentLevel: 1)) {
-        expect(ids.toSet().intersection(forbidden), isEmpty);
-      }
-    });
-
     test(
-      'Level 2 may generate two_movements but not Level 3+ gated quests',
+      'Level 1 never generates content that is still locked or singleton-gated',
       () {
-        const stillForbidden = {
+        const forbidden = {
+          'two_movements',
           'three_movements',
           'use_shaker',
           'practice_medium_movement',
@@ -249,57 +239,163 @@ void main() {
           'practice_hard_movement',
           'use_bottle_and_shaker_combo',
         };
-        var sawTwoMovements = false;
-        for (final ids in _sampleBoards(currentLevel: 2)) {
-          expect(ids.toSet().intersection(stillForbidden), isEmpty);
-          if (ids.contains('two_movements')) sawTwoMovements = true;
+        var sawGenericHard = false;
+        for (final ids in _sampleBoards(currentLevel: 1)) {
+          expect(ids.toSet().intersection(forbidden), isEmpty);
+          expect(
+            ids.any((id) => questById(id)!.tier == QuestTier.hard),
+            isTrue,
+          );
+          if (ids.contains('session_count_5') ||
+              ids.contains('duration_30min') ||
+              ids.contains('score_95')) {
+            sawGenericHard = true;
+          }
         }
-        expect(sawTwoMovements, isTrue);
+        expect(sawGenericHard, isTrue);
       },
     );
 
-    test('Level 3 may generate three_movements', () {
-      expect(
-        _sampleBoards(
-          currentLevel: 3,
-        ).any((ids) => ids.contains('three_movements')),
-        isTrue,
-      );
-    });
-
-    test('Level 6 may generate practice_medium_movement', () {
-      expect(
-        _sampleBoards(
-          currentLevel: 6,
-        ).any((ids) => ids.contains('practice_medium_movement')),
-        isTrue,
-      );
-    });
-
-    test('Level 7 may generate use_shaker and distinct_props_2', () {
-      var sawShaker = false;
-      var sawDistinctProps = false;
-      for (final ids in _sampleBoards(currentLevel: 7)) {
-        if (ids.contains('use_shaker')) sawShaker = true;
-        if (ids.contains('distinct_props_2')) sawDistinctProps = true;
+    test('every level from 1 to 20 still generates a valid board', () {
+      for (var level = 1; level <= 20; level++) {
+        for (final ids in _sampleBoards(
+          currentLevel: level,
+          users: 4,
+          days: 3,
+        )) {
+          _assertBoardShape(ids, currentLevel: level);
+        }
       }
-      expect(sawShaker, isTrue);
-      expect(sawDistinctProps, isTrue);
     });
 
-    test('Level 16 may generate practice_hard_movement', () {
+    test(
+      'Level 2 does not generate two_movements with only two unlocked identities',
+      () {
+        for (final ids in _sampleBoards(currentLevel: 2)) {
+          expect(ids, isNot(contains('two_movements')));
+          expect(ids, isNot(contains('three_movements')));
+        }
+      },
+    );
+
+    test(
+      'two_movements becomes eligible once 3 movement identities are unlocked',
+      () {
+        expect(
+          _sampleBoards(
+            currentLevel: 3,
+          ).any((ids) => ids.contains('two_movements')),
+          isTrue,
+        );
+        for (final ids in _sampleBoards(currentLevel: 3)) {
+          expect(ids, isNot(contains('three_movements')));
+        }
+      },
+    );
+
+    test(
+      'three_movements is absent until 5 movement identities are unlocked',
+      () {
+        for (final ids in _sampleBoards(currentLevel: 4)) {
+          expect(ids, isNot(contains('three_movements')));
+        }
+        expect(
+          _sampleBoards(
+            currentLevel: 5,
+          ).any((ids) => ids.contains('three_movements')),
+          isTrue,
+        );
+      },
+    );
+
+    test('practice_medium_movement is absent with only one Medium option', () {
+      for (final ids in _sampleBoards(currentLevel: 6)) {
+        expect(ids, isNot(contains('practice_medium_movement')));
+      }
+    });
+
+    test(
+      'practice_medium_movement becomes eligible with two Medium options',
+      () {
+        expect(
+          _sampleBoards(
+            currentLevel: 7,
+          ).any((ids) => ids.contains('practice_medium_movement')),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'Shaker and 2-prop quests stay absent with only one Shaker variant',
+      () {
+        for (final ids in _sampleBoards(currentLevel: 7)) {
+          expect(ids, isNot(contains('use_shaker')));
+          expect(ids, isNot(contains('distinct_props_2')));
+        }
+        for (final ids in _sampleBoards(currentLevel: 8)) {
+          expect(ids, isNot(contains('use_shaker')));
+          expect(ids, isNot(contains('distinct_props_2')));
+        }
+      },
+    );
+
+    test(
+      'Shaker and 2-prop quests become eligible with two Shaker variants',
+      () {
+        var sawShaker = false;
+        var sawDistinctProps = false;
+        for (final ids in _sampleBoards(currentLevel: 9)) {
+          if (ids.contains('use_shaker')) sawShaker = true;
+          if (ids.contains('distinct_props_2')) sawDistinctProps = true;
+        }
+        expect(sawShaker, isTrue);
+        expect(sawDistinctProps, isTrue);
+      },
+    );
+
+    test('practice_hard_movement is absent with only one Hard option', () {
+      for (final ids in _sampleBoards(currentLevel: 16)) {
+        expect(ids, isNot(contains('practice_hard_movement')));
+      }
+    });
+
+    test('practice_hard_movement becomes eligible with two Hard options', () {
       expect(
         _sampleBoards(
-          currentLevel: 16,
+          currentLevel: 17,
         ).any((ids) => ids.contains('practice_hard_movement')),
         isTrue,
       );
     });
 
+    test('new generation never selects the legacy combo quest', () {
+      for (final level in [19, 20, 21]) {
+        for (final ids in _sampleBoards(
+          currentLevel: level,
+          users: 80,
+          days: 28,
+        )) {
+          expect(ids, isNot(contains('use_bottle_and_shaker_combo')));
+        }
+      }
+    });
+
     test(
-      'Level 20 may generate the full catalog including the combo quest',
+      'Level 20 may generate every currently eligible catalog quest except the combo',
       () {
-        final catalogIds = questCatalog.map((q) => q.id).toSet();
+        final pool = DailyQuestUnlockPool.fromPersonalLevel(20);
+        final eligibleIds = questCatalog
+            .where(
+              (quest) =>
+                  quest.minimumLevel <= 20 &&
+                  isEligibleForDailyQuestGeneration(quest, pool),
+            )
+            .map((quest) => quest.id)
+            .toSet();
+        expect(eligibleIds, isNot(contains('use_bottle_and_shaker_combo')));
+        expect(questById('use_bottle_and_shaker_combo'), isNotNull);
+
         final seen = <String>{};
         for (final ids in _sampleBoards(
           currentLevel: 20,
@@ -308,7 +404,7 @@ void main() {
         )) {
           seen.addAll(ids);
         }
-        expect(seen, catalogIds);
+        expect(seen, eligibleIds);
       },
     );
 

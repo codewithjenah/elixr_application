@@ -7,6 +7,7 @@ import 'package:elixr_application/data/models/daily_quest.dart';
 import 'package:elixr_application/data/models/daily_quest_board.dart';
 import 'package:elixr_application/data/models/quest_claim.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/gamification_repository.dart';
 import 'package:elixr_application/features/dashboard/dashboard_quests.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_quest_card.dart';
@@ -39,14 +40,17 @@ Session _session({
   String movementName = 'Flair',
   int score = 70,
   String createdAt = _insideWindow,
+  TrainingProp propType = TrainingProp.bottle,
+  String difficulty = 'Easy',
 }) {
   return Session(
     userId: 'u1',
     movementName: movementName,
-    difficulty: 'Easy',
+    difficulty: difficulty,
     legacyScore: score,
     durationSeconds: 60,
     createdAt: createdAt,
+    propType: propType,
   );
 }
 
@@ -163,6 +167,53 @@ void main() {
       expect(easy.xp, 10);
       expect(medium.xp, 15);
       expect(hard.xp, 20);
+    });
+
+    test('a persisted board can still evaluate the legacy combo quest', () {
+      final board = DailyQuestBoard(
+        userId: 'u1',
+        dayKey: '20260804',
+        dayStart: _dayStart,
+        questIds: const [
+          'session_count_1',
+          'session_count_3',
+          'use_bottle_and_shaker_combo',
+          'duration_10min',
+          'duration_20min',
+        ],
+      );
+
+      final incomplete = buildActiveDashboardQuests(
+        board: board,
+        claimedQuestIds: const {},
+        sessions: [
+          _session(movementName: 'Hand Stall', propType: TrainingProp.shaker),
+        ],
+      );
+      final combo = incomplete.firstWhere(
+        (quest) => quest.id == 'use_bottle_and_shaker_combo',
+      );
+      expect(combo.title, 'Complete a Bottle + Shaker Combo Session');
+      expect(combo.xp, 20);
+      expect(combo.completed, isFalse);
+
+      final complete = buildActiveDashboardQuests(
+        board: board,
+        claimedQuestIds: const {},
+        sessions: [
+          _session(
+            movementName: 'Bottle in a tin',
+            difficulty: 'Hard',
+            propType: TrainingProp.bottleAndShaker,
+          ),
+        ],
+      );
+      expect(
+        complete
+            .firstWhere((quest) => quest.id == 'use_bottle_and_shaker_combo')
+            .completed,
+        isTrue,
+      );
     });
   });
 

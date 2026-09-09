@@ -62,10 +62,14 @@ class QuestDefinition {
   final QuestCategory category;
   final QuestTier tier;
 
-  /// Lowest personal progression level at which this quest may appear on a
-  /// newly generated board. Tutorial completion is a separate practice
-  /// prerequisite and is not encoded here. Client-side relevance only —
-  /// Firestore still validates catalog id, tier, XP, and category caps.
+  /// Coarse personal-level prerequisite for **new** board generation.
+  /// Content-dependent quests also require generation-time unlock-pool
+  /// eligibility, so a quest is never issued merely because this level first
+  /// unlocks a single matching option. Tutorial completion is a separate
+  /// practice prerequisite and is not encoded here. Client-side generation
+  /// relevance only — Firestore still validates catalog id, tier, XP, and
+  /// category caps. Already-persisted boards may still contain this id even
+  /// when current generation would exclude it.
   final int minimumLevel;
 
   final QuestEvaluator evaluate;
@@ -135,8 +139,10 @@ QuestProgress _capAtOne(int count) =>
 /// rules cannot import Dart source, so this list and the rules' catalog
 /// tables are two independent sources of truth that must be edited together.
 ///
-/// [QuestDefinition.minimumLevel] is board-generation relevance only and is
-/// intentionally not duplicated in security rules.
+/// [QuestDefinition.minimumLevel] is a coarse generation prerequisite only
+/// and is intentionally not duplicated in security rules. Fairness for
+/// content-dependent quests is applied at generation time from the
+/// personal progression catalog, not from this integer alone.
 final List<QuestDefinition> questCatalog = [
   // ---- Easy (10 XP) ----
   QuestDefinition(
@@ -295,6 +301,9 @@ final List<QuestDefinition> questCatalog = [
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithDifficulty(sessions, 'hard')),
   ),
+  // Kept for already-persisted boards. New generation excludes this id
+  // unless multiple personally unlocked combo variants exist; the current
+  // 20-level catalog has only Bottle in a tin, so new boards omit it.
   QuestDefinition(
     id: 'use_bottle_and_shaker_combo',
     title: 'Complete a Bottle + Shaker Combo Session',

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:elixr_application/data/models/daily_quest.dart';
+import 'package:elixr_application/data/models/daily_quest_eligibility.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Guards against `lib/data/models/daily_quest.dart` and `firestore.rules`
@@ -152,32 +153,44 @@ void main() {
     }
   });
 
+  test('content-dependent quests stay in the catalog for persisted boards', () {
+    const contentDependentIds = {
+      'two_movements',
+      'three_movements',
+      'practice_easy_movement',
+      'practice_medium_movement',
+      'practice_hard_movement',
+      'use_shaker',
+      'distinct_props_2',
+      'use_bottle_and_shaker_combo',
+    };
+    expect(
+      questCatalog.map((quest) => quest.id).toSet(),
+      containsAll(contentDependentIds),
+    );
+  });
+
   test(
-    'progression-sensitive quest minimum levels match feasibility boundaries',
+    'coarse minimumLevel is not enough to make singleton-gated content quests eligible',
     () {
-      const expected = <String, int>{
-        'session_count_1': 1,
-        'duration_10min': 1,
-        'score_70': 1,
-        'two_movements': 2,
-        'practice_easy_movement': 1,
-        'use_shaker': 6,
-        'session_count_3': 1,
-        'duration_20min': 1,
-        'score_85': 1,
-        'sessions_above_70_x2': 1,
-        'three_movements': 3,
-        'practice_medium_movement': 5,
-        'distinct_props_2': 6,
-        'session_count_5': 1,
-        'duration_30min': 1,
-        'score_95': 1,
-        'practice_hard_movement': 13,
-        'use_bottle_and_shaker_combo': 16,
+      const gatedAtMinimum = {
+        'two_movements',
+        'three_movements',
+        'practice_medium_movement',
+        'practice_hard_movement',
+        'use_shaker',
+        'distinct_props_2',
+        'use_bottle_and_shaker_combo',
       };
-      expect(questCatalog.map((q) => q.id).toSet(), expected.keys.toSet());
-      for (final quest in questCatalog) {
-        expect(quest.minimumLevel, expected[quest.id], reason: quest.id);
+      for (final id in gatedAtMinimum) {
+        final quest = questById(id)!;
+        final pool = DailyQuestUnlockPool.fromPersonalLevel(quest.minimumLevel);
+        expect(
+          isEligibleForDailyQuestGeneration(quest, pool),
+          isFalse,
+          reason:
+              '$id should still be ineligible at minimumLevel ${quest.minimumLevel}',
+        );
       }
     },
   );

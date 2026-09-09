@@ -1,5 +1,6 @@
 import '../models/session.dart';
 import 'daily_quest.dart';
+import 'daily_quest_eligibility.dart';
 
 /// Persisted per-user, per-real-day quest board. Immutable after creation —
 /// `firestore.rules` disallows `update`/`delete` entirely on
@@ -102,15 +103,24 @@ typedef _TierCombo = ({
 final Map<int, List<_TierCombo>> _validCombosByLevel = {};
 
 /// Clamps a trainee level for board generation: below 1 behaves as Level 1,
-/// Level 20+ uses the full eligible pool.
+/// Level 20+ uses the personally unlocked pool for Level 20.
 int effectiveQuestGenerationLevel(int currentLevel) {
   if (currentLevel < 1) return 1;
   if (currentLevel > 20) return 20;
   return currentLevel;
 }
 
-List<String> _idsWithTierAtLevel(QuestTier tier, int level) => questCatalog
-    .where((q) => q.tier == tier && q.minimumLevel <= level)
+List<String> _idsWithTierAtLevel(
+  QuestTier tier,
+  int level,
+  DailyQuestUnlockPool pool,
+) => questCatalog
+    .where(
+      (q) =>
+          q.tier == tier &&
+          q.minimumLevel <= level &&
+          isEligibleForDailyQuestGeneration(q, pool),
+    )
     .map((q) => q.id)
     .toList();
 
@@ -158,10 +168,11 @@ List<_TierCombo> _buildValidCombos({
 
 List<_TierCombo> _validCombosForLevel(int level) {
   return _validCombosByLevel.putIfAbsent(level, () {
+    final pool = DailyQuestUnlockPool.fromPersonalLevel(level);
     return _buildValidCombos(
-      easyIds: _idsWithTierAtLevel(QuestTier.easy, level),
-      mediumIds: _idsWithTierAtLevel(QuestTier.medium, level),
-      hardIds: _idsWithTierAtLevel(QuestTier.hard, level),
+      easyIds: _idsWithTierAtLevel(QuestTier.easy, level, pool),
+      mediumIds: _idsWithTierAtLevel(QuestTier.medium, level, pool),
+      hardIds: _idsWithTierAtLevel(QuestTier.hard, level, pool),
     );
   });
 }
@@ -184,11 +195,12 @@ int stableHash32(String input) {
 /// Easy → Medium → Hard (the "active" slots) and the last 2 are the reserve
 /// easy/medium (never an arbitrary rotation of the whole board).
 ///
-/// Only quests whose [QuestDefinition.minimumLevel] is at or below the
-/// effective trainee level are candidates. Same (userId, dayKey,
+/// Candidates must satisfy both [QuestDefinition.minimumLevel] (coarse
+/// prerequisite) and [isEligibleForDailyQuestGeneration] against the
+/// trainee's personally unlocked practice pool. Same (userId, dayKey,
 /// effective level) always yields the same 5 ids, in the same order,
-/// across restarts. Different users typically yield different boards on
-/// the same day.
+/// across restarts because the unlock pool is a pure function of level.
+/// Different users typically yield different boards on the same day.
 List<String> generateDailyQuestIds({
   required String userId,
   required String dayKey,
