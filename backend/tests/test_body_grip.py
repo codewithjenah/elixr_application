@@ -40,6 +40,45 @@ def _body_wrap_points() -> dict[int, Point2D]:
     }
 
 
+def _outside_bbox_body_wrap_points() -> dict[int, Point2D]:
+    """A real side wrap: curled fingertips are beyond the visible bottle edge."""
+    points = _body_wrap_points()
+    for _, pip, dip, tip in (
+        (5, 6, 7, 8),
+        (9, 10, 11, 12),
+        (13, 14, 15, 16),
+        (17, 18, 19, 20),
+    ):
+        points[pip] = Point2D(0.54, 0.60)
+        points[dip] = Point2D(0.62, 0.60)
+        points[tip] = Point2D(0.595, 0.55)
+    return points
+
+
+def _mirrored_body_wrap_points() -> dict[int, Point2D]:
+    return {
+        index: Point2D(1.0 - point.x, point.y)
+        for index, point in _outside_bbox_body_wrap_points().items()
+    }
+
+
+def _laterally_rising_body_wrap_points() -> dict[int, Point2D]:
+    """Side-view fingers can rise in image space while still wrapping the body."""
+    points = _outside_bbox_body_wrap_points()
+    for mcp, tip in ((5, 8), (9, 12), (13, 16), (17, 20)):
+        point = points[tip]
+        points[tip] = Point2D(point.x, points[mcp].y - 0.03)
+    return points
+
+
+def _body_points_without_cross_body_wrap() -> dict[int, Point2D]:
+    points = _body_wrap_points()
+    for index in (8, 12, 16, 20):
+        point = points[index]
+        points[index] = Point2D(0.49, point.y)
+    return points
+
+
 def _open_hover_body_points() -> dict[int, Point2D]:
     """Palm near the body, fingers extended sideways so they do not wrap."""
     return {
@@ -197,6 +236,40 @@ def test_body_grip_valid_wrap_succeeds():
     assert result.feedback_code == FeedbackCode.BODY_GRIP_LOCKED.value
 
 
+def test_body_grip_accepts_center_wrap_with_fingertips_outside_raw_bbox():
+    points = _outside_bbox_body_wrap_points()
+    assert all(points[index].x > 340 / 640 for index in (8, 12, 16, 20))
+    result = _evaluate(_hand_from_points(points))
+    assert result.feedback_type == "positive"
+    assert result.feedback_code == FeedbackCode.BODY_GRIP_LOCKED.value
+
+
+def test_body_grip_accepts_mirrored_center_wrap():
+    result = _evaluate(_hand_from_points(_mirrored_body_wrap_points(), handedness="Left"))
+    assert result.feedback_type == "positive"
+    assert result.feedback_code == FeedbackCode.BODY_GRIP_LOCKED.value
+
+
+def test_body_grip_accepts_laterally_rising_side_wrap():
+    result = _evaluate(_hand_from_points(_laterally_rising_body_wrap_points()))
+    assert result.feedback_type == "positive"
+    assert result.feedback_code == FeedbackCode.BODY_GRIP_LOCKED.value
+
+
+def test_body_grip_accepts_thumb_near_upper_body_boundary():
+    points = _outside_bbox_body_wrap_points()
+    points[4] = Point2D(0.46, 0.325)
+    result = _evaluate(_hand_from_points(points))
+    assert result.feedback_type == "positive"
+    assert result.feedback_code == FeedbackCode.BODY_GRIP_LOCKED.value
+
+
+def test_body_grip_rejects_centered_palm_without_cross_body_wrap():
+    result = _evaluate(_hand_from_points(_body_points_without_cross_body_wrap()))
+    assert result.feedback_type == "warning"
+    assert result.feedback_code == FeedbackCode.INSUFFICIENT_BODY_FINGER_WRAP.value
+
+
 def test_body_grip_rejects_neck_wrap():
     result = _evaluate(_hand_from_points(_neck_wrap_points()), _default_bottle())
     assert result.feedback_type == "warning"
@@ -264,6 +337,22 @@ def test_body_grip_missing_hand_fails():
     result, _, _ = evaluate_movement("Body Grip", _body_bottle(), None, None, None)
     assert result.posture_status == "unknown"
     assert result.feedback_code == FeedbackCode.HAND_NOT_VISIBLE.value
+
+
+def test_body_grip_missing_required_hand_geometry_is_uncertain():
+    result = _evaluate(
+        _hand_from_points(
+            {
+                4: Point2D(0.50, 0.53),
+                9: Point2D(0.45, 0.54),
+                8: Point2D(0.52, 0.55),
+                12: Point2D(0.52, 0.55),
+                16: Point2D(0.52, 0.56),
+            }
+        )
+    )
+    assert result.posture_status == "unknown"
+    assert result.feedback_code == FeedbackCode.HAND_NOT_FULLY_VISIBLE.value
 
 
 def test_body_grip_unstable_does_not_confirm():

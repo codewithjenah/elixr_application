@@ -24,10 +24,15 @@ _BODY_BOTTOM_FRACTION = 0.78
 _BASE_TOP_FRACTION = 0.82
 _HORIZONTAL_MARGIN_FRACTION = 0.85
 _MIN_HORIZONTAL_MARGIN = 0.04
+_CORE_HORIZONTAL_MARGIN_FRACTION = 0.45
+_NEAR_BODY_HORIZONTAL_MARGIN_FRACTION = 1.10
 _REQUIRED_WRAP_FINGERTIPS = 3
 _FINGERTIP_INDICES = (8, 12, 16, 20)
+_MCP_INDICES = (5, 9, 13, 17)
+_REQUIRED_BODY_MCP_POINTS = 2
 _OPEN_PALM_MIN_EXTENDED_UP = 3
 _MIN_TIP_ABOVE_MCP = 0.008
+_OPEN_PALM_MIN_VERTICAL_TO_LATERAL_RATIO = 1.0
 _MAX_THUMB_INDEX_GAP_RATIO = 0.38
 _MIN_SIDEWAYS_RATIO = 1.10
 _MIN_INDEX_EXTENSION = 0.70
@@ -87,8 +92,38 @@ def _neck_zone(bottle: BottleDetection) -> ContactZone:
     return _vertical_zone(bottle, 0.0, _NECK_BOTTOM_FRACTION)
 
 
-def _body_zone(bottle: BottleDetection) -> ContactZone:
-    return _vertical_zone(bottle, _BODY_TOP_FRACTION, _BODY_BOTTOM_FRACTION)
+def _body_core_zone(bottle: BottleDetection) -> ContactZone:
+    """A tight body band for the palm and finger roots, not the fingertips."""
+    left = bottle.x1 / FRAME_WIDTH
+    right = bottle.x2 / FRAME_WIDTH
+    bottle_width = right - left
+    horizontal_margin = max(
+        _MIN_HORIZONTAL_MARGIN,
+        bottle_width * _CORE_HORIZONTAL_MARGIN_FRACTION,
+    )
+    return (
+        left - horizontal_margin,
+        _fraction_y(bottle, _BODY_TOP_FRACTION),
+        right + horizontal_margin,
+        _fraction_y(bottle, _BODY_BOTTOM_FRACTION),
+    )
+
+
+def _near_body_zone(bottle: BottleDetection) -> ContactZone:
+    """Allow wrapped fingertips just beyond an imprecise visible silhouette."""
+    left = bottle.x1 / FRAME_WIDTH
+    right = bottle.x2 / FRAME_WIDTH
+    bottle_width = right - left
+    horizontal_margin = max(
+        _MIN_HORIZONTAL_MARGIN,
+        bottle_width * _NEAR_BODY_HORIZONTAL_MARGIN_FRACTION,
+    )
+    return (
+        left - horizontal_margin,
+        _fraction_y(bottle, _BODY_TOP_FRACTION),
+        right + horizontal_margin,
+        _fraction_y(bottle, _BODY_BOTTOM_FRACTION),
+    )
 
 
 def _base_zone(bottle: BottleDetection) -> ContactZone:
@@ -165,7 +200,13 @@ def _fingers_extended_upward(hand: HandLandmarks, *, hand_scale: float) -> bool:
         tip = hand.points.get(tip_index)
         if mcp is None or tip is None:
             continue
-        if tip.y + margin <= mcp.y:
+        vertical_rise = mcp.y - tip.y
+        lateral_reach = abs(tip.x - mcp.x)
+        if (
+            tip.y + margin <= mcp.y
+            and vertical_rise
+            >= lateral_reach * _OPEN_PALM_MIN_VERTICAL_TO_LATERAL_RATIO
+        ):
             extended += 1
     return extended >= _OPEN_PALM_MIN_EXTENDED_UP
 
@@ -174,12 +215,17 @@ def _engaged_fingertips(hand: HandLandmarks, zone: ContactZone) -> int:
     return sum(_is_in_zone(hand.points.get(index), zone) for index in _FINGERTIP_INDICES)
 
 
-def _unexpanded_body_zone(bottle: BottleDetection) -> ContactZone:
-    return (
-        bottle.x1 / FRAME_WIDTH,
-        _fraction_y(bottle, _BODY_TOP_FRACTION),
-        bottle.x2 / FRAME_WIDTH,
-        _fraction_y(bottle, _BODY_BOTTOM_FRACTION),
+def _hand_core_is_on_body(
+    hand: HandLandmarks,
+    palm: Point2D,
+    bottle: BottleDetection,
+) -> bool:
+    """Anchor body position to the palm and roots, which stay visible in a wrap."""
+    core_zone = _body_core_zone(bottle)
+    if not _is_in_zone(palm, core_zone):
+        return False
+    return sum(_is_in_zone(hand.points.get(index), core_zone) for index in _MCP_INDICES) >= (
+        _REQUIRED_BODY_MCP_POINTS
     )
 
 
@@ -222,11 +268,25 @@ def _fingers_too_straight_for_wrap(hand: HandLandmarks) -> bool:
         if extension is None:
             continue
         measured += 1
-        if extension >= 0.90:
+        if extension >= 0.98:
             straight += 1
     if measured == 0:
         return False
     return straight >= 3
+
+
+def _has_sufficient_finger_chain_geometry(hand: HandLandmarks) -> bool:
+    """A wrap needs enough visible joints to establish curvature, not just tips."""
+    measured = sum(
+        _chain_extension(hand, chain) is not None
+        for chain in (
+            (5, 6, 7, 8),
+            (9, 10, 11, 12),
+            (13, 14, 15, 16),
+            (17, 18, 19, 20),
+        )
+    )
+    return measured >= 2
 
 
 def _looks_like_normal_neck(
@@ -353,8 +413,7 @@ def evaluate(
 
     wrist = hand.points.get(0)
     middle_mcp = hand.points.get(9)
-    thumb = hand.points.get(4)
-    if wrist is None or middle_mcp is None or thumb is None:
+    if wrist is None or middle_mcp is None:
         return (
             uncertain_result(
                 "Keep your full hand visible around the bottle body.",
@@ -388,9 +447,9 @@ def evaluate(
         )
 
     neck_zone = _neck_zone(bottle)
-    body_zone = _body_zone(bottle)
+    near_body_zone = _near_body_zone(bottle)
     base_zone = _base_zone(bottle)
-    wrap_count = _engaged_fingertips(hand, body_zone)
+    wrap_count = _engaged_fingertips(hand, near_body_zone)
 
     if not _is_upright(bottle):
         return (
@@ -469,7 +528,7 @@ def evaluate(
             movement_state,
         )
 
-    if not _is_in_zone(palm, body_zone):
+    if not _hand_core_is_on_body(hand, palm, bottle):
         return (
             _warning(
                 "Place your hand around the middle of the bottle body.",
@@ -494,10 +553,9 @@ def evaluate(
         )
 
     if (
-        _engaged_fingertips(hand, _unexpanded_body_zone(bottle)) < 2
+        not _has_sufficient_finger_chain_geometry(hand)
         or not _wraps_around_body(hand, bottle)
         or _fingers_too_straight_for_wrap(hand)
-        or not _is_in_zone(thumb, body_zone)
     ):
         return (
             _warning(
