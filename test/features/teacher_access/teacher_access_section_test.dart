@@ -84,7 +84,14 @@ void main() {
     );
     var groupCodeIndex = 0;
     var groupIdIndex = 0;
-    const groupCodes = ['ABCD2345EFGH', 'ZZZZ2345YYYY', 'MNOP2345QRST'];
+    const groupCodes = [
+      'ABCD2345EFGH',
+      'ZZZZ2345YYYY',
+      'MNOP2345QRST',
+      'WXYZ2345ABCD',
+      'QWER2345TYUI',
+      'ASDF2345GHJK',
+    ];
     groupRepository = InMemoryGroupRepository(
       generateNormalizedCode: () =>
           groupCodes[groupCodeIndex++ % groupCodes.length],
@@ -135,8 +142,6 @@ void main() {
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
     );
-    await tester.tap(find.byKey(const Key('teacher_access_join_toggle')));
-    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('teacher_access_roster_code')),
       invite!.displayCode,
@@ -269,15 +274,29 @@ void main() {
 
       expect(find.text('Waiting'), findsOneWidget);
       expect(find.text('My classrooms'), findsOneWidget);
+      expect(
+        find.text('Join requests awaiting teacher approval.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text("Classes you're currently a member of."),
+        findsOneWidget,
+      );
       expect(find.text('Join a class'), findsOneWidget);
       expect(find.text('Waiting to join'), findsOneWidget);
       expect(find.text('Waiting to join a class'), findsNothing);
       expect(find.text('Waiting for a teacher'), findsNothing);
       expect(find.text('Your classrooms'), findsOneWidget);
+      expect(find.text('No join requests waiting.'), findsOneWidget);
+      expect(find.text("You're all caught up!"), findsOneWidget);
       expect(find.text('Linked teachers'), findsNothing);
       expect(find.text('Teachers not in a class'), findsNothing);
       expect(
         find.byKey(const Key('teacher_access_roster_code')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_access_resolve_code')),
         findsOneWidget,
       );
 
@@ -289,38 +308,9 @@ void main() {
       );
       expect(pendingCard.top, joinCard.top);
       expect(pendingCard.left, greaterThan(joinCard.right));
-      expect(pendingCard.width, joinCard.width);
-      expect(pendingCard.height, joinCard.height);
-      expect(joinCard.height, lessThan(140));
-      expect(pendingCard.height, lessThan(140));
-
-      await tester.tap(find.byKey(const Key('teacher_access_join_toggle')));
-      await tester.pumpAndSettle();
-      final expandedJoinCard = tester.getRect(
-        find.byKey(const Key('teacher_access_join_card')),
-      );
-      expect(expandedJoinCard.height, greaterThan(joinCard.height));
-
-      await tester.tap(find.byKey(const Key('teacher_access_join_toggle')));
-      await tester.pumpAndSettle();
-      final collapsedJoinCard = tester.getRect(
-        find.byKey(const Key('teacher_access_join_card')),
-      );
-      expect(collapsedJoinCard.height, joinCard.height);
-
-      await tester.tap(find.byKey(const Key('teacher_access_pending_toggle')));
-      await tester.pumpAndSettle();
-      final expandedPendingCard = tester.getRect(
-        find.byKey(const Key('teacher_access_pending_card')),
-      );
-      expect(expandedPendingCard.height, greaterThan(pendingCard.height));
-
-      await tester.tap(find.byKey(const Key('teacher_access_pending_toggle')));
-      await tester.pumpAndSettle();
-      final collapsedPendingCard = tester.getRect(
-        find.byKey(const Key('teacher_access_pending_card')),
-      );
-      expect(collapsedPendingCard.height, pendingCard.height);
+      expect(pendingCard.width, closeTo(joinCard.width, 1));
+      expect(pendingCard.height, closeTo(joinCard.height, 1));
+      expect(joinCard.height, greaterThan(160));
     },
   );
 
@@ -418,6 +408,7 @@ void main() {
     expect(find.text('BSHM 4B'), findsOneWidget);
     expect(find.text('Grace Hopper'), findsNWidgets(2));
     expect(find.text('Normal Grip'), findsOneWidget);
+    expect(find.text('1 assignment'), findsOneWidget);
     expect(find.text('Ada Lovelace (you)'), findsNothing);
     expect(find.text('Alan Turing'), findsNothing);
     expect(find.text('Classmates'), findsNothing);
@@ -584,6 +575,7 @@ void main() {
       onOpenClass: (_) {},
     );
 
+    await tester.ensureVisible(find.byKey(Key('class_card_more_${group.id}')));
     await tester.tap(find.byKey(Key('class_card_more_${group.id}')));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -600,5 +592,171 @@ void main() {
       GroupMembershipStatus.removed,
     );
     expect(find.byKey(Key('teacher_access_group_${group.id}')), findsNothing);
+  });
+
+  testWidgets('empty classrooms explain how to join without a second form', (
+    tester,
+  ) async {
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+
+    expect(find.text("You're not in a class yet."), findsOneWidget);
+    expect(
+      find.text('Use Join a class above with the code from your teacher.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('teacher_access_roster_code')), findsOneWidget);
+    expect(find.text('XXXX-XXXX-XXXX'), findsOneWidget);
+  });
+
+  testWidgets('invalid class code shows an accessible error', (tester) async {
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('teacher_access_roster_code')),
+      'not-a-code',
+    );
+    await tester.tap(find.byKey(const Key('teacher_access_resolve_code')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byKey(const Key('teacher_access_join_error')), findsOneWidget);
+    expect(find.byIcon(FluentIcons.error_badge), findsWidgets);
+    expect(find.text('That code is not valid.'), findsOneWidget);
+  });
+
+  testWidgets('local search filters classrooms without extra queries', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final name in ['BSHM 4A', 'BSHM 4B', 'BSIT 3A', 'Culinary Lab']) {
+      final group = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: name,
+      );
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      final membership = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+    }
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+      onOpenClass: (_) {},
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('teacher_access_class_search')),
+      findsOneWidget,
+    );
+    expect(find.text('BSHM 4A'), findsOneWidget);
+    expect(find.text('Culinary Lab'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('teacher_access_class_search')),
+      'bshm',
+    );
+    await tester.pump();
+    expect(find.text('BSHM 4A'), findsOneWidget);
+    expect(find.text('BSHM 4B'), findsOneWidget);
+    expect(find.text('Culinary Lab'), findsNothing);
+    expect(find.text('BSIT 3A'), findsNothing);
+  });
+
+  testWidgets('narrow window stacks join and waiting without overflow', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+
+    expect(tester.takeException(), isNull);
+    final joinCard = tester.getRect(
+      find.byKey(const Key('teacher_access_join_card')),
+    );
+    final pendingCard = tester.getRect(
+      find.byKey(const Key('teacher_access_pending_card')),
+    );
+    expect(pendingCard.top, greaterThan(joinCard.bottom - 1));
+  });
+
+  testWidgets('many long classroom names stay inside the card grid', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final names = [
+      'BSIT 4A Advanced Flair Bartending Laboratory Section',
+      'Hospitality Management Evening Cohort North Wing',
+      'Weekend Intensive Bottle Flair Masterclass',
+    ];
+    for (final name in names) {
+      final group = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Professor Alexandrina Montgomery-Whitaker',
+        name: name,
+      );
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      final membership = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+    }
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+      onOpenClass: (_) {},
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text(names.first), findsOneWidget);
+    expect(find.text('1 assignment'), findsNothing);
   });
 }

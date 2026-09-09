@@ -114,6 +114,7 @@ void main() {
                     title: 'Normal Grip',
                   ),
                 ],
+                assignmentCount: 1,
                 onOpen: () => opened = true,
               ),
             ),
@@ -131,6 +132,7 @@ void main() {
     expect(find.text('Active'), findsOneWidget);
     expect(find.text('Due Monday'), findsOneWidget);
     expect(find.text('Normal Grip'), findsOneWidget);
+    expect(find.text('1 assignment'), findsOneWidget);
     expect(find.text('Open classwork'), findsNothing);
     expect(find.text('No upcoming classwork'), findsNothing);
     expect(find.byKey(const Key('class_card_people_group-1')), findsOneWidget);

@@ -158,6 +158,7 @@ class TraineeClassCard extends StatefulWidget {
     required this.onOpen,
     this.sectionLabel,
     this.workItems = const [],
+    this.assignmentCount,
     this.ownerPhotoUrl,
     this.ownerInitials,
     this.cardKey,
@@ -172,6 +173,7 @@ class TraineeClassCard extends StatefulWidget {
   final VoidCallback onOpen;
   final String? sectionLabel;
   final List<ClassCardWorkItem> workItems;
+  final int? assignmentCount;
   final String? ownerPhotoUrl;
   final String? ownerInitials;
   final Key? cardKey;
@@ -179,11 +181,11 @@ class TraineeClassCard extends StatefulWidget {
   final VoidCallback? onOpenPeople;
   final VoidCallback? onOpenClasswork;
 
-  static const double _headerHeight = 108;
-  static const double _avatarSize = 52;
+  static const double _headerHeight = 92;
+  static const double _avatarSize = 40;
   static const double _cardHeight = 272;
   static const double _radius = 16;
-  static const double _identityHeight = 40;
+  static const double _identityHeight = 56;
   static const double _footerHeight = 44;
   static const int _workSlotCount = 2;
 
@@ -210,7 +212,7 @@ class _TraineeClassCardState extends State<TraineeClassCard> {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final lift = highContrast || reduceMotion
         ? 0.0
-        : (_pressed ? 0.0 : (_hovered ? -2.0 : 0.0));
+        : (_pressed ? 0.0 : (_hovered ? -1.5 : 0.0));
 
     final borderColor = highContrast
         ? (_focused ? colors.focusRing : colors.borderStrong)
@@ -303,148 +305,131 @@ class _TraineeClassCardState extends State<TraineeClassCard> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(TraineeClassCard._radius),
-                child: Stack(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: TraineeClassCard._headerHeight,
-                          child: _ClassCardHero(
-                            groupId: widget.groupId,
-                            color: header,
-                            title: widget.className,
-                            sectionLabel: widget.sectionLabel,
-                            highContrast: highContrast,
-                            isDark: isDark,
-                            menuItems: widget.menuItems,
-                          ),
+                    SizedBox(
+                      height: TraineeClassCard._headerHeight,
+                      child: _ClassCardHero(
+                        groupId: widget.groupId,
+                        color: header,
+                        title: widget.className,
+                        sectionLabel: widget.sectionLabel,
+                        assignmentCount: widget.assignmentCount,
+                        highContrast: highContrast,
+                        isDark: isDark,
+                        menuItems: widget.menuItems,
+                      ),
+                    ),
+                    SizedBox(
+                      height: TraineeClassCard._identityHeight,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.md,
+                          8,
+                          AppSpacing.md,
+                          6,
                         ),
-                        SizedBox(
-                          height: TraineeClassCard._identityHeight,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppSpacing.md,
-                              8,
-                              80,
-                              4,
+                        child: Row(
+                          children: [
+                            IgnorePointer(
+                              child: _ClassCardTeacherPortrait(
+                                groupId: widget.groupId,
+                                accent: header,
+                                initials: initials,
+                                photoUrl: widget.ownerPhotoUrl,
+                                highContrast: highContrast,
+                                isDark: isDark,
+                              ),
                             ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  FluentIcons.contact,
-                                  size: 12,
-                                  color: context.elixTextSecondary,
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    widget.teacherName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppTheme.caption.copyWith(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.2,
-                                      color: context.elixTextPrimary,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppSpacing.md,
-                              0,
-                              AppSpacing.md,
-                              4,
-                            ),
-                            child: widget.workItems.isEmpty
-                                ? const Align(
-                                    alignment: Alignment.topLeft,
-                                    child: _ClassCardEmptyWork(),
-                                  )
-                                : Column(
-                                    children: [
-                                      for (
-                                        var i = 0;
-                                        i < TraineeClassCard._workSlotCount;
-                                        i++
-                                      )
-                                        Expanded(
-                                          child: i < widget.workItems.length
-                                              ? _ClassCardWorkLine(
-                                                  item: widget.workItems[i],
-                                                )
-                                              : const SizedBox.shrink(),
-                                        ),
-                                    ],
-                                  ),
-                          ),
-                        ),
-                        SizedBox(
-                          height: TraineeClassCard._footerHeight,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              border: Border(
-                                top: BorderSide(
-                                  color: highContrast
-                                      ? colors.borderStrong
-                                      : colors.borderSubtle.withValues(
-                                          alpha: isDark ? 0.7 : 0.9,
-                                        ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                widget.teacherName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.caption.copyWith(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.2,
+                                  color: context.elixTextPrimary,
                                 ),
                               ),
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
+                          ],
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.md,
+                          0,
+                          AppSpacing.md,
+                          4,
+                        ),
+                        child: widget.workItems.isEmpty
+                            ? const Align(
+                                alignment: Alignment.topLeft,
+                                child: _ClassCardEmptyWork(),
+                              )
+                            : Column(
                                 children: [
-                                  _ClassCardActionButton(
-                                    buttonKey: Key(
-                                      'class_card_people_${widget.groupId}',
+                                  for (
+                                    var i = 0;
+                                    i < TraineeClassCard._workSlotCount;
+                                    i++
+                                  )
+                                    Expanded(
+                                      child: i < widget.workItems.length
+                                          ? _ClassCardWorkLine(
+                                              item: widget.workItems[i],
+                                            )
+                                          : const SizedBox.shrink(),
                                     ),
-                                    tooltip: 'People',
-                                    icon: FluentIcons.people,
-                                    onPressed:
-                                        widget.onOpenPeople ?? widget.onOpen,
-                                  ),
-                                  const SizedBox(width: 2),
-                                  _ClassCardActionButton(
-                                    buttonKey: Key(
-                                      'class_card_folder_${widget.groupId}',
-                                    ),
-                                    tooltip: 'Classwork',
-                                    icon: FluentIcons.folder,
-                                    onPressed:
-                                        widget.onOpenClasswork ?? widget.onOpen,
-                                  ),
                                 ],
                               ),
+                      ),
+                    ),
+                    SizedBox(
+                      height: TraineeClassCard._footerHeight,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(
+                              color: highContrast
+                                  ? colors.borderStrong
+                                  : colors.borderSubtle.withValues(
+                                      alpha: isDark ? 0.7 : 0.9,
+                                    ),
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                    Positioned(
-                      top:
-                          TraineeClassCard._headerHeight -
-                          (TraineeClassCard._avatarSize / 2),
-                      right: AppSpacing.md,
-                      child: IgnorePointer(
-                        child: _ClassCardTeacherPortrait(
-                          groupId: widget.groupId,
-                          accent: header,
-                          initials: initials,
-                          photoUrl: widget.ownerPhotoUrl,
-                          highContrast: highContrast,
-                          isDark: isDark,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              _ClassCardActionButton(
+                                buttonKey: Key(
+                                  'class_card_people_${widget.groupId}',
+                                ),
+                                tooltip: 'People',
+                                icon: FluentIcons.people,
+                                onPressed: widget.onOpenPeople ?? widget.onOpen,
+                              ),
+                              const SizedBox(width: 2),
+                              _ClassCardActionButton(
+                                buttonKey: Key(
+                                  'class_card_folder_${widget.groupId}',
+                                ),
+                                tooltip: 'Classwork',
+                                icon: FluentIcons.folder,
+                                onPressed:
+                                    widget.onOpenClasswork ?? widget.onOpen,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -467,6 +452,7 @@ class _ClassCardHero extends StatelessWidget {
     required this.highContrast,
     required this.isDark,
     this.sectionLabel,
+    this.assignmentCount,
     this.menuItems,
   });
 
@@ -474,6 +460,7 @@ class _ClassCardHero extends StatelessWidget {
   final Color color;
   final String title;
   final String? sectionLabel;
+  final int? assignmentCount;
   final bool highContrast;
   final bool isDark;
   final List<MenuFlyoutItem> Function(BuildContext context)? menuItems;
@@ -484,6 +471,12 @@ class _ClassCardHero extends StatelessWidget {
     final hasSection = section != null && section.isNotEmpty;
     final statusLabel = _isClassroomStatusLabel(section) ? section : null;
     final metadataLabel = statusLabel == null && hasSection ? section : null;
+    final count = assignmentCount;
+    final countLabel = count == null || count <= 0
+        ? null
+        : count == 1
+        ? '1 assignment'
+        : '$count assignments';
 
     return Stack(
       fit: StackFit.expand,
@@ -497,15 +490,15 @@ class _ClassCardHero extends StatelessWidget {
         Padding(
           padding: EdgeInsets.fromLTRB(
             AppSpacing.md,
-            12,
+            10,
             menuItems != null ? 48 : AppSpacing.md,
-            12,
+            10,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: 48,
+                height: 42,
                 child: Align(
                   alignment: Alignment.topLeft,
                   child: Text(
@@ -514,9 +507,9 @@ class _ClassCardHero extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: AppTheme.headingMedium.copyWith(
                       color: Colors.white,
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      height: 1.2,
+                      height: 1.15,
                       letterSpacing: -0.3,
                     ),
                   ),
@@ -525,28 +518,47 @@ class _ClassCardHero extends StatelessWidget {
               const SizedBox(height: 6),
               SizedBox(
                 height: 22,
-                child: statusLabel != null
-                    ? Align(
-                        alignment: Alignment.centerLeft,
-                        child: _ClassCardStatusPill(
-                          label: statusLabel,
-                          archived: statusLabel == 'Archived',
-                          highContrast: highContrast,
-                        ),
+                child: Row(
+                  children: [
+                    if (statusLabel != null)
+                      _ClassCardStatusPill(
+                        label: statusLabel,
+                        archived: statusLabel == 'Archived',
+                        highContrast: highContrast,
                       )
-                    : metadataLabel != null
-                    ? Text(
-                        metadataLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.caption.copyWith(
-                          color: Colors.white.withValues(alpha: 0.92),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          height: 1.2,
+                    else if (metadataLabel != null)
+                      Expanded(
+                        child: Text(
+                          metadataLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.caption.copyWith(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                          ),
                         ),
-                      )
-                    : const SizedBox.shrink(),
+                      ),
+                    if (countLabel != null) ...[
+                      if (statusLabel != null || metadataLabel != null)
+                        const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          countLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.caption.copyWith(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -714,8 +726,7 @@ class _ClassCardTeacherPortrait extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const size = TraineeClassCard._avatarSize;
-    const rim = 2.0;
-    const separator = 3.0;
+    const rim = 1.5;
     return Container(
       width: size,
       height: size,
@@ -723,37 +734,28 @@ class _ClassCardTeacherPortrait extends StatelessWidget {
         shape: BoxShape.circle,
         color: context.elixCardSurface,
         border: Border.all(
-          color: highContrast ? context.elixBorder : context.elixCardSurface,
-          width: separator,
+          color: highContrast
+              ? context.elixBorder
+              : accent.withValues(alpha: isDark ? 0.7 : 0.85),
+          width: rim,
         ),
         boxShadow: highContrast
             ? const []
             : [
                 BoxShadow(
-                  color: accent.withValues(alpha: isDark ? 0.38 : 0.22),
-                  blurRadius: 12,
+                  color: accent.withValues(alpha: isDark ? 0.28 : 0.16),
+                  blurRadius: 8,
                   spreadRadius: -1,
                 ),
               ],
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: highContrast
-                ? context.elixBorder
-                : Colors.white.withValues(alpha: isDark ? 0.92 : 1),
-            width: rim,
-          ),
-        ),
-        child: ClipOval(
-          child: ProfileAvatarWidget(
-            key: Key('teacher_access_group_teacher_avatar_$groupId'),
-            radius: (size / 2) - separator - rim,
-            showBorder: false,
-            initials: initials,
-            networkImageUrl: photoUrl,
-          ),
+      child: ClipOval(
+        child: ProfileAvatarWidget(
+          key: Key('teacher_access_group_teacher_avatar_$groupId'),
+          radius: (size / 2) - rim,
+          showBorder: false,
+          initials: initials,
+          networkImageUrl: photoUrl,
         ),
       ),
     );
