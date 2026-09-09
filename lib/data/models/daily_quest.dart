@@ -188,7 +188,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Use the Cocktail Shaker',
     category: QuestCategory.propUsage,
     tier: QuestTier.easy,
-    minimumLevel: 6,
+    minimumLevel: 7,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithProp(sessions, TrainingProp.shaker)),
   ),
@@ -245,7 +245,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete a Medium-Difficulty Session',
     category: QuestCategory.movementDifficulty,
     tier: QuestTier.medium,
-    minimumLevel: 5,
+    minimumLevel: 6,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithDifficulty(sessions, 'medium')),
   ),
@@ -254,7 +254,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Use 2 Different Props Today',
     category: QuestCategory.propUsage,
     tier: QuestTier.medium,
-    minimumLevel: 6,
+    minimumLevel: 7,
     evaluate: (sessions) =>
         QuestProgress(current: _distinctPropCount(sessions), target: 2),
   ),
@@ -291,7 +291,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete a Hard-Difficulty Session',
     category: QuestCategory.movementDifficulty,
     tier: QuestTier.hard,
-    minimumLevel: 13,
+    minimumLevel: 16,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithDifficulty(sessions, 'hard')),
   ),
@@ -300,7 +300,7 @@ final List<QuestDefinition> questCatalog = [
     title: 'Complete a Bottle + Shaker Combo Session',
     category: QuestCategory.propUsage,
     tier: QuestTier.hard,
-    minimumLevel: 16,
+    minimumLevel: 19,
     evaluate: (sessions) =>
         _capAtOne(_sessionsWithProp(sessions, TrainingProp.bottleAndShaker)),
   ),

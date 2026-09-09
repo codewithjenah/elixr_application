@@ -169,12 +169,30 @@ def _pose_has_complete_arm_chain(pose: Optional[PoseLandmarks]) -> bool:
     return False
 
 
+def _pose_has_both_arm_chains(pose: Optional[PoseLandmarks]) -> bool:
+    """Both shoulder→elbow→wrist chains must be observable."""
+    if pose is None:
+        return False
+    for shoulder_i, elbow_i, wrist_i in _POSE_ARM_CHAINS:
+        if (
+            pose.get(shoulder_i) is None
+            or pose.get(elbow_i) is None
+            or pose.get(wrist_i) is None
+        ):
+            return False
+    return True
+
+
 def _pass_upper_body_visible(obs: ReadinessObservation) -> bool:
     """Observability-only: both shoulders plus one complete arm chain."""
     pose = obs.pose
     if not _pose_has_both_shoulders(pose):
         return False
     return _pose_has_complete_arm_chain(pose)
+
+
+def _pass_both_arms_visible(obs: ReadinessObservation) -> bool:
+    return _pose_has_both_arm_chains(obs.pose)
 
 
 def _pass_camera(obs: ReadinessObservation) -> bool:
@@ -308,6 +326,15 @@ def _upper_body_req() -> ReadinessRequirement:
     )
 
 
+def _both_arms_req() -> ReadinessRequirement:
+    return _req(
+        "both_arms_visible",
+        "Keep both arms fully visible, from shoulder to wrist.",
+        _pass_both_arms_visible,
+        DetectorModality.POSE,
+    )
+
+
 def _bottle_req() -> ReadinessRequirement:
     return _req(
         "bottle_detected",
@@ -387,6 +414,10 @@ def _double_hand_profile() -> ReadinessProfile:
     return _profile(_camera_req(), _two_props_req(), _two_hands_req())
 
 
+def _double_forearm_profile() -> ReadinessProfile:
+    return _profile(_camera_req(), _two_props_req(), _both_arms_req())
+
+
 def _bottle_in_tin_profile() -> ReadinessProfile:
     return _profile(
         _camera_req(),
@@ -449,13 +480,14 @@ def _build_profile(movement: str, prop_type: str) -> ReadinessProfile:
         "Bartender's Grip",
         "Reverse Grip",
         "Claw Grip",
+        "Body Grip",
     ):
         return _grip_profile(prop_type)
     if canonical == "Hand Stall":
         return _hand_stall_profile(prop_type)
     if canonical == "One Finger Stall":
         return _one_finger_profile(prop_type)
-    if canonical in ("Forearm Stall", "Elbow Stall"):
+    if canonical in ("Forearm Stall", "Elbow Stall", "Wrist Stall"):
         return _forearm_elbow_profile(prop_type)
     if canonical == "Reverse Forearm Stall":
         return _reverse_forearm_profile()
@@ -463,6 +495,8 @@ def _build_profile(movement: str, prop_type: str) -> ReadinessProfile:
         return _shoulder_profile()
     if canonical == "Double Hand Stall":
         return _double_hand_profile()
+    if canonical == "Double Forearm Stall":
+        return _double_forearm_profile()
     if canonical == "Bottle in a tin":
         return _bottle_in_tin_profile()
     # Unknown / Free Practice: camera only (Free Practice skips readiness).

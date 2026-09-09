@@ -4629,9 +4629,10 @@ service cloud.firestore {
     }
     function coachingMovementNames() {
       return ['Normal Grip', "Bartender's Grip", 'Reverse Grip', 'Claw Grip',
-        'Hand Stall', 'One Finger Stall', 'Forearm Stall', 'Elbow Stall',
-        'Reverse Forearm Stall', 'Shoulder Stall', 'Double Hand Stall',
-        'Bottle in a tin'];
+        'Body Grip', 'Hand Stall', 'One Finger Stall', 'Forearm Stall',
+        'Elbow Stall', 'Wrist Stall', 'Reverse Forearm Stall',
+        'Shoulder Stall', 'Double Hand Stall', 'Bottle in a tin',
+        'Double Forearm Stall'];
     }
     function isOfficialElixrMovementName(name) { return name is string && name in coachingMovementNames(); }
     // OFFICIAL_MOVEMENT_PROPS_BEGIN
@@ -4640,14 +4641,17 @@ service cloud.firestore {
         || (name == "Bartender's Grip" && prop == 'bottle')
         || (name == 'Reverse Grip' && prop == 'bottle')
         || (name == 'Claw Grip' && prop == 'bottle')
+        || (name == 'Body Grip' && prop == 'bottle')
         || (name == 'Hand Stall' && prop in ['bottle', 'shaker'])
         || (name == 'One Finger Stall' && prop in ['bottle', 'shaker'])
         || (name == 'Forearm Stall' && prop in ['bottle', 'shaker'])
         || (name == 'Elbow Stall' && prop in ['bottle', 'shaker'])
+        || (name == 'Wrist Stall' && prop in ['bottle', 'shaker'])
         || (name == 'Reverse Forearm Stall' && prop == 'bottle')
         || (name == 'Shoulder Stall' && prop == 'bottle')
         || (name == 'Double Hand Stall' && prop == 'bottle')
-        || (name == 'Bottle in a tin' && prop == 'bottle_and_shaker');
+        || (name == 'Bottle in a tin' && prop == 'bottle_and_shaker')
+        || (name == 'Double Forearm Stall' && prop == 'bottle');
     }
     // OFFICIAL_MOVEMENT_PROPS_END
     function officialMovementIdForName(name) {
@@ -4655,14 +4659,17 @@ service cloud.firestore {
         : name == "Bartender's Grip" ? 'official_bartenders_grip'
         : name == 'Reverse Grip' ? 'official_reverse_grip'
         : name == 'Claw Grip' ? 'official_claw_grip'
+        : name == 'Body Grip' ? 'official_body_grip'
         : name == 'Hand Stall' ? 'official_hand_stall'
         : name == 'One Finger Stall' ? 'official_one_finger_stall'
         : name == 'Forearm Stall' ? 'official_forearm_stall'
         : name == 'Elbow Stall' ? 'official_elbow_stall'
+        : name == 'Wrist Stall' ? 'official_wrist_stall'
         : name == 'Reverse Forearm Stall' ? 'official_reverse_forearm_stall'
         : name == 'Shoulder Stall' ? 'official_shoulder_stall'
         : name == 'Double Hand Stall' ? 'official_double_hand_stall'
         : name == 'Bottle in a tin' ? 'official_bottle_in_a_tin'
+        : name == 'Double Forearm Stall' ? 'official_double_forearm_stall'
         : '';
     }
     function officialRevisionIdForName(name) {

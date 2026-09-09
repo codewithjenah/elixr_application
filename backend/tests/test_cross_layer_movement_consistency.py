@@ -22,7 +22,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MANIFEST_PATH = _REPO_ROOT / "test" / "fixtures" / "enabled_scored_movements.json"
 
 # Catalog movements that are scored via special-case dispatch (not in _RULES).
-_SPECIAL_CASE_MOVEMENTS = {"Bottle in a tin", "Double Hand Stall"}
+_SPECIAL_CASE_MOVEMENTS = {"Bottle in a tin", "Double Hand Stall", "Double Forearm Stall"}
 
 # Legacy aliases retained for historical sessions — not part of the enabled set.
 _LEGACY_ALIASES = {"Arm Stall", "Upper Forearm Stall"}
@@ -94,7 +94,7 @@ def test_no_enabled_catalog_movement_missing_from_manifest(enabled_names: list[s
     # Backend cannot import Dart; this asserts the shared manifest names are a
     # closed set that every backend consumer must honor. Flutter tests prove
     # equality against movementCatalog.
-    assert len(enabled_names) == 12
+    assert len(enabled_names) == 15
     assert "Free Practice" not in enabled_names
     for alias in _LEGACY_ALIASES:
         assert alias not in enabled_names

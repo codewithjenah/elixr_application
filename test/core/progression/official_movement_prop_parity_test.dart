@@ -35,7 +35,7 @@ void main() {
     },
   );
 
-  test('all 16 progression milestones are official supported pairs', () {
+  test('all 20 progression milestones are official supported pairs', () {
     final supported = officialSupportedPracticeVariants();
     for (final milestone in progressionMilestones) {
       expect(supported.contains(milestone.variant), isTrue);

@@ -257,14 +257,17 @@ def test_phase_b_positive_locked_codes_are_registered():
         FeedbackCode.BARTENDER_GRIP_LOCKED,
         FeedbackCode.REVERSE_GRIP_LOCKED,
         FeedbackCode.CLAW_GRIP_LOCKED,
+        FeedbackCode.BODY_GRIP_LOCKED,
         FeedbackCode.HAND_STALL_LOCKED,
         FeedbackCode.ONE_FINGER_STALL_LOCKED,
         FeedbackCode.FOREARM_STALL_LOCKED,
         FeedbackCode.ELBOW_STALL_LOCKED,
+        FeedbackCode.WRIST_STALL_LOCKED,
         FeedbackCode.REVERSE_FOREARM_STALL_LOCKED,
         FeedbackCode.SHOULDER_STALL_LOCKED,
         FeedbackCode.DOUBLE_HAND_STALL_LOCKED,
         FeedbackCode.BOTTLE_IN_TIN_LOCKED,
+        FeedbackCode.DOUBLE_FOREARM_STALL_LOCKED,
     }
     registered = set(registered_codes())
     assert expected <= registered
@@ -419,14 +422,17 @@ def test_every_enabled_movement_positive_code_is_nonempty_and_technique():
         FC.BARTENDER_GRIP_LOCKED,
         FC.REVERSE_GRIP_LOCKED,
         FC.CLAW_GRIP_LOCKED,
+        FC.BODY_GRIP_LOCKED,
         FC.HAND_STALL_LOCKED,
         FC.ONE_FINGER_STALL_LOCKED,
         FC.FOREARM_STALL_LOCKED,
         FC.ELBOW_STALL_LOCKED,
+        FC.WRIST_STALL_LOCKED,
         FC.REVERSE_FOREARM_STALL_LOCKED,
         FC.SHOULDER_STALL_LOCKED,
         FC.DOUBLE_HAND_STALL_LOCKED,
         FC.BOTTLE_IN_TIN_LOCKED,
+        FC.DOUBLE_FOREARM_STALL_LOCKED,
     ]
     assert len(positives) == len(set(positives))
     for code in positives:

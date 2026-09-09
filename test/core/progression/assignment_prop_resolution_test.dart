@@ -56,4 +56,78 @@ void main() {
       ),
     );
   });
+
+  test('Body Grip official assignment resolves Bottle', () {
+    expect(
+      resolvedAllowedPropForOfficialAssignment(
+        officialMovementName: 'Body Grip',
+        storedAllowedProp: TrainingProp.bottle,
+      ),
+      TrainingProp.bottle,
+    );
+    expect(
+      practiceVariantForOfficialAssignment(
+        officialMovementName: 'Body Grip',
+        storedAllowedProp: TrainingProp.bottle,
+      ),
+      const PracticeVariant(
+        movementName: 'Body Grip',
+        trainingProp: TrainingProp.bottle,
+      ),
+    );
+  });
+
+  test('Wrist Stall official assignment persists Bottle or Shaker', () {
+    expect(
+      resolvedAllowedPropForOfficialAssignment(
+        officialMovementName: 'Wrist Stall',
+        storedAllowedProp: TrainingProp.bottle,
+      ),
+      TrainingProp.bottle,
+    );
+    expect(
+      resolvedAllowedPropForOfficialAssignment(
+        officialMovementName: 'Wrist Stall',
+        storedAllowedProp: TrainingProp.shaker,
+      ),
+      TrainingProp.shaker,
+    );
+    expect(
+      practiceVariantForOfficialAssignment(
+        officialMovementName: 'Wrist Stall',
+        storedAllowedProp: TrainingProp.shaker,
+      ),
+      const PracticeVariant(
+        movementName: 'Wrist Stall',
+        trainingProp: TrainingProp.shaker,
+      ),
+    );
+  });
+
+  test('Double Forearm Stall official assignment resolves Bottle', () {
+    expect(
+      resolvedAllowedPropForOfficialAssignment(
+        officialMovementName: 'Double Forearm Stall',
+        storedAllowedProp: TrainingProp.bottle,
+      ),
+      TrainingProp.bottle,
+    );
+    expect(
+      resolvedAllowedPropForOfficialAssignment(
+        officialMovementName: 'Double Forearm Stall',
+        storedAllowedProp: TrainingProp.shaker,
+      ),
+      isNull,
+    );
+  });
+
+  test('Body Grip unsupported shaker is invalid', () {
+    expect(
+      resolvedAllowedPropForOfficialAssignment(
+        officialMovementName: 'Body Grip',
+        storedAllowedProp: TrainingProp.shaker,
+      ),
+      isNull,
+    );
+  });
 }

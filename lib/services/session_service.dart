@@ -53,7 +53,7 @@ typedef AssignedSessionAtomicSaver =
     });
 
 /// Thrown when a caller tries to persist an official session for a movement
-/// that is not one of the 12 catalog identities.
+/// that is not one of the 15 catalog identities.
 class UnofficialMovementException implements Exception {
   const UnofficialMovementException(this.movementName);
 

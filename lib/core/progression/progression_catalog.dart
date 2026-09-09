@@ -4,7 +4,7 @@ import '../../data/models/movement.dart';
 import '../../data/models/training_prop.dart';
 import 'practice_variant.dart';
 
-/// One personal content unlock milestone (Level 1–16).
+/// One personal content unlock milestone (Level 1–20).
 class ProgressionMilestone {
   const ProgressionMilestone({
     required this.requiredLevel,
@@ -15,7 +15,7 @@ class ProgressionMilestone {
   final PracticeVariant variant;
 }
 
-/// Exactly sixteen content milestones. Levels 17+ add no official variants.
+/// Exactly twenty content milestones. Levels 21+ add no official variants.
 const progressionMilestones = <ProgressionMilestone>[
   ProgressionMilestone(
     requiredLevel: 1,
@@ -48,7 +48,7 @@ const progressionMilestones = <ProgressionMilestone>[
   ProgressionMilestone(
     requiredLevel: 5,
     variant: PracticeVariant(
-      movementName: 'Hand Stall',
+      movementName: 'Body Grip',
       trainingProp: TrainingProp.bottle,
     ),
   ),
@@ -56,77 +56,105 @@ const progressionMilestones = <ProgressionMilestone>[
     requiredLevel: 6,
     variant: PracticeVariant(
       movementName: 'Hand Stall',
-      trainingProp: TrainingProp.shaker,
+      trainingProp: TrainingProp.bottle,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 7,
     variant: PracticeVariant(
-      movementName: 'One Finger Stall',
-      trainingProp: TrainingProp.bottle,
+      movementName: 'Hand Stall',
+      trainingProp: TrainingProp.shaker,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 8,
     variant: PracticeVariant(
       movementName: 'One Finger Stall',
-      trainingProp: TrainingProp.shaker,
+      trainingProp: TrainingProp.bottle,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 9,
     variant: PracticeVariant(
-      movementName: 'Forearm Stall',
-      trainingProp: TrainingProp.bottle,
+      movementName: 'One Finger Stall',
+      trainingProp: TrainingProp.shaker,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 10,
     variant: PracticeVariant(
       movementName: 'Forearm Stall',
-      trainingProp: TrainingProp.shaker,
+      trainingProp: TrainingProp.bottle,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 11,
     variant: PracticeVariant(
-      movementName: 'Elbow Stall',
-      trainingProp: TrainingProp.bottle,
+      movementName: 'Forearm Stall',
+      trainingProp: TrainingProp.shaker,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 12,
     variant: PracticeVariant(
       movementName: 'Elbow Stall',
-      trainingProp: TrainingProp.shaker,
+      trainingProp: TrainingProp.bottle,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 13,
     variant: PracticeVariant(
-      movementName: 'Reverse Forearm Stall',
-      trainingProp: TrainingProp.bottle,
+      movementName: 'Elbow Stall',
+      trainingProp: TrainingProp.shaker,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 14,
     variant: PracticeVariant(
-      movementName: 'Shoulder Stall',
+      movementName: 'Wrist Stall',
       trainingProp: TrainingProp.bottle,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 15,
     variant: PracticeVariant(
-      movementName: 'Double Hand Stall',
-      trainingProp: TrainingProp.bottle,
+      movementName: 'Wrist Stall',
+      trainingProp: TrainingProp.shaker,
     ),
   ),
   ProgressionMilestone(
     requiredLevel: 16,
     variant: PracticeVariant(
+      movementName: 'Reverse Forearm Stall',
+      trainingProp: TrainingProp.bottle,
+    ),
+  ),
+  ProgressionMilestone(
+    requiredLevel: 17,
+    variant: PracticeVariant(
+      movementName: 'Shoulder Stall',
+      trainingProp: TrainingProp.bottle,
+    ),
+  ),
+  ProgressionMilestone(
+    requiredLevel: 18,
+    variant: PracticeVariant(
+      movementName: 'Double Hand Stall',
+      trainingProp: TrainingProp.bottle,
+    ),
+  ),
+  ProgressionMilestone(
+    requiredLevel: 19,
+    variant: PracticeVariant(
       movementName: 'Bottle in a tin',
       trainingProp: TrainingProp.bottleAndShaker,
+    ),
+  ),
+  ProgressionMilestone(
+    requiredLevel: 20,
+    variant: PracticeVariant(
+      movementName: 'Double Forearm Stall',
+      trainingProp: TrainingProp.bottle,
     ),
   ),
 ];
@@ -176,7 +204,7 @@ bool isLevelUnlocked(PracticeVariant variant, int level) {
   return level >= required;
 }
 
-/// Next content unlock after the trainee has reached [level], or null at 16+.
+/// Next content unlock after the trainee has reached [level], or null at 20+.
 PracticeVariant? nextUnlockAfterLevel(int level) {
   for (final milestone in progressionMilestones) {
     if (milestone.requiredLevel > level) return milestone.variant;
@@ -184,7 +212,7 @@ PracticeVariant? nextUnlockAfterLevel(int level) {
   return null;
 }
 
-/// XP still needed to reach the next content-unlock level, or `0` at Level 16+.
+/// XP still needed to reach the next content-unlock level, or `0` at Level 20+.
 int xpRemainingToNextUnlock(int totalXp) {
   final level = GamificationRules.levelForXp(totalXp);
   if (nextUnlockAfterLevel(level) == null) return 0;

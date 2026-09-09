@@ -105,10 +105,10 @@ void main() {
   });
 
   group('LeaderboardRepository.ensureOfficialMovementForGlobalXp', () {
-    test('official catalog names remain awardable', () {
+    test('official Wrist Stall remains awardable', () {
       expect(
         () => LeaderboardRepository.ensureOfficialMovementForGlobalXp({
-          'movement_name': 'Hand Stall',
+          'movement_name': 'Wrist Stall',
         }),
         returnsNormally,
       );
@@ -116,7 +116,6 @@ void main() {
 
     test('non-official names cannot award global XP', () {
       for (final name in [
-        'Wrist Stall',
         'Arm Stall',
         'Upper Forearm Stall',
         'Free Practice',

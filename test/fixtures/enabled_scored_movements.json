@@ -59,6 +59,18 @@
       ]
     },
     {
+      "name": "Body Grip",
+      "difficulty": "Easy",
+      "positive_code": "body_grip_locked",
+      "rule_module": "body_grip.py",
+      "technique_codes": [
+        "prop_not_upright",
+        "hand_not_at_body",
+        "insufficient_body_finger_wrap",
+        "body_grip_not_neck_grip"
+      ]
+    },
+    {
       "name": "Hand Stall",
       "difficulty": "Medium",
       "positive_code": "hand_stall_locked",
@@ -103,6 +115,17 @@
       "rule_module": "elbow_stall.py",
       "technique_codes": [
         "prop_not_positioned_on_target",
+        "prop_not_steady"
+      ]
+    },
+    {
+      "name": "Wrist Stall",
+      "difficulty": "Medium",
+      "positive_code": "wrist_stall_locked",
+      "rule_module": "wrist_stall.py",
+      "technique_codes": [
+        "prop_not_on_wrist",
+        "prop_on_forearm_not_wrist",
         "prop_not_steady"
       ]
     },
@@ -152,6 +175,16 @@
         "shaker_not_horizontal",
         "bottle_not_centered_on_shaker",
         "bottle_not_on_shaker",
+        "both_props_not_steady"
+      ]
+    },
+    {
+      "name": "Double Forearm Stall",
+      "difficulty": "Hard",
+      "positive_code": "double_forearm_stall_locked",
+      "rule_module": "double_forearm_stall.py",
+      "technique_codes": [
+        "bottles_not_one_per_forearm",
         "both_props_not_steady"
       ]
     }

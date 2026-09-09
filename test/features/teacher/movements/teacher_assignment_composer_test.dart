@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
+import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/activity_learning_material.dart';
@@ -330,6 +331,54 @@ void main() {
       expect(custom.groupId, group.id);
       expect(custom.maxScore, 75);
       expect(custom.dueAt, dueAt);
+    },
+  );
+
+  test(
+    'official Body Grip, Wrist Stall, and Double Forearm persist exact props',
+    () async {
+      Movement byName(String name) =>
+          movementCatalog.firstWhere((movement) => movement.name == name);
+
+      final body = await service().create(
+        group: group,
+        officialMovement: byName('Body Grip'),
+        officialAllowedProp: TrainingProp.bottle,
+      );
+      expect(body.officialMovementName, 'Body Grip');
+      expect(body.allowedProp, TrainingProp.bottle);
+
+      final wristBottle = await service().create(
+        group: group,
+        officialMovement: byName('Wrist Stall'),
+        officialAllowedProp: TrainingProp.bottle,
+      );
+      expect(wristBottle.officialMovementName, 'Wrist Stall');
+      expect(wristBottle.allowedProp, TrainingProp.bottle);
+
+      final wristShaker = await service().create(
+        group: group,
+        officialMovement: byName('Wrist Stall'),
+        officialAllowedProp: TrainingProp.shaker,
+      );
+      expect(wristShaker.allowedProp, TrainingProp.shaker);
+
+      final doubleForearm = await service().create(
+        group: group,
+        officialMovement: byName('Double Forearm Stall'),
+        officialAllowedProp: TrainingProp.bottle,
+      );
+      expect(doubleForearm.officialMovementName, 'Double Forearm Stall');
+      expect(doubleForearm.allowedProp, TrainingProp.bottle);
+
+      await expectLater(
+        service().create(
+          group: group,
+          officialMovement: byName('Body Grip'),
+          officialAllowedProp: TrainingProp.shaker,
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
     },
   );
 

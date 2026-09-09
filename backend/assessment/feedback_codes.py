@@ -96,6 +96,12 @@ class FeedbackCode(str, Enum):
     CLAW_MORE_FINGERS_CURLED = "claw_more_fingers_curled"
     CLAW_GRIP_LOCKED = "claw_grip_locked"
 
+    # --- Body Grip ---
+    HAND_NOT_AT_BODY = "hand_not_at_body"
+    INSUFFICIENT_BODY_FINGER_WRAP = "insufficient_body_finger_wrap"
+    BODY_GRIP_NOT_NECK_GRIP = "body_grip_not_neck_grip"
+    BODY_GRIP_LOCKED = "body_grip_locked"
+
     # --- Hand Stall (Phase A) ---
     HAND_STALL_LOCKED = "hand_stall_locked"
 
@@ -112,6 +118,11 @@ class FeedbackCode(str, Enum):
     # --- Forearm / Elbow stalls ---
     FOREARM_STALL_LOCKED = "forearm_stall_locked"
     ELBOW_STALL_LOCKED = "elbow_stall_locked"
+
+    # --- Wrist Stall ---
+    PROP_NOT_ON_WRIST = "prop_not_on_wrist"
+    PROP_ON_FOREARM_NOT_WRIST = "prop_on_forearm_not_wrist"
+    WRIST_STALL_LOCKED = "wrist_stall_locked"
 
     # --- Reverse Forearm Stall ---
     PROP_TOO_NEAR_ELBOW = "prop_too_near_elbow"
@@ -130,6 +141,11 @@ class FeedbackCode(str, Enum):
     BOTH_PROPS_NOT_STEADY = "both_props_not_steady"
     DOUBLE_HAND_STALL_LOCKED = "double_hand_stall_locked"
 
+    # --- Double Forearm Stall ---
+    BOTH_ARMS_NOT_VISIBLE = "both_arms_not_visible"
+    BOTTLES_NOT_ONE_PER_FOREARM = "bottles_not_one_per_forearm"
+    DOUBLE_FOREARM_STALL_LOCKED = "double_forearm_stall_locked"
+
     # --- Bottle in a tin ---
     SHAKER_NOT_HORIZONTAL = "shaker_not_horizontal"
     BOTTLE_NOT_CENTERED_ON_SHAKER = "bottle_not_centered_on_shaker"
@@ -147,6 +163,7 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.THENAR_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.POSE_ARM_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.SHOULDERS_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
+    FeedbackCode.BOTH_ARMS_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE: FeedbackCategory.ENVIRONMENT,
     FeedbackCode.NEED_TWO_BOTTLES: FeedbackCategory.ENVIRONMENT,
     FeedbackCode.BOTH_HANDS_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
@@ -197,6 +214,11 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.CLAW_THUMB_SUPPORT: FeedbackCategory.TECHNIQUE,
     FeedbackCode.CLAW_MORE_FINGERS_CURLED: FeedbackCategory.TECHNIQUE,
     FeedbackCode.CLAW_GRIP_LOCKED: FeedbackCategory.TECHNIQUE,
+    # Body Grip
+    FeedbackCode.HAND_NOT_AT_BODY: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.INSUFFICIENT_BODY_FINGER_WRAP: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.BODY_GRIP_NOT_NECK_GRIP: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.BODY_GRIP_LOCKED: FeedbackCategory.TECHNIQUE,
     # Hand Stall
     FeedbackCode.HAND_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
     # One Finger Stall
@@ -211,6 +233,10 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     # Forearm / Elbow
     FeedbackCode.FOREARM_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
     FeedbackCode.ELBOW_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
+    # Wrist Stall
+    FeedbackCode.PROP_NOT_ON_WRIST: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.PROP_ON_FOREARM_NOT_WRIST: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.WRIST_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
     # Reverse Forearm
     FeedbackCode.PROP_TOO_NEAR_ELBOW: FeedbackCategory.TECHNIQUE,
     FeedbackCode.PROP_TOO_NEAR_MID_FOREARM: FeedbackCategory.TECHNIQUE,
@@ -225,6 +251,9 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.BOTTLES_NOT_ONE_PER_PALM: FeedbackCategory.TECHNIQUE,
     FeedbackCode.BOTH_PROPS_NOT_STEADY: FeedbackCategory.TECHNIQUE,
     FeedbackCode.DOUBLE_HAND_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
+    # Double Forearm Stall
+    FeedbackCode.BOTTLES_NOT_ONE_PER_FOREARM: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.DOUBLE_FOREARM_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
     # Bottle in a tin
     FeedbackCode.SHAKER_NOT_HORIZONTAL: FeedbackCategory.TECHNIQUE,
     FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER: FeedbackCategory.TECHNIQUE,
@@ -244,6 +273,7 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.THENAR_NOT_VISIBLE: None,
     FeedbackCode.POSE_ARM_NOT_VISIBLE: None,
     FeedbackCode.SHOULDERS_NOT_VISIBLE: None,
+    FeedbackCode.BOTH_ARMS_NOT_VISIBLE: None,
     FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE: None,
     FeedbackCode.NEED_TWO_BOTTLES: None,
     FeedbackCode.BOTH_HANDS_NOT_VISIBLE: None,
@@ -272,6 +302,9 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.CLAW_NOT_REVERSE_HOLD: RubricCriterion.TECHNIQUE,
     FeedbackCode.CLAW_THUMB_SUPPORT: RubricCriterion.TECHNIQUE,
     FeedbackCode.CLAW_MORE_FINGERS_CURLED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.HAND_NOT_AT_BODY: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.INSUFFICIENT_BODY_FINGER_WRAP: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BODY_GRIP_NOT_NECK_GRIP: RubricCriterion.TECHNIQUE,
     FeedbackCode.INDEX_FINGER_NOT_EXTENDED: RubricCriterion.TECHNIQUE,
     FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL: RubricCriterion.TECHNIQUE,
     FeedbackCode.OTHER_FINGERS_NOT_CURLED: RubricCriterion.TECHNIQUE,
@@ -298,6 +331,9 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.PROP_BELOW_SHOULDER: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.PROP_NOT_ON_SHOULDER: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_ON_WRIST: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_ON_FOREARM_NOT_WRIST: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.BOTTLES_NOT_ONE_PER_FOREARM: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.BOTTLE_NOT_ON_SHAKER: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.HAND_NOT_SUPPORTING_SHAKER: RubricCriterion.PROP_POSITIONING,
@@ -311,13 +347,16 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.BARTENDER_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.REVERSE_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.CLAW_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BODY_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.HAND_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.ONE_FINGER_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.FOREARM_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.ELBOW_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.WRIST_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.REVERSE_FOREARM_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.SHOULDER_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.DOUBLE_HAND_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.DOUBLE_FOREARM_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.BOTTLE_IN_TIN_LOCKED: RubricCriterion.TECHNIQUE,
 }
 

@@ -102,10 +102,10 @@ typedef _TierCombo = ({
 final Map<int, List<_TierCombo>> _validCombosByLevel = {};
 
 /// Clamps a trainee level for board generation: below 1 behaves as Level 1,
-/// Level 16+ uses the full eligible pool.
+/// Level 20+ uses the full eligible pool.
 int effectiveQuestGenerationLevel(int currentLevel) {
   if (currentLevel < 1) return 1;
-  if (currentLevel > 16) return 16;
+  if (currentLevel > 20) return 20;
   return currentLevel;
 }
 

@@ -713,7 +713,7 @@ void main() {
             }) async {},
       );
 
-      for (final name in ['Arm Stall', 'Upper Forearm Stall', 'Wrist Stall']) {
+      for (final name in ['Arm Stall', 'Upper Forearm Stall', 'Basic Flip']) {
         await expectLater(
           service.saveCompletedSession(
             userId: 'u1',

@@ -61,6 +61,7 @@ def test_readiness_session_uses_only_required_detectors(
         "Bartender's Grip": 1,
         "Reverse Grip": 1,
         "Claw Grip": 1,
+        "Body Grip": 1,
         "Hand Stall": 1,
         "One Finger Stall": 1,
         "Double Hand Stall": 2,

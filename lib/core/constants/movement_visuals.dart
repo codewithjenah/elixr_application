@@ -8,14 +8,17 @@ abstract final class MovementVisuals {
     "Bartender's Grip": 'assets/movements_icon/bartender_grip.png',
     'Reverse Grip': 'assets/movements_icon/reverse_grip.png',
     'Claw Grip': 'assets/movements_icon/claw_grip.png',
+    'Body Grip': 'assets/movements_icon/body_grip.png',
     'Hand Stall': 'assets/movements_icon/hand_stall.png',
     'One Finger Stall': 'assets/movements_icon/one_finger_stall.png',
     'Forearm Stall': 'assets/movements_icon/forearm_stall.png',
     'Elbow Stall': 'assets/movements_icon/elbow_stall.png',
+    'Wrist Stall': 'assets/movements_icon/wrist_stall.png',
     'Reverse Forearm Stall': 'assets/movements_icon/reverse_forearm_stall.png',
     'Shoulder Stall': 'assets/movements_icon/shoulder_stall.png',
     'Double Hand Stall': 'assets/movements_icon/double_hand_stall.png',
     'Bottle in a tin': 'assets/movements_icon/bottle_in_a_tin.png',
+    'Double Forearm Stall': 'assets/movements_icon/double_forearm_stall.png',
   };
 
   static String? assetPathFor(String movementName) => assetPaths[movementName];

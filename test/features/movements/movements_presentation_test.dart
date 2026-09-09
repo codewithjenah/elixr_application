@@ -102,8 +102,29 @@ void main() {
       expect(medium.any((m) => m.name == 'One Finger Stall'), isTrue);
     });
 
-    test('catalog contains twelve movements', () {
-      expect(movementCatalog.length, 12);
+    test('catalog contains fifteen movements', () {
+      expect(movementCatalog.length, 15);
+      expect(movementsByDifficulty('Easy'), hasLength(5));
+      expect(movementsByDifficulty('Medium'), hasLength(5));
+      expect(movementsByDifficulty('Hard'), hasLength(5));
+      expect(
+        enabledPracticeSteps()
+            .where((step) => step.movement.difficulty == 'Easy')
+            .length,
+        5,
+      );
+      expect(
+        enabledPracticeSteps()
+            .where((step) => step.movement.difficulty == 'Medium')
+            .length,
+        10,
+      );
+      expect(
+        enabledPracticeSteps()
+            .where((step) => step.movement.difficulty == 'Hard')
+            .length,
+        5,
+      );
     });
 
     test('contains exactly one enabled Bottle in a tin on Hard', () {
@@ -159,8 +180,9 @@ void main() {
             'One Finger Stall',
             'Forearm Stall',
             'Elbow Stall',
+            'Wrist Stall',
           ]);
-          expect(enabledPracticeSteps(), hasLength(16));
+          expect(enabledPracticeSteps(), hasLength(20));
         },
       );
 
@@ -190,28 +212,35 @@ void main() {
           TrainingProp.bottle,
         );
         expect(afterClaw, isNotNull);
-        expect(afterClaw!.movement.name, 'Hand Stall');
+        expect(afterClaw!.movement.name, 'Body Grip');
         expect(afterClaw.prop, TrainingProp.bottle);
       });
 
-      test('Elbow Stall Cocktail Shaker advances to Reverse Forearm Stall', () {
+      test('Elbow Stall Cocktail Shaker advances to Wrist Stall Bottle', () {
         final afterElbowShaker = nextEnabledPracticeAfter(
           'Elbow Stall',
           TrainingProp.shaker,
         );
         expect(afterElbowShaker, isNotNull);
-        expect(afterElbowShaker!.movement.name, 'Reverse Forearm Stall');
+        expect(afterElbowShaker!.movement.name, 'Wrist Stall');
         expect(afterElbowShaker.prop, TrainingProp.bottle);
       });
 
-      test('Bottle in a tin is last and returns null', () {
+      test('Double Forearm Stall is last and returns null', () {
         expect(
-          nextEnabledPracticeAfter(
-            'Bottle in a tin',
-            TrainingProp.bottleAndShaker,
-          ),
+          nextEnabledPracticeAfter('Double Forearm Stall', TrainingProp.bottle),
           isNull,
         );
+      });
+
+      test('Bottle in a tin advances to Double Forearm Stall', () {
+        final afterTin = nextEnabledPracticeAfter(
+          'Bottle in a tin',
+          TrainingProp.bottleAndShaker,
+        );
+        expect(afterTin, isNotNull);
+        expect(afterTin!.movement.name, 'Double Forearm Stall');
+        expect(afterTin.prop, TrainingProp.bottle);
       });
 
       test('unknown movement returns null', () {

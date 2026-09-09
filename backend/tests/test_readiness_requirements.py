@@ -142,7 +142,7 @@ def _full_obs_for(
         if prop_type == "shaker":
             bottles = []
             shakers = [_bottle(300)]
-    elif movement in ("Forearm Stall", "Elbow Stall", "Arm Stall"):
+    elif movement in ("Forearm Stall", "Elbow Stall", "Arm Stall", "Wrist Stall"):
         pose = _pose_upper_body()
         hands = None
         if prop_type == "shaker":
@@ -157,6 +157,10 @@ def _full_obs_for(
     elif movement == "Double Hand Stall":
         bottles = [_bottle(150), _bottle(350)]
         hands = _hands(left, right)
+    elif movement == "Double Forearm Stall":
+        bottles = [_bottle(150), _bottle(350)]
+        pose = _pose_upper_body()
+        hands = None
     elif movement == "Bottle in a tin":
         shakers = [_bottle(400)]
         hands = _hands(palm)
@@ -171,7 +175,7 @@ def _full_obs_for(
 
 
 class TestRequirementRegistry:
-    def test_all_twelve_movements_have_camera_and_codes(self):
+    def test_all_enabled_movements_have_camera_and_codes(self):
         for movement in enabled_catalog_movements():
             specs = requirements_for(movement, "bottle")
             codes = [r.code for r in specs]
@@ -184,6 +188,7 @@ class TestRequirementRegistry:
             "Bartender's Grip",
             "Reverse Grip",
             "Claw Grip",
+            "Body Grip",
         ):
             codes = [r.code for r in requirements_for(movement)]
             assert codes == [
@@ -205,6 +210,14 @@ class TestRequirementRegistry:
             "two_hands_visible",
         ]
 
+    def test_double_forearm_uses_two_bottles_and_both_arms(self):
+        codes = [r.code for r in requirements_for("Double Forearm Stall")]
+        assert codes == [
+            "camera_frame",
+            "prop_count_two",
+            "both_arms_visible",
+        ]
+
     def test_bottle_in_a_tin_supporting_hand_visibility_only(self):
         codes = [r.code for r in requirements_for("Bottle in a tin")]
         assert codes == [
@@ -222,7 +235,7 @@ class TestRequirementRegistry:
             assert "two_hands_visible" not in codes
 
     def test_forearm_profile_omits_redundant_pose_upper_forearm(self):
-        for movement in ("Forearm Stall", "Elbow Stall", "Reverse Forearm Stall"):
+        for movement in ("Forearm Stall", "Elbow Stall", "Wrist Stall", "Reverse Forearm Stall"):
             codes = [r.code for r in requirements_for(movement)]
             assert "upper_body_visible" in codes
             assert "pose_upper_forearm" not in codes
@@ -252,14 +265,17 @@ EXPECTED_READINESS_DETECTORS: dict[str, tuple[bool, bool]] = {
     "Bartender's Grip": (True, False),
     "Reverse Grip": (True, False),
     "Claw Grip": (True, False),
+    "Body Grip": (True, False),
     "Hand Stall": (True, False),
     "One Finger Stall": (True, False),
     "Double Hand Stall": (True, False),
     "Bottle in a tin": (True, False),
     "Forearm Stall": (False, True),
     "Elbow Stall": (False, True),
+    "Wrist Stall": (False, True),
     "Reverse Forearm Stall": (False, True),
     "Shoulder Stall": (False, True),
+    "Double Forearm Stall": (False, True),
     "Arm Stall": (False, True),
     "Upper Forearm Stall": (False, True),
     "Free Practice": (False, False),
@@ -311,6 +327,7 @@ def test_matrix_reaches_stable_with_full_inputs(movement: str):
         ("One Finger Stall", "shaker"),
         ("Forearm Stall", "shaker"),
         ("Elbow Stall", "shaker"),
+        ("Wrist Stall", "shaker"),
     ],
 )
 def test_prop_aware_stalls_accept_shaker(movement: str, prop_type: str):

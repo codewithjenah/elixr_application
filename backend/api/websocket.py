@@ -1536,7 +1536,8 @@ class VisionSession:
         shakers = list(normalized.shakers)
 
         # Score on the highest-confidence selected prop for single-prop movements.
-        # Double Hand Stall also receives the full detection list via `bottles`.
+        # Double Hand Stall and Double Forearm Stall also receive the full
+        # detection list via `bottles`.
         # For shaker sessions, primary holds the shaker detections (compatibility).
         bottle = normalized.primary[0] if normalized.primary else None
         shaker = shakers[0] if shakers else None

@@ -98,6 +98,18 @@ void main() {
         );
       },
     );
+
+    test(
+      'both_arms_visible resolves to Both Arms with correct instruction',
+      () {
+        final info = resolveReadinessDisplay('both_arms_visible');
+        expect(info.title, 'Both Arms');
+        expect(
+          info.instruction,
+          'Keep both complete arms visible, from shoulder to wrist.',
+        );
+      },
+    );
   });
 
   group('resolveReadinessDisplay — unknown codes', () {

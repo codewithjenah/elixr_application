@@ -28,10 +28,12 @@ RULE_IGNORES_HANDS = frozenset(
     {
         "Forearm Stall",
         "Elbow Stall",
+        "Wrist Stall",
         "Reverse Forearm Stall",
         "Shoulder Stall",
         "Arm Stall",
         "Upper Forearm Stall",
+        "Double Forearm Stall",
         "Free Practice",
     }
 )

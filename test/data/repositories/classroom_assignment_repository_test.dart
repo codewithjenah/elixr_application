@@ -107,6 +107,75 @@ void main() {
     expect(assignment.allowedProp, TrainingProp.shaker);
   });
 
+  test('Body Grip official assignment persists Bottle', () async {
+    final assignment = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      officialMovementName: 'Body Grip',
+      allowedProp: TrainingProp.bottle,
+    );
+    expect(assignment.officialMovementName, 'Body Grip');
+    expect(assignment.allowedProp, TrainingProp.bottle);
+    expect(assignment.movementId, 'official_body_grip');
+  });
+
+  test('Wrist Stall official assignment persists Bottle or Shaker', () async {
+    final bottle = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      officialMovementName: 'Wrist Stall',
+      allowedProp: TrainingProp.bottle,
+    );
+    expect(bottle.allowedProp, TrainingProp.bottle);
+    expect(bottle.movementId, 'official_wrist_stall');
+
+    final shaker = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      officialMovementName: 'Wrist Stall',
+      allowedProp: TrainingProp.shaker,
+    );
+    expect(shaker.allowedProp, TrainingProp.shaker);
+  });
+
+  test('Double Forearm Stall official assignment persists Bottle', () async {
+    final assignment = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      officialMovementName: 'Double Forearm Stall',
+      allowedProp: TrainingProp.bottle,
+    );
+    expect(assignment.officialMovementName, 'Double Forearm Stall');
+    expect(assignment.allowedProp, TrainingProp.bottle);
+    expect(assignment.movementId, 'official_double_forearm_stall');
+  });
+
+  test(
+    'Wrist Stall official assignment rejects unsupported combo prop',
+    () async {
+      expect(
+        () => assignments.createOfficialAssignment(
+          teacherId: 'teacher-1',
+          teacherDisplayName: 'Grace Hopper',
+          group: _group(),
+          officialMovementName: 'Wrist Stall',
+          allowedProp: TrainingProp.bottleAndShaker,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (e) => e.code,
+            'code',
+            ClassroomError.identityMismatch,
+          ),
+        ),
+      );
+    },
+  );
+
   test(
     'targeted assignments require approved targets and filter trainee reads',
     () async {

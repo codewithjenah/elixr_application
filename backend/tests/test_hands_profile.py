@@ -53,13 +53,16 @@ def test_catalog_movements_match_readiness_and_active_schedule():
         "Bartender's Grip": (True, True, 1, False, True, False),
         "Reverse Grip": (True, True, 1, False, False, False),
         "Claw Grip": (True, True, 1, True, False, False),
+        "Body Grip": (True, True, 1, False, False, False),
         "Hand Stall": (True, True, 1, False, False, False),
         "One Finger Stall": (True, True, 1, False, False, False),
         "Forearm Stall": (False, False, 0, False, False, True),
         "Elbow Stall": (False, False, 0, False, False, True),
+        "Wrist Stall": (False, False, 0, False, False, True),
         "Reverse Forearm Stall": (False, False, 0, False, False, True),
         "Shoulder Stall": (False, False, 0, False, False, True),
         "Double Hand Stall": (True, True, 2, False, False, False),
+        "Double Forearm Stall": (False, False, 0, False, False, True),
         "Bottle in a tin": (True, True, 1, False, False, False),
     }
     for movement, expected in expected_catalog.items():
@@ -88,10 +91,12 @@ def test_pose_stalls_do_not_schedule_hands():
     for movement in (
         "Forearm Stall",
         "Elbow Stall",
+        "Wrist Stall",
         "Reverse Forearm Stall",
         "Shoulder Stall",
         "Arm Stall",
         "Upper Forearm Stall",
+        "Double Forearm Stall",
     ):
         row = hands_profile_for(movement)
         assert row.rule_uses_hands is False, movement
@@ -123,6 +128,7 @@ def test_hand_based_movements_still_schedule_hands():
         "Bartender's Grip",
         "Reverse Grip",
         "Claw Grip",
+        "Body Grip",
         "Hand Stall",
         "One Finger Stall",
         "Double Hand Stall",
@@ -179,6 +185,7 @@ def test_session_constructs_hands_detector_with_movement_max(monkeypatch):
         "Bartender's Grip": (1, False, True),
         "Reverse Grip": (1, False, False),
         "Claw Grip": (1, True, False),
+        "Body Grip": (1, False, False),
         "Hand Stall": (1, False, False),
         "One Finger Stall": (1, False, False),
         "Bottle in a tin": (1, False, False),
@@ -218,10 +225,12 @@ def test_pose_only_and_free_practice_do_not_construct_hands_detector(monkeypatch
     for movement in (
         "Forearm Stall",
         "Elbow Stall",
+        "Wrist Stall",
         "Reverse Forearm Stall",
         "Shoulder Stall",
         "Arm Stall",
         "Upper Forearm Stall",
+        "Double Forearm Stall",
         "Free Practice",
     ):
         hands_inits["n"] = 0

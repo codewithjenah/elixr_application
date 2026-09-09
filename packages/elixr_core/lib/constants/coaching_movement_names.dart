@@ -10,14 +10,17 @@ const coachingMovementNames = <String>{
   "Bartender's Grip",
   'Reverse Grip',
   'Claw Grip',
+  'Body Grip',
   'Hand Stall',
   'One Finger Stall',
   'Forearm Stall',
   'Elbow Stall',
+  'Wrist Stall',
   'Reverse Forearm Stall',
   'Shoulder Stall',
   'Double Hand Stall',
   'Bottle in a tin',
+  'Double Forearm Stall',
 };
 
 /// Official ELIXR catalog names eligible for new saved sessions and global XP.
@@ -26,7 +29,7 @@ const officialElixrMovementNames = coachingMovementNames;
 bool isRecognizedCoachingMovement(String value) =>
     coachingMovementNames.contains(value);
 
-/// Whether [name] is one of the 12 official ELIXR catalog identities.
+/// Whether [name] is one of the 15 official ELIXR catalog identities.
 ///
 /// Backend-recognized aliases such as `Arm Stall` are not official.
 bool isOfficialElixrMovementName(String name) =>
@@ -67,6 +70,11 @@ const officialElixrMovementIdentities = <OfficialElixrMovementIdentity>[
     revisionId: 'official_claw_grip_v1',
   ),
   OfficialElixrMovementIdentity(
+    catalogName: 'Body Grip',
+    movementId: 'official_body_grip',
+    revisionId: 'official_body_grip_v1',
+  ),
+  OfficialElixrMovementIdentity(
     catalogName: 'Hand Stall',
     movementId: 'official_hand_stall',
     revisionId: 'official_hand_stall_v1',
@@ -87,6 +95,11 @@ const officialElixrMovementIdentities = <OfficialElixrMovementIdentity>[
     revisionId: 'official_elbow_stall_v1',
   ),
   OfficialElixrMovementIdentity(
+    catalogName: 'Wrist Stall',
+    movementId: 'official_wrist_stall',
+    revisionId: 'official_wrist_stall_v1',
+  ),
+  OfficialElixrMovementIdentity(
     catalogName: 'Reverse Forearm Stall',
     movementId: 'official_reverse_forearm_stall',
     revisionId: 'official_reverse_forearm_stall_v1',
@@ -105,6 +118,11 @@ const officialElixrMovementIdentities = <OfficialElixrMovementIdentity>[
     catalogName: 'Bottle in a tin',
     movementId: 'official_bottle_in_a_tin',
     revisionId: 'official_bottle_in_a_tin_v1',
+  ),
+  OfficialElixrMovementIdentity(
+    catalogName: 'Double Forearm Stall',
+    movementId: 'official_double_forearm_stall',
+    revisionId: 'official_double_forearm_stall_v1',
   ),
 ];
 

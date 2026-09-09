@@ -192,25 +192,25 @@ void main() {
       expect(foundDifference, isTrue);
     });
 
-    test('clamps below Level 1 to Level 1 and Level 17+ to the full pool', () {
+    test('clamps below Level 1 to Level 1 and Level 21+ to the full pool', () {
       expect(effectiveQuestGenerationLevel(0), 1);
       expect(effectiveQuestGenerationLevel(-4), 1);
-      expect(effectiveQuestGenerationLevel(16), 16);
-      expect(effectiveQuestGenerationLevel(17), 16);
-      expect(effectiveQuestGenerationLevel(99), 16);
+      expect(effectiveQuestGenerationLevel(20), 20);
+      expect(effectiveQuestGenerationLevel(21), 20);
+      expect(effectiveQuestGenerationLevel(99), 20);
 
       final atOne = _ids(dayKey: '20260804', currentLevel: 1);
       expect(_ids(dayKey: '20260804', currentLevel: 0), atOne);
       expect(
-        _ids(dayKey: '20260804', currentLevel: 17),
-        _ids(dayKey: '20260804', currentLevel: 16),
+        _ids(dayKey: '20260804', currentLevel: 21),
+        _ids(dayKey: '20260804', currentLevel: 20),
       );
     });
 
     test(
       'representative levels keep a valid 2 Easy + 2 Medium + 1 Hard board',
       () {
-        const levels = [1, 2, 3, 5, 6, 13, 16, 17];
+        const levels = [1, 2, 3, 5, 6, 7, 16, 19, 20, 21];
         for (final level in levels) {
           for (final ids in _sampleBoards(
             currentLevel: level,
@@ -267,19 +267,19 @@ void main() {
       );
     });
 
-    test('Level 5 may generate practice_medium_movement', () {
+    test('Level 6 may generate practice_medium_movement', () {
       expect(
         _sampleBoards(
-          currentLevel: 5,
+          currentLevel: 6,
         ).any((ids) => ids.contains('practice_medium_movement')),
         isTrue,
       );
     });
 
-    test('Level 6 may generate use_shaker and distinct_props_2', () {
+    test('Level 7 may generate use_shaker and distinct_props_2', () {
       var sawShaker = false;
       var sawDistinctProps = false;
-      for (final ids in _sampleBoards(currentLevel: 6)) {
+      for (final ids in _sampleBoards(currentLevel: 7)) {
         if (ids.contains('use_shaker')) sawShaker = true;
         if (ids.contains('distinct_props_2')) sawDistinctProps = true;
       }
@@ -287,22 +287,22 @@ void main() {
       expect(sawDistinctProps, isTrue);
     });
 
-    test('Level 13 may generate practice_hard_movement', () {
+    test('Level 16 may generate practice_hard_movement', () {
       expect(
         _sampleBoards(
-          currentLevel: 13,
+          currentLevel: 16,
         ).any((ids) => ids.contains('practice_hard_movement')),
         isTrue,
       );
     });
 
     test(
-      'Level 16 may generate the full catalog including the combo quest',
+      'Level 20 may generate the full catalog including the combo quest',
       () {
         final catalogIds = questCatalog.map((q) => q.id).toSet();
         final seen = <String>{};
         for (final ids in _sampleBoards(
-          currentLevel: 16,
+          currentLevel: 20,
           users: 80,
           days: 28,
         )) {

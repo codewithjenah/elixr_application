@@ -68,9 +68,9 @@ void main() {
     });
   });
 
-  test('exactly 16 milestones and one new unlock per level 1-16', () {
-    expect(progressionMilestones.length, 16);
-    for (var level = 1; level <= 16; level++) {
+  test('exactly 20 milestones and one new unlock per level 1-20', () {
+    expect(progressionMilestones.length, 20);
+    for (var level = 1; level <= 20; level++) {
       expect(
         progressionMilestones.where((m) => m.requiredLevel == level).length,
         1,
@@ -79,7 +79,7 @@ void main() {
   });
 
   test(
-    'level 1 is Normal Grip / Bottle; level 16 is Bottle in a tin combined',
+    'level 1 is Normal Grip / Bottle; level 20 is Double Forearm Stall Bottle',
     () {
       expect(
         progressionMilestones.first.variant,
@@ -89,10 +89,17 @@ void main() {
         ),
       );
       expect(
-        progressionMilestones.last.variant,
+        progressionMilestones[18].variant,
         const PracticeVariant(
           movementName: 'Bottle in a tin',
           trainingProp: TrainingProp.bottleAndShaker,
+        ),
+      );
+      expect(
+        progressionMilestones.last.variant,
+        const PracticeVariant(
+          movementName: 'Double Forearm Stall',
+          trainingProp: TrainingProp.bottle,
         ),
       );
     },
@@ -106,7 +113,7 @@ void main() {
     }
   });
 
-  test('Hand Stall bottle unlocks at 5 and shaker at 6', () {
+  test('Hand Stall bottle unlocks at 6 and shaker at 7', () {
     expect(
       requiredLevelFor(
         const PracticeVariant(
@@ -114,7 +121,7 @@ void main() {
           trainingProp: TrainingProp.bottle,
         ),
       ),
-      5,
+      6,
     );
     expect(
       requiredLevelFor(
@@ -123,20 +130,60 @@ void main() {
           trainingProp: TrainingProp.shaker,
         ),
       ),
-      6,
+      7,
     );
   });
 
-  test('level 17 unlocks no new content; nextUnlock after 16 is null', () {
-    expect(allPersonallyLevelUnlockedVariants(16).length, 16);
-    expect(allPersonallyLevelUnlockedVariants(17).length, 16);
-    expect(nextUnlockAfterLevel(16), isNull);
+  test('Body Grip, Wrist Stall, and Double Forearm map to the new levels', () {
+    expect(
+      requiredLevelFor(
+        const PracticeVariant(
+          movementName: 'Body Grip',
+          trainingProp: TrainingProp.bottle,
+        ),
+      ),
+      5,
+    );
+    expect(
+      requiredLevelFor(
+        const PracticeVariant(
+          movementName: 'Wrist Stall',
+          trainingProp: TrainingProp.bottle,
+        ),
+      ),
+      14,
+    );
+    expect(
+      requiredLevelFor(
+        const PracticeVariant(
+          movementName: 'Wrist Stall',
+          trainingProp: TrainingProp.shaker,
+        ),
+      ),
+      15,
+    );
+    expect(
+      requiredLevelFor(
+        const PracticeVariant(
+          movementName: 'Double Forearm Stall',
+          trainingProp: TrainingProp.bottle,
+        ),
+      ),
+      20,
+    );
+  });
+
+  test('level 21 unlocks no new content; nextUnlock after 20 is null', () {
+    expect(allPersonallyLevelUnlockedVariants(20).length, 20);
+    expect(allPersonallyLevelUnlockedVariants(21).length, 20);
+    expect(nextUnlockAfterLevel(20), isNull);
+    expect(nextUnlockAfterLevel(21), isNull);
   });
 
   test('xpRemainingToNextUnlock uses GamificationRules', () {
     expect(xpRemainingToNextUnlock(80), GamificationRules.xpPerLevel - 80);
-    final level16Xp = GamificationRules.xpPerLevel * 15;
-    expect(xpRemainingToNextUnlock(level16Xp), 0);
+    final level20Xp = GamificationRules.xpPerLevel * 19;
+    expect(xpRemainingToNextUnlock(level20Xp), 0);
   });
 
   test('Medium dual-prop milestones stay distinct official identities', () {
@@ -175,7 +222,9 @@ void main() {
       expect(earliestRequiredLevelForMovement('Normal Grip'), 1);
       expect(earliestRequiredLevelForMovement("Bartender's Grip"), 2);
       expect(earliestRequiredLevelForMovement('Claw Grip'), 4);
-      expect(earliestRequiredLevelForMovement('Bottle in a tin'), 16);
+      expect(earliestRequiredLevelForMovement('Body Grip'), 5);
+      expect(earliestRequiredLevelForMovement('Bottle in a tin'), 19);
+      expect(earliestRequiredLevelForMovement('Double Forearm Stall'), 20);
 
       expect(isMovementIdentityRevealed('Normal Grip', 1), isTrue);
       expect(isMovementIdentityRevealed("Bartender's Grip", 1), isFalse);
@@ -183,25 +232,28 @@ void main() {
     });
 
     test('dual-prop movement uses the earliest official variant level', () {
-      expect(earliestRequiredLevelForMovement('Hand Stall'), 5);
-      expect(earliestRequiredLevelForMovement('One Finger Stall'), 7);
-      expect(earliestRequiredLevelForMovement('Elbow Stall'), 11);
+      expect(earliestRequiredLevelForMovement('Hand Stall'), 6);
+      expect(earliestRequiredLevelForMovement('One Finger Stall'), 8);
+      expect(earliestRequiredLevelForMovement('Elbow Stall'), 12);
+      expect(earliestRequiredLevelForMovement('Wrist Stall'), 14);
     });
 
     test('movement remains hidden below the earliest threshold', () {
-      expect(isMovementIdentityRevealed('Hand Stall', 4), isFalse);
-      expect(isMovementIdentityRevealed('One Finger Stall', 6), isFalse);
+      expect(isMovementIdentityRevealed('Hand Stall', 5), isFalse);
+      expect(isMovementIdentityRevealed('One Finger Stall', 7), isFalse);
+      expect(isMovementIdentityRevealed('Wrist Stall', 13), isFalse);
     });
 
     test('movement becomes revealed at the exact earliest threshold', () {
-      expect(isMovementIdentityRevealed('Hand Stall', 5), isTrue);
       expect(isMovementIdentityRevealed('Hand Stall', 6), isTrue);
-      expect(isMovementIdentityRevealed('One Finger Stall', 7), isTrue);
+      expect(isMovementIdentityRevealed('Hand Stall', 7), isTrue);
+      expect(isMovementIdentityRevealed('One Finger Stall', 8), isTrue);
+      expect(isMovementIdentityRevealed('Wrist Stall', 14), isTrue);
     });
 
     test('unknown movement and unresolved level fail closed', () {
       expect(earliestRequiredLevelForMovement('Unknown Move'), isNull);
-      expect(isMovementIdentityRevealed('Unknown Move', 16), isFalse);
+      expect(isMovementIdentityRevealed('Unknown Move', 20), isFalse);
       expect(isMovementIdentityRevealed('Hand Stall', null), isFalse);
       expect(isMovementIdentityRevealed('Normal Grip', null), isFalse);
     });

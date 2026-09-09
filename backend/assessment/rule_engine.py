@@ -4,9 +4,11 @@ from config import MOVEMENT_CONFIG
 from assessment.rules import (
     arm_stall,
     bartenders_grip,
+    body_grip,
     bottle_in_a_tin,
     claw_grip,
     coming_soon,
+    double_forearm_stall,
     double_hand_stall,
     elbow_stall,
     hand_stall,
@@ -15,6 +17,7 @@ from assessment.rules import (
     reverse_grip,
     shoulder_stall,
     upper_forearm_stall,
+    wrist_stall,
 )
 from assessment.rules.base import RuleResult
 from assessment.rules.posture_only import evaluate_posture_only
@@ -27,22 +30,26 @@ _RULES: dict[str, EvaluateFn] = {
     "Bartender's Grip": bartenders_grip.evaluate,
     "Reverse Grip": reverse_grip.evaluate,
     "Claw Grip": claw_grip.evaluate,
+    "Body Grip": body_grip.evaluate,
     "Hand Stall": hand_stall.evaluate,
     "One Finger Stall": one_finger_stall.evaluate,
     "Forearm Stall": arm_stall.evaluate,
     "Elbow Stall": elbow_stall.evaluate,
+    "Wrist Stall": wrist_stall.evaluate,
     "Reverse Forearm Stall": upper_forearm_stall.evaluate,
     # Legacy movement names for historical sessions and backward compatibility.
     "Arm Stall": arm_stall.evaluate,
     "Upper Forearm Stall": upper_forearm_stall.evaluate,
     "Shoulder Stall": shoulder_stall.evaluate,
     "Double Hand Stall": double_hand_stall.evaluate,
+    "Double Forearm Stall": double_forearm_stall.evaluate,
 }
 _PROP_AWARE_MOVEMENTS = {
     "Hand Stall",
     "One Finger Stall",
     "Forearm Stall",
     "Elbow Stall",
+    "Wrist Stall",
     "Arm Stall",
 }
 
@@ -227,15 +234,20 @@ def evaluate_movement(
             calibration_scale,
         )
 
-    # Double Hand Stall scores two bottles; keep other movements on primary bottle.
-    if movement == "Double Hand Stall":
+    # Double Hand Stall and Double Forearm Stall score two bottles.
+    if movement in ("Double Hand Stall", "Double Forearm Stall"):
         bottle_list = (
             list(bottles)
             if bottles is not None
             else ([bottle] if bottle is not None else [])
         )
+        evaluate = (
+            double_hand_stall.evaluate
+            if movement == "Double Hand Stall"
+            else double_forearm_stall.evaluate
+        )
         return _stamp_calibration_scale(
-            double_hand_stall.evaluate(
+            evaluate(
                 bottle,
                 pose,
                 hands,

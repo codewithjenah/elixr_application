@@ -1960,6 +1960,7 @@ def test_movement_requires_hands():
     assert movement_requires_hands("Forearm Stall") is False
     assert movement_requires_hands("Arm Stall") is False  # legacy alias
     assert movement_requires_hands("Elbow Stall") is False
+    assert movement_requires_hands("Wrist Stall") is False
     assert movement_requires_hands("Reverse Forearm Stall") is False
     assert movement_requires_hands("Upper Forearm Stall") is False  # legacy alias
     assert movement_requires_hands("Shoulder Stall") is False
@@ -1967,6 +1968,9 @@ def test_movement_requires_hands():
     assert movement_requires_hands("Bartender's Grip") is True
     assert movement_requires_hands("Reverse Grip") is True
     assert movement_requires_hands("Claw Grip") is True
+    assert movement_requires_hands("Body Grip") is True
+    assert movement_requires_hands("Wrist Stall") is False
+    assert movement_requires_hands("Double Forearm Stall") is False
     assert movement_requires_hands("One Finger Stall") is True
     assert movement_requires_hands("Double Hand Stall") is True
     assert movement_requires_hands("Bottle in a tin") is True
@@ -1974,14 +1978,17 @@ def test_movement_requires_hands():
     assert movement_max_hands("Bartender's Grip") == 1
     assert movement_max_hands("Reverse Grip") == 1
     assert movement_max_hands("Claw Grip") == 1
+    assert movement_max_hands("Body Grip") == 1
     assert movement_max_hands("Hand Stall") == 1
     assert movement_max_hands("One Finger Stall") == 1
     assert movement_max_hands("Bottle in a tin") == 1
     assert movement_max_hands("Double Hand Stall") == 2
     assert movement_max_hands("Forearm Stall") == 0
     assert movement_max_hands("Elbow Stall") == 0
+    assert movement_max_hands("Wrist Stall") == 0
     assert movement_max_hands("Reverse Forearm Stall") == 0
     assert movement_max_hands("Shoulder Stall") == 0
+    assert movement_max_hands("Double Forearm Stall") == 0
     assert movement_max_hands("Arm Stall") == 0
     assert movement_max_hands("Upper Forearm Stall") == 0
     assert movement_max_hands("Free Practice") == 0
@@ -1994,12 +2001,15 @@ def test_movement_requires_hands():
         "Bartender's Grip",
         "Reverse Grip",
         "Claw Grip",
+        "Body Grip",
         "Hand Stall",
         "Forearm Stall",
         "Elbow Stall",
+        "Wrist Stall",
         "Reverse Forearm Stall",
         "Shoulder Stall",
         "Double Hand Stall",
+        "Double Forearm Stall",
     ],
 )
 def test_evaluate_movement_runs(movement):
@@ -2622,9 +2632,11 @@ def test_other_stall_pose_requirements_unchanged():
     assert movement_requires_pose("Forearm Stall") is True
     assert movement_requires_pose("Arm Stall") is True  # legacy alias
     assert movement_requires_pose("Elbow Stall") is True
+    assert movement_requires_pose("Wrist Stall") is True
     assert movement_requires_pose("Reverse Forearm Stall") is True
     assert movement_requires_pose("Upper Forearm Stall") is True  # legacy alias
     assert movement_requires_pose("Shoulder Stall") is True
+    assert movement_requires_pose("Double Forearm Stall") is True
     assert movement_requires_pose("Double Hand Stall") is False
 
 

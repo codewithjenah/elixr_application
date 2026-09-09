@@ -326,14 +326,17 @@ const OFFICIAL_ASSIGNMENTS = new Map([
   ["Bartender's Grip", ['official_bartenders_grip', 'official_bartenders_grip_v1']],
   ['Reverse Grip', ['official_reverse_grip', 'official_reverse_grip_v1']],
   ['Claw Grip', ['official_claw_grip', 'official_claw_grip_v1']],
+  ['Body Grip', ['official_body_grip', 'official_body_grip_v1']],
   ['Hand Stall', ['official_hand_stall', 'official_hand_stall_v1']],
   ['One Finger Stall', ['official_one_finger_stall', 'official_one_finger_stall_v1']],
   ['Forearm Stall', ['official_forearm_stall', 'official_forearm_stall_v1']],
   ['Elbow Stall', ['official_elbow_stall', 'official_elbow_stall_v1']],
+  ['Wrist Stall', ['official_wrist_stall', 'official_wrist_stall_v1']],
   ['Reverse Forearm Stall', ['official_reverse_forearm_stall', 'official_reverse_forearm_stall_v1']],
   ['Shoulder Stall', ['official_shoulder_stall', 'official_shoulder_stall_v1']],
   ['Double Hand Stall', ['official_double_hand_stall', 'official_double_hand_stall_v1']],
   ['Bottle in a tin', ['official_bottle_in_a_tin', 'official_bottle_in_a_tin_v1']],
+  ['Double Forearm Stall', ['official_double_forearm_stall', 'official_double_forearm_stall_v1']],
 ]);
 
 // OFFICIAL_MOVEMENT_PROPS_BEGIN
@@ -342,14 +345,17 @@ const OFFICIAL_MOVEMENT_PROPS = new Map([
   ["Bartender's Grip", ['bottle']],
   ['Reverse Grip', ['bottle']],
   ['Claw Grip', ['bottle']],
+  ['Body Grip', ['bottle']],
   ['Hand Stall', ['bottle', 'shaker']],
   ['One Finger Stall', ['bottle', 'shaker']],
   ['Forearm Stall', ['bottle', 'shaker']],
   ['Elbow Stall', ['bottle', 'shaker']],
+  ['Wrist Stall', ['bottle', 'shaker']],
   ['Reverse Forearm Stall', ['bottle']],
   ['Shoulder Stall', ['bottle']],
   ['Double Hand Stall', ['bottle']],
   ['Bottle in a tin', ['bottle_and_shaker']],
+  ['Double Forearm Stall', ['bottle']],
 ]);
 // OFFICIAL_MOVEMENT_PROPS_END
 

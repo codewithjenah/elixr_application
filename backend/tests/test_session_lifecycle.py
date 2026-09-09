@@ -1532,7 +1532,7 @@ def test_startup_failure_clears_session_identity(monkeypatch):
 def test_readiness_needs_helpers_classify_movements():
     """readiness_needs_hands/pose return the expected values per movement."""
     # Grip movements: hands only.
-    for mv in ("Normal Grip", "Bartender's Grip", "Reverse Grip", "Claw Grip"):
+    for mv in ("Normal Grip", "Bartender's Grip", "Reverse Grip", "Claw Grip", "Body Grip"):
         assert readiness_needs_hands(mv) is True, mv
         assert readiness_needs_pose(mv) is False, mv
 
@@ -1543,7 +1543,7 @@ def test_readiness_needs_helpers_classify_movements():
     assert readiness_needs_pose("One Finger Stall") is False
 
     # Forearm / Elbow Stall: pose only (upper_body_visible; no hand fallback).
-    for mv in ("Forearm Stall", "Elbow Stall", "Arm Stall"):
+    for mv in ("Forearm Stall", "Elbow Stall", "Wrist Stall", "Arm Stall"):
         assert readiness_needs_hands(mv) is False, mv
         assert readiness_needs_pose(mv) is True, mv
 
@@ -1559,6 +1559,9 @@ def test_readiness_needs_helpers_classify_movements():
     # Bottle in a tin: hands only (supporting_hand_visible).
     assert readiness_needs_hands("Bottle in a tin") is True
     assert readiness_needs_pose("Bottle in a tin") is False
+
+    assert readiness_needs_hands("Double Forearm Stall") is False
+    assert readiness_needs_pose("Double Forearm Stall") is True
 
 
 def test_begin_readiness_transitions_prepared_to_readying(monkeypatch):
@@ -1727,10 +1730,12 @@ def test_hands_detector_created_once_across_readiness_and_activate(monkeypatch):
 _POSE_ONLY_STALLS = (
     "Forearm Stall",
     "Elbow Stall",
+    "Wrist Stall",
     "Reverse Forearm Stall",
     "Shoulder Stall",
     "Arm Stall",
     "Upper Forearm Stall",
+    "Double Forearm Stall",
 )
 
 

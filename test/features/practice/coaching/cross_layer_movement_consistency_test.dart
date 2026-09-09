@@ -67,7 +67,7 @@ void main() {
   test(
     'official XP identities stay in exact parity with catalog and coaching names',
     () {
-      expect(enabledCatalogNames, hasLength(12));
+      expect(enabledCatalogNames, hasLength(15));
       expect(coachingMovementNames, unorderedEquals(enabledCatalogNames));
       expect(officialElixrMovementNames, unorderedEquals(enabledCatalogNames));
       expect(
@@ -82,7 +82,6 @@ void main() {
         'Free Practice',
         'Arm Stall',
         'Upper Forearm Stall',
-        'Wrist Stall',
         'Basic Flip',
         'Not A Real Move',
       ];

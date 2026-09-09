@@ -216,6 +216,14 @@ PINCH_DISTANCE = 0.06
 # Ratio is the fraction of elbow-to-wrist distance used for the stall point.
 UPPER_FOREARM_RATIO = 0.33
 UPPER_FOREARM_STALL_PROXIMITY = 0.16
+# Wrist Stall: along-arm fraction from wrist toward elbow (0 = wrist, 0.5 = mid).
+WRIST_STALL_MAX_ALONG_FRACTION = 0.22
+WRIST_STALL_FOREARM_ALONG_FRACTION = 0.38
+# Max distance to the wrist as a fraction of that arm's elbow–wrist length.
+WRIST_STALL_PROXIMITY_RATIO = 0.28
+# Double Forearm Stall: keep each bottle on the mid-forearm band, not the wrist.
+DOUBLE_FOREARM_MIN_ALONG_FRACTION = 0.32
+DOUBLE_FOREARM_MAX_ALONG_FRACTION = 0.68
 # Absolute proximity zones that mean the bottle is on the elbow or ordinary mid-forearm.
 UPPER_FOREARM_ELBOW_ZONE = 0.09
 UPPER_FOREARM_MID_ZONE = 0.09
@@ -354,6 +362,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
     "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
     "Reverse Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
     "Claw Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
+    "Body Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
     "Hand Stall": {
         "difficulty": "Medium",
         "requires_hands": True,
@@ -373,6 +382,12 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "max_hands": 0,
     },
     "Elbow Stall": {
+        "difficulty": "Medium",
+        "requires_hands": False,
+        "requires_pose": True,
+        "max_hands": 0,
+    },
+    "Wrist Stall": {
         "difficulty": "Medium",
         "requires_hands": False,
         "requires_pose": True,
@@ -415,6 +430,12 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_pose": False,
         "required_prop_type": "bottle_and_shaker",
         "max_hands": 1,
+    },
+    "Double Forearm Stall": {
+        "difficulty": "Hard",
+        "requires_hands": False,
+        "requires_pose": True,
+        "max_hands": 0,
     },
     # Internal Free Practice vision mode: prop detection + preview only.
     # Not a user-selectable catalog movement (Flutter catalog omits it).

@@ -1019,9 +1019,9 @@ describe('official ELIXR movement XP gate', () => {
     );
   });
 
-  test('Wrist Stall create fails', async () => {
+  test('Wrist Stall create succeeds', async () => {
     const db = aliceDb();
-    await assertFails(
+    await assertSucceeds(
       setDoc(doc(db, 'sessions', 'wrist-create'), v2SessionDoc('Wrist Stall')),
     );
   });
@@ -1063,7 +1063,7 @@ describe('official ELIXR movement XP gate', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(
         doc(adminDb, 'sessions', 'legacy-wrist'),
-        v2SessionDoc('Wrist Stall', createdAt),
+        v2SessionDoc('Basic Flip', createdAt),
       );
     });
 

@@ -14,14 +14,17 @@ const Map<String, int> movementRecommendedDurationSeconds = {
   "Bartender's Grip": 120,
   'Reverse Grip': 120,
   'Claw Grip': 120,
+  'Body Grip': 120,
   'Hand Stall': 180,
   'One Finger Stall': 180,
   'Forearm Stall': 180,
   'Elbow Stall': 180,
+  'Wrist Stall': 180,
   'Reverse Forearm Stall': 180,
   'Shoulder Stall': 180,
   'Double Hand Stall': 180,
   'Bottle in a tin': 180,
+  'Double Forearm Stall': 180,
 };
 
 /// Movement display name → positive locked success code.
@@ -30,14 +33,17 @@ const Map<String, String> movementPositiveLockedCodes = {
   "Bartender's Grip": 'bartender_grip_locked',
   'Reverse Grip': 'reverse_grip_locked',
   'Claw Grip': 'claw_grip_locked',
+  'Body Grip': 'body_grip_locked',
   'Hand Stall': 'hand_stall_locked',
   'One Finger Stall': 'one_finger_stall_locked',
   'Forearm Stall': 'forearm_stall_locked',
   'Elbow Stall': 'elbow_stall_locked',
+  'Wrist Stall': 'wrist_stall_locked',
   'Reverse Forearm Stall': 'reverse_forearm_stall_locked',
   'Shoulder Stall': 'shoulder_stall_locked',
   'Double Hand Stall': 'double_hand_stall_locked',
   'Bottle in a tin': 'bottle_in_tin_locked',
+  'Double Forearm Stall': 'double_forearm_stall_locked',
 };
 
 /// Positive success codes used for evidence-based strength aggregation.
@@ -133,6 +139,20 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
     holdTargetInstruction:
         'Keep the top-down claw grip through one confirmed hold',
   ),
+  'Body Grip': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Secure body wrap maintained',
+    formStrengthMessage: 'Correct wrapped body grip detected',
+    cleanSessionMessage:
+        'No recurring grip issues — the hand stayed wrapped around the bottle body.',
+    successfulRecommendationReason:
+        'Repeat body wraps until the middle-of-bottle hold locks in cleanly.',
+    lowDataRecommendationReason:
+        'Show the wrapped body grip longer so ELIXR can evaluate finger wrap around the bottle middle.',
+    unconfirmedRecommendationReason:
+        'Keep the wrapped body grip secure long enough to complete a confirmed hold.',
+    holdTargetInstruction:
+        'Maintain the wrapped body grip through one confirmed hold',
+  ),
   'Hand Stall': MovementCoachingProfile(
     confirmedStrengthMessage: 'Open-palm balance confirmed',
     formStrengthMessage: 'Upright prop balance detected over the open palm',
@@ -189,6 +209,20 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
     holdTargetInstruction:
         'Maintain the {prop} over the elbow crease through one confirmed hold',
   ),
+  'Wrist Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Wrist balance point held steady',
+    formStrengthMessage: 'Correct wrist stall position detected',
+    cleanSessionMessage:
+        'No recurring balance issues — wrist placement stayed steady.',
+    successfulRecommendationReason:
+        'Repeat wrist stalls to keep the prop balanced at the wrist through confirmation.',
+    lowDataRecommendationReason:
+        'Keep the {prop} visible at the wrist longer so ELIXR can evaluate placement and steadiness.',
+    unconfirmedRecommendationReason:
+        'Maintain the {prop} at the wrist balance point long enough to complete a confirmed hold.',
+    holdTargetInstruction:
+        'Keep the {prop} balanced at the wrist through one confirmed hold',
+  ),
   'Reverse Forearm Stall': MovementCoachingProfile(
     confirmedStrengthMessage: 'Reverse forearm balance held steady',
     formStrengthMessage: 'Correct reverse forearm placement detected',
@@ -244,6 +278,20 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'Keep the bottle centered on the horizontal shaker long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Keep the bottle centered on the horizontal shaker through one confirmed hold',
+  ),
+  'Double Forearm Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Both forearm stalls held together',
+    formStrengthMessage: 'One bottle detected on each forearm',
+    cleanSessionMessage:
+        'No recurring balance issues — both forearm stalls stayed coordinated.',
+    successfulRecommendationReason:
+        'Repeat dual-forearm stalls until both bottles hold together through confirmation.',
+    lowDataRecommendationReason:
+        'Show both bottles and both arms longer so ELIXR can evaluate the dual-forearm position.',
+    unconfirmedRecommendationReason:
+        'Keep both bottles balanced on the forearms long enough to complete a confirmed hold.',
+    holdTargetInstruction:
+        'Keep both bottles balanced on the forearms through one confirmed hold',
   ),
 };
 
@@ -398,6 +446,16 @@ String focusCopyForCode(
     case 'claw_grip_locked':
       return 'Maintain a locked-in claw grip';
 
+    // Body Grip
+    case 'hand_not_at_body':
+      return 'Place your hand around the middle of the bottle body';
+    case 'insufficient_body_finger_wrap':
+      return 'Wrap your fingers around the bottle body';
+    case 'body_grip_not_neck_grip':
+      return 'Wrap the bottle body; do not use a neck grip';
+    case 'body_grip_locked':
+      return 'Maintain a locked-in body grip';
+
     // Hand Stall / One Finger Stall
     case 'hand_stall_locked':
       return 'Maintain a locked-in hand stall';
@@ -425,6 +483,12 @@ String focusCopyForCode(
       return 'Maintain a locked-in forearm stall';
     case 'elbow_stall_locked':
       return 'Maintain a locked-in elbow stall';
+    case 'prop_not_on_wrist':
+      return 'Balance the $label at the wrist';
+    case 'prop_on_forearm_not_wrist':
+      return 'Balance the $label at the wrist, not on the forearm';
+    case 'wrist_stall_locked':
+      return 'Maintain a locked-in wrist stall';
     case 'prop_too_near_elbow':
       return 'Move the bottle away from the elbow onto the reverse forearm';
     case 'prop_too_near_mid_forearm':
@@ -449,6 +513,12 @@ String focusCopyForCode(
       return 'Hold both props steady';
     case 'double_hand_stall_locked':
       return 'Maintain a locked-in double hand stall';
+    case 'both_arms_not_visible':
+      return 'Keep both arms fully visible';
+    case 'bottles_not_one_per_forearm':
+      return 'Balance one bottle on each forearm';
+    case 'double_forearm_stall_locked':
+      return 'Maintain a locked-in double forearm stall';
 
     // Bottle in a tin
     case 'shaker_not_horizontal':

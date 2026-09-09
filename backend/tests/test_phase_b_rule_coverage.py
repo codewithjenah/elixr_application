@@ -17,8 +17,10 @@ from assessment.rule_engine import evaluate_movement
 from assessment.rules import (
     arm_stall,
     bartenders_grip,
+    body_grip,
     bottle_in_a_tin,
     claw_grip,
+    double_forearm_stall,
     double_hand_stall,
     elbow_stall,
     hand_stall,
@@ -27,6 +29,7 @@ from assessment.rules import (
     reverse_grip,
     shoulder_stall,
     upper_forearm_stall,
+    wrist_stall,
 )
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D, PoseLandmarks
 
@@ -38,14 +41,17 @@ ENABLED_MOVEMENTS = (
     "Bartender's Grip",
     "Reverse Grip",
     "Claw Grip",
+    "Body Grip",
     "Hand Stall",
     "One Finger Stall",
     "Forearm Stall",
     "Elbow Stall",
+    "Wrist Stall",
     "Reverse Forearm Stall",
     "Shoulder Stall",
     "Double Hand Stall",
     "Bottle in a tin",
+    "Double Forearm Stall",
 )
 
 ENABLED_RULE_MODULES = (
@@ -53,14 +59,17 @@ ENABLED_RULE_MODULES = (
     "bartenders_grip.py",
     "reverse_grip.py",
     "claw_grip.py",
+    "body_grip.py",
     "hand_stall.py",
     "one_finger_stall.py",
     "arm_stall.py",
     "elbow_stall.py",
+    "wrist_stall.py",
     "upper_forearm_stall.py",
     "shoulder_stall.py",
     "double_hand_stall.py",
     "bottle_in_a_tin.py",
+    "double_forearm_stall.py",
     "common_checks.py",
 )
 
@@ -69,14 +78,17 @@ POSITIVE_LOCKED_BY_MOVEMENT = {
     "Bartender's Grip": FeedbackCode.BARTENDER_GRIP_LOCKED,
     "Reverse Grip": FeedbackCode.REVERSE_GRIP_LOCKED,
     "Claw Grip": FeedbackCode.CLAW_GRIP_LOCKED,
+    "Body Grip": FeedbackCode.BODY_GRIP_LOCKED,
     "Hand Stall": FeedbackCode.HAND_STALL_LOCKED,
     "One Finger Stall": FeedbackCode.ONE_FINGER_STALL_LOCKED,
     "Forearm Stall": FeedbackCode.FOREARM_STALL_LOCKED,
     "Elbow Stall": FeedbackCode.ELBOW_STALL_LOCKED,
+    "Wrist Stall": FeedbackCode.WRIST_STALL_LOCKED,
     "Reverse Forearm Stall": FeedbackCode.REVERSE_FOREARM_STALL_LOCKED,
     "Shoulder Stall": FeedbackCode.SHOULDER_STALL_LOCKED,
     "Double Hand Stall": FeedbackCode.DOUBLE_HAND_STALL_LOCKED,
     "Bottle in a tin": FeedbackCode.BOTTLE_IN_TIN_LOCKED,
+    "Double Forearm Stall": FeedbackCode.DOUBLE_FOREARM_STALL_LOCKED,
 }
 
 
@@ -224,7 +236,7 @@ def test_missing_prop_uses_shared_environment_code_across_enabled_movements():
     coded_movements = [
         m
         for m in ENABLED_MOVEMENTS
-        if m not in {"Double Hand Stall", "Bottle in a tin"}
+        if m not in {"Double Hand Stall", "Bottle in a tin", "Double Forearm Stall"}
     ]
     for movement in coded_movements:
         result, _, _ = evaluate_movement(movement, None, None, None, None)
@@ -234,6 +246,13 @@ def test_missing_prop_uses_shared_environment_code_across_enabled_movements():
 
 def test_double_hand_stall_zero_bottles_coded():
     result, _, _ = double_hand_stall.evaluate(
+        None, None, None, None, bottles=[]
+    )
+    assert result.feedback_code == FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE.value
+
+
+def test_double_forearm_stall_zero_bottles_coded():
+    result, _, _ = double_forearm_stall.evaluate(
         None, None, None, None, bottles=[]
     )
     assert result.feedback_code == FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE.value
@@ -300,13 +319,16 @@ def test_module_exports_cover_enabled_catalog():
     assert callable(bartenders_grip.evaluate)
     assert callable(reverse_grip.evaluate)
     assert callable(claw_grip.evaluate)
+    assert callable(body_grip.evaluate)
     assert callable(hand_stall.evaluate)
     assert callable(one_finger_stall.evaluate)
     assert callable(arm_stall.evaluate)
     assert callable(elbow_stall.evaluate)
+    assert callable(wrist_stall.evaluate)
     assert callable(upper_forearm_stall.evaluate)
     assert callable(shoulder_stall.evaluate)
     assert callable(double_hand_stall.evaluate)
+    assert callable(double_forearm_stall.evaluate)
     assert callable(bottle_in_a_tin.evaluate)
 
 
@@ -351,7 +373,7 @@ def test_visibility_and_environment_excluded_from_technique_category():
 
 @pytest.mark.parametrize(
     "movement",
-    [m for m in ENABLED_MOVEMENTS if m not in {"Double Hand Stall", "Bottle in a tin"}],
+    [m for m in ENABLED_MOVEMENTS if m not in {"Double Hand Stall", "Bottle in a tin", "Double Forearm Stall"}],
 )
 def test_every_simple_movement_missing_prop_is_environment_coded(movement):
     result, _, _ = evaluate_movement(movement, None, None, None, None)

@@ -81,6 +81,10 @@ ReadinessDisplayInfo resolveReadinessDisplay(
       title: 'Upper Body',
       instruction: 'Keep both shoulders and at least one complete arm visible.',
     ),
+    'both_arms_visible' => const ReadinessDisplayInfo(
+      title: 'Both Arms',
+      instruction: 'Keep both complete arms visible, from shoulder to wrist.',
+    ),
     _ => null,
   };
   if (known != null) return known;

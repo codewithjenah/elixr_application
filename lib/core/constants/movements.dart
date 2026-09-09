@@ -34,6 +34,14 @@ const movementCatalog = <Movement>[
     enabled: true,
   ),
   Movement(
+    name: 'Body Grip',
+    difficulty: 'Easy',
+    description:
+        'Hold the upright bottle securely around its body with a wrapped one-hand grip.',
+    requiresHandsDetection: true,
+    enabled: true,
+  ),
+  Movement(
     name: 'Hand Stall',
     difficulty: 'Medium',
     description: 'Balance the bottle on your open palm.',
@@ -62,6 +70,14 @@ const movementCatalog = <Movement>[
     name: 'Elbow Stall',
     difficulty: 'Medium',
     description: 'Balance the bottle on your elbow crease.',
+    requiresHandsDetection: true,
+    enabled: true,
+    supportedProps: _bottleOrShaker,
+  ),
+  Movement(
+    name: 'Wrist Stall',
+    difficulty: 'Medium',
+    description: 'Balance the selected prop steadily around either wrist.',
     requiresHandsDetection: true,
     enabled: true,
     supportedProps: _bottleOrShaker,
@@ -97,6 +113,14 @@ const movementCatalog = <Movement>[
     requiresHandsDetection: true,
     enabled: true,
     supportedProps: [TrainingProp.bottleAndShaker],
+  ),
+  Movement(
+    name: 'Double Forearm Stall',
+    difficulty: 'Hard',
+    description:
+        'Balance two bottles simultaneously, with one bottle on each forearm.',
+    requiresHandsDetection: true,
+    enabled: true,
   ),
 ];
 

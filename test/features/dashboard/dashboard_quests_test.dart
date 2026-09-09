@@ -268,12 +268,12 @@ void main() {
         tester,
         repository: repo,
         progression: TraineeProgressionService.ready(
-          totalXp: GamificationRules.xpPerLevel * 4,
+          totalXp: GamificationRules.xpPerLevel * 5,
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Level 5'), findsOneWidget);
+      expect(find.text('Level 6'), findsOneWidget);
       expect(
         find.text('Next unlock: Hand Stall • Cocktail Shaker'),
         findsOneWidget,
@@ -281,7 +281,7 @@ void main() {
       expect(find.text('250 XP remaining'), findsOneWidget);
     });
 
-    testWidgets('Level 16+ shows all movement variants unlocked', (
+    testWidgets('Level 20+ shows all movement variants unlocked', (
       tester,
     ) async {
       final repo = _FakeGamificationRepository(board: _widgetBoard);
@@ -291,12 +291,12 @@ void main() {
         tester,
         repository: repo,
         progression: TraineeProgressionService.ready(
-          totalXp: GamificationRules.xpPerLevel * 15,
+          totalXp: GamificationRules.xpPerLevel * 19,
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Level 16'), findsOneWidget);
+      expect(find.text('Level 20'), findsOneWidget);
       expect(find.text('All movement variants unlocked'), findsOneWidget);
       expect(find.textContaining('Next unlock:'), findsNothing);
     });

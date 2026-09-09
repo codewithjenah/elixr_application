@@ -3,7 +3,7 @@ import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('enabled catalog names match the 12 official identity mappings', () {
+  test('enabled catalog names match the 15 official identity mappings', () {
     final enabled = movementCatalog
         .where((movement) => movement.enabled)
         .map((movement) => movement.name)

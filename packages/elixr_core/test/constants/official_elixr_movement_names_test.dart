@@ -2,7 +2,7 @@ import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('official identities are exactly the 12 catalog names', () {
+  test('official identities are exactly the 15 catalog names', () {
     expect(
       officialElixrMovementNames,
       unorderedEquals(const [
@@ -10,14 +10,17 @@ void main() {
         "Bartender's Grip",
         'Reverse Grip',
         'Claw Grip',
+        'Body Grip',
         'Hand Stall',
         'One Finger Stall',
         'Forearm Stall',
         'Elbow Stall',
+        'Wrist Stall',
         'Reverse Forearm Stall',
         'Shoulder Stall',
         'Double Hand Stall',
         'Bottle in a tin',
+        'Double Forearm Stall',
       ]),
     );
     expect(officialElixrMovementNames, equals(coachingMovementNames));
@@ -33,7 +36,9 @@ void main() {
       expect(isOfficialElixrMovementName('Free Practice'), isFalse);
       expect(isOfficialElixrMovementName('Arm Stall'), isFalse);
       expect(isOfficialElixrMovementName('Upper Forearm Stall'), isFalse);
-      expect(isOfficialElixrMovementName('Wrist Stall'), isFalse);
+      expect(isOfficialElixrMovementName('Wrist Stall'), isTrue);
+      expect(isOfficialElixrMovementName('Body Grip'), isTrue);
+      expect(isOfficialElixrMovementName('Double Forearm Stall'), isTrue);
       expect(isOfficialElixrMovementName('Basic Flip'), isFalse);
       expect(isOfficialElixrMovementName('hand stall'), isFalse);
       expect(isOfficialElixrMovementName(''), isFalse);
@@ -41,7 +46,7 @@ void main() {
   );
 
   test('official identity map is explicit, complete, and not a slugger', () {
-    expect(officialElixrMovementIdentities, hasLength(12));
+    expect(officialElixrMovementIdentities, hasLength(15));
     expect(
       officialElixrMovementIdentities.map((identity) => identity.catalogName),
       unorderedEquals(officialElixrMovementNames),
@@ -66,7 +71,18 @@ void main() {
     );
     expect(officialElixrIdentityForName('Arm Stall'), isNull);
     expect(officialElixrIdentityForName('Upper Forearm Stall'), isNull);
-    expect(officialElixrIdentityForName('Wrist Stall'), isNull);
+    expect(
+      officialElixrIdentityForName('Wrist Stall')?.movementId,
+      'official_wrist_stall',
+    );
+    expect(
+      officialElixrIdentityForName('Body Grip')?.revisionId,
+      'official_body_grip_v1',
+    );
+    expect(
+      officialElixrIdentityForName('Double Forearm Stall')?.revisionId,
+      'official_double_forearm_stall_v1',
+    );
     expect(officialElixrIdentityForName('Free Practice'), isNull);
     expect(officialElixrIdentityForName('hand stall'), isNull);
     expect(

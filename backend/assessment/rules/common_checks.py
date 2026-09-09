@@ -112,6 +112,73 @@ def pose_forearm_point(
     return best
 
 
+def pose_wrist_arm_landmarks(
+    pose: Optional[PoseLandmarks], bottle: BottleDetection
+) -> Optional[tuple[Point2D, Point2D, Point2D]]:
+    """Nearest complete arm by wrist-to-bottle distance.
+
+    Returns ``(elbow, wrist, mid_forearm)``. Midpoint semantics match
+    [pose_forearm_point]. Nearest-wrist alone cannot reject mid-forearm
+    placements, so callers should use the matching elbow of the same arm.
+    """
+    if pose is None:
+        return None
+    bottle_center = bottle.center_normalized(640, 480)
+    best: Optional[tuple[Point2D, Point2D, Point2D]] = None
+    best_dist = float("inf")
+    for elbow_i, wrist_i in ((13, 15), (14, 16)):
+        elbow = pose.get(elbow_i)
+        wrist = pose.get(wrist_i)
+        if elbow is None or wrist is None:
+            continue
+        dist = _dist(wrist, bottle_center)
+        if dist < best_dist:
+            best_dist = dist
+            mid = Point2D(
+                x=(elbow.x + wrist.x) / 2.0,
+                y=(elbow.y + wrist.y) / 2.0,
+            )
+            best = (elbow, wrist, mid)
+    return best
+
+
+def pose_forearm_midpoint_for_side(
+    pose: Optional[PoseLandmarks], *, left: bool
+) -> Optional[Point2D]:
+    """50% elbow–wrist midpoint for one anatomical arm (Forearm Stall geometry)."""
+    if pose is None:
+        return None
+    elbow_i, wrist_i = (13, 15) if left else (14, 16)
+    elbow = pose.get(elbow_i)
+    wrist = pose.get(wrist_i)
+    if elbow is None or wrist is None:
+        return None
+    return Point2D(x=(elbow.x + wrist.x) / 2.0, y=(elbow.y + wrist.y) / 2.0)
+
+
+def pose_both_forearm_midpoints(
+    pose: Optional[PoseLandmarks],
+) -> Optional[tuple[Point2D, Point2D]]:
+    """Left then right forearm midpoints, or None when either arm chain is missing."""
+    left = pose_forearm_midpoint_for_side(pose, left=True)
+    right = pose_forearm_midpoint_for_side(pose, left=False)
+    if left is None or right is None:
+        return None
+    return left, right
+
+
+def along_wrist_to_elbow_fraction(
+    point: Point2D, elbow: Point2D, wrist: Point2D
+) -> float:
+    """Project ``point`` onto wrist→elbow. 0 at the wrist, 1 at the elbow."""
+    vx = elbow.x - wrist.x
+    vy = elbow.y - wrist.y
+    length_sq = vx * vx + vy * vy
+    if length_sq <= 1e-12:
+        return 0.0
+    return ((point.x - wrist.x) * vx + (point.y - wrist.y) * vy) / length_sq
+
+
 def pose_upper_forearm_landmarks(
     pose: Optional[PoseLandmarks],
     bottle: BottleDetection,

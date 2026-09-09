@@ -35,7 +35,7 @@ void main() {
     addTearDown(controller.dispose);
     await controller.start();
 
-    expect(controller.officialCatalog, hasLength(12));
+    expect(controller.officialCatalog, hasLength(15));
     expect(
       controller.officialCatalog.map((movement) => movement.name),
       unorderedEquals(
