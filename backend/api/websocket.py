@@ -103,7 +103,7 @@ from vision.pipeline_telemetry import (
 from vision.hands_detector import HandsDetector
 from vision.overlay_snapshot import OverlaySnapshot, freeze_overlay
 from vision.pose_detector import PoseDetector
-from vision.types import Point2D, PoseLandmarks, PropDetection
+from vision.types import Point2D, PropDetection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -606,8 +606,6 @@ class VisionSession:
         self._latest_readiness_observed_at: float | None = None
         self._readiness_confirmed = False
         self._frozen_readiness_snapshot: ReadinessSnapshot | None = None
-        self._template_pose_probe_at = 0.0
-        self._template_pose_probe_saw_landmarks = False
         self._calibration = CalibrationTracker()
         self.timings = _PipelineTimings()
         self.preview_timings = _PipelineTimings()
@@ -868,10 +866,6 @@ class VisionSession:
         if needs_pose:
             if self.pose_detector is None:
                 self.pose_detector = PoseDetector()
-                logger.info(
-                    "PoseDetector created movement=%s",
-                    self.movement,
-                )
         elif self.pose_detector is not None:
             self.pose_detector.close()
             self.pose_detector = None
@@ -885,69 +879,25 @@ class VisionSession:
             needs_pose=self._pose_needed,
         )
 
-    def _readiness_landmark_needs(self) -> tuple[bool, bool]:
-        """Hands/Pose required by the active readiness profile.
-
-        Template sessions must not look up ``self.movement`` in the official
-        catalog: that name is ``Template Assessment`` and would be treated as
-        camera-only, skipping Pose even after PoseDetector was created.
-        """
-        if self._prop_detection_only:
-            return False, False
-        if self._session_profile.is_template:
-            profile = self._session_profile.readiness_profile
-            return (
-                bool(profile and profile.needs_hands()),
-                bool(profile and profile.needs_pose()),
-            )
-        return (
-            readiness_needs_hands(
-                self.movement, self.prop_type, self.readiness_spec
-            ),
-            readiness_needs_pose(
-                self.movement, self.prop_type, self.readiness_spec
-            ),
-        )
-
     def _ensure_readiness_detectors(self) -> None:
         """Create only the detectors required for readiness observation."""
-        needs_hands, needs_pose = self._readiness_landmark_needs()
+        if self._prop_detection_only:
+            self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
+            return
+        if self._session_profile.is_template:
+            profile = self._session_profile.readiness_profile
+            self._sync_landmark_detectors(
+                needs_hands=bool(profile and profile.needs_hands()),
+                needs_pose=bool(profile and profile.needs_pose()),
+            )
+            return
         self._sync_landmark_detectors(
-            needs_hands=needs_hands,
-            needs_pose=needs_pose,
-        )
-
-    def _log_template_readiness_pose(
-        self, *, needs_pose: bool, pose: PoseLandmarks | None
-    ) -> None:
-        """Rate-limited probe: created vs skipped vs None vs landmarks."""
-        if not self._session_profile.is_template:
-            return
-        now = time.monotonic()
-        first_landmarks = pose is not None and not self._template_pose_probe_saw_landmarks
-        if (
-            self._template_pose_probe_at
-            and now - self._template_pose_probe_at < 2.0
-            and not first_landmarks
-        ):
-            return
-        self._template_pose_probe_at = now
-        vis15 = vis16 = None
-        points = 0
-        if pose is not None:
-            self._template_pose_probe_saw_landmarks = True
-            points = len(pose.points)
-            vis15 = pose.visibility.get(15)
-            vis16 = pose.visibility.get(16)
-        logger.info(
-            "template_readiness_pose needs=%s detector=%s result=%s "
-            "points=%s vis15=%s vis16=%s",
-            needs_pose,
-            self.pose_detector is not None,
-            "landmarks" if pose is not None else "none",
-            points,
-            vis15,
-            vis16,
+            needs_hands=readiness_needs_hands(
+                self.movement, self.prop_type, self.readiness_spec
+            ),
+            needs_pose=readiness_needs_pose(
+                self.movement, self.prop_type, self.readiness_spec
+            ),
         )
 
     def _warm_readiness_locked(
@@ -1349,7 +1299,12 @@ class VisionSession:
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)
 
-        needs_h, needs_p = self._readiness_landmark_needs()
+        needs_h = readiness_needs_hands(
+            self.movement, self.prop_type, self.readiness_spec
+        )
+        needs_p = readiness_needs_pose(
+            self.movement, self.prop_type, self.readiness_spec
+        )
 
         hands = None
         if needs_h and self.hands_detector is not None:
@@ -1365,7 +1320,6 @@ class VisionSession:
             t0 = time.perf_counter()
             pose = self.pose_detector.detect(frame)
             self.timings.add("pose", time.perf_counter() - t0)
-        self._log_template_readiness_pose(needs_pose=needs_p, pose=pose)
 
         if not self._calibration.locked:
             self._calibration.sample(pose, hands)

@@ -5,7 +5,6 @@ import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../../core/auth/teacher_auth_messages.dart';
 import '../../../core/constants/movements.dart';
 import '../../../data/models/assessment_mode.dart';
 import '../../../data/models/assessment_spec.dart';
@@ -173,7 +172,6 @@ class TeacherMovementsController extends ChangeNotifier {
       assessment: assessment,
       automaticAssessment: automaticAssessment,
     ),
-    permissionDeniedMessage: TeacherAuthMessages.teacherActivityCreateDenied,
   );
 
   Future<TeacherActivityVideoMetadata> uploadActivityDemonstration({
@@ -277,20 +275,12 @@ class TeacherMovementsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _runWrite(
-    Future<void> Function() action, {
-    String permissionDeniedMessage = 'That action could not be completed.',
-  }) async {
+  Future<void> _runWrite(Future<void> Function() action) async {
     if (busy) return;
     busy = true;
     errorMessage = null;
     notifyListeners();
     try {
-      final ensure = ensureTeacherAuthorization;
-      if (ensure != null && !await ensure()) {
-        errorMessage = TeacherAuthMessages.teacherAuthorizationRefreshRequired;
-        return;
-      }
       await action();
     } on ClassroomException catch (error) {
       errorMessage = error.message ?? 'That action could not be completed.';
@@ -298,21 +288,13 @@ class TeacherMovementsController extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint('[TeacherMovements] write failed: $error\n$stackTrace');
       }
-      errorMessage = _isPermissionDenied(error)
-          ? permissionDeniedMessage
-          : 'That action could not be completed.';
+      errorMessage = 'That action could not be completed.';
     } finally {
       if (!_disposed) {
         busy = false;
         notifyListeners();
       }
     }
-  }
-
-  bool _isPermissionDenied(Object error) {
-    final text = error.toString();
-    return text.contains('permission-denied') ||
-        text.contains('PERMISSION_DENIED');
   }
 
   Future<void> _listenOnce<T>(

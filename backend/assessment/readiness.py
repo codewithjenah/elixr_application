@@ -181,18 +181,15 @@ def _pass_pose_available(obs: ReadinessObservation) -> bool:
     return obs.pose is not None
 
 
-def _pass_selected_arm_visible(obs: ReadinessObservation, laterality: str) -> bool:
-    """Selected Pose wrist plus matching elbow (needed to reject forearm contact)."""
+def _pass_wrist_visible(obs: ReadinessObservation, laterality: str) -> bool:
     pose = obs.pose
     if pose is None:
         return False
     if laterality == "left":
-        return pose.get(15) is not None and pose.get(13) is not None
+        return pose.get(15) is not None
     if laterality == "right":
-        return pose.get(16) is not None and pose.get(14) is not None
-    left = pose.get(15) is not None and pose.get(13) is not None
-    right = pose.get(16) is not None and pose.get(14) is not None
-    return left or right
+        return pose.get(16) is not None
+    return pose.get(15) is not None or pose.get(16) is not None
 
 
 def _pass_camera(obs: ReadinessObservation) -> bool:
@@ -337,15 +334,15 @@ def _pose_available_req() -> ReadinessRequirement:
 
 def _wrist_visible_req(laterality: str) -> ReadinessRequirement:
     if laterality == "left":
-        message = "Keep your left wrist and forearm visible."
+        message = "Keep your left wrist visible."
     elif laterality == "right":
-        message = "Keep your right wrist and forearm visible."
+        message = "Keep your right wrist visible."
     else:
-        message = "Keep at least one wrist and its forearm visible."
+        message = "Keep at least one wrist visible."
     return _req(
         "wrist_visible",
         message,
-        lambda obs, lat=laterality: _pass_selected_arm_visible(obs, lat),
+        lambda obs, lat=laterality: _pass_wrist_visible(obs, lat),
         DetectorModality.POSE,
     )
 
@@ -446,7 +443,7 @@ def template_readiness_profile(spec) -> ReadinessProfile:
     """Wrist Stall readiness derived from a validated AssessmentSpec.
 
     Not registered as an official catalog movement. Laterality selects the
-    required Pose wrist and matching elbow (15+13 left / 16+14 right / either).
+    required Pose wrist (15 left / 16 right / either).
     """
     template_id = getattr(spec, "template_id", None)
     laterality = getattr(spec, "laterality", None)

@@ -19,8 +19,6 @@ abstract final class TeacherAuthMessages {
       'Password reset confirmed. Sign in with your new password.';
   static const teacherAuthorizationRefreshRequired =
       'Teacher verification needs to be refreshed. Verify your email and try again.';
-  static const teacherActivityCreateDenied =
-      'ELIXR could not save this Teacher Activity. Confirm you are signed in as a verified Teacher, then try again.';
   static const verificationSent = 'Verification email sent.';
   static const unsupportedRole =
       'This account cannot access ELIXR. Sign in with a Trainee or Teacher account.';
