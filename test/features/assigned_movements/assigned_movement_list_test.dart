@@ -5,8 +5,10 @@ import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movement_list.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_controller.dart';
 import 'package:elixr_core/models/rubric_assessment.dart';
@@ -27,6 +29,9 @@ GroupAssignment _assignment({
   String? topic,
   DateTime? dueAt,
   String? officialMovementName,
+  TeacherActivityAssessmentConfig? activityAssessment,
+  AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
+  bool gradingLocked = false,
 }) {
   return GroupAssignment(
     id: id,
@@ -46,9 +51,45 @@ GroupAssignment _assignment({
     groupName: 'BSHM-4A',
     topic: topic,
     dueAt: dueAt,
+    activityAssessment: activityAssessment,
+    attemptPolicy: attemptPolicy,
+    gradingLocked: gradingLocked,
     officialMovementName:
         officialMovementName ??
         (origin == MovementOrigin.officialElixr ? title : null),
+  );
+}
+
+AssignmentAttempt _activityAttempt(
+  String assignmentId, {
+  required TeacherActivityAssessmentConfig assessment,
+  required String id,
+  AssignmentAttemptStatus status = AssignmentAttemptStatus.submitted,
+  DateTime? recordingStartedAt,
+  DateTime? createdAt,
+  DateTime? draftSavedAt,
+  DateTime? draftCleanupStartedAt,
+  String? videoStoragePath,
+}) {
+  return AssignmentAttempt(
+    id: id,
+    traineeId: 'trainee-1',
+    teacherId: 'teacher-1',
+    groupId: 'group-1',
+    assignmentId: assignmentId,
+    movementId: 'tm1',
+    revisionId: 'rev1',
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.teacherReviewed,
+    attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+    status: status,
+    recordingStartedAt: recordingStartedAt,
+    createdAt: createdAt,
+    draftSavedAt: draftSavedAt,
+    draftCleanupStartedAt: draftCleanupStartedAt,
+    videoStoragePath: videoStoragePath,
+    activityAssessmentSnapshot: assessment,
+    assignmentConfigurationRevision: 1,
   );
 }
 
@@ -232,6 +273,176 @@ void main() {
     expect(assignedMovementActionLabel(assignment, null), 'Start practice');
     expect(assignedMovementPracticeButtonLabel(null), 'Start practice');
   });
+
+  test('Teacher Activity start eligibility follows its workflow policy', () {
+    final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+    final assignment = _assignment(
+      id: 'activity',
+      title: 'Bottle Control',
+      origin: MovementOrigin.teacherCreated,
+      activityAssessment: assessment,
+      attemptPolicy: AssignmentAttemptPolicy.finite(2),
+    );
+    final submitted = _activityAttempt(
+      assignment.id,
+      assessment: assessment,
+      id: 'activity-1',
+      recordingStartedAt: DateTime.utc(2026, 9, 1),
+    );
+
+    expect(canStartAssignedMovement(assignment, null, null), isTrue);
+    expect(
+      canStartAssignedMovement(
+        assignment,
+        submitted,
+        submitted,
+        activityAttempts: [submitted],
+      ),
+      isTrue,
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment.copyWith(
+          attemptPolicy: const AssignmentAttemptPolicy.unlimited(),
+        ),
+        submitted,
+        submitted,
+        activityAttempts: [submitted],
+      ),
+      isTrue,
+    );
+
+    final exhausted = [
+      submitted,
+      _activityAttempt(
+        assignment.id,
+        assessment: assessment,
+        id: 'activity-2',
+        recordingStartedAt: DateTime.utc(2026, 9, 2),
+      ),
+    ];
+    expect(
+      canStartAssignedMovement(
+        assignment,
+        exhausted.last,
+        exhausted.last,
+        activityAttempts: exhausted,
+      ),
+      isFalse,
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment.copyWith(gradingLocked: true),
+        submitted,
+        submitted,
+        activityAttempts: [submitted],
+      ),
+      isFalse,
+    );
+    final checked = _activityAttempt(
+      assignment.id,
+      assessment: assessment,
+      id: 'activity-checked',
+      status: AssignmentAttemptStatus.checked,
+      createdAt: DateTime.utc(2026, 9, 3),
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment,
+        checked,
+        checked,
+        activityAttempts: [submitted, checked],
+      ),
+      isFalse,
+    );
+
+    final attachedDraft = _activityAttempt(
+      assignment.id,
+      assessment: assessment,
+      id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+        assignmentId: assignment.id,
+        traineeId: 'trainee-1',
+      ),
+      status: AssignmentAttemptStatus.inProgress,
+      draftSavedAt: DateTime.utc(2026, 9, 2),
+      videoStoragePath: 'draft.mp4',
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment,
+        attachedDraft,
+        attachedDraft,
+        activityAttempts: [attachedDraft],
+      ),
+      isFalse,
+    );
+    final removalPending = attachedDraft.copyWith(
+      draftCleanupStartedAt: DateTime.utc(2026, 9, 2, 1),
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment,
+        removalPending,
+        removalPending,
+        activityAttempts: [removalPending],
+      ),
+      isFalse,
+    );
+
+    final legacy = _assignment(
+      id: 'legacy',
+      title: 'Legacy clip',
+      origin: MovementOrigin.teacherCreated,
+    );
+    final legacySubmitted = _teacherSubmittedAttempt(legacy.id);
+    expect(
+      canStartAssignedMovement(legacy, legacySubmitted, legacySubmitted),
+      isFalse,
+    );
+    final official = _assignment(id: 'official', title: 'Hand Stall');
+    final officialSubmitted = _officialSubmittedAttempt(official.id);
+    expect(
+      canStartAssignedMovement(official, officialSubmitted, officialSubmitted),
+      isTrue,
+    );
+  });
+
+  testWidgets(
+    'Teacher Activity card retries a submitted recording while a try remains',
+    (tester) async {
+      final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+      final assignment = _assignment(
+        id: 'activity-retry',
+        title: 'Bottle Control',
+        origin: MovementOrigin.teacherCreated,
+        activityAssessment: assessment,
+        attemptPolicy: AssignmentAttemptPolicy.finite(2),
+      );
+      final submitted = _activityAttempt(
+        assignment.id,
+        assessment: assessment,
+        id: 'activity-retry-1',
+        recordingStartedAt: DateTime.utc(2026, 9, 1),
+      );
+      await _pumpList(
+        tester,
+        items: [
+          AssignedMovementItem(
+            assignment: assignment,
+            attempt: submitted,
+            latestSubmission: submitted,
+            activityAttempts: [submitted],
+          ),
+        ],
+      );
+
+      expect(find.text('Try again'), findsOneWidget);
+      await tester.tap(find.text('Try again'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('practice:activity-retry'), findsOneWidget);
+    },
+  );
 
   testWidgets('classwork renders as cards and opens practice', (tester) async {
     await _pumpList(

@@ -16,12 +16,18 @@ class AssignedMovementItem {
     required this.assignment,
     required this.attempt,
     this.latestSubmission,
+    this.activityAttempts = const [],
     this.teacherProfilePictureUrl,
   });
 
   final GroupAssignment assignment;
   final AssignmentAttempt? attempt;
   final AssignmentAttempt? latestSubmission;
+
+  /// All known attempts for this assignment. Teacher Activity eligibility
+  /// needs the complete set because finite policies count recordings that
+  /// started, including an interrupted reservation that was later abandoned.
+  final List<AssignmentAttempt> activityAttempts;
 
   /// Best-effort public profile picture for [assignment.teacherId].
   ///
@@ -153,7 +159,14 @@ class AssignedMovementsController extends ChangeNotifier {
     final latestByAssignment = <String, AssignmentAttempt>{};
     final submissionsByAssignment = <String, AssignmentAttempt>{};
     final canonicalByAssignment = <String, AssignmentAttempt>{};
+    final latestActivityByAssignment = <String, AssignmentAttempt>{};
+    final activityAttemptsByAssignment = <String, List<AssignmentAttempt>>{};
     for (final attempt in _attempts) {
+      if (attempt.activityAssessmentSnapshot != null) {
+        (activityAttemptsByAssignment[attempt.assignmentId] ??= []).add(
+          attempt,
+        );
+      }
       if (attempt.isAbandonedTeacherReviewDraft) continue;
       final existing = latestByAssignment[attempt.assignmentId];
       if (existing == null ||
@@ -161,6 +174,16 @@ class AssignedMovementsController extends ChangeNotifier {
             existing.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
           )) {
         latestByAssignment[attempt.assignmentId] = attempt;
+      }
+      if (attempt.activityAssessmentSnapshot != null) {
+        final current = latestActivityByAssignment[attempt.assignmentId];
+        if (current == null ||
+            (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                .isAfter(
+                  current.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                )) {
+          latestActivityByAssignment[attempt.assignmentId] = attempt;
+        }
       }
       if (attempt.isTeacherReviewSubmission) {
         if (attempt.isCanonicalTeacherReviewSubmission) {
@@ -181,13 +204,18 @@ class AssignedMovementsController extends ChangeNotifier {
       for (final assignment in _assignments)
         AssignedMovementItem(
           assignment: assignment,
-          attempt:
-              canonicalByAssignment[assignment.id] ??
-              submissionsByAssignment[assignment.id] ??
-              latestByAssignment[assignment.id],
-          latestSubmission:
-              canonicalByAssignment[assignment.id] ??
-              submissionsByAssignment[assignment.id],
+          attempt: assignment.activityAssessment != null
+              ? latestActivityByAssignment[assignment.id]
+              : canonicalByAssignment[assignment.id] ??
+                    submissionsByAssignment[assignment.id] ??
+                    latestByAssignment[assignment.id],
+          latestSubmission: assignment.activityAssessment != null
+              ? latestActivityByAssignment[assignment.id]
+              : canonicalByAssignment[assignment.id] ??
+                    submissionsByAssignment[assignment.id],
+          activityAttempts: List.unmodifiable(
+            activityAttemptsByAssignment[assignment.id] ?? const [],
+          ),
           teacherProfilePictureUrl:
               _teacherProfilePictureUrls[assignment.teacherId.trim()],
         ),

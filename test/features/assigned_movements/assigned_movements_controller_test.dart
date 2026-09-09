@@ -1,7 +1,10 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_controller.dart';
 import 'package:elixr_core/models/elixr_group.dart';
@@ -15,6 +18,9 @@ GroupAssignment _assignment({
   required String id,
   required String groupId,
   String teacherId = 'teacher-1',
+  MovementOrigin origin = MovementOrigin.officialElixr,
+  TeacherActivityAssessmentConfig? activityAssessment,
+  AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
 }) {
   return GroupAssignment(
     id: id,
@@ -22,13 +28,45 @@ GroupAssignment _assignment({
     groupId: groupId,
     movementId: 'official_hand_stall',
     revisionId: 'official_hand_stall_v1',
-    origin: MovementOrigin.officialElixr,
-    assessmentMode: AssessmentMode.officialGuided,
+    origin: origin,
+    assessmentMode: origin == MovementOrigin.teacherCreated
+        ? AssessmentMode.teacherReviewed
+        : AssessmentMode.officialGuided,
     status: GroupAssignmentStatus.active,
     displayTitle: 'Hand Stall',
     teacherDisplayName: 'Grace Hopper',
     groupName: groupId == 'g1' ? 'BSHM 4A' : 'Other class',
-    officialMovementName: 'Hand Stall',
+    officialMovementName: origin == MovementOrigin.officialElixr
+        ? 'Hand Stall'
+        : null,
+    activityAssessment: activityAssessment,
+    attemptPolicy: attemptPolicy,
+  );
+}
+
+AssignmentAttempt _activityAttempt({
+  required String id,
+  required String assignmentId,
+  required TeacherActivityAssessmentConfig assessment,
+  required DateTime createdAt,
+  DateTime? recordingStartedAt,
+}) {
+  return AssignmentAttempt(
+    id: id,
+    traineeId: 'trainee-1',
+    teacherId: 'teacher-1',
+    groupId: 'g1',
+    assignmentId: assignmentId,
+    movementId: 'official_hand_stall',
+    revisionId: 'official_hand_stall_v1',
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.teacherReviewed,
+    attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+    status: AssignmentAttemptStatus.submitted,
+    createdAt: createdAt,
+    recordingStartedAt: recordingStartedAt,
+    activityAssessmentSnapshot: assessment,
+    assignmentConfigurationRevision: 1,
   );
 }
 
@@ -50,6 +88,69 @@ GroupMembership _membership({
 }
 
 void main() {
+  test(
+    'Activity cards retain complete attempt history for eligibility',
+    () async {
+      final groups = InMemoryGroupRepository();
+      addTearDown(groups.dispose);
+      groups.seedGroup(
+        const ElixrGroup(
+          id: 'g1',
+          teacherId: 'teacher-1',
+          name: 'BSHM 4A',
+          status: ElixrGroupStatus.active,
+        ),
+      );
+      groups.seedMembership(
+        _membership(groupId: 'g1', status: GroupMembershipStatus.approved),
+      );
+      final assignments = InMemoryClassroomAssignmentRepository();
+      addTearDown(assignments.dispose);
+      final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+      assignments.seedAssignment(
+        _assignment(
+          id: 'activity',
+          groupId: 'g1',
+          origin: MovementOrigin.teacherCreated,
+          activityAssessment: assessment,
+          attemptPolicy: AssignmentAttemptPolicy.finite(2),
+        ),
+      );
+      assignments.seedAttempt(
+        _activityAttempt(
+          id: 'activity-old',
+          assignmentId: 'activity',
+          assessment: assessment,
+          createdAt: DateTime.utc(2026, 9, 1),
+          recordingStartedAt: DateTime.utc(2026, 9, 1),
+        ),
+      );
+      assignments.seedAttempt(
+        _activityAttempt(
+          id: 'activity-current',
+          assignmentId: 'activity',
+          assessment: assessment,
+          createdAt: DateTime.utc(2026, 9, 2),
+          recordingStartedAt: DateTime.utc(2026, 9, 2),
+        ),
+      );
+
+      final controller = AssignedMovementsController(
+        traineeId: 'trainee-1',
+        groupRepository: groups,
+        assignmentRepository: assignments,
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+
+      expect(controller.items.single.attempt?.id, 'activity-current');
+      expect(
+        controller.items.single.activityAttempts.map((attempt) => attempt.id),
+        containsAll(['activity-old', 'activity-current']),
+      );
+    },
+  );
+
   test('only approved memberships expose assignments', () async {
     final groups = InMemoryGroupRepository();
     addTearDown(groups.dispose);

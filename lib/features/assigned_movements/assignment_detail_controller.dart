@@ -56,6 +56,34 @@ class AssignmentDetailController extends ChangeNotifier {
   AssignmentAttempt? get latestAttempt =>
       attempts.isEmpty ? null : attempts.first;
 
+  /// Activity attempts used for workflow decisions, including consumed
+  /// interrupted attempts that are intentionally omitted from display history.
+  List<AssignmentAttempt> get activityAttempts {
+    final source = _allAttempts.isEmpty ? attempts : _allAttempts;
+    return [
+      for (final attempt in source)
+        if (attempt.assignmentId == assignmentId &&
+            attempt.activityAssessmentSnapshot != null)
+          attempt,
+    ];
+  }
+
+  /// The current Activity workflow record is independent from the historical
+  /// row selected for playback or score review.
+  AssignmentAttempt? get latestActivityWorkflowAttempt {
+    AssignmentAttempt? latest;
+    for (final attempt in activityAttempts) {
+      if (attempt.isAbandonedTeacherReviewDraft) continue;
+      if (latest == null ||
+          (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).isAfter(
+            latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+          )) {
+        latest = attempt;
+      }
+    }
+    return latest;
+  }
+
   List<AssignmentAttempt> get earlierAttempts =>
       attempts.length <= 1 ? const [] : attempts.sublist(1);
 

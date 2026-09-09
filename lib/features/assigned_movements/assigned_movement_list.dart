@@ -391,7 +391,12 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
     final assignment = widget.item.assignment;
     final attempt = widget.item.attempt;
     final submission = widget.item.latestSubmission;
-    final canStart = canStartAssignedMovement(assignment, attempt, submission);
+    final canStart = canStartAssignedMovement(
+      assignment,
+      attempt,
+      submission,
+      activityAttempts: widget.item.activityAttempts,
+    );
     final accent = assignment.isOfficial ? AppColors.accent : AppColors.primary;
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
@@ -662,7 +667,10 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
                 height: _assignmentActionHeight,
                 child: canStart
                     ? ElixPrimaryButton(
-                        label: assignedMovementPracticeButtonLabel(attempt),
+                        label: assignedMovementPracticeButtonLabel(
+                          attempt,
+                          assignment: assignment,
+                        ),
                         expanded: true,
                         dense: true,
                         icon: FluentIcons.play,
@@ -896,7 +904,13 @@ IconData assignedMovementStatusIcon(
   };
 }
 
-String assignedMovementPracticeButtonLabel(AssignmentAttempt? attempt) {
+String assignedMovementPracticeButtonLabel(
+  AssignmentAttempt? attempt, {
+  GroupAssignment? assignment,
+}) {
+  if (assignment?.activityAssessment != null) {
+    return attempt == null ? 'Start attempt' : 'Try again';
+  }
   if (attempt == null) return 'Start practice';
   return 'Continue practice';
 }
@@ -946,11 +960,33 @@ String assignedMovementActionLabel(
 bool canStartAssignedMovement(
   GroupAssignment assignment,
   AssignmentAttempt? attempt,
-  AssignmentAttempt? submission,
-) {
+  AssignmentAttempt? submission, {
+  Iterable<AssignmentAttempt> activityAttempts = const [],
+}) {
   if (!assignment.isActive || assignment.isRetiredTemplate) return false;
   if (!assignment.isTeacherCreated) return true;
   if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) return false;
+  if (assignment.activityAssessment != null) {
+    if (assignment.gradingLocked) return false;
+    final attempts = _teacherActivityAttempts(
+      activityAttempts: activityAttempts,
+      attempt: attempt,
+      submission: submission,
+    );
+    final workflow = _latestTeacherActivityWorkflowAttempt(attempts);
+    if (workflow?.status == AssignmentAttemptStatus.checked) return false;
+    if (attempts.any(
+      (candidate) =>
+          candidate.hasAttachedDraftClip || candidate.isDraftClipRemovalPending,
+    )) {
+      return false;
+    }
+    final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
+    final consumedAttempts = attempts
+        .where((candidate) => candidate.recordingStartedAt != null)
+        .length;
+    return maximumAttempts == null || consumedAttempts < maximumAttempts;
+  }
   final current = submission ?? attempt;
   if (current?.hasAttachedDraftClip == true ||
       current?.isDraftClipRemovalPending == true) {
@@ -959,6 +995,39 @@ bool canStartAssignedMovement(
   return current == null ||
       current.status == AssignmentAttemptStatus.draft ||
       current.status == AssignmentAttemptStatus.inProgress;
+}
+
+List<AssignmentAttempt> _teacherActivityAttempts({
+  required Iterable<AssignmentAttempt> activityAttempts,
+  required AssignmentAttempt? attempt,
+  required AssignmentAttempt? submission,
+}) {
+  final byId = <String, AssignmentAttempt>{
+    for (final candidate in activityAttempts)
+      if (candidate.activityAssessmentSnapshot != null) candidate.id: candidate,
+  };
+  for (final candidate in [attempt, submission]) {
+    if (candidate?.activityAssessmentSnapshot != null) {
+      byId[candidate!.id] = candidate;
+    }
+  }
+  return byId.values.toList(growable: false);
+}
+
+AssignmentAttempt? _latestTeacherActivityWorkflowAttempt(
+  Iterable<AssignmentAttempt> attempts,
+) {
+  AssignmentAttempt? latest;
+  for (final candidate in attempts) {
+    if (candidate.isAbandonedTeacherReviewDraft) continue;
+    if (latest == null ||
+        (candidate.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).isAfter(
+          latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+        )) {
+      latest = candidate;
+    }
+  }
+  return latest;
 }
 
 String assignedMovementDueLabel(GroupAssignment assignment) {

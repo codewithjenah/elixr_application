@@ -671,15 +671,21 @@ class _YourWork extends StatelessWidget {
         : assignment.isTeacherCreated
         ? controller.currentSubmission
         : selected;
+    final workflowAttempt = isTeacherActivity
+        ? controller.latestActivityWorkflowAttempt
+        : current;
     final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
-    final consumedAttempts = controller.attempts
+    final consumedAttempts = controller.activityAttempts
         .where((attempt) => attempt.recordingStartedAt != null)
         .length;
     final hasAvailableActivityAttempt =
         maximumAttempts == null || consumedAttempts < maximumAttempts;
-    final canStart =
-        canStartAssignedMovement(assignment, current, current) &&
-        (!isTeacherActivity || hasAvailableActivityAttempt);
+    final canStart = canStartAssignedMovement(
+      assignment,
+      workflowAttempt,
+      workflowAttempt,
+      activityAttempts: controller.activityAttempts,
+    );
     final attemptAssessment =
         current?.activityAssessmentSnapshot ?? assignment.activityAssessment;
     return Column(
@@ -878,7 +884,10 @@ class _YourWork extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         if (canStart)
           ElixPrimaryButton(
-            label: assignedMovementPracticeButtonLabel(current),
+            label: assignedMovementPracticeButtonLabel(
+              workflowAttempt,
+              assignment: assignment,
+            ),
             expanded: true,
             icon: FluentIcons.play,
             onPressed: () =>

@@ -364,6 +364,7 @@ void main() {
 
       expect(find.text('Scoring criteria'), findsNothing);
       expect(find.text('Checked'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
 
       await tester.tap(find.text('Checked'));
       await tester.pump();
@@ -372,6 +373,7 @@ void main() {
       expect(find.text('Scoring criteria'), findsOneWidget);
       expect(find.byKey(const Key('scoring_criteria_total')), findsOneWidget);
       expect(find.text('Good work.'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
       expect(find.text('No tries remaining'), findsNothing);
       // One label is the selected card's status and one is its history row.
       // There is no third standalone action/status pill below the card.
