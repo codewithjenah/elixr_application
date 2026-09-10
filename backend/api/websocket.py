@@ -2057,6 +2057,7 @@ async def _cv_session_loop(
 
     preview_worker: asyncio.Task | None = None
     ai_worker: asyncio.Task | None = None
+    startup_worker: asyncio.Task | None = None
     readiness_warm_worker: asyncio.Task | None = None
     preview_task: asyncio.Task | None = None
     ai_task: asyncio.Task | None = None
@@ -2069,7 +2070,11 @@ async def _cv_session_loop(
     outbound_error: str | None = None
 
     try:
-        started = await asyncio.to_thread(session.start)
+        # Camera startup can be blocked in a native capture call. Keep its
+        # worker observable so cancellation waits for it before session.close
+        # releases the same camera object.
+        startup_worker = asyncio.create_task(asyncio.to_thread(session.start))
+        started = await asyncio.shield(startup_worker)
 
         if not started:
             feedback, error_code = _camera_unavailable_message(
@@ -2384,6 +2389,13 @@ async def _cv_session_loop(
     finally:
         stop.set()
         mailbox.wake()
+        _signal_prepare_gate(
+            prepare_gate,
+            ok=False,
+            error_code="session_not_prepared",
+            message=_human_error_message("session_not_prepared"),
+        )
+        await _await_in_flight_worker(startup_worker, "In-flight camera startup")
         await _await_in_flight_worker(preview_worker, "In-flight preview processing")
         await _await_in_flight_worker(ai_worker, "In-flight AI processing")
         await _await_in_flight_worker(
@@ -2540,7 +2552,34 @@ async def websocket_endpoint(websocket: WebSocket):
     submission_recorder: SubmissionRecorder | None = None
     submission_cap_task: asyncio.Task | None = None
     submission_recording_allowed = False
+    prepare_command_task: asyncio.Task | None = None
+    prepare_command_session_id: str | None = None
     cleanup_orphan_submission_temp_files()
+
+    async def _await_prepare_command() -> None:
+        nonlocal prepare_command_task, prepare_command_session_id
+        task = prepare_command_task
+        if task is None:
+            return
+        try:
+            await task
+        finally:
+            if prepare_command_task is task:
+                prepare_command_task = None
+                prepare_command_session_id = None
+
+    async def _cancel_prepare_command() -> None:
+        nonlocal prepare_command_task, prepare_command_session_id
+        task = prepare_command_task
+        prepare_command_task = None
+        prepare_command_session_id = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     async def safe_send(text: str) -> None:
         async with send_lock:
@@ -3559,7 +3598,46 @@ async def websocket_endpoint(websocket: WebSocket):
                 await send_protocol_error(error_code="invalid_command")
                 continue
 
-            if "protocol_version" in data:
+            is_v1 = "protocol_version" in data
+            action = data.get("action")
+
+            pending_stop: StopCommand | None = None
+            if is_v1 and action == "stop":
+                try:
+                    parsed = parse_v1_command(data)
+                except (ValidationError, ValueError):
+                    parsed = None
+                if isinstance(parsed, StopCommand):
+                    pending_stop = parsed
+
+            if (
+                pending_stop is not None
+                and prepare_command_task is not None
+                and not prepare_command_task.done()
+                and pending_stop.session_id == prepare_command_session_id
+            ):
+                # A v1 stop is allowed to preempt a slow camera prepare.  The
+                # matching session is cancelled by handle_v1_stop. The prepare
+                # command stays alive long enough to receive its correlated
+                # rejection from the prepare gate, so clients can immediately
+                # issue a fresh attempt instead of waiting for a timeout.
+                await handle_v1(data)
+                continue
+
+            # Preserve command ordering for every other command.  Only stop
+            # needs to overtake an in-flight prepare to make teardown prompt.
+            await _await_prepare_command()
+
+            if is_v1 and action in {"prepare", "start"}:
+                prepare_command_task = asyncio.create_task(handle_v1(data))
+                prepare_command_session_id = (
+                    data.get("session_id")
+                    if isinstance(data.get("session_id"), str)
+                    else None
+                )
+                continue
+
+            if is_v1:
                 await handle_v1(data)
             else:
                 await handle_legacy(data)
@@ -3568,6 +3646,7 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Client disconnected")
 
     finally:
+        await _cancel_prepare_command()
         await _cleanup_submission_recorder()
         await _stop_session_task(session_task)
         session_ref["session"] = None

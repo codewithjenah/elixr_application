@@ -18,12 +18,14 @@ class PrivacySection extends StatefulWidget {
   const PrivacySection({
     super.key,
     this.publicProfileRepository,
+    this.sessionService,
     this.isActive = false,
     this.saveDeadline = const Duration(seconds: 12),
     this.reconciliationDeadline = const Duration(seconds: 6),
   });
 
   final PublicProfileRepository? publicProfileRepository;
+  final SessionService? sessionService;
   final bool isActive;
   final Duration saveDeadline;
   final Duration reconciliationDeadline;
@@ -43,6 +45,7 @@ class PrivacySectionState extends State<PrivacySection> {
   int _operationId = 0;
   String? _error;
   bool? _evidenceEnabled;
+  bool _evidenceStatusLoaded = false;
   bool _updatingEvidence = false;
 
   @override
@@ -65,22 +68,24 @@ class PrivacySectionState extends State<PrivacySection> {
     }
 
     try {
+      final service = widget.sessionService ?? context.read<SessionService>();
       final profile = await repository.getProfileRoot(userId);
+      final evidenceEnabled = await service.sessionEvidenceEnabled(userId);
       if (!mounted) return;
       setState(() {
         _visibility = profile?.visibility ?? ProfileVisibility.private;
         _rootNeedsRepair = profile == null;
         _loading = false;
-        _evidenceEnabled = context
-            .read<AuthService>()
-            .currentUser
-            ?.sessionEvidenceEnabled;
+        _evidenceEnabled = evidenceEnabled ?? false;
+        _evidenceStatusLoaded = true;
       });
     } catch (error, stackTrace) {
       _logFailure('load', error, stackTrace);
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _evidenceEnabled = null;
+        _evidenceStatusLoaded = false;
         _error = 'Could not load privacy settings.';
       });
     }
@@ -93,21 +98,41 @@ class PrivacySectionState extends State<PrivacySection> {
       _updatingEvidence = true;
       _error = null;
     });
+    final service = widget.sessionService ?? context.read<SessionService>();
     try {
-      final service = context.read<SessionService>();
       if (enabled) {
         await service.setSessionEvidenceEnabled(userId: userId, enabled: true);
       } else {
         await service.revokeSessionEvidence(userId);
       }
-      if (mounted) setState(() => _evidenceEnabled = enabled);
+      if (mounted) {
+        setState(() {
+          _evidenceEnabled = enabled;
+          _evidenceStatusLoaded = true;
+        });
+      }
     } catch (error, stackTrace) {
       _logFailure('update session evidence', error, stackTrace);
-      if (mounted) {
-        setState(
-          () =>
-              _error = 'Could not update session image privacy. Please retry.',
+      bool? authoritativeEvidenceSetting;
+      try {
+        authoritativeEvidenceSetting = await service.sessionEvidenceEnabled(
+          userId,
         );
+      } catch (reconciliationError, reconciliationStackTrace) {
+        _logFailure(
+          'reconcile session evidence',
+          reconciliationError,
+          reconciliationStackTrace,
+        );
+      }
+      if (mounted) {
+        setState(() {
+          if (authoritativeEvidenceSetting != null) {
+            _evidenceEnabled = authoritativeEvidenceSetting;
+            _evidenceStatusLoaded = true;
+          }
+          _error = 'Could not update session image privacy. Please retry.';
+        });
       }
     } finally {
       if (mounted) setState(() => _updatingEvidence = false);
@@ -127,8 +152,10 @@ class PrivacySectionState extends State<PrivacySection> {
       iconColor: context.elixColors.warning,
       headerAccentColor: context.elixColors.warning,
       content: Text(
-        'Turning this off permanently deletes your saved confirmed-movement '
-        'images. Your session scores and feedback will remain.',
+        'Turning this off stops Teachers from viewing your saved movement '
+        'images and permanently deletes retained confirmed-movement images and '
+        'their session references. Your session scores and feedback remain. '
+        'Classroom learning progress sharing is unchanged.',
         style: AppTheme.body.copyWith(
           color: context.elixTextSecondary,
           height: 1.45,
@@ -141,10 +168,11 @@ class PrivacySectionState extends State<PrivacySection> {
               Navigator.of(context, rootNavigator: true).pop(false),
         ),
         FilledButton(
-          child: const Text('Delete images and turn off'),
+          child: const Text('Delete and turn off'),
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
         ),
       ],
+      uniformActionSize: const Size(152, 36),
     );
     if (confirmed == true && mounted) await _setEvidenceEnabled(false);
   }
@@ -345,18 +373,29 @@ class PrivacySectionState extends State<PrivacySection> {
               toggleKey: const Key('privacy_evidence_toggle'),
               label: 'Save confirmed movement images',
               description:
-                  'Save one private annotated image from each successfully confirmed Guided Practice movement. Approved classroom Teachers can read available retained images while membership remains approved. Turning this off denies Teacher image reads and deletes saved images and their session references.',
+                  'Controls saved movement images separately from classroom '
+                  'learning progress. While this is on, Teachers with approved '
+                  'classroom membership can view available saved movement images.',
               checked: _evidenceEnabled ?? false,
-              onChanged: _saving || _reconciling || _updatingEvidence
+              onChanged:
+                  !_evidenceStatusLoaded ||
+                      _saving ||
+                      _reconciling ||
+                      _updatingEvidence
                   ? null
                   : _changeEvidenceSetting,
             ),
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.xs),
               child: Text(
-                _evidenceEnabled == true
-                    ? 'Enabled — new confirmed images can be saved.'
-                    : 'Off — confirmed images are not saved.',
+                !_evidenceStatusLoaded
+                    ? 'Status unavailable - Teacher saved-image access could '
+                          'not be confirmed.'
+                    : _evidenceEnabled == true
+                    ? 'On - Teachers with approved classroom membership can view '
+                          'available saved practice images.'
+                    : 'Off - Teachers cannot view saved practice images.',
+                key: const Key('privacy_evidence_status'),
                 style: AppTheme.caption.copyWith(
                   color: context.elixTextSecondary,
                 ),

@@ -29,6 +29,20 @@ abstract final class ManilaDay {
   static DateTime dayStartUtcFor(DateTime nowUtc) =>
       _manilaCalendarDate(nowUtc).subtract(_manilaOffset);
 
+  /// The UTC instant of 00:00 Asia/Manila for a validated civil date.
+  static DateTime dayStartUtcFromCivil({
+    required int year,
+    required int month,
+    required int day,
+  }) {
+    dayKeyFromCivil(year: year, month: month, day: day);
+    return DateTime.utc(year, month, day).subtract(_manilaOffset);
+  }
+
+  /// Date-only civil value for the Manila calendar day containing [nowUtc].
+  static DateTime civilDateFor(DateTime nowUtc) =>
+      civilDateFromDayKey(dayKeyFor(nowUtc));
+
   /// `'yyyyMMdd'` for the Manila calendar day that contains [nowUtc].
   static String dayKeyFor(DateTime nowUtc) {
     final d = _manilaCalendarDate(nowUtc);

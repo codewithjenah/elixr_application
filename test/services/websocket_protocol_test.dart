@@ -439,6 +439,76 @@ void main() {
       expect(service.currentSessionId, isNot(sessionId));
     });
 
+    test(
+      'stopped prepare terminates so a new attempt can start immediately',
+      () async {
+        final sessionA = service.beginPracticeAttempt();
+        final prepareA = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: sessionA,
+        );
+        await Future<void>.delayed(Duration.zero);
+        final prepareRequestId = sent.last['request_id'] as String;
+
+        final stopA = service.stopPracticeSession(sessionId: sessionA);
+        await Future<void>.delayed(Duration.zero);
+        final stopRequestId = sent.last['request_id'] as String;
+        expect(service.currentSessionId, isNull);
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': prepareRequestId,
+          'session_id': sessionA,
+          'action': 'prepare',
+          'accepted': false,
+          'session_state': 'idle',
+          'error_code': 'session_not_prepared',
+        });
+        final cancelledPrepare = await prepareA;
+        expect(cancelledPrepare.accepted, isFalse);
+
+        expect(service.currentSessionId, isNull);
+        expect(service.sessionPrepared, isFalse);
+        expect(service.sessionActive, isFalse);
+
+        final sessionB = service.beginPracticeAttempt();
+        final prepareB = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: sessionB,
+        );
+        await Future<void>.delayed(Duration.zero);
+        final prepareBRequestId = sent.last['request_id'] as String;
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': prepareBRequestId,
+          'session_id': sessionB,
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        });
+        await prepareB;
+        expect(service.currentSessionId, sessionB);
+        expect(service.sessionPrepared, isTrue);
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopRequestId,
+          'session_id': sessionA,
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        await stopA;
+        expect(service.currentSessionId, sessionB);
+        expect(service.sessionPrepared, isTrue);
+      },
+    );
+
     test('stale feedback from an old session is ignored', () async {
       final received = <PracticeFeedback>[];
       final sub = service.feedbackStream.listen(received.add);
@@ -515,6 +585,73 @@ void main() {
         await previewSub.cancel();
       },
     );
+
+    test('old preview_frame is not published into a newer session', () async {
+      final previews = <PreviewFrame>[];
+      final sub = service.previewStream.listen(previews.add);
+      final oldSession = service.beginPracticeAttempt();
+      final currentSession = service.beginPracticeAttempt();
+
+      service.debugHandleRawMessage(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'preview_frame',
+          'session_id': oldSession,
+          'frame_jpeg_base64': base64Encode([1, 2, 3]),
+          'camera_ready': true,
+          'capture_sequence': 1,
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(previews, isEmpty);
+
+      service.debugHandleRawMessage(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'preview_frame',
+          'session_id': currentSession,
+          'frame_jpeg_base64': base64Encode([4, 5, 6]),
+          'camera_ready': true,
+          'capture_sequence': 2,
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(previews, hasLength(1));
+      expect(previews.single.sessionId, currentSession);
+      expect(previews.single.captureSequence, 2);
+      await sub.cancel();
+    });
+
+    test('duplicate accepted ack has no second lifecycle publication', () async {
+      var notifications = 0;
+      service.addListener(() => notifications++);
+      final sessionId = service.beginPracticeAttempt();
+      final prepare = service.sendPrepare(
+        movement: 'Normal Grip',
+        difficulty: 'Easy',
+        sessionId: sessionId,
+      );
+      await Future<void>.delayed(Duration.zero);
+      final requestId = sent.last['request_id'] as String;
+      final ack = {
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': requestId,
+        'session_id': sessionId,
+        'action': 'prepare',
+        'accepted': true,
+        'session_state': 'preparing',
+      };
+
+      await push(ack);
+      await prepare;
+      final notificationsAfterFirstAck = notifications;
+      await push(ack);
+
+      expect(service.sessionPrepared, isTrue);
+      expect(service.currentSessionId, sessionId);
+      expect(notifications, notificationsAfterFirstAck);
+    });
 
     test('pending command timeout completes with controlled failure', () async {
       final future = service.sendPrepare(

@@ -573,8 +573,8 @@ class PracticeScreenState extends State<PracticeScreen>
 
   Future<void> _resetInterruptedAttempt() async {
     _commandInFlight = false;
-    await _stopWebSocketSession();
     _run.cancelToIdle();
+    await _stopWebSocketSession();
     await _music.stop();
     await _sfx.stop();
     if (!mounted) return;
@@ -654,6 +654,7 @@ class PracticeScreenState extends State<PracticeScreen>
       }
     } catch (error) {
       if (!mounted) return;
+      if (!_run.isPreparingCamera) return;
       final message = error is CommandTimeoutException
           ? 'Camera preparation timed out. Check the backend and try again.'
           : 'Camera preparation failed. Check the backend and try again.';
@@ -779,8 +780,8 @@ class PracticeScreenState extends State<PracticeScreen>
   }
 
   Future<void> _cancelPreActive() async {
-    await _stopWebSocketSession();
     _run.cancelToIdle();
+    await _stopWebSocketSession();
     unawaited(_music.stop());
     unawaited(_sfx.stop());
     _commandInFlight = false;

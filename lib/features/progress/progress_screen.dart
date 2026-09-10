@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -115,7 +116,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
   List<Session> get _rubricChronological {
     final list =
         _sessions
-            .where((s) => s.createdAt != null && s.isRubricAssessed)
+            .where(
+              (session) =>
+                  session.createdAt != null &&
+                  ComparableRubricProgress.scoreFor(
+                    assessmentVersion: session.assessmentVersion,
+                    rubricTotal: session.rubricTotal,
+                  ) !=
+                      null,
+            )
             .toList()
           ..sort((a, b) => a.createdAt!.compareTo(b.createdAt!));
     return list;

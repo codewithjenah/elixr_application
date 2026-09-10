@@ -128,6 +128,7 @@ void main() {
   testWidgets('resolves class and requires explicit join confirmation', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     final group = await groupRepository.createGroup(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
@@ -150,6 +151,44 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('BSHM 4A · Grace Hopper'), findsOneWidget);
     expect(relationshipRepository.links, isEmpty);
+    expect(
+      find.byKey(const Key('teacher_access_join_sharing_summary')),
+      findsOneWidget,
+    );
+    expect(find.text('What your Teacher can see'), findsOneWidget);
+    expect(find.textContaining('does not share progress yet'), findsOneWidget);
+    expect(
+      find.textContaining('After your Teacher approves you'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('classroom learning progress'), findsOneWidget);
+    expect(find.textContaining('separate privacy setting'), findsOneWidget);
+    expect(find.textContaining('After approval'), findsOneWidget);
+    expect(
+      find.textContaining('Save confirmed movement images is on'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('saved movement images'), findsOneWidget);
+    expect(
+      find.textContaining('approved membership is removed'),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsLabel(
+        RegExp(
+          r'Learning progress\. Sending this request does not share progress yet',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    final sharingSummary = tester.getRect(
+      find.byKey(const Key('teacher_access_join_sharing_summary')),
+    );
+    final sendRequest = tester.getRect(
+      find.byKey(const Key('teacher_access_confirm_join')),
+    );
+    expect(sharingSummary.bottom, lessThanOrEqualTo(sendRequest.top));
 
     await tester.tap(find.byKey(const Key('teacher_access_confirm_join')));
     await tester.pump(const Duration(milliseconds: 100));
@@ -160,6 +199,42 @@ void main() {
     );
     expect(find.text('Waiting for a teacher'), findsNothing);
     expect(find.text('Waiting to join a class'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('join confirmation can return to code entry without a request', (
+    tester,
+  ) async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+    await tester.enterText(
+      find.byKey(const Key('teacher_access_roster_code')),
+      invite!.displayCode,
+    );
+    await tester.tap(find.byKey(const Key('teacher_access_resolve_code')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Use a different code'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('teacher_access_join_sharing_summary')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('teacher_access_roster_code')), findsOneWidget);
+    expect(controller.pendingGroupMemberships, isEmpty);
   });
 
   testWidgets('pending class request is Trainee-cancellable', (tester) async {
@@ -711,6 +786,46 @@ void main() {
       find.byKey(const Key('teacher_access_pending_card')),
     );
     expect(pendingCard.top, greaterThan(joinCard.bottom - 1));
+  });
+
+  testWidgets('join sharing summary fits the narrow confirmation layout', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(520, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+    await tester.enterText(
+      find.byKey(const Key('teacher_access_roster_code')),
+      invite!.displayCode,
+    );
+    await tester.tap(find.byKey(const Key('teacher_access_resolve_code')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.byKey(const Key('teacher_access_join_sharing_summary')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_access_confirm_join')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('many long classroom names stay inside the card grid', (

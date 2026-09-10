@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../calendar/utils/calendar_metrics.dart';
 import 'dashboard_panel_card.dart';
@@ -25,9 +26,8 @@ class DashboardCalendarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final visibleMonth = DateTime(now.year, now.month);
-    final today = normalizeDate(now);
+    final today = ManilaDay.civilDateFor(DateTime.now().toUtc());
+    final visibleMonth = DateTime(today.year, today.month);
     final dates = monthGridDates(visibleMonth.year, visibleMonth.month);
 
     return DashboardPanelCard(
@@ -54,7 +54,7 @@ class DashboardCalendarCard extends StatelessWidget {
             ],
           ),
           Text(
-            DateFormat.yMMMM().format(now),
+            DateFormat.yMMMM().format(today),
             style: TextStyle(fontSize: 11, color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.md),

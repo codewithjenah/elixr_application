@@ -1,6 +1,7 @@
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/public_profile_session.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/utils/manila_day.dart';
@@ -457,7 +458,16 @@ class AnalyticsCalculator {
     return _AnalyticsMetrics(
       eligibleStudentCount: students.length,
       sessionCount: allCurrent.length,
-      rubricSessionCount: allCurrent.where((s) => s.isRubricAssessed).length,
+      rubricSessionCount: allCurrent
+          .where(
+            (session) =>
+                ComparableRubricProgress.scoreFor(
+                  assessmentVersion: session.assessmentVersion,
+                  rubricTotal: session.rubric?.total,
+                ) !=
+                null,
+          )
+          .length,
       rubricStudentCount: currentScores.length,
       averageScore: _mean(currentScores.values),
       averagePracticeSessions: students.isEmpty
@@ -529,7 +539,12 @@ class AnalyticsCalculator {
     for (final entry in sessions.entries) {
       final scores = [
         for (final session in entry.value)
-          if (session.isRubricAssessed) session.rubric!.total.toDouble(),
+          if (ComparableRubricProgress.scoreFor(
+                assessmentVersion: session.assessmentVersion,
+                rubricTotal: session.rubric?.total,
+              )
+              case final score?)
+            score.toDouble(),
       ];
       final average = _mean(scores);
       if (average != null) result[entry.key] = average;
@@ -621,10 +636,12 @@ class AnalyticsCalculator {
       }
       final byStudent = <String, List<double>>{};
       for (final session in bucketSessions) {
-        if (!session.isRubricAssessed) continue;
-        byStudent
-            .putIfAbsent(session.userId, () => [])
-            .add(session.rubric!.total.toDouble());
+        final score = ComparableRubricProgress.scoreFor(
+          assessmentVersion: session.assessmentVersion,
+          rubricTotal: session.rubric?.total,
+        );
+        if (score == null) continue;
+        byStudent.putIfAbsent(session.userId, () => []).add(score.toDouble());
       }
       final studentAverages = [
         for (final scores in byStudent.values) _mean(scores)!,
@@ -677,7 +694,11 @@ class AnalyticsCalculator {
     final byMovement = <String, List<PublicProfileSession>>{};
     for (final student in students) {
       for (final session in currentSessions[student.traineeId] ?? const []) {
-        if (session.isRubricAssessed) {
+        if (ComparableRubricProgress.scoreFor(
+              assessmentVersion: session.assessmentVersion,
+              rubricTotal: session.rubric?.total,
+            ) !=
+            null) {
           byMovement.putIfAbsent(session.movementName, () => []).add(session);
         }
       }
@@ -844,11 +865,12 @@ AnalyticsRange _customRange({
   );
 }
 
-DateTime _manilaMidnightUtc(DateTime civilDate) => DateTime.utc(
-  civilDate.year,
-  civilDate.month,
-  civilDate.day,
-).subtract(const Duration(hours: 8));
+DateTime _manilaMidnightUtc(DateTime civilDate) =>
+    ManilaDay.dayStartUtcFromCivil(
+      year: civilDate.year,
+      month: civilDate.month,
+      day: civilDate.day,
+    );
 
 DateTime _minDateTime(DateTime first, DateTime second) =>
     first.isBefore(second) ? first : second;

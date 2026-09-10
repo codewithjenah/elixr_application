@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 
 import numpy as np
@@ -838,6 +839,125 @@ def test_stale_stop_does_not_stop_newer_session(monkeypatch):
 
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_stop_preempts_camera_startup_and_releases_its_session(monkeypatch):
+    """A v1 stop must cancel a pending prepare before it can acknowledge."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+    open_started = threading.Event()
+    allow_open_to_return = threading.Event()
+
+    def gated_open(self) -> bool:
+        open_started.set()
+        allow_open_to_return.wait()
+        StubCamera.open_calls += 1
+        return True
+
+    monkeypatch.setattr(StubCamera, "open", gated_open)
+
+    class _StopAwareWebSocket(FakeWebSocket):
+        def __init__(self):
+            super().__init__()
+            self.stop_received = asyncio.Event()
+
+        async def receive_text(self) -> str:
+            raw = await super().receive_text()
+            if json.loads(raw).get("action") == "stop":
+                self.stop_received.set()
+            return raw
+
+    async def _run():
+        ws = _StopAwareWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        try:
+            await ws.push(
+                _prepare_payload(request_id="req-prepare", session_id="session-a")
+            )
+            await asyncio.wait_for(asyncio.to_thread(open_started.wait), timeout=2)
+
+            await ws.push(
+                {
+                    "protocol_version": 1,
+                    "request_id": "req-stop",
+                    "session_id": "session-a",
+                    "action": "stop",
+                }
+            )
+            await asyncio.wait_for(ws.stop_received.wait(), timeout=2)
+            allow_open_to_return.set()
+
+            stop_ack = await _wait_for_ack(ws, "req-stop")()
+            assert stop_ack["accepted"] is True
+            assert stop_ack["session_state"] == "idle"
+            prepare_ack = await _wait_for_ack(ws, "req-prepare")()
+            assert prepare_ack["accepted"] is False
+            assert prepare_ack["error_code"] == "session_not_prepared"
+            assert StubCamera.instances[-1].released is True
+        finally:
+            allow_open_to_return.set()
+            await ws.close_client()
+            await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_stale_stop_during_prepare_does_not_cancel_pending_session(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+    open_started = threading.Event()
+    allow_open_to_return = threading.Event()
+
+    def gated_open(self) -> bool:
+        open_started.set()
+        allow_open_to_return.wait()
+        StubCamera.open_calls += 1
+        return True
+
+    monkeypatch.setattr(StubCamera, "open", gated_open)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        try:
+            await ws.push(
+                _prepare_payload(request_id="req-prepare", session_id="session-a")
+            )
+            await asyncio.wait_for(asyncio.to_thread(open_started.wait), timeout=2)
+            await ws.push(
+                {
+                    "protocol_version": 1,
+                    "request_id": "req-stale-stop",
+                    "session_id": "session-old",
+                    "action": "stop",
+                }
+            )
+            allow_open_to_return.set()
+
+            prepare_ack = await _wait_for_ack(ws, "req-prepare")()
+            assert prepare_ack["accepted"] is True
+            stale_ack = await _wait_for_ack(ws, "req-stale-stop")()
+            assert stale_ack["accepted"] is False
+            assert stale_ack["error_code"] == "session_id_mismatch"
+            assert StubCamera.instances[-1].released is False
+
+            await ws.push(
+                {
+                    "protocol_version": 1,
+                    "request_id": "req-stop",
+                    "session_id": "session-a",
+                    "action": "stop",
+                }
+            )
+            stop_ack = await _wait_for_ack(ws, "req-stop")()
+            assert stop_ack["accepted"] is True
+            assert StubCamera.instances[-1].released is True
+        finally:
+            allow_open_to_return.set()
+            await ws.close_client()
+            await asyncio.wait_for(task, timeout=2)
 
     asyncio.run(_run())
 

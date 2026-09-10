@@ -133,8 +133,8 @@ void main() {
     test('labels and icons stay aligned', () {
       expect(HistorySortMode.mostRecent.label, 'Most Recent');
       expect(HistorySortMode.oldest.label, 'Oldest');
-      expect(HistorySortMode.highestScore.label, 'Highest Score');
-      expect(HistorySortMode.lowestScore.label, 'Lowest Score');
+      expect(HistorySortMode.highestScore.label, 'Highest Result');
+      expect(HistorySortMode.lowestScore.label, 'Lowest Result');
       expect(HistorySortMode.longestSession.label, 'Longest Session');
       expect(HistorySortMode.mostRecent.icon, FluentIcons.clock);
       expect(HistorySortMode.oldest.icon, FluentIcons.history);
@@ -179,8 +179,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Oldest'), findsOneWidget);
-      expect(find.text('Highest Score'), findsOneWidget);
-      expect(find.text('Lowest Score'), findsOneWidget);
+      expect(find.text('Highest Result'), findsOneWidget);
+      expect(find.text('Lowest Result'), findsOneWidget);
       expect(find.text('Longest Session'), findsOneWidget);
       expect(find.byIcon(FluentIcons.clock), findsWidgets);
       expect(find.byIcon(FluentIcons.history), findsOneWidget);

@@ -1,6 +1,7 @@
 import '../../../data/models/session.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
-/// One normalized local calendar date and its completed practice sessions.
+/// One normalized Manila calendar date and its completed practice sessions.
 class CalendarDaySummary {
   CalendarDaySummary({required this.date, required List<Session> sessions})
     : sessions = List<Session>.unmodifiable(sessions);
@@ -11,10 +12,17 @@ class CalendarDaySummary {
   int get sessionCount => sessions.length;
 
   /// Assessment V2 rubric totals (0..12) recorded on this date.
-  List<int> get _rubricTotals => [
-    for (final s in sessions)
-      if (s.isRubricAssessed) s.rubricTotal!,
-  ];
+  List<int> get _rubricTotals {
+    final totals = <int>[];
+    for (final session in sessions) {
+      final score = ComparableRubricProgress.scoreFor(
+        assessmentVersion: session.assessmentVersion,
+        rubricTotal: session.rubricTotal,
+      );
+      if (score != null) totals.add(score);
+    }
+    return totals;
+  }
 
   /// Legacy Assessment V1 percentages (0..100) recorded on this date.
   List<int> get _legacyScores => [

@@ -28,6 +28,7 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/in_memory_chat_repository.dart';
 import 'package:elixr_core/repositories/in_memory_classroom_announcement_repository.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -540,7 +541,7 @@ void main() {
     await _setSurface(tester, const Size(1100, 800));
     await tester.pumpWidget(
       _app(
-        const DashboardTrainingOverview(
+        DashboardTrainingOverview(
           stats: ProgressStats(
             totalSessions: 12,
             rubricSessionCount: 12,
@@ -550,7 +551,10 @@ void main() {
             sessionsByMovement: {'Normal Grip': 12},
           ),
           sessionsThisWeek: 2,
-          weeklyTrendPercent: 10,
+          weeklyComparison: ComparableRubricProgress.compare(
+            currentScores: const [11],
+            comparisonScores: const [10],
+          ),
         ),
       ),
     );
@@ -567,6 +571,59 @@ void main() {
     );
     final style = sessions.style ?? sessions.textSpan!.style!;
     expect(style.fontSize, 44);
+  });
+
+  testWidgets('training overview shows neutral copy for unavailable growth', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    await tester.pumpWidget(
+      _app(
+        DashboardTrainingOverview(
+          stats: const ProgressStats(
+            totalSessions: 1,
+            rubricSessionCount: 1,
+            averageRubricTotal: 0,
+            bestRubricTotal: 0,
+            sessionsByMovement: {},
+          ),
+          sessionsThisWeek: 1,
+          weeklyComparison: ComparableRubricProgress.compare(
+            currentScores: const [0],
+            comparisonScores: const [],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Not enough data'), findsOneWidget);
+    expect(find.textContaining('0% vs last week'), findsNothing);
+  });
+
+  testWidgets('training overview keeps genuine zero growth numeric', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    await tester.pumpWidget(
+      _app(
+        DashboardTrainingOverview(
+          stats: const ProgressStats(
+            totalSessions: 2,
+            rubricSessionCount: 2,
+            averageRubricTotal: 8,
+            bestRubricTotal: 8,
+            sessionsByMovement: {},
+          ),
+          sessionsThisWeek: 1,
+          weeklyComparison: ComparableRubricProgress.compare(
+            currentScores: const [8],
+            comparisonScores: const [8],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('+0% vs last week'), findsOneWidget);
   });
 
   testWidgets("recommendation keeps coach copy and uses an eyebrow", (

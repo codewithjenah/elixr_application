@@ -3,6 +3,7 @@ import '../../core/progression/practice_variant.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
 /// Mastery tier derived from recent practice performance.
 enum MovementMasteryStatus { notPracticed, learning, improving, mastered }
@@ -179,10 +180,14 @@ MovementMastery _buildMovementMastery({
 
   // Only Assessment V2 sessions feed the rubric aggregates; legacy percentage
   // sessions are on an unrelated 0..100 scale.
-  final rubricTotals = <int>[
-    for (final session in sorted)
-      if (session.isRubricAssessed) _clampRubricTotal(session.rubricTotal!),
-  ];
+  final rubricTotals = <int>[];
+  for (final session in sorted) {
+    final score = ComparableRubricProgress.scoreFor(
+      assessmentVersion: session.assessmentVersion,
+      rubricTotal: session.rubricTotal,
+    );
+    if (score != null) rubricTotals.add(score);
+  }
 
   if (rubricTotals.isEmpty) {
     return MovementMastery(
@@ -408,21 +413,34 @@ int _compareSessionsChronologically(Session a, Session b) {
   if (bTime == null) return 1;
   final compare = aTime.compareTo(bTime);
   if (compare != 0) return compare;
-  return _resultForTieBreak(a).compareTo(_resultForTieBreak(b));
+  return _compareSameTimestampResult(a, b);
 }
 
-/// Stable tie-break value; only used to order same-timestamp sessions.
-int _resultForTieBreak(Session session) => session.isRubricAssessed
-    ? (session.rubricTotal! / 12 * 1000).round()
-    : (session.legacyScore ?? 0) * 10;
+/// Keeps the two score scales in separate cohorts even for chronology ties.
+int _compareSameTimestampResult(Session a, Session b) {
+  final aRubric = ComparableRubricProgress.scoreFor(
+    assessmentVersion: a.assessmentVersion,
+    rubricTotal: a.rubricTotal,
+  );
+  final bRubric = ComparableRubricProgress.scoreFor(
+    assessmentVersion: b.assessmentVersion,
+    rubricTotal: b.rubricTotal,
+  );
+  final aCohort = aRubric != null ? 0 : a.legacyScore != null ? 1 : 2;
+  final bCohort = bRubric != null ? 0 : b.legacyScore != null ? 1 : 2;
+  if (aCohort != bCohort) return aCohort.compareTo(bCohort);
+  return switch (aCohort) {
+    0 => aRubric!.compareTo(bRubric!),
+    1 => a.legacyScore!.compareTo(b.legacyScore!),
+    _ => 0,
+  };
+}
 
 DateTime? _sessionTimestamp(Session session) {
   final raw = session.createdAt;
   if (raw == null) return null;
   return DateTime.tryParse(raw);
 }
-
-int _clampRubricTotal(int total) => total.clamp(0, 12);
 
 /// Human-readable label for a mastery status.
 String masteryStatusLabel(MovementMasteryStatus status) {

@@ -7,6 +7,7 @@ import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/settings/sections/privacy_section.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/session_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -157,6 +158,35 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
   }
 }
 
+class _FakeSessionService extends SessionService {
+  _FakeSessionService({required this.enabled});
+
+  bool? enabled;
+  int revokeCalls = 0;
+  Future<void>? nextRevoke;
+  Object? revokeError;
+
+  @override
+  Future<bool?> sessionEvidenceEnabled(String userId) async => enabled;
+
+  @override
+  Future<void> setSessionEvidenceEnabled({
+    required String userId,
+    required bool enabled,
+  }) async {
+    this.enabled = enabled;
+  }
+
+  @override
+  Future<void> revokeSessionEvidence(String userId) async {
+    revokeCalls++;
+    final pending = nextRevoke;
+    if (pending != null) await pending;
+    if (revokeError != null) throw revokeError!;
+    enabled = false;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -164,9 +194,13 @@ void main() {
     required WidgetTester tester,
     required _FakePublicProfileRepository repository,
     required AuthService auth,
+    _FakeSessionService? sessionService,
     Duration saveDeadline = const Duration(seconds: 12),
     Duration reconciliationDeadline = const Duration(seconds: 6),
   }) async {
+    final resolvedSessionService =
+        sessionService ??
+        _FakeSessionService(enabled: auth.currentUser?.sessionEvidenceEnabled);
     Widget buildSection({required bool isActive}) {
       return FluentApp(
         theme: AppTheme.dark,
@@ -176,6 +210,7 @@ void main() {
             content: PrivacySection(
               isActive: isActive,
               publicProfileRepository: repository,
+              sessionService: resolvedSessionService,
               saveDeadline: saveDeadline,
               reconciliationDeadline: reconciliationDeadline,
             ),
@@ -539,16 +574,188 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'saved-image copy separates classroom progress and confirms deletion',
+    (tester) async {
+      final auth = await _auth(sessionEvidenceEnabled: true);
+      final repository = _repository(ProfileVisibility.private);
+      final sessions = _FakeSessionService(enabled: true);
+      await pumpPrivacy(
+        tester: tester,
+        repository: repository,
+        auth: auth,
+        sessionService: sessions,
+      );
+
+      expect(
+        find.textContaining('separately from classroom learning progress'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Teachers with approved classroom membership'),
+        findsNWidgets(2),
+      );
+      expect(
+        find.textContaining('available saved practice images'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('privacy_evidence_toggle')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete saved movement images?'), findsOneWidget);
+      expect(
+        find.textContaining('stops Teachers from viewing'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('permanently deletes retained confirmed-movement'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Classroom learning progress sharing is unchanged'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Keep images'));
+      await tester.pumpAndSettle();
+      expect(sessions.revokeCalls, 0);
+      expect(
+        find.textContaining('On - Teachers with approved classroom membership'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'successful evidence revocation updates status after completion',
+    (tester) async {
+      final pending = Completer<void>();
+      final auth = await _auth(sessionEvidenceEnabled: true);
+      final repository = _repository(ProfileVisibility.private);
+      final sessions = _FakeSessionService(enabled: true)
+        ..nextRevoke = pending.future;
+      await pumpPrivacy(
+        tester: tester,
+        repository: repository,
+        auth: auth,
+        sessionService: sessions,
+      );
+
+      await tester.tap(find.byKey(const Key('privacy_evidence_toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Delete and turn off'),
+      );
+      await tester.pump();
+
+      expect(sessions.revokeCalls, 1);
+      expect(find.text('Updating private session images...'), findsOneWidget);
+      expect(
+        find.textContaining('On - Teachers with approved classroom membership'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<ToggleSwitch>(
+              find.byKey(const Key('privacy_evidence_toggle')),
+            )
+            .checked,
+        isTrue,
+      );
+
+      pending.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Off - Teachers cannot view saved practice images.'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<ToggleSwitch>(
+              find.byKey(const Key('privacy_evidence_toggle')),
+            )
+            .checked,
+        isFalse,
+      );
+
+      // AuthService still holds the original cached `true`; reopening must read
+      // the authoritative setting from SessionService instead.
+      await pumpPrivacy(
+        tester: tester,
+        repository: repository,
+        auth: auth,
+        sessionService: sessions,
+      );
+      expect(
+        find.text('Off - Teachers cannot view saved practice images.'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<ToggleSwitch>(
+              find.byKey(const Key('privacy_evidence_toggle')),
+            )
+            .checked,
+        isFalse,
+      );
+    },
+  );
+
+  testWidgets('failed evidence revocation keeps the enabled access status', (
+    tester,
+  ) async {
+    final auth = await _auth(sessionEvidenceEnabled: true);
+    final repository = _repository(ProfileVisibility.private);
+    final sessions = _FakeSessionService(enabled: true)
+      ..revokeError = StateError('offline');
+    await pumpPrivacy(
+      tester: tester,
+      repository: repository,
+      auth: auth,
+      sessionService: sessions,
+    );
+
+    await tester.tap(find.byKey(const Key('privacy_evidence_toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete and turn off'));
+    await tester.pumpAndSettle();
+
+    expect(sessions.revokeCalls, 1);
+    expect(
+      find.textContaining('Could not update session image privacy'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('On - Teachers with approved classroom membership'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Off - Teachers cannot view saved practice images.'),
+      findsNothing,
+    );
+    expect(
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('privacy_evidence_toggle')),
+          )
+          .checked,
+      isTrue,
+    );
+  });
 }
 
-Future<AuthService> _auth() async {
+Future<AuthService> _auth({bool? sessionEvidenceEnabled}) async {
   final auth = AuthService(
     repository: _StubAuthRepository(
-      const User(
+      User(
         id: 'u1',
         firstName: 'Ada',
         lastName: 'Lovelace',
         email: 'ada@example.com',
+        sessionEvidenceEnabled: sessionEvidenceEnabled,
       ),
     ),
     awaitInitialAuthState: () async {},

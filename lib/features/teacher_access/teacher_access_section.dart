@@ -726,6 +726,8 @@ class _JoinConfirmActions extends StatelessWidget {
             height: 1.35,
           ),
         ),
+        const SizedBox(height: AppSpacing.md),
+        const _JoinSharingSummary(),
         if (controller.joinError != null) ...[
           const SizedBox(height: AppSpacing.sm),
           _JoinErrorText(message: controller.joinError!),
@@ -749,6 +751,145 @@ class _JoinConfirmActions extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _JoinSharingSummary extends StatelessWidget {
+  const _JoinSharingSummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    final highContrast = context.isHighContrast;
+
+    return Container(
+      key: const Key('teacher_access_join_sharing_summary'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: highContrast ? colors.surfaceRaised : colors.surfaceTinted,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: highContrast ? colors.borderStrong : colors.borderSubtle,
+          width: highContrast ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(FluentIcons.shield, size: 18, color: colors.brandPrimary),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    'What your Teacher can see',
+                    style: AppTheme.headingMedium.copyWith(
+                      fontSize: 15,
+                      color: context.elixTextPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const _JoinSharingRow(
+            icon: FluentIcons.chart,
+            title: 'Learning progress',
+            description:
+                'Sending this request does not share progress yet. After your '
+                'Teacher approves you, they can view your classroom learning '
+                'progress.',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const _JoinSharingRow(
+            icon: FluentIcons.photo2,
+            title: 'Saved movement images',
+            description:
+                'These use a separate privacy setting. After approval, your '
+                'Teacher can view available saved movement images only while '
+                'Save confirmed movement images is on.',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Semantics(
+            label:
+                'Access duration. Classroom access ends when you leave the class '
+                'or your approved membership is removed.',
+            child: ExcludeSemantics(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(FluentIcons.lock, size: 14, color: colors.textSecondary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      'Classroom access ends when you leave the class or your '
+                      'approved membership is removed.',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JoinSharingRow extends StatelessWidget {
+  const _JoinSharingRow({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    return Semantics(
+      label: '$title. $description',
+      child: ExcludeSemantics(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(icon, size: 15, color: colors.brandSecondary),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '$title. ',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    TextSpan(text: description),
+                  ],
+                ),
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

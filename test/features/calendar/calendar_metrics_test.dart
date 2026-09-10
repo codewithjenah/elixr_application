@@ -62,7 +62,7 @@ Session _legacySession({
 
 void main() {
   group('parseSessionLocalDate', () {
-    test('parses a valid timestamp to local date-only', () {
+    test('parses a valid timestamp to Manila date-only', () {
       final session = _session(createdAt: '2026-08-02T15:30:00.000');
       expect(parseSessionLocalDate(session), DateTime(2026, 8, 2));
     });
@@ -84,6 +84,18 @@ void main() {
       );
       expect(morning, DateTime(2026, 8, 2));
       expect(evening, DateTime(2026, 8, 2));
+    });
+
+    test('splits sessions at the Manila midnight boundary', () {
+      final beforeMidnight = parseSessionLocalDate(
+        _session(createdAt: '2026-09-09T15:59:59Z'),
+      );
+      final midnight = parseSessionLocalDate(
+        _session(createdAt: '2026-09-09T16:00:00Z'),
+      );
+
+      expect(beforeMidnight, DateTime(2026, 9, 9));
+      expect(midnight, DateTime(2026, 9, 10));
     });
   });
 

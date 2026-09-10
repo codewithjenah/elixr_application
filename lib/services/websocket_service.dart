@@ -1016,7 +1016,11 @@ class WebSocketService extends ChangeNotifier {
       // Stop may clear [currentSessionId] before the ack arrives.
       return ack.sessionId == pending.sessionId;
     }
-    return _currentSessionId == null || ack.sessionId == _currentSessionId;
+    // A v1 acknowledgment must never revive a session which was cleared by a
+    // stop/disconnect while its command was still pending.  The pending entry
+    // has already proven the ack belongs to this request; the current identity
+    // proves that attempt is still authoritative for lifecycle publication.
+    return _currentSessionId == ack.sessionId;
   }
 
   void _applyAcceptedAck(CommandAck ack, {String? pendingSessionId}) {

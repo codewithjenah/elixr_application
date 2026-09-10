@@ -1,7 +1,8 @@
 import '../../../data/models/session.dart';
+import '../../../core/utils/manila_day.dart';
 import '../models/calendar_day_summary.dart';
 
-/// Parses [Session.createdAt] and returns a local date-only value.
+/// Parses [Session.createdAt] and returns its Manila civil date.
 ///
 /// Null or invalid timestamps return `null` and must be excluded from
 /// calendar calculations.
@@ -10,15 +11,14 @@ DateTime? parseSessionLocalDate(Session session) {
   if (raw == null) return null;
   final parsed = DateTime.tryParse(raw);
   if (parsed == null) return null;
-  final local = parsed.toLocal();
-  return DateTime(local.year, local.month, local.day);
+  return ManilaDay.civilDateFor(parsed.toUtc());
 }
 
-/// Normalizes any timestamp to a local date-only value.
+/// Normalizes a civil date value to date-only.
 DateTime normalizeDate(DateTime date) =>
     DateTime(date.year, date.month, date.day);
 
-/// Groups sessions by local calendar date. Invalid timestamps are excluded.
+/// Groups sessions by Manila calendar date. Invalid timestamps are excluded.
 Map<DateTime, CalendarDaySummary> groupSessionsByDate(List<Session> sessions) {
   final buckets = <DateTime, List<Session>>{};
   for (final session in sessions) {
@@ -33,12 +33,12 @@ Map<DateTime, CalendarDaySummary> groupSessionsByDate(List<Session> sessions) {
   };
 }
 
-/// Unique practiced local calendar dates derived from valid session timestamps.
+/// Unique practiced Manila calendar dates derived from valid session timestamps.
 Set<DateTime> practicedDates(List<Session> sessions) {
   return groupSessionsByDate(sessions).keys.toSet();
 }
 
-/// Current practice streak using unique local calendar dates.
+/// Current practice streak using unique Manila calendar dates.
 ///
 /// Rules:
 /// - Multiple sessions on one date count as one streak day.
@@ -50,7 +50,9 @@ Set<DateTime> practicedDates(List<Session> sessions) {
 int currentStreak(Set<DateTime> dates, {DateTime? referenceDate}) {
   if (dates.isEmpty) return 0;
 
-  final today = normalizeDate(referenceDate ?? DateTime.now());
+  final today = normalizeDate(
+    referenceDate ?? ManilaDay.civilDateFor(DateTime.now().toUtc()),
+  );
   final practiced = {
     for (final d in dates)
       if (!d.isAfter(today)) normalizeDate(d),
@@ -90,7 +92,7 @@ int longestStreak(Set<DateTime> dates) {
   return longest;
 }
 
-/// Total completed sessions inside the given local month.
+/// Total completed sessions inside the given Manila month.
 int monthlySessionCount(
   List<Session> sessions, {
   required int year,
@@ -102,7 +104,7 @@ int monthlySessionCount(
   }).length;
 }
 
-/// Unique practiced dates inside the given local month.
+/// Unique practiced dates inside the given Manila month.
 int monthlyActiveDayCount(
   List<Session> sessions, {
   required int year,

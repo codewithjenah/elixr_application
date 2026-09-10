@@ -12,6 +12,7 @@ import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/utils/manila_day.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 import '../../data/models/session.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/repositories/progress_repository.dart';
@@ -169,10 +170,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   int get _sessionsThisWeek {
-    final now = DateTime.now();
-    final startOfWeek = normalizeDate(
-      now,
-    ).subtract(Duration(days: now.weekday - 1));
+    final now = DateTime.now().toUtc();
+    final today = ManilaDay.civilDateFor(now);
+    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     return _sessions.where((s) {
       final d = parseSessionLocalDate(s);
       return d != null && !d.isBefore(startOfWeek);
@@ -186,22 +186,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// Week-over-week change in average rubric total (Assessment V2 only).
   ///
   /// Legacy percentage sessions are excluded so the two scales never mix.
-  int? get _weeklyTrendPercent {
-    final today = normalizeDate(DateTime.now());
-    double? avgBetween(int fromDaysAgo, int toDaysAgo) {
-      final totals = <int>[
-        for (final s in _sessions)
-          if (s.isRubricAssessed)
-            if (_isWithin(s, today, fromDaysAgo, toDaysAgo)) s.rubricTotal!,
-      ];
-      if (totals.isEmpty) return null;
-      return totals.reduce((a, b) => a + b) / totals.length;
+  ComparableRubricComparison get _weeklyComparison {
+    final today = ManilaDay.civilDateFor(DateTime.now().toUtc());
+    List<int> scoresBetween(int fromDaysAgo, int toDaysAgo) {
+      final scores = <int>[];
+      for (final session in _sessions) {
+        if (!_isWithin(session, today, fromDaysAgo, toDaysAgo)) continue;
+        final score = ComparableRubricProgress.scoreFor(
+          assessmentVersion: session.assessmentVersion,
+          rubricTotal: session.rubricTotal,
+        );
+        if (score != null) scores.add(score);
+      }
+      return scores;
     }
 
-    final thisWeek = avgBetween(6, 0);
-    final lastWeek = avgBetween(13, 7);
-    if (thisWeek == null || lastWeek == null || lastWeek == 0) return null;
-    return (((thisWeek - lastWeek) / lastWeek) * 100).round();
+    return ComparableRubricProgress.compare(
+      currentScores: scoresBetween(6, 0),
+      comparisonScores: scoresBetween(13, 7),
+    );
   }
 
   static bool _isWithin(
@@ -284,7 +287,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final mainColumn = _MainColumn(
       stats: _stats,
       sessionsThisWeek: _sessionsThisWeek,
-      weeklyTrendPercent: _weeklyTrendPercent,
+      weeklyComparison: _weeklyComparison,
       currentUserId: user?.id,
       displayName: user?.fullName ?? 'Trainee',
       profilePictureUrl: user?.profilePictureUrl,
@@ -361,7 +364,7 @@ class _MainColumn extends StatelessWidget {
   const _MainColumn({
     required this.stats,
     required this.sessionsThisWeek,
-    required this.weeklyTrendPercent,
+    required this.weeklyComparison,
     required this.currentUserId,
     required this.displayName,
     required this.trainingRecommendation,
@@ -371,7 +374,7 @@ class _MainColumn extends StatelessWidget {
 
   final ProgressStats? stats;
   final int sessionsThisWeek;
-  final int? weeklyTrendPercent;
+  final ComparableRubricComparison weeklyComparison;
   final String? currentUserId;
   final String displayName;
   final TrainingRecommendation? trainingRecommendation;
@@ -400,7 +403,7 @@ class _MainColumn extends StatelessWidget {
         DashboardTrainingOverview(
           stats: stats,
           sessionsThisWeek: sessionsThisWeek,
-          weeklyTrendPercent: weeklyTrendPercent,
+          weeklyComparison: weeklyComparison,
         ),
         const SizedBox(height: 20),
         DashboardLeaderboard(

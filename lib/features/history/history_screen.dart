@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/utils/date_time_format.dart';
+import '../../core/utils/manila_day.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/session.dart';
@@ -137,17 +139,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
-  /// Orders mixed assessment scales by normalized percentage while preserving
-  /// each session's native persisted score.
+  /// Sorts score-bearing cohorts independently so V2 totals never become
+  /// mathematically comparable to legacy percentages. Rubric sessions appear
+  /// first, followed by legacy sessions and then unscored sessions.
   int _compareResult(Session a, Session b, {required bool descending}) {
-    final aValue = a.isRubricAssessed
-        ? a.rubricTotal! / 12 * 100
-        : (a.legacyScore ?? 0).toDouble();
-    final bValue = b.isRubricAssessed
-        ? b.rubricTotal! / 12 * 100
-        : (b.legacyScore ?? 0).toDouble();
-    final cmp = aValue.compareTo(bValue);
-    return descending ? -cmp : cmp;
+    final aRubric = ComparableRubricProgress.scoreFor(
+      assessmentVersion: a.assessmentVersion,
+      rubricTotal: a.rubricTotal,
+    );
+    final bRubric = ComparableRubricProgress.scoreFor(
+      assessmentVersion: b.assessmentVersion,
+      rubricTotal: b.rubricTotal,
+    );
+    final aCohort = aRubric != null ? 0 : a.legacyScore != null ? 1 : 2;
+    final bCohort = bRubric != null ? 0 : b.legacyScore != null ? 1 : 2;
+    if (aCohort != bCohort) return aCohort.compareTo(bCohort);
+
+    final comparison = switch (aCohort) {
+      0 => aRubric!.compareTo(bRubric!),
+      1 => a.legacyScore!.compareTo(b.legacyScore!),
+      _ => 0,
+    };
+    if (comparison != 0) return descending ? -comparison : comparison;
+    return _compareCreatedAt(a, b, ascending: false);
   }
 
   int _compareCreatedAt(Session a, Session b, {required bool ascending}) {
@@ -221,15 +235,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   String _dateLabel(String? createdAt) {
     if (createdAt == null) return 'Unknown';
-    final date = DateTime.parse(createdAt).toLocal();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final sessionDay = DateTime(date.year, date.month, date.day);
+    final instant = DateTime.tryParse(createdAt);
+    if (instant == null) return 'Unknown';
+    final sessionDay = ManilaDay.civilDateFor(instant.toUtc());
+    final today = ManilaDay.civilDateFor(DateTime.now().toUtc());
     if (sessionDay == today) return 'Today';
     if (sessionDay == today.subtract(const Duration(days: 1))) {
       return 'Yesterday';
     }
-    return formatElixrDate(date);
+    return formatElixrDate(sessionDay);
   }
 
   static double? _average(List<int> values) {
@@ -248,10 +262,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     // Assessment cohorts are aggregated separately: rubric totals are 0..12 and
     // legacy scores are 0..100.
-    final rubricTotals = <int>[
-      for (final s in _sessions)
-        if (s.isRubricAssessed) s.rubricTotal!,
-    ];
+    final rubricTotals = <int>[];
+    for (final session in _sessions) {
+      final score = ComparableRubricProgress.scoreFor(
+        assessmentVersion: session.assessmentVersion,
+        rubricTotal: session.rubricTotal,
+      );
+      if (score != null) rubricTotals.add(score);
+    }
     final legacyScores = <int>[
       for (final s in _sessions)
         if (!s.isRubricAssessed && s.legacyScore != null) s.legacyScore!,

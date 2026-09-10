@@ -58,4 +58,5 @@ export 'repositories/in_memory_roster_leaderboard_repository.dart';
 export 'repositories/teacher_evidence_repository.dart';
 export 'repositories/firebase_teacher_evidence_repository.dart';
 export 'utils/manila_day.dart';
+export 'utils/comparable_rubric_progress.dart';
 export 'utils/user_name.dart';

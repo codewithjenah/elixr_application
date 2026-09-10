@@ -602,8 +602,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _startInFlight = false;
     _freestyleActivationInFlight = false;
     _freestyle.cancelToIdle();
-    await _stopWebSocketSession();
     _run.cancelToIdle();
+    await _stopWebSocketSession();
     await _music.stop();
     await _sfx.stop();
     if (!mounted) return;
@@ -816,6 +816,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       }
     } catch (error, stackTrace) {
       if (!mounted) return;
+      if (!_run.isPreparingCamera) return;
       debugPrint(
         'LivePractice prepare failed: $error\n'
         'lastProtocolError=${_ws.lastProtocolError?.errorCode} '
@@ -1125,8 +1126,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _cancelPreActive() async {
-    await _stopWebSocketSession();
     _run.cancelToIdle();
+    await _stopWebSocketSession();
     unawaited(_music.stop());
     unawaited(_sfx.stop());
     _commandInFlight = false;

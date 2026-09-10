@@ -3437,6 +3437,23 @@ describe('public_profiles', () => {
     );
   });
 
+  test('pending classroom membership does not grant classroom progress reads', async () => {
+    await seedProtectedProgressScenario({
+      visibility: 'private',
+      classroomGroupId: 'classroom-1',
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'group_memberships', 'classroom-1_alice'), {
+        status: 'pending',
+      }, { merge: true });
+    });
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
+    );
+  });
+
   test('removed classroom membership immediately blocks classroom progress reads', async () => {
     await seedProtectedProgressScenario({
       visibility: 'private',

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -13,12 +14,12 @@ class DashboardTrainingOverview extends StatelessWidget {
     super.key,
     required this.stats,
     required this.sessionsThisWeek,
-    required this.weeklyTrendPercent,
+    required this.weeklyComparison,
   });
 
   final ProgressStats? stats;
   final int sessionsThisWeek;
-  final int? weeklyTrendPercent;
+  final ComparableRubricComparison weeklyComparison;
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +32,7 @@ class DashboardTrainingOverview extends StatelessWidget {
     final best = hasRubric ? stats?.bestRubricTotal : stats?.bestLegacyScore;
     final scaleSuffix = hasRubric ? ' /12' : ' /100';
 
+    final weeklyGrowth = weeklyComparison.percentageChange;
     final metrics = <_MetricData>[
       _MetricData(
         label: 'Total Sessions',
@@ -42,14 +44,16 @@ class DashboardTrainingOverview extends StatelessWidget {
         accent: AppColors.accent,
       ),
       _MetricData(
-        label: hasRubric ? 'Average Rubric' : 'Average Legacy Score',
+        label: hasRubric ? 'Average Rubric (V2)' : 'Average Legacy Score',
         value: average != null
             ? average.toStringAsFixed(hasRubric ? 1 : 0)
             : '—',
         valueSuffix: average != null ? scaleSuffix : null,
-        subLabel: weeklyTrendPercent != null
-            ? '${weeklyTrendPercent! >= 0 ? '+' : '−'}${weeklyTrendPercent!.abs()}% vs last week'
-            : 'All time',
+        subLabel: hasRubric
+            ? weeklyGrowth != null
+                  ? '${weeklyGrowth >= 0 ? '+' : '−'}${weeklyGrowth.abs().round()}% vs last week'
+                  : 'Not enough data'
+            : 'Legacy scoring',
         icon: FluentIcons.favorite_star,
         accent: AppColors.accentSoft,
       ),

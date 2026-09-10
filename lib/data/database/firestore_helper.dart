@@ -3,6 +3,7 @@ import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/database/user_profile_store.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/privacy/privacy_consent.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
@@ -306,11 +307,14 @@ class FirestoreHelper implements UserProfileStore {
     var legacyBest = 0;
 
     for (final session in sessions) {
-      if (session.isRubricAssessed) {
-        final total = session.rubric!.total;
+      final rubricTotal = ComparableRubricProgress.scoreFor(
+        assessmentVersion: session.assessmentVersion,
+        rubricTotal: session.rubricTotal,
+      );
+      if (rubricTotal != null) {
         rubricCount++;
-        rubricSum += total;
-        if (total > rubricBest) rubricBest = total;
+        rubricSum += rubricTotal;
+        if (rubricTotal > rubricBest) rubricBest = rubricTotal;
       } else if (session.legacyScore != null) {
         final score = session.legacyScore!;
         legacyCount++;

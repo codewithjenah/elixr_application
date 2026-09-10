@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/utils/manila_day.dart';
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -122,6 +123,50 @@ void main() {
         ManilaDay.ownerDayDocumentId(userId: 'alice', dayKey: '20260819'),
         'alice_20260819',
       );
+    });
+  });
+
+  group('ComparableRubricProgress', () {
+    test('includes only V2 totals while retaining a valid zero', () {
+      expect(
+        ComparableRubricProgress.scoreFor(
+          assessmentVersion: 1,
+          rubricTotal: 100,
+        ),
+        isNull,
+      );
+      expect(
+        ComparableRubricProgress.scoreFor(
+          assessmentVersion: 2,
+          rubricTotal: 0,
+        ),
+        0,
+      );
+    });
+
+    test('distinguishes unavailable comparisons from genuine zero growth', () {
+      final unavailable = ComparableRubricProgress.compare(
+        currentScores: const [8],
+        comparisonScores: const [],
+      );
+      expect(unavailable.pointChange, isNull);
+      expect(unavailable.percentageChange, isNull);
+
+      final noChange = ComparableRubricProgress.compare(
+        currentScores: const [8],
+        comparisonScores: const [8],
+      );
+      expect(noChange.pointChange, 0);
+      expect(noChange.percentageChange, 0);
+    });
+
+    test('does not emit percentage growth for a zero denominator', () {
+      final comparison = ComparableRubricProgress.compare(
+        currentScores: const [4],
+        comparisonScores: const [0],
+      );
+      expect(comparison.pointChange, 4);
+      expect(comparison.percentageChange, isNull);
     });
   });
 }

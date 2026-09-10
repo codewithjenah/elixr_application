@@ -145,9 +145,9 @@ extension HistorySortModeLabel on HistorySortMode {
       case HistorySortMode.oldest:
         return 'Oldest';
       case HistorySortMode.highestScore:
-        return 'Highest Score';
+        return 'Highest Result';
       case HistorySortMode.lowestScore:
-        return 'Lowest Score';
+        return 'Lowest Result';
       case HistorySortMode.longestSession:
         return 'Longest Session';
     }
