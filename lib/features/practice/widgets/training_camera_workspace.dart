@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/coaching_verdict_style.dart';
 import '../../../data/models/practice_feedback.dart';
@@ -82,17 +82,16 @@ class TrainingCameraWorkspace extends StatelessWidget {
   bool get _hasFatalOrConnectionError =>
       sessionError != null || connectionState == WebSocketConnectionState.error;
 
-  Color _stageAccent() {
-    if (_hasFatalOrConnectionError) return AppColors.error;
-    if (readyAura) return AppColors.success;
-    if (countdownActive) return AppColors.primary;
-    if (isSessionActive) return AppColors.primary;
-    if (accentBorder || isPreparingCamera) return AppColors.accent;
-    return AppColors.primarySoft;
+  Color _stageAccent(ElixSemanticColors colors) {
+    if (_hasFatalOrConnectionError) return colors.error;
+    if (readyAura) return colors.success;
+    if (countdownActive || isSessionActive) return colors.brandPrimary;
+    if (accentBorder || isPreparingCamera) return colors.brandSecondary;
+    return colors.brandHover;
   }
 
-  Border? _viewportBorder() {
-    final accent = _stageAccent();
+  Border _viewportBorder(ElixSemanticColors colors) {
+    final accent = _stageAccent(colors);
     if (_hasFatalOrConnectionError) {
       return Border.all(color: accent.withValues(alpha: 0.7), width: 1.5);
     }
@@ -103,14 +102,15 @@ class TrainingCameraWorkspace extends StatelessWidget {
       return Border.all(color: accent.withValues(alpha: 0.45), width: 1.5);
     }
     return Border.all(
-      color: const Color(0xFF3A2A55).withValues(alpha: 0.7),
+      color: colors.borderSubtle.withValues(alpha: 0.7),
       width: 1,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final accent = _stageAccent();
+    final colors = context.elixColors;
+    final accent = _stageAccent(colors);
     final highContrast = context.isHighContrast;
     return Semantics(
       container: true,
@@ -133,7 +133,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
                     spreadRadius: 1,
                   ),
                   BoxShadow(
-                    color: const Color(0xFF000000).withValues(alpha: 0.38),
+                    color: colors.shadow.withValues(alpha: 0.38),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
@@ -144,7 +144,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(_radius),
-              border: _viewportBorder(),
+              border: _viewportBorder(colors),
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(_radius - 1),
@@ -194,13 +194,13 @@ class TrainingCameraWorkspace extends StatelessWidget {
             Icon(
               FluentIcons.video_solid,
               size: 36,
-              color: AppColors.textSecondary.withValues(alpha: 0.55),
+              color: context.elixColors.textSecondary.withValues(alpha: 0.55),
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
               'Camera disconnected',
-              style: AppTheme.bodySecondary.copyWith(
-                color: AppColors.textSecondary,
+              style: ElixTypography.body(
+                color: context.elixColors.textSecondary,
               ),
             ),
           ],
@@ -215,14 +215,14 @@ class TrainingCameraWorkspace extends StatelessWidget {
         mirrored: mirrored,
         overlayFeedback: isSessionActive ? overlayFeedback : null,
         showFeedbackMessage: showFeedbackMessage,
-        placeholder: _buildWaitingOrIdlePlaceholder(),
+        placeholder: _buildWaitingOrIdlePlaceholder(context),
       );
     }
 
-    return _buildFrameOrPlaceholder(frameBytes);
+    return _buildFrameOrPlaceholder(context, frameBytes);
   }
 
-  Widget _buildWaitingOrIdlePlaceholder() {
+  Widget _buildWaitingOrIdlePlaceholder(BuildContext context) {
     if (isPreparingCamera) {
       return _CenteredMessage(child: _LoadingState(title: 'Preparing camera'));
     }
@@ -231,9 +231,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
       return _CenteredMessage(
         child: Text(
           'Waiting for camera frames…',
-          style: AppTheme.bodySecondary.copyWith(
-            color: AppColors.textSecondary,
-          ),
+          style: ElixTypography.body(color: context.elixColors.textSecondary),
         ),
       );
     }
@@ -251,7 +249,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
     return const SizedBox.shrink();
   }
 
-  Widget _buildFrameOrPlaceholder(Uint8List? bytes) {
+  Widget _buildFrameOrPlaceholder(BuildContext context, Uint8List? bytes) {
     if (bytes != null) {
       return _MirroredCameraFeed(
         frameBytes: bytes,
@@ -261,7 +259,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
       );
     }
 
-    return _buildWaitingOrIdlePlaceholder();
+    return _buildWaitingOrIdlePlaceholder(context);
   }
 
   Widget _buildErrorSurface(BuildContext context) {
@@ -272,29 +270,28 @@ class TrainingCameraWorkspace extends StatelessWidget {
           connectionFailed: connectionState == WebSocketConnectionState.error,
         );
     return ColoredBox(
-      color: AppColors.background.withValues(alpha: 0.88),
+      color: context.elixColors.canvasDeep.withValues(alpha: 0.88),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(FluentIcons.error, color: AppColors.error, size: 40),
+            Icon(FluentIcons.error, color: context.elixColors.error, size: 40),
             const SizedBox(height: AppSpacing.md),
             Text(
               recovery.title,
-              style: AppTheme.sectionTitle(
+              style: ElixTypography.sectionTitle(
                 context,
-                color: AppColors.textPrimary,
+                color: context.elixColors.textPrimary,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
               recovery.message,
-              // The camera viewport remains dark in every app theme. Do not
-              // inherit the light-theme body color here, or this message
-              // becomes unreadable on the dark error surface.
-              style: AppTheme.body.copyWith(color: AppColors.textSecondary),
+              style: ElixTypography.body(
+                color: context.elixColors.textSecondary,
+              ),
               textAlign: TextAlign.center,
             ),
             if (recovery.canRetry ||
@@ -342,7 +339,7 @@ class _ArenaAmbientFill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (highContrast) {
-      return const ColoredBox(color: Color(0xFF000000));
+      return ColoredBox(color: context.elixColors.canvasDeep);
     }
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -351,9 +348,9 @@ class _ArenaAmbientFill extends StatelessWidget {
           radius: 1.08,
           colors: [
             accent.withValues(alpha: 0.16),
-            AppColors.accent.withValues(alpha: 0.08),
-            const Color(0xFF0B0814),
-            const Color(0xFF07060C),
+            context.elixColors.glowSecondary.withValues(alpha: 0.08),
+            context.elixColors.canvasDeep,
+            context.elixColors.canvas,
           ],
           stops: const [0.0, 0.32, 0.7, 1.0],
         ),
@@ -387,17 +384,19 @@ class _IdlePreviewState extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                AppColors.primary.withValues(alpha: 0.22),
-                AppColors.accent.withValues(alpha: 0.16),
+                context.elixColors.brandPrimary.withValues(alpha: 0.22),
+                context.elixColors.brandSecondary.withValues(alpha: 0.16),
               ],
             ),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.28),
+              color: context.elixColors.borderInteractive.withValues(
+                alpha: 0.28,
+              ),
             ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.18),
+                color: context.elixColors.glowPrimary.withValues(alpha: 0.18),
                 blurRadius: 22,
               ),
             ],
@@ -405,15 +404,15 @@ class _IdlePreviewState extends StatelessWidget {
           child: Icon(
             FluentIcons.video_solid,
             size: 30,
-            color: AppColors.primarySoft.withValues(alpha: 0.95),
+            color: context.elixColors.brandHover.withValues(alpha: 0.95),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
         Text(
           title,
-          style: AppTheme.sectionTitle(
+          style: ElixTypography.sectionTitle(
             context,
-            color: AppColors.textPrimary,
+            color: context.elixColors.textPrimary,
           ).copyWith(fontWeight: FontWeight.w800),
           textAlign: TextAlign.center,
         ),
@@ -422,10 +421,9 @@ class _IdlePreviewState extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 360),
           child: Text(
             subtitle,
-            style: AppTheme.body.copyWith(
-              color: AppColors.textPrimary.withValues(alpha: 0.9),
-              fontWeight: FontWeight.w600,
-            ),
+            style: ElixTypography.body(
+              color: context.elixColors.textPrimary.withValues(alpha: 0.9),
+            ).copyWith(fontWeight: FontWeight.w600),
             textAlign: TextAlign.center,
           ),
         ),
@@ -434,8 +432,8 @@ class _IdlePreviewState extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 320),
           child: Text(
             caption,
-            style: AppTheme.caption.copyWith(
-              color: AppColors.textSecondary.withValues(alpha: 0.9),
+            style: ElixTypography.supporting(
+              color: context.elixColors.textSecondary.withValues(alpha: 0.9),
             ),
             textAlign: TextAlign.center,
           ),
@@ -455,23 +453,27 @@ class _LoadingState extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const SizedBox(
+        SizedBox(
           width: 32,
           height: 32,
-          child: ProgressRing(strokeWidth: 3, activeColor: AppColors.primary),
+          child: ProgressRing(
+            strokeWidth: 3,
+            activeColor: context.elixColors.brandPrimary,
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         Text(
           title,
-          style: AppTheme.body.copyWith(
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
+          style: ElixTypography.body(
+            color: context.elixColors.textPrimary,
+          ).copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 4),
         Text(
           'This may take a moment…',
-          style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+          style: ElixTypography.supporting(
+            color: context.elixColors.textSecondary,
+          ),
         ),
       ],
     );
@@ -625,20 +627,20 @@ class _StatusStrip extends StatelessWidget {
                   vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xD9101018),
+                  color: context.elixColors.surfaceTinted.withValues(
+                    alpha: 0.9,
+                  ),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: (item.color ?? AppColors.textSecondary).withValues(
-                      alpha: 0.35,
-                    ),
+                    color: (item.color ?? context.elixColors.textSecondary)
+                        .withValues(alpha: 0.35),
                   ),
                 ),
                 child: Text(
                   item.label,
-                  style: AppTheme.caption.copyWith(
-                    color: item.color ?? AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: ElixTypography.supporting(
+                    color: item.color ?? context.elixColors.textSecondary,
+                  ).copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
           ],
@@ -756,107 +758,153 @@ class _FrameHudOverlay extends StatelessWidget {
   final PracticeFeedback feedback;
   final bool showFeedbackMessage;
 
-  Color _feedbackColor() {
-    return coachingVerdictColor(
-      feedback.coachingVerdict,
-      feedbackType: feedback.feedbackType,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final feedbackText = feedback.feedback.length > 80
         ? '${feedback.feedback.substring(0, 80)}…'
         : feedback.feedback;
-    final accent = _feedbackColor();
+    final presentation = CoachingVerdictPresentation.fromFeedback(feedback);
+    final accent = presentation.tone(
+      context,
+      feedbackType: feedback.feedbackType,
+    );
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xCC101018),
-        border: Border(
-          bottom: BorderSide(color: accent.withValues(alpha: 0.35)),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 4,
-              height: 40,
-              decoration: BoxDecoration(
-                color: accent,
-                borderRadius: BorderRadius.circular(2),
+    return Semantics(
+      label: presentation.semanticsLabel(feedbackText),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.isHighContrast
+              ? presentation.surface(context)
+              : context.elixColors.surfaceRaised.withValues(alpha: 0.9),
+          border: Border(
+            bottom: BorderSide(
+              color: presentation.border(
+                context,
+                feedbackType: feedback.feedbackType,
               ),
+              width: context.isHighContrast ? 2 : 1,
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          feedback.movement,
-                          style: AppTheme.body.copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.primary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Flexible(
-                        child: Container(
-                          key: const ValueKey('frame-prop-label'),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.sm,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0x33101018),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: AppColors.primary.withValues(alpha: 0.35),
-                            ),
-                          ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 4,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
                           child: Text(
-                            feedback.propType.displayLabel,
-                            style: AppTheme.caption.copyWith(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            feedback.movement,
+                            style:
+                                ElixTypography.body(
+                                  color: context.elixColors.brandPrimary,
+                                ).copyWith(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Flexible(
+                          child: Container(
+                            key: const ValueKey('frame-prop-label'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: context.elixColors.surfaceInteractive
+                                  .withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: context.elixColors.borderInteractive
+                                    .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Text(
+                              feedback.propType.displayLabel,
+                              style: ElixTypography.supporting(
+                                color: context.elixColors.textPrimary,
+                              ).copyWith(fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (showFeedbackMessage) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(presentation.icon, size: 16, color: accent),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  presentation.label,
+                                  style: ElixTypography.supporting(
+                                    color: accent,
+                                  ).copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                if (feedbackText.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    feedbackText,
+                                    style:
+                                        ElixTypography.supporting(
+                                          color: context.elixTextPrimary,
+                                        ).copyWith(
+                                          height: 1.3,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                                if (presentation.observationTip != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    presentation.observationTip!,
+                                    style: ElixTypography.supporting(
+                                      color: context.elixTextSecondary,
+                                    ).copyWith(height: 1.25),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                  if (showFeedbackMessage) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      feedbackText,
-                      style: AppTheme.body.copyWith(
-                        fontSize: 14,
-                        height: 1.3,
-                        color: accent,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

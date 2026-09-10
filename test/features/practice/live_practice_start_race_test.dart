@@ -396,6 +396,12 @@ void main() {
       );
 
       expect(find.text('Start assignment practice'), findsOneWidget);
+      expect(
+        find.text(
+          'Freestyle is unscored and is not saved to your practice history.',
+        ),
+        findsNothing,
+      );
       expect(find.text('Backend Connected'), findsWidgets);
 
       final element = tester.element(find.byType(LivePracticeScreen));
@@ -464,6 +470,12 @@ void main() {
 
     expect(find.text('Playground'), findsOneWidget);
     expect(find.text('Start Freestyle'), findsOneWidget);
+    expect(
+      find.text(
+        'Freestyle is unscored and is not saved to your practice history.',
+      ),
+      findsWidgets,
+    );
     expect(find.text('Build Your Set'), findsNothing);
     expect(find.text('Free Practice'), findsNothing);
     final cameraBox = tester.renderObject<RenderBox>(

@@ -1315,7 +1315,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       : 'TEACHER REVIEWED',
                   statusPillColor: AppColors.primarySoft,
                   instruction: assignment == null
-                      ? 'Grab a bottle or shaker and move freely. ELIXR will recognize techniques as you perform them.'
+                      ? 'Freestyle is unscored and is not saved to your practice history. ELIXR will recognize techniques as you perform them.'
                       : (assignment.instructions.isEmpty
                             ? 'Practice this Teacher Activity. Your Teacher reviews the recording.'
                             : assignment.instructions),
@@ -1418,7 +1418,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                               ? 'Freestyle Playground'
                               : 'Ready to practice',
                           body: assignment == null
-                              ? 'Grab a bottle or shaker and move freely. ELIXR will recognize techniques as you perform them.'
+                              ? 'Freestyle is unscored and is not saved to your practice history. Move freely while ELIXR recognizes techniques.'
                               : 'Start assignment practice when the camera is ready. This attempt is teacher-reviewed, not scored.',
                         )
                       : LivePracticeElapsedMetric(
@@ -1462,7 +1462,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         ),
                   notice: Text(
                     assignment == null
-                        ? 'No score, mastery, or XP will be saved from Freestyle.'
+                        ? 'Freestyle is unscored and is not saved to your practice history.'
                         : 'Teacher-created practice is not scored and does not award XP.',
                     style: AppTheme.bodySecondary.copyWith(
                       color: context.elixTextSecondary,

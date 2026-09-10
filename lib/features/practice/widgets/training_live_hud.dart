@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/coaching_verdict_style.dart';
 import '../../../data/models/practice_feedback.dart';
 import '../../../data/models/rubric_assessment.dart';
@@ -45,7 +45,7 @@ class TrainingLiveHud extends StatelessWidget {
             child: _HudChip(
               label: 'TIME',
               value: elapsedDisplay,
-              accent: AppColors.textPrimary,
+              accent: context.elixColors.textPrimary,
             ),
           ),
           Positioned(
@@ -159,7 +159,7 @@ class _HudChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: const Color(0xE6101018),
+          color: context.elixColors.surfaceRaised.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: accent.withValues(alpha: 0.32)),
         ),
@@ -169,29 +169,29 @@ class _HudChip extends StatelessWidget {
           children: [
             Text(
               label,
-              style: AppTheme.caption.copyWith(
-                fontSize: 9,
-                letterSpacing: 1.1,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textSecondary,
-              ),
+              style:
+                  ElixTypography.eyebrow(
+                    color: context.elixColors.textSecondary,
+                  ).copyWith(
+                    fontSize: 9,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w800,
+                  ),
             ),
             Text(
               value,
-              style: AppTheme.body.copyWith(
+              style: ElixTypography.body(color: accent).copyWith(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
-                color: accent,
                 letterSpacing: 0.6,
               ),
             ),
             if (supporting != null)
               Text(
                 supporting!,
-                style: AppTheme.caption.copyWith(
+                style: ElixTypography.supporting(
                   color: accent.withValues(alpha: 0.9),
-                  fontWeight: FontWeight.w600,
-                ),
+                ).copyWith(fontWeight: FontWeight.w600),
               ),
           ],
         ),
@@ -207,31 +207,78 @@ class _CoachingChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = coachingVerdictColor(
-      feedback.coachingVerdict,
+    final presentation = CoachingVerdictPresentation.fromFeedback(feedback);
+    final accent = presentation.tone(
+      context,
       feedbackType: feedback.feedbackType,
     );
     final text = feedback.feedback.length > 72
         ? '${feedback.feedback.substring(0, 72)}…'
         : feedback.feedback;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 420),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xE6101018),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: accent.withValues(alpha: 0.35)),
-        ),
-        child: Text(
-          text,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: AppTheme.caption.copyWith(
-            color: accent,
-            fontWeight: FontWeight.w700,
-            height: 1.3,
+    return Semantics(
+      label: presentation.semanticsLabel(text),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: context.isHighContrast
+                ? presentation.surface(context)
+                : context.elixColors.surfaceRaised.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: presentation.border(
+                context,
+                feedbackType: feedback.feedbackType,
+              ),
+              width: context.isHighContrast ? 2 : 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(presentation.icon, size: 16, color: accent),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      presentation.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ElixTypography.supporting(
+                        color: accent,
+                      ).copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+              if (text.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  text,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: ElixTypography.supporting(
+                    color: context.elixTextPrimary,
+                  ).copyWith(fontWeight: FontWeight.w600, height: 1.3),
+                ),
+              ],
+              if (presentation.observationTip != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  presentation.observationTip!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: ElixTypography.supporting(
+                    color: context.elixTextSecondary,
+                  ).copyWith(height: 1.25),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -249,9 +296,11 @@ class _CriteriaStrip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xE6101018),
+        color: context.elixColors.surfaceRaised.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.55)),
+        border: Border.all(
+          color: context.elixColors.borderSubtle.withValues(alpha: 0.55),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -283,18 +332,17 @@ class _CriterionDot extends StatelessWidget {
       children: [
         Text(
           label,
-          style: AppTheme.caption.copyWith(
-            fontSize: 9,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textSecondary,
-          ),
+          style: ElixTypography.eyebrow(
+            color: context.elixColors.textSecondary,
+          ).copyWith(fontSize: 9, fontWeight: FontWeight.w800),
         ),
         Text(
           score == null ? '—' : '$score',
-          style: AppTheme.caption.copyWith(
-            fontWeight: FontWeight.w800,
-            color: score == null ? AppColors.textSecondary : AppColors.primary,
-          ),
+          style: ElixTypography.supporting(
+            color: score == null
+                ? context.elixColors.textSecondary
+                : context.elixColors.brandPrimary,
+          ).copyWith(fontWeight: FontWeight.w800),
         ),
       ],
     );
@@ -314,9 +362,11 @@ class _HoldChip extends StatelessWidget {
         vertical: AppSpacing.sm,
       ),
       decoration: BoxDecoration(
-        color: const Color(0xE6101018),
+        color: context.elixColors.surfaceRaised.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: context.elixColors.success.withValues(alpha: 0.5),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -327,16 +377,15 @@ class _HoldChip extends StatelessWidget {
             child: ProgressRing(
               value: progress * 100,
               strokeWidth: 3,
-              activeColor: AppColors.success,
+              activeColor: context.elixColors.success,
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
           Text(
             'Hold steady…',
-            style: AppTheme.body.copyWith(
-              color: AppColors.success,
-              fontWeight: FontWeight.w600,
-            ),
+            style: ElixTypography.body(
+              color: context.elixColors.success,
+            ).copyWith(fontWeight: FontWeight.w600),
           ),
         ],
       ),

@@ -160,4 +160,56 @@ void main() {
     expect(ordinaryCalls, 1);
     expect(assignedCalls, 0);
   });
+
+  test(
+    'assignment retry keeps its reserved session and pointer identity',
+    () async {
+      var allocations = 0;
+      final sessionIds = <String>[];
+      final pointerIds = <String>[];
+      final service = SessionService(
+        allocateSessionIdOverride: () => 'assignment-${++allocations}',
+        saveAssignedSessionAtomicOverride:
+            ({
+              required String sessionId,
+              required Session session,
+              required List<Feedback> feedbacks,
+              required AssignmentAttempt officialAssignmentPointer,
+            }) async {
+              sessionIds.add(sessionId);
+              pointerIds.add(officialAssignmentPointer.id);
+              if (sessionIds.length == 1) throw Exception('ambiguous failure');
+            },
+        recordCompletedSessionOverride:
+            ({
+              required String sessionId,
+              required String userId,
+              required String displayName,
+              String? profilePictureUrl,
+            }) async {},
+      );
+      final reservedId = service.reserveSessionId();
+
+      Future<String> save() => service.saveCompletedSession(
+        existingSessionId: reservedId,
+        userId: 'trainee-1',
+        displayName: 'Ada',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
+        rubric: _rubric,
+        durationSeconds: 30,
+        sessionImprovements: const [],
+        assignmentContext: _context,
+      );
+
+      await expectLater(save(), throwsA(isA<Exception>()));
+      expect(await save(), reservedId);
+      expect(sessionIds, [reservedId, reservedId]);
+      expect(pointerIds, [
+        assignmentAttemptIdForOfficialSession(reservedId),
+        assignmentAttemptIdForOfficialSession(reservedId),
+      ]);
+      expect(allocations, 1);
+    },
+  );
 }

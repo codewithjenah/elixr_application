@@ -23,7 +23,9 @@ String? postureDisplayLabel(String? postureStatus) {
     case 'unstable':
       return 'Posture unstable';
     case 'unknown':
-      return "Can't determine";
+      // This is an informational posture signal, not the live coaching
+      // verdict. The coaching surfaces own the canonical verdict wording.
+      return 'Posture not observed';
     default:
       return null;
   }

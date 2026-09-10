@@ -19,6 +19,8 @@ import 'widgets/training_performance.dart';
 
 enum SessionSummaryResult { saved, discarded, tryAgain, next }
 
+enum SessionSaveState { ready, saving, saved, failed }
+
 /// Centralized sizing for the session-complete dashboard.
 abstract final class _SummaryLayout {
   static const dialogMaxWidth = 960.0;
@@ -50,7 +52,7 @@ class SessionSummarySheet extends StatelessWidget {
     required this.onPrimaryAction,
     required this.onDiscard,
     required this.onTryAgain,
-    this.saving = false,
+    this.saveState = SessionSaveState.ready,
     this.saveError,
     this.nextMovementName,
     this.evidenceJpegBytes,
@@ -62,7 +64,7 @@ class SessionSummarySheet extends StatelessWidget {
   final VoidCallback onPrimaryAction;
   final VoidCallback onDiscard;
   final VoidCallback onTryAgain;
-  final bool saving;
+  final SessionSaveState saveState;
   final String? saveError;
   final String? nextMovementName;
   final Uint8List? evidenceJpegBytes;
@@ -83,6 +85,8 @@ class SessionSummarySheet extends StatelessWidget {
     required int durationSeconds,
     required SessionAssessment assessment,
     required Future<String> Function(String? existingSessionId) onSave,
+    String? initialSessionId,
+    bool showSavedAcknowledgment = false,
     Movement? nextMovement,
     TrainingProp? nextProp,
     Uint8List? evidenceJpegBytes,
@@ -93,15 +97,23 @@ class SessionSummarySheet extends StatelessWidget {
       barrierColor: const Color(0xE6080812),
       useRootNavigator: true,
       builder: (ctx) {
-        var saving = false;
+        var saveState = SessionSaveState.ready;
         String? saveError;
-        String? pendingSessionId;
+        var pendingSessionId = initialSessionId;
         return StatefulBuilder(
           builder: (context, setState) {
             Future<void> handlePrimaryAction() async {
-              if (saving) return;
+              if (saveState == SessionSaveState.saving) return;
+              if (saveState == SessionSaveState.saved) {
+                Navigator.of(ctx, rootNavigator: true).pop(
+                  nextMovement != null
+                      ? SessionSummaryResult.next
+                      : SessionSummaryResult.saved,
+                );
+                return;
+              }
               setState(() {
-                saving = true;
+                saveState = SessionSaveState.saving;
                 saveError = null;
               });
               try {
@@ -110,19 +122,23 @@ class SessionSummarySheet extends StatelessWidget {
                 if (ctx.mounted) {
                   setState(() {
                     saveError = _formatSaveError(error);
-                    saving = false;
+                    saveState = SessionSaveState.failed;
                   });
                 }
                 return;
               }
-              // Pop on success only — do not setState after pop (navigator can
-              // be locked / element deactivated, which leaves the spinner up).
+              // Keep the summary open long enough to make the successful save
+              // explicit. The next tap performs the existing navigation.
               if (ctx.mounted) {
-                Navigator.of(ctx, rootNavigator: true).pop(
-                  nextMovement != null
-                      ? SessionSummaryResult.next
-                      : SessionSummaryResult.saved,
-                );
+                if (showSavedAcknowledgment) {
+                  setState(() => saveState = SessionSaveState.saved);
+                } else {
+                  Navigator.of(ctx, rootNavigator: true).pop(
+                    nextMovement != null
+                        ? SessionSummaryResult.next
+                        : SessionSummaryResult.saved,
+                  );
+                }
               }
             }
 
@@ -140,7 +156,7 @@ class SessionSummarySheet extends StatelessWidget {
                           movement: movement,
                           durationSeconds: durationSeconds,
                           assessment: assessment,
-                          saving: saving,
+                          saveState: saveState,
                           saveError: saveError,
                           nextMovementName: nextMovement == null
                               ? null
@@ -150,14 +166,17 @@ class SessionSummarySheet extends StatelessWidget {
                                 ),
                           evidenceJpegBytes: evidenceJpegBytes,
                           onDiscard: () {
-                            if (saving) return;
+                            if (saveState == SessionSaveState.saving ||
+                                saveState == SessionSaveState.saved) {
+                              return;
+                            }
                             Navigator.of(
                               ctx,
                               rootNavigator: true,
                             ).pop(SessionSummaryResult.discarded);
                           },
                           onTryAgain: () {
-                            if (saving) return;
+                            if (saveState == SessionSaveState.saving) return;
                             Navigator.of(
                               ctx,
                               rootNavigator: true,
@@ -322,7 +341,7 @@ class SessionSummarySheet extends StatelessWidget {
                     ),
                   ),
                   _SummaryActions(
-                    saving: saving,
+                    saveState: saveState,
                     saveError: saveError,
                     nextMovementName: nextMovementName,
                     onPrimaryAction: onPrimaryAction,
@@ -882,6 +901,8 @@ class _PerformanceDashboard extends StatelessWidget {
           summary,
           const SizedBox(height: AppSpacing.sm + 2),
           criteria,
+          const SizedBox(height: AppSpacing.sm),
+          const _RubricExplanation(),
         ],
       ),
     );
@@ -1062,6 +1083,24 @@ class _RubricMetricRow extends StatelessWidget {
   }
 }
 
+class _RubricExplanation extends StatelessWidget {
+  const _RubricExplanation();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'Your total adds four 0–3 scores: Technique (how you perform it), '
+      'Stability (how controlled you are), Completion (whether you finish), '
+      'and Prop Positioning (where the bottle or shaker sits).',
+      style: TextStyle(
+        fontSize: 11.5,
+        height: 1.35,
+        color: context.elixTextSecondary,
+      ),
+    );
+  }
+}
+
 class _SegmentMeter extends StatelessWidget {
   const _SegmentMeter({
     required this.value,
@@ -1139,6 +1178,10 @@ class _CoachingColumn extends StatelessWidget {
     final strengths = assessment.coaching.strengths;
     final improvements = assessment.improvements;
     final recommendation = assessment.coaching.recommendation;
+    final hasImprovement = improvements.isNotEmpty;
+    final focusMessage = hasImprovement
+        ? improvements.first.message
+        : recommendation?.reason ?? emptyImprovementsMessage;
 
     final strengthsCard = _InsightCard(
       title: 'What Went Well',
@@ -1149,11 +1192,15 @@ class _CoachingColumn extends StatelessWidget {
       emptyMessage: emptyStrengthsMessage,
     );
     final improvementsCard = _InsightCard(
-      title: 'Needs Improvement',
-      accent: AppColors.warning,
-      icon: FluentIcons.lightbulb,
-      count: improvements.length,
-      items: improvements.map((i) => i.message).toList(growable: false),
+      title: hasImprovement
+          ? 'Focus Next'
+          : recommendation != null
+          ? 'Focus Next'
+          : 'Keep It Going',
+      accent: hasImprovement ? AppColors.warning : AppColors.success,
+      icon: hasImprovement ? FluentIcons.lightbulb : FluentIcons.completed,
+      count: hasImprovement || recommendation != null ? 1 : 0,
+      items: [focusMessage],
       emptyMessage: emptyImprovementsMessage,
     );
 
@@ -1185,7 +1232,10 @@ class _CoachingColumn extends StatelessWidget {
             ],
             if (recommendation != null) ...[
               const SizedBox(height: _SummaryLayout.sectionGap),
-              _RecommendationCard(recommendation: recommendation),
+              _RecommendationCard(
+                recommendation: recommendation,
+                showReason: hasImprovement,
+              ),
             ],
           ],
         );
@@ -1330,9 +1380,13 @@ class _InsightCard extends StatelessWidget {
 }
 
 class _RecommendationCard extends StatelessWidget {
-  const _RecommendationCard({required this.recommendation});
+  const _RecommendationCard({
+    required this.recommendation,
+    required this.showReason,
+  });
 
   final SessionRecommendation recommendation;
+  final bool showReason;
 
   static String _formatDuration(int seconds) {
     if (seconds < 60) return '${seconds}s';
@@ -1444,15 +1498,17 @@ class _RecommendationCard extends StatelessWidget {
               height: 1.25,
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            recommendation.reason,
-            style: TextStyle(
-              fontSize: 13,
-              color: context.elixTextSecondary,
-              height: 1.4,
+          if (showReason) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              recommendation.reason,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.elixTextSecondary,
+                height: 1.4,
+              ),
             ),
-          ),
+          ],
           const SizedBox(height: AppSpacing.sm + 2),
           Wrap(
             spacing: AppSpacing.sm,
@@ -1522,7 +1578,7 @@ class _MetaChip extends StatelessWidget {
 
 class _SummaryActions extends StatelessWidget {
   const _SummaryActions({
-    required this.saving,
+    required this.saveState,
     required this.saveError,
     required this.onPrimaryAction,
     required this.onDiscard,
@@ -1531,7 +1587,7 @@ class _SummaryActions extends StatelessWidget {
     required this.regularLayout,
   });
 
-  final bool saving;
+  final SessionSaveState saveState;
   final String? saveError;
   final VoidCallback onPrimaryAction;
   final VoidCallback onDiscard;
@@ -1542,9 +1598,15 @@ class _SummaryActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasNext = nextMovementName != null;
+    final saving = saveState == SessionSaveState.saving;
+    final saved = saveState == SessionSaveState.saved;
+    final failed = saveState == SessionSaveState.failed;
+    final primaryLabel = failed
+        ? 'Retry Save'
+        : (hasNext ? 'Next: $nextMovementName' : 'Finish');
     final primaryButton = GameActionButton(
-      label: hasNext ? 'Next: $nextMovementName' : 'Finish',
-      icon: hasNext ? FluentIcons.chevron_right : FluentIcons.completed,
+      label: primaryLabel,
+      icon: saved && hasNext ? FluentIcons.chevron_right : FluentIcons.save,
       onPressed: saving ? null : onPrimaryAction,
       isLoading: saving,
     );
@@ -1573,40 +1635,8 @@ class _SummaryActions extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (saveError != null) ...[
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.sm + 4),
-              decoration: BoxDecoration(
-                color: AppColors.error.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.error.withValues(alpha: 0.35),
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    FluentIcons.error,
-                    size: 16,
-                    color: AppColors.error,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      saveError!,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: context.elixTextPrimary,
-                        height: 1.35,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
+          _SaveStatus(state: saveState, error: saveError),
+          const SizedBox(height: AppSpacing.sm),
           if (regularLayout)
             Row(
               children: [
@@ -1614,7 +1644,7 @@ class _SummaryActions extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: HyperlinkButton(
-                      onPressed: saving ? null : onDiscard,
+                      onPressed: saving || saved ? null : onDiscard,
                       child: Text(
                         'Discard without saving',
                         style: AppTheme.caption.copyWith(
@@ -1655,7 +1685,7 @@ class _SummaryActions extends StatelessWidget {
                 const SizedBox(height: AppSpacing.xs),
                 Center(
                   child: HyperlinkButton(
-                    onPressed: saving ? null : onDiscard,
+                    onPressed: saving || saved ? null : onDiscard,
                     child: Text(
                       'Discard without saving',
                       style: AppTheme.caption.copyWith(
@@ -1667,6 +1697,76 @@ class _SummaryActions extends StatelessWidget {
               ],
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _SaveStatus extends StatelessWidget {
+  const _SaveStatus({required this.state, this.error});
+
+  final SessionSaveState state;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final (message, icon, color) = switch (state) {
+      SessionSaveState.ready => (
+        'Not saved yet. Save this result when you are ready.',
+        FluentIcons.save,
+        context.elixTextSecondary,
+      ),
+      SessionSaveState.saving => (
+        'Saving session...',
+        FluentIcons.sync,
+        AppColors.primary,
+      ),
+      SessionSaveState.saved => (
+        'Saved to your practice history.',
+        FluentIcons.completed,
+        AppColors.success,
+      ),
+      SessionSaveState.failed => (
+        error ??
+            'Could not save your session. Check your connection and try again.',
+        FluentIcons.error,
+        AppColors.error,
+      ),
+    };
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: message,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.sm + 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: context.isHighContrast ? 0 : 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            if (state == SessionSaveState.saving)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: ProgressRing(strokeWidth: 2),
+              )
+            else
+              Icon(icon, size: 16, color: color),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.elixTextPrimary,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

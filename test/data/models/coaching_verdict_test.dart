@@ -88,6 +88,12 @@ void main() {
   });
 
   group('coaching verdict style', () {
+    test('keeps the three trainee-facing verdict labels canonical', () {
+      expect(CoachingVerdict.correct.displayLabel, 'Correct');
+      expect(CoachingVerdict.wrong.displayLabel, 'Wrong');
+      expect(CoachingVerdict.uncertain.displayLabel, "Can't determine");
+    });
+
     test('uncertain uses a neutral info color, not warning or error', () {
       final color = coachingVerdictColor(CoachingVerdict.uncertain);
       expect(color, AppColors.textSecondary);
@@ -109,9 +115,12 @@ void main() {
   });
 
   group('postureDisplayLabel', () {
-    test('unknown is shown as cannot determine', () {
-      expect(postureDisplayLabel('unknown'), "Can't determine");
-    });
+    test(
+      'unknown is an informational posture signal, not a second verdict',
+      () {
+        expect(postureDisplayLabel('unknown'), 'Posture not observed');
+      },
+    );
 
     test('stable and unstable labels stay posture-specific', () {
       expect(postureDisplayLabel('stable'), 'Posture stable');

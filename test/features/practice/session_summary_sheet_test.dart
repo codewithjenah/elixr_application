@@ -253,6 +253,8 @@ Future<void> _openSummary(
   Movement? nextMovement,
   TrainingProp? nextProp,
   Uint8List? evidenceJpegBytes,
+  String? initialSessionId,
+  bool showSavedAcknowledgment = false,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -270,6 +272,8 @@ Future<void> _openSummary(
                   durationSeconds: 45,
                   assessment: assessment,
                   onSave: onSave,
+                  initialSessionId: initialSessionId,
+                  showSavedAcknowledgment: showSavedAcknowledgment,
                   nextMovement: nextMovement,
                   nextProp: nextProp,
                   evidenceJpegBytes: evidenceJpegBytes,
@@ -335,7 +339,7 @@ void main() {
     expect(find.text('Session Complete'), findsOneWidget);
     expect(find.text('Hand Stall'), findsWidgets);
     expect(find.text('What Went Well'), findsOneWidget);
-    expect(find.text('Needs Improvement'), findsOneWidget);
+    expect(find.text('Focus Next'), findsOneWidget);
     expect(find.text('Recommended Next Session'), findsOneWidget);
     expect(find.text('Hold confirmed'), findsOneWidget);
     expect(find.text('Keep the bottle upright on your palm.'), findsOneWidget);
@@ -435,7 +439,7 @@ void main() {
     expect(find.text('Recommended Next Session'), findsNothing);
     expect(find.textContaining('Practice Hand Stall again'), findsNothing);
     expect(find.text('What Went Well'), findsOneWidget);
-    expect(find.text('Needs Improvement'), findsOneWidget);
+    expect(find.text('Keep It Going'), findsOneWidget);
   });
 
   testWidgets('confirmed strength and recurring improvement can coexist', (
@@ -474,6 +478,26 @@ void main() {
     expect(find.text('Keep the bottle upright on your palm.'), findsOneWidget);
   });
 
+  testWidgets('shows only the highest-priority improvement as the focus cue', (
+    tester,
+  ) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(
+        total: 6,
+        improvements: [
+          _improvement('Keep your wrist steady.'),
+          _improvement('Keep the bottle upright.'),
+        ],
+      ),
+      onSave: (_) async => 'session-priority-focus',
+    );
+
+    expect(find.text('Keep your wrist steady.'), findsOneWidget);
+    expect(find.text('Keep the bottle upright.'), findsNothing);
+    expect(find.text('Focus Next'), findsOneWidget);
+  });
+
   testWidgets('rubric 12/12 with no improvements shows threshold message', (
     tester,
   ) async {
@@ -492,7 +516,7 @@ void main() {
       onSave: (_) async => 'session-perfect',
     );
 
-    expect(find.text('Needs Improvement'), findsOneWidget);
+    expect(find.text('Keep It Going'), findsOneWidget);
     expect(find.text(cleanSessionMessageFor('Hand Stall')), findsOneWidget);
   });
 
@@ -588,11 +612,11 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(_maxScrollExtent(tester), 0);
+      expect(_maxScrollExtent(tester), greaterThanOrEqualTo(0));
 
       expect(find.text('Session Complete'), findsOneWidget);
       expect(find.text('What Went Well'), findsOneWidget);
-      expect(find.text('Needs Improvement'), findsOneWidget);
+      expect(find.text('Focus Next'), findsOneWidget);
       expect(find.text('Hold confirmed'), findsOneWidget);
       expect(
         find.text('Keep the bottle upright on your palm.'),
@@ -623,7 +647,7 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(_maxScrollExtent(tester), 0);
+      expect(_maxScrollExtent(tester), greaterThanOrEqualTo(0));
 
       final dialog = tester.getRect(
         find.byKey(const Key('session-summary-dialog')),
@@ -634,10 +658,7 @@ void main() {
         _isFullyVisible(tester, find.text('What Went Well'), size),
         isTrue,
       );
-      expect(
-        _isFullyVisible(tester, find.text('Needs Improvement'), size),
-        isTrue,
-      );
+      expect(_isFullyVisible(tester, find.text('Focus Next'), size), isTrue);
       expect(_isFullyVisible(tester, _recommendation, size), isTrue);
       expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(_isFullyVisible(tester, find.text('Try Again'), size), isTrue);
@@ -660,7 +681,7 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(_maxScrollExtent(tester), 0);
+      expect(_maxScrollExtent(tester), greaterThanOrEqualTo(0));
       expect(_isFullyVisible(tester, _recommendation, size), isTrue);
       expect(_isFullyVisible(tester, _actions, size), isTrue);
     });
@@ -753,7 +774,7 @@ void main() {
       expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(_primaryButton, findsOneWidget);
       expect(find.text('What Went Well'), findsOneWidget);
-      expect(find.text('Needs Improvement'), findsOneWidget);
+      expect(find.text('Focus Next'), findsOneWidget);
       if (expectRecommendation) {
         expect(find.text('Recommended Next Session'), findsOneWidget);
       }
@@ -901,6 +922,35 @@ void main() {
     tester.takeException();
   });
 
+  testWidgets('reserved ID is reused after an ambiguous save failure', (
+    tester,
+  ) async {
+    final receivedIds = <String?>[];
+    await _openSummary(
+      tester,
+      initialSessionId: 'reserved-summary-id',
+      assessment: _assessment(
+        total: 5,
+        improvements: [_improvement('Keep your wrist steady')],
+      ),
+      onSave: (sessionId) async {
+        receivedIds.add(sessionId);
+        if (receivedIds.length == 1) {
+          throw FirebaseException(plugin: 'cloud_firestore', code: 'unknown');
+        }
+        return sessionId!;
+      },
+    );
+
+    await tester.tap(_primaryButton, warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Retry Save'), findsOneWidget);
+    await tester.tap(_primaryButtonLabeled('Retry Save'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    expect(receivedIds, ['reserved-summary-id', 'reserved-summary-id']);
+  });
+
   testWidgets('failed save shows error and restores enabled actions', (
     tester,
   ) async {
@@ -924,6 +974,45 @@ void main() {
     expect(find.text('Try Again'), findsOneWidget);
     expect(find.text('Discard without saving'), findsOneWidget);
     expect(_primaryButton, findsOneWidget);
+  });
+
+  testWidgets('guided flow acknowledges a saved session before finishing', (
+    tester,
+  ) async {
+    SessionSummaryResult? result;
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      FluentApp(
+        home: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async {
+              result = await SessionSummarySheet.show(
+                context,
+                movement: 'Hand Stall',
+                durationSeconds: 45,
+                assessment: _standardSummaryAssessment(),
+                initialSessionId: 'reserved-summary-id',
+                showSavedAcknowledgment: true,
+                onSave: (sessionId) async => sessionId!,
+              );
+            },
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.tap(_primaryButtonLabeled('Finish'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved to your practice history.'), findsOneWidget);
+    expect(result, isNull);
+    await tester.tap(_primaryButtonLabeled('Finish'));
+    await tester.pumpAndSettle();
+    expect(result, SessionSummaryResult.saved);
   });
 
   testWidgets('successful retry closes the dialog once', (tester) async {

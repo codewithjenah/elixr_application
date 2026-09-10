@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/camera_recovery_presentation.dart';
@@ -175,8 +175,40 @@ void main() {
         ),
       );
 
-      expect(title.style?.color, AppColors.textPrimary);
-      expect(message.style?.color, AppColors.textSecondary);
+      expect(title.style?.color, ElixSemanticColors.light.textPrimary);
+      expect(message.style?.color, ElixSemanticColors.light.textSecondary);
+    });
+
+    testWidgets('resolves error copy through high-contrast semantic roles', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.highContrastLight,
+          home: ScaffoldPage(
+            content: SizedBox(
+              width: 640,
+              height: 480,
+              child: TrainingCameraWorkspace(
+                mirrored: false,
+                connectionState: WebSocketConnectionState.error,
+                connecting: false,
+                isSessionActive: false,
+                onRetry: () {},
+                onCountdownComplete: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final title = tester.widget<Text>(
+        find.text('Camera service unavailable'),
+      );
+      expect(
+        title.style?.color,
+        ElixSemanticColors.highContrastLight.textPrimary,
+      );
     });
 
     testWidgets('shows selected-camera recovery actions only when useful', (
@@ -314,6 +346,48 @@ void main() {
   });
 
   group('TrainingCameraWorkspace frame isolation', () {
+    testWidgets('uncertain coaching is neutral and gives an observation tip', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(180, 180));
+      addTearDown(() async {
+        await tester.binding.setSurfaceSize(null);
+      });
+      final uncertain = PracticeFeedback(
+        bottleDetected: false,
+        movement: 'Hand Stall',
+        feedback: 'ELIXR needs a clearer observation.',
+        feedbackType: 'error',
+        postureStatus: 'unknown',
+        feedbackCode: 'hands_not_visible',
+        feedbackCategory: 'visibility',
+        propType: TrainingProp.shaker,
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          _workspace(
+            prop: TrainingProp.shaker,
+            mirrored: true,
+            width: 160,
+            height: 120,
+            frameBytes: _tinyPng,
+            overlayFeedback: uncertain,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text("Can't determine"), findsOneWidget);
+      expect(find.byIcon(FluentIcons.info_solid), findsOneWidget);
+      expect(
+        find.text('Keep your hands, prop, and upper body clearly visible.'),
+        findsOneWidget,
+      );
+      expect(find.text('Wrong'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('frame listenable updates the camera image', (tester) async {
       final frames = ValueNotifier<Uint8List?>(_tinyPng);
       addTearDown(frames.dispose);

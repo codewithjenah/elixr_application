@@ -892,6 +892,10 @@ class PracticeScreenState extends State<PracticeScreen>
         final nextStep = widget.assignmentContext == null
             ? nextEnabledPracticeAfter(_movement, _prop)
             : null;
+        // Reserve before the first write. The sheet retains this identifier on
+        // every retry, including when the first atomic write committed but the
+        // client received an ambiguous transport failure.
+        final reservedSessionId = sessionService.reserveSessionId();
         ClassChallengeCompletionReceipt? challengeReceipt;
         final result = await SessionSummarySheet.show(
           context,
@@ -901,6 +905,8 @@ class PracticeScreenState extends State<PracticeScreen>
           nextMovement: nextStep?.movement,
           nextProp: nextStep?.prop,
           evidenceJpegBytes: evidence,
+          initialSessionId: reservedSessionId,
+          showSavedAcknowledgment: true,
           onSave: (existingSessionId) async {
             final sessionId = await sessionService.saveCompletedSession(
               existingSessionId: existingSessionId,

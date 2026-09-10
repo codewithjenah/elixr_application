@@ -107,6 +107,14 @@ class SessionService extends ChangeNotifier {
   SessionEvidenceRepository get _evidenceRepository =>
       _evidenceRepositoryOrNull ??= SessionEvidenceRepository();
 
+  /// Reserves a Firestore document ID for one logical completed attempt.
+  ///
+  /// The ID is deliberately allocated without writing so a caller can retain
+  /// it across an ambiguous persistence failure and retry the same atomic
+  /// session/feedback write rather than creating another history record.
+  String reserveSessionId() =>
+      (_allocateSessionIdOverride ?? repository.allocateSessionId)();
+
   /// Null means no evidence decision has been recorded yet.
   Future<bool?> sessionEvidenceEnabled(String userId) async {
     return (await FirestoreHelper.instance.getUserById(
@@ -171,9 +179,7 @@ class SessionService extends ChangeNotifier {
         'A session cannot be both an assignment and a class challenge.',
       );
     }
-    final allocateSessionId =
-        _allocateSessionIdOverride ?? repository.allocateSessionId;
-    final sessionId = existingSessionId ?? allocateSessionId();
+    final sessionId = existingSessionId ?? reserveSessionId();
     String? evidencePath;
     if (saveEvidence && evidenceJpegBytes != null) {
       await _evidenceRepository.upload(

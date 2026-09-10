@@ -178,6 +178,51 @@ void main() {
     expect(id, firstSessionId);
   });
 
+  test('reserved ID survives an ambiguous atomic-save failure', () async {
+    var allocations = 0;
+    final receivedIds = <String>[];
+    final service = SessionService(
+      allocateSessionIdOverride: () => 'reserved-${++allocations}',
+      saveCompletedSessionAtomicOverride:
+          ({
+            required String sessionId,
+            required Session session,
+            required List<Feedback> feedbacks,
+          }) async {
+            receivedIds.add(sessionId);
+            if (receivedIds.length == 1) {
+              // Model a write that may have committed before the client lost
+              // the response. A retry must target this same document.
+              throw Exception('ambiguous transport failure');
+            }
+          },
+      recordCompletedSessionOverride:
+          ({
+            required String sessionId,
+            required String userId,
+            required String displayName,
+            String? profilePictureUrl,
+          }) async {},
+    );
+    final reservedId = service.reserveSessionId();
+
+    Future<String> save() => service.saveCompletedSession(
+      existingSessionId: reservedId,
+      userId: 'u1',
+      displayName: 'Ada',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
+      rubric: _testRubric,
+      durationSeconds: 30,
+      sessionImprovements: const [],
+    );
+
+    await expectLater(save(), throwsA(isA<Exception>()));
+    expect(await save(), reservedId);
+    expect(receivedIds, [reservedId, reservedId]);
+    expect(allocations, 1);
+  });
+
   test('failed leaderboard sync does not erase a saved session', () async {
     var atomicCalls = 0;
     var leaderboardCalls = 0;
