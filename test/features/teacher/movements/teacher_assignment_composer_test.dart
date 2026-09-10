@@ -31,6 +31,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   Completer<void>? createGate;
   Object? teacherCreatedError;
   AssignmentAudience? lastAudience;
+  TrainingProp? lastAllowedProp;
   TeacherActivityAssessmentConfig? lastActivityAssessment;
   String? lastDisplayTitle;
   String? lastDisplayInstructions;
@@ -53,6 +54,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   }) async {
     officialCalls++;
     lastAudience = audience;
+    lastAllowedProp = allowedProp;
     final gate = createGate;
     if (gate != null) await gate.future;
     return super.createOfficialAssignment(
@@ -495,6 +497,7 @@ void main() {
     WidgetTester tester, {
     required TeacherAssignmentCreationService creationService,
     Movement? officialMovement,
+    TrainingProp? initialOfficialProp,
     TeacherMovement? teacherCreatedMovement,
     GroupAssignment? existingAssignment,
     List<ElixrGroup> availableGroups = const [group],
@@ -518,6 +521,7 @@ void main() {
           lockedGroup: lockedGroup,
           creationService: creationService,
           officialMovement: officialMovement,
+          initialOfficialProp: initialOfficialProp,
           teacherCreatedMovement: teacherCreatedMovement,
           existingAssignment: existingAssignment,
           materialRepository: materialRepository,
@@ -1374,4 +1378,188 @@ void main() {
     expect(find.byType(SingleChildScrollView), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  Movement officialByName(String name) =>
+      movementCatalog.firstWhere((movement) => movement.name == name);
+
+  Future<void> publishAssignment(WidgetTester tester) async {
+    final publish = find.byKey(const Key('teacher_assignment_publish_now'));
+    await tester.ensureVisible(publish);
+    await tester.tap(publish);
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+  }
+
+  testWidgets(
+    'Activity Library Hand Stall Cocktail Shaker pins and persists shaker',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: officialByName('Hand Stall'),
+        initialOfficialProp: TrainingProp.shaker,
+      );
+
+      expect(find.text('Hand Stall'), findsAtLeastNWidgets(1));
+      expect(find.text('Cocktail Shaker'), findsAtLeastNWidgets(1));
+      expect(
+        find.text('Official ELIXR guided assessment · Cocktail Shaker'),
+        findsAtLeastNWidgets(1),
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_official_prop')),
+        findsOneWidget,
+      );
+      expect(find.byType(ComboBox<TrainingProp>), findsNothing);
+
+      await publishAssignment(tester);
+
+      expect(assignments.officialCalls, 1);
+      expect(assignments.lastAllowedProp, TrainingProp.shaker);
+      expect(
+        assignments.assignments.values.single.allowedProp,
+        TrainingProp.shaker,
+      );
+      expect(
+        assignments.assignments.values.single.officialMovementName,
+        'Hand Stall',
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+    },
+  );
+
+  testWidgets('Activity Library Hand Stall Bottle pins and persists bottle', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: officialByName('Hand Stall'),
+      initialOfficialProp: TrainingProp.bottle,
+    );
+
+    expect(find.text('Bottle'), findsAtLeastNWidgets(1));
+    expect(
+      find.text('Official ELIXR guided assessment · Bottle'),
+      findsAtLeastNWidgets(1),
+    );
+
+    await publishAssignment(tester);
+
+    expect(assignments.officialCalls, 1);
+    expect(assignments.lastAllowedProp, TrainingProp.bottle);
+    expect(
+      assignments.assignments.values.single.allowedProp,
+      TrainingProp.bottle,
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+  });
+
+  testWidgets(
+    'unsupported Activity Library prop fails closed instead of defaulting',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: officialByName('Body Grip'),
+        initialOfficialProp: TrainingProp.shaker,
+      );
+
+      expect(find.text('Choose a supported training prop'), findsOneWidget);
+      expect(find.text('Cocktail Shaker'), findsNothing);
+      expect(
+        tester
+            .widget<ElixPrimaryButton>(
+              find.byKey(const Key('teacher_assignment_publish_now')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(assignments.officialCalls, 0);
+    },
+  );
+
+  test(
+    'creation service rejects unsupported officialAllowedProp without fallback',
+    () async {
+      await expectLater(
+        service().create(
+          group: group,
+          officialMovement: officialByName('Hand Stall'),
+          officialAllowedProp: TrainingProp.bottleAndShaker,
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
+      expect(assignments.officialCalls, 0);
+    },
+  );
+
+  testWidgets(
+    'classroom-first multi-prop selection still chooses and persists Cocktail Shaker',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        lockedGroup: group,
+      );
+
+      final handStall = find.byKey(
+        const Key('teacher_assignment_official_Hand Stall'),
+      );
+      await tester.ensureVisible(handStall);
+      await tester.pumpAndSettle();
+      await tester.tap(handStall);
+      await tester.pumpAndSettle();
+
+      final propBox = find.byKey(const Key('teacher_assignment_official_prop'));
+      expect(propBox, findsOneWidget);
+      expect(
+        tester.widget<ComboBox<TrainingProp>>(propBox).value,
+        TrainingProp.bottle,
+      );
+
+      tester.widget<ComboBox<TrainingProp>>(propBox).onChanged!(
+        TrainingProp.shaker,
+      );
+      await tester.pump();
+      expect(
+        tester.widget<ComboBox<TrainingProp>>(propBox).value,
+        TrainingProp.shaker,
+      );
+
+      final oneFinger = find.byKey(
+        const Key('teacher_assignment_official_One Finger Stall'),
+      );
+      await tester.ensureVisible(oneFinger);
+      await tester.pumpAndSettle();
+      await tester.tap(oneFinger);
+      await tester.pump();
+      expect(
+        tester.widget<ComboBox<TrainingProp>>(propBox).value,
+        TrainingProp.bottle,
+      );
+
+      tester.widget<ComboBox<TrainingProp>>(propBox).onChanged!(
+        TrainingProp.shaker,
+      );
+      await tester.pump();
+
+      await publishAssignment(tester);
+
+      expect(assignments.officialCalls, 1);
+      expect(assignments.lastAllowedProp, TrainingProp.shaker);
+      expect(
+        assignments.assignments.values.single.officialMovementName,
+        'One Finger Stall',
+      );
+      expect(
+        assignments.assignments.values.single.allowedProp,
+        TrainingProp.shaker,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+    },
+  );
 }

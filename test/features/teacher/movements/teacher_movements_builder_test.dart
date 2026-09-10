@@ -646,11 +646,14 @@ void main() {
     tester,
   ) async {
     await pumpScreen(tester);
-    final guide = find.byKey(const Key('teacher_movement_guide_Normal Grip'));
+    final guide = find.byKey(
+      const Key('teacher_movement_guide_Normal Grip_bottle'),
+    );
     final card = find.byWidgetPredicate(
       (widget) =>
           widget is Focus &&
-          widget.key == const Key('teacher_movement_card_official_Normal Grip'),
+          widget.key ==
+              const Key('teacher_movement_card_official_Normal Grip_bottle'),
     );
 
     Focus.of(tester.element(guide)).requestFocus();
@@ -674,11 +677,11 @@ void main() {
     await pumpScreen(tester);
 
     await tester.tap(
-      find.byKey(const Key('teacher_movement_guide_Normal Grip')),
+      find.byKey(const Key('teacher_movement_guide_Normal Grip_bottle')),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Normal Grip guide'), findsOneWidget);
+    expect(find.text('Normal Grip · Bottle guide'), findsOneWidget);
     expect(find.text('How to perform it'), findsOneWidget);
     expect(find.text(lesson.objective), findsOneWidget);
     expect(find.text(lesson.successTarget), findsOneWidget);
@@ -698,7 +701,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('teacher_movement_guide_close')));
     await tester.pumpAndSettle();
-    expect(find.text('Normal Grip guide'), findsNothing);
+    expect(find.text('Normal Grip · Bottle guide'), findsNothing);
   });
 
   testWidgets('guide shows safety where the canonical lesson provides it', (
@@ -709,7 +712,9 @@ void main() {
     );
     final lesson = MovementLesson.forMovement(movement);
     await pumpScreen(tester);
-    final guide = find.byKey(const Key('teacher_movement_guide_Hand Stall'));
+    final guide = find.byKey(
+      const Key('teacher_movement_guide_Hand Stall_bottle'),
+    );
     await tester.scrollUntilVisible(
       guide,
       240,
@@ -728,7 +733,9 @@ void main() {
     tester,
   ) async {
     await pumpScreen(tester, size: const Size(760, 720));
-    final guide = find.byKey(const Key('teacher_movement_guide_Normal Grip'));
+    final guide = find.byKey(
+      const Key('teacher_movement_guide_Normal Grip_bottle'),
+    );
     // The compact shell reserves a bottom command area; move the first card's
     // controls into the actual hit-testable viewport, not merely its bounds.
     await tester.drag(find.byType(CustomScrollView), const Offset(0, -180));
@@ -736,7 +743,7 @@ void main() {
     await tester.tap(guide);
     await tester.pumpAndSettle();
 
-    expect(find.text('Normal Grip guide'), findsOneWidget);
+    expect(find.text('Normal Grip · Bottle guide'), findsOneWidget);
     expect(find.text('How to perform it'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -748,7 +755,7 @@ void main() {
     await pumpScreen(tester, tutorialProgress: tutorials);
 
     await tester.tap(
-      find.byKey(const Key('teacher_movement_guide_Normal Grip')),
+      find.byKey(const Key('teacher_movement_guide_Normal Grip_bottle')),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('teacher_movement_guide_close')));
@@ -779,7 +786,9 @@ void main() {
       await pumpScreen(tester);
 
       await tester.tap(
-        find.byKey(const Key('teacher_movement_assign_official_Normal Grip')),
+        find.byKey(
+          const Key('teacher_movement_assign_official_Normal Grip_bottle'),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -962,4 +971,153 @@ void main() {
       isFalse,
     );
   });
+
+  testWidgets(
+    'Official ELIXR Medium exposes separate Bottle and Cocktail Shaker activities',
+    (tester) async {
+      await pumpScreen(tester, size: const Size(1280, 900));
+
+      expect(find.text('20 guided ELIXR activities'), findsOneWidget);
+      expect(find.text('5 activities'), findsAtLeastNWidgets(1));
+
+      final mediumHeading = find.text('10 activities');
+      await tester.scrollUntilVisible(
+        mediumHeading,
+        280,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(mediumHeading, findsOneWidget);
+
+      final bottleCard = find.byKey(
+        const Key('teacher_movement_card_official_Hand Stall_bottle'),
+      );
+      final shakerCard = find.byKey(
+        const Key('teacher_movement_card_official_Hand Stall_shaker'),
+      );
+      await tester.scrollUntilVisible(
+        bottleCard,
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(bottleCard, findsOneWidget);
+      expect(shakerCard, findsOneWidget);
+      expect(find.text('Hand Stall'), findsNWidgets(2));
+
+      expect(
+        find.descendant(of: bottleCard, matching: find.text('Bottle')),
+        findsAtLeastNWidgets(1),
+      );
+      expect(
+        find.descendant(of: bottleCard, matching: find.text('Cocktail Shaker')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: shakerCard, matching: find.text('Cocktail Shaker')),
+        findsAtLeastNWidgets(1),
+      );
+      expect(
+        find.descendant(of: shakerCard, matching: find.text('Bottle')),
+        findsNothing,
+      );
+
+      expect(
+        find.byKey(
+          const Key('teacher_movement_assign_official_Hand Stall_bottle'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const Key('teacher_movement_assign_official_Hand Stall_shaker'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_movement_assign_official_Hand Stall')),
+        findsNothing,
+      );
+
+      final hardHeading = find.text('Hard — Advanced stability');
+      await tester.scrollUntilVisible(
+        hardHeading,
+        280,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(hardHeading, findsOneWidget);
+      expect(find.text('5 activities'), findsAtLeastNWidgets(1));
+    },
+  );
+
+  testWidgets(
+    'Official ELIXR variant cards still fit compact and wide layouts',
+    (tester) async {
+      final sizes = [
+        const Size(1366, 768),
+        const Size(1280, 720),
+        const Size(760, 780),
+      ];
+      for (var index = 0; index < sizes.length; index++) {
+        await pumpScreen(
+          tester,
+          size: sizes[index],
+          startController: index == 0,
+        );
+
+        expect(find.byType(SliverGrid), findsAtLeastNWidgets(1));
+        expect(find.text('20 guided ELIXR activities'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+  );
+
+  testWidgets(
+    'Cocktail Shaker variant assign pins Cocktail Shaker in the composer',
+    (tester) async {
+      groups.seedGroup(
+        const ElixrGroup(
+          id: 'active-group',
+          teacherId: 'teacher-1',
+          name: 'Active Class',
+          status: ElixrGroupStatus.active,
+        ),
+      );
+      await pumpScreen(tester);
+
+      final guide = find.byKey(
+        const Key('teacher_movement_guide_Hand Stall_shaker'),
+      );
+      await tester.scrollUntilVisible(
+        guide,
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(guide);
+      await tester.pumpAndSettle();
+      final assign = find.byKey(
+        const Key('teacher_movement_assign_official_Hand Stall_shaker'),
+      );
+      await tester.ensureVisible(assign);
+      await tester.pumpAndSettle();
+      await tester.tap(assign);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('teacher_assignment_movement_title')),
+        findsOneWidget,
+      );
+      expect(find.text('Hand Stall'), findsAtLeastNWidgets(1));
+      expect(find.text('Cocktail Shaker'), findsAtLeastNWidgets(1));
+      expect(
+        find.text('Official ELIXR guided assessment · Cocktail Shaker'),
+        findsAtLeastNWidgets(1),
+      );
+      expect(find.byType(ComboBox<TrainingProp>), findsNothing);
+      expect(
+        find.byKey(const Key('teacher_assignment_official_prop')),
+        findsOneWidget,
+      );
+    },
+  );
 }

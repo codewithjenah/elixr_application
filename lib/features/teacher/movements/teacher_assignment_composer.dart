@@ -257,8 +257,11 @@ class TeacherAssignmentCreationService {
 ///
 /// When [officialMovement] or [teacherCreatedMovement] is supplied, the
 /// screen is movement-scoped and lets the teacher choose an active classroom.
-/// When neither is supplied, it is classroom-scoped and [lockedGroup] is
-/// displayed as fixed context while the teacher chooses the movement.
+/// [initialOfficialProp] pins the Official ELIXR training prop from an
+/// Activity Library variant and is ignored in classroom-scoped creation.
+/// When neither movement is supplied, it is classroom-scoped and
+/// [lockedGroup] is displayed as fixed context while the teacher chooses
+/// the movement.
 Future<bool?> showTeacherAssignmentComposer(
   BuildContext context, {
   required String teacherId,
@@ -270,6 +273,7 @@ Future<bool?> showTeacherAssignmentComposer(
   TeacherAssignmentCreationService? creationService,
   ElixrGroup? lockedGroup,
   Movement? officialMovement,
+  TrainingProp? initialOfficialProp,
   TeacherMovement? teacherCreatedMovement,
   GroupAssignment? existingAssignment,
   Future<bool> Function()? ensureTeacherAuthorization,
@@ -304,6 +308,7 @@ Future<bool?> showTeacherAssignmentComposer(
             groupRepository: groupRepository,
             lockedGroup: lockedGroup,
             officialMovement: officialMovement,
+            initialOfficialProp: initialOfficialProp,
             teacherCreatedMovement: teacherCreatedMovement,
             existingAssignment: existingAssignment,
             materialRepository: materialRepository,
@@ -340,6 +345,7 @@ class TeacherAssignmentComposer extends StatefulWidget {
     required this.groupRepository,
     this.lockedGroup,
     this.officialMovement,
+    this.initialOfficialProp,
     this.teacherCreatedMovement,
     this.existingAssignment,
     this.materialRepository,
@@ -354,6 +360,14 @@ class TeacherAssignmentComposer extends StatefulWidget {
   final GroupRepository groupRepository;
   final ElixrGroup? lockedGroup;
   final Movement? officialMovement;
+
+  /// Exact Official ELIXR training prop from an Activity Library variant.
+  ///
+  /// Ignored in classroom-scoped creation, where the teacher still chooses
+  /// the prop. When set, the value must belong to
+  /// [officialMovement.supportedProps]; unsupported values are rejected
+  /// rather than replaced with the movement default.
+  final TrainingProp? initialOfficialProp;
   final TeacherMovement? teacherCreatedMovement;
 
   /// A real assignment switches this workspace into edit mode. Identity is
@@ -597,10 +611,18 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       AssignmentAudience.individualStudent(_targetTraineeIds),
   };
 
+  bool get _hasValidOfficialProp {
+    final official = _selectedOfficialMovement;
+    if (official == null) return true;
+    final prop = _selectedOfficialProp;
+    return prop != null && official.supportedProps.contains(prop);
+  }
+
   bool get _canSubmit =>
       !_submitting &&
       _selectedGroup?.isActive == true &&
       (_selectedOfficialMovement != null || _hasValidTeacherMovement) &&
+      _hasValidOfficialProp &&
       (!_classroomScoped || !_isTeacherCreated || !_loadingTeacherMovements) &&
       _hasValidMaxScore &&
       _hasValidActivityAssessment &&
@@ -644,7 +666,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     _selectedOfficialProp = existing?.isOfficial == true
         ? (existing?.allowedProp ??
               _selectedOfficialMovement?.supportedProps.first)
-        : _selectedOfficialMovement?.supportedProps.first;
+        : _resolveInitialOfficialProp(_selectedOfficialMovement);
     _selectedTeacherCreatedMovement = widget.teacherCreatedMovement;
     _origin =
         (existing?.isTeacherCreated == true ||
@@ -1121,13 +1143,27 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ),
           const SizedBox(height: AppSpacing.md),
           _classroomMovementPicker(context),
-        ] else
+        ] else ...[
           _MovementIdentityCard(
             key: const Key('teacher_assignment_movement_title'),
             title: _movementTitle,
             subtitle: _movementModeLabel,
             isTeacherCreated: _isTeacherCreated,
           ),
+          if (!_isTeacherCreated) ...[
+            const SizedBox(height: AppSpacing.md),
+            _ComposerReadOnlyField(
+              key: const Key('teacher_assignment_official_prop'),
+              label: 'Training prop',
+              value:
+                  _selectedOfficialProp?.displayLabel ??
+                  'Choose a supported training prop',
+              hint:
+                  'This assignment uses the training prop from the selected activity.',
+              icon: FluentIcons.lock,
+            ),
+          ],
+        ],
         if (_classroomScoped && !_isTeacherCreated) ...[
           const SizedBox(height: AppSpacing.md),
           const _AutomaticScoringCard(),
@@ -1952,17 +1988,32 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   String get _movementModeLabel {
     if (_isEditing && _editingAssignment!.isOfficial) {
-      return 'Official ELIXR guided assessment';
+      return _officialModeLabel(
+        _selectedOfficialProp ?? _editingAssignment!.allowedProp,
+      );
     }
     if (_isEditing && _editingAssignment!.isTeacherCreated) {
       return 'Teacher reviewed · No automatic ELIXR score';
     }
     final custom = _selectedTeacherCreatedMovement;
     if (_selectedOfficialMovement != null) {
-      return 'Official ELIXR guided assessment';
+      return _officialModeLabel(_selectedOfficialProp);
     }
     if (custom != null) return 'Teacher reviewed · No automatic ELIXR score';
     return 'Choose an assignable movement.';
+  }
+
+  String _officialModeLabel(TrainingProp? prop) {
+    if (prop == null) return 'Official ELIXR guided assessment';
+    return 'Official ELIXR guided assessment · ${prop.displayLabel}';
+  }
+
+  TrainingProp? _resolveInitialOfficialProp(Movement? movement) {
+    if (movement == null) return null;
+    final requested = widget.initialOfficialProp;
+    if (requested == null) return movement.supportedProps.first;
+    if (movement.supportedProps.contains(requested)) return requested;
+    return null;
   }
 
   Widget _classroomMovementPicker(BuildContext context) {
@@ -2173,6 +2224,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _customizeActivity = false;
         _selectedTeacherCreatedMovement = null;
         _selectedOfficialMovement ??= _enabledOfficialMovements.firstOrNull;
+        final movement = _selectedOfficialMovement;
+        if (movement == null ||
+            _selectedOfficialProp == null ||
+            !movement.supportedProps.contains(_selectedOfficialProp)) {
+          _selectedOfficialProp = movement?.supportedProps.first;
+        }
       } else {
         _selectedOfficialMovement = null;
         _selectedTeacherCreatedMovement ??= _teacherMovements.firstOrNull;

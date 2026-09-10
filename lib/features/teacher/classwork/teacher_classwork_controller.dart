@@ -149,12 +149,14 @@ class TeacherClassworkController extends ChangeNotifier {
     notifyListeners();
     try {
       final candidate = await groupRepository.getGroup(groupId: groupId);
+      if (_disposed) return;
       if (candidate == null || candidate.teacherId != teacherId) {
         unauthorized = true;
         errorMessage = 'This class is not available.';
         return;
       }
       group = candidate;
+      if (_disposed) return;
       if (fixedTraineeId != null) {
         // A class-scoped student route must prove approved membership before
         // subscribing to assignments or submission attempts for the class.
@@ -182,43 +184,58 @@ class TeacherClassworkController extends ChangeNotifier {
 
   Future<void> _listenToAssignments() async {
     await _assignmentsSubscription?.cancel();
-    final first = Completer<void>();
+    if (_disposed) return;
+    try {
+      _applyAssignments(
+        await assignmentRepository.fetchAssignmentsForGroup(groupId: groupId),
+      );
+    } catch (error, stackTrace) {
+      _logFailure('assignments fetch', error, stackTrace);
+    }
+    if (_disposed) return;
     _assignmentsSubscription = assignmentRepository
         .watchTeacherAssignments(teacherId: teacherId)
         .listen(
           (items) {
-            if (_disposed) return;
-            assignments = [
-              for (final assignment in items)
-                if (assignment.groupId == groupId &&
-                    assignment.teacherId == teacherId &&
-                    (fixedTraineeId == null ||
-                        assignment.isAvailableToTrainee(fixedTraineeId!)))
-                  assignment,
-            ]..sort(_compareAssignments);
-            _syncAttemptSubscriptions();
-            _reconcileSelection();
-            if (!first.isCompleted) first.complete();
-            notifyListeners();
+            _applyAssignments(items);
           },
           onError: (Object error, StackTrace stackTrace) {
             _logFailure('assignments stream', error, stackTrace);
-            if (!first.isCompleted) first.completeError(error, stackTrace);
           },
         );
-    await first.future;
+    if (_disposed) {
+      await _assignmentsSubscription?.cancel();
+      _assignmentsSubscription = null;
+    }
+  }
+
+  void _applyAssignments(List<GroupAssignment> items) {
+    if (_disposed) return;
+    assignments = [
+      for (final assignment in items)
+        if (assignment.groupId == groupId &&
+            assignment.teacherId == teacherId &&
+            (fixedTraineeId == null ||
+                assignment.isAvailableToTrainee(fixedTraineeId!)))
+          assignment,
+    ]..sort(_compareAssignments);
+    _syncAttemptSubscriptions();
+    _reconcileSelection();
+    notifyListeners();
   }
 
   Future<void> _listenToMembers() async {
     final providedMembers = approvedMembershipsProvider;
     final providedListenable = approvedMembershipsListenable;
     if (providedMembers != null && providedListenable != null) {
+      if (_disposed) return;
       providedListenable.removeListener(_onProvidedMembershipsChanged);
       providedListenable.addListener(_onProvidedMembershipsChanged);
       _applyApprovedMemberships(providedMembers());
       return;
     }
     await _membershipsSubscription?.cancel();
+    if (_disposed) return;
     final first = Completer<void>();
     _membershipsSubscription = groupRepository
         .watchApprovedGroupMembers(groupId: groupId, teacherId: teacherId)
@@ -233,6 +250,11 @@ class TeacherClassworkController extends ChangeNotifier {
             if (!first.isCompleted) first.completeError(error, stackTrace);
           },
         );
+    if (_disposed) {
+      await _membershipsSubscription?.cancel();
+      _membershipsSubscription = null;
+      return;
+    }
     await first.future;
   }
 

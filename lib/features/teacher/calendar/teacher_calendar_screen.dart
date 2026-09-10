@@ -20,8 +20,10 @@ import '../../../data/models/group_assignment.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../calendar/utils/calendar_metrics.dart';
+import '../../calendar/widgets/calendar_agenda_panel.dart';
 import '../../calendar/widgets/calendar_chrome.dart';
 import '../../calendar/widgets/calendar_header.dart';
+import '../../calendar/widgets/calendar_metric_tile.dart';
 import 'teacher_calendar_models.dart';
 
 typedef TeacherCalendarAssignmentsLoader =
@@ -194,103 +196,94 @@ class _TeacherCalendarScreenState extends State<TeacherCalendarScreen> {
               actionLabel: 'Retry',
               onAction: _start,
             )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CalendarHeader(
-                  visibleMonth: _visibleMonth,
-                  onPreviousMonth: () => setState(() {
-                    _visibleMonth = DateTime(
-                      _visibleMonth.year,
-                      _visibleMonth.month - 1,
-                    );
-                  }),
-                  onNextMonth: () => setState(() {
-                    _visibleMonth = DateTime(
-                      _visibleMonth.year,
-                      _visibleMonth.month + 1,
-                    );
-                  }),
-                  onToday: () => _selectDate(_today),
+          : Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: CalendarLayout.maxContentWidth,
                 ),
-                const SizedBox(height: AppSpacing.md),
-                _TeacherWorkloadOverview(overview: overview),
-                const SizedBox(height: AppSpacing.md),
-                _TeacherCalendarFilters(
-                  classrooms: classrooms,
-                  classroomId: _classroomId,
-                  deadlineFilter: _deadlineFilter,
-                  onClassroomChanged: (value) =>
-                      setState(() => _classroomId = value ?? ''),
-                  onDeadlineChanged: (value) => setState(
-                    () => _deadlineFilter = value ?? TeacherDeadlineFilter.all,
-                  ),
-                ),
-                if (events.isEmpty) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  const ElixStatusPanel(
-                    key: Key('teacher_calendar_empty'),
-                    title: 'No assignment deadlines yet',
-                    message:
-                        'Assignment deadlines from your classrooms will appear here.',
-                    icon: FluentIcons.calendar,
-                  ),
-                ] else if (visibleEvents.isEmpty) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  ElixStatusPanel(
-                    key: const Key('teacher_calendar_filter_empty'),
-                    title: 'No deadlines match these filters',
-                    message: filtersActive
-                        ? 'Try another classroom or deadline state, or clear filters to see every assignment.'
-                        : 'No assignment deadlines match the current view.',
-                    icon: FluentIcons.filter,
-                    actionLabel: filtersActive ? 'Clear filters' : null,
-                    onAction: filtersActive ? _clearFilters : null,
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.lg),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 980;
-                    final grid = _TeacherCalendarGrid(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CalendarHeader(
                       visibleMonth: _visibleMonth,
-                      selectedDate: _selectedDate,
-                      today: _today,
-                      events: visibleEvents,
-                      onDateSelected: _selectDate,
-                    );
-                    final details = _SelectedDeadlinePanel(
-                      date: _selectedDate,
-                      events: selectedEvents,
-                      filtersActive: filtersActive,
-                      hasAnyDeadlines: events.isNotEmpty,
-                      onClearFilters: filtersActive ? _clearFilters : null,
-                      onOpen: (event) => context.push(
-                        AppRoutePaths.teacherGroupClasswork(
-                          event.assignment.groupId,
-                          event.assignment.id,
+                      onPreviousMonth: () => setState(() {
+                        _visibleMonth = DateTime(
+                          _visibleMonth.year,
+                          _visibleMonth.month - 1,
+                        );
+                      }),
+                      onNextMonth: () => setState(() {
+                        _visibleMonth = DateTime(
+                          _visibleMonth.year,
+                          _visibleMonth.month + 1,
+                        );
+                      }),
+                      onToday: () => _selectDate(_today),
+                      trailing: _TeacherCalendarFilters(
+                        classrooms: classrooms,
+                        classroomId: _classroomId,
+                        deadlineFilter: _deadlineFilter,
+                        filtersActive: filtersActive,
+                        onClassroomChanged: (value) =>
+                            setState(() => _classroomId = value ?? ''),
+                        onDeadlineChanged: (value) => setState(
+                          () => _deadlineFilter =
+                              value ?? TeacherDeadlineFilter.all,
+                        ),
+                        onClearFilters: filtersActive ? _clearFilters : null,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _TeacherWorkloadOverview(overview: overview),
+                    if (events.isEmpty) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      const ElixStatusPanel(
+                        key: Key('teacher_calendar_empty'),
+                        title: 'No assignment deadlines yet',
+                        message:
+                            'Assignment deadlines from your classrooms will appear here.',
+                        icon: FluentIcons.calendar,
+                      ),
+                    ] else if (visibleEvents.isEmpty) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      ElixStatusPanel(
+                        key: const Key('teacher_calendar_filter_empty'),
+                        title: 'No deadlines match these filters',
+                        message: filtersActive
+                            ? 'Try another classroom or deadline state, or clear filters to see every assignment.'
+                            : 'No assignment deadlines match the current view.',
+                        icon: FluentIcons.filter,
+                        actionLabel: filtersActive ? 'Clear filters' : null,
+                        onAction: filtersActive ? _clearFilters : null,
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.md),
+                    CalendarWorkspaceSplit(
+                      calendar: _TeacherCalendarGrid(
+                        visibleMonth: _visibleMonth,
+                        selectedDate: _selectedDate,
+                        today: _today,
+                        events: visibleEvents,
+                        onDateSelected: _selectDate,
+                      ),
+                      agenda: _SelectedDeadlinePanel(
+                        date: _selectedDate,
+                        events: selectedEvents,
+                        filtersActive: filtersActive,
+                        hasAnyDeadlines: events.isNotEmpty,
+                        onClearFilters: filtersActive ? _clearFilters : null,
+                        onOpen: (event) => context.push(
+                          AppRoutePaths.teacherGroupClasswork(
+                            event.assignment.groupId,
+                            event.assignment.id,
+                          ),
                         ),
                       ),
-                    );
-                    return wide
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(flex: 3, child: grid),
-                              const SizedBox(width: AppSpacing.lg),
-                              Expanded(flex: 2, child: details),
-                            ],
-                          )
-                        : Column(
-                            children: [
-                              grid,
-                              const SizedBox(height: AppSpacing.lg),
-                              details,
-                            ],
-                          );
-                  },
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
     );
   }
@@ -303,33 +296,34 @@ class _TeacherWorkloadOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (
+    final tiles = [
+      CalendarMetricTile(
         key: const Key('teacher_calendar_due_today'),
         icon: FluentIcons.clock,
         label: 'Due today',
-        value: overview.dueTodayCount,
+        value: '${overview.dueTodayCount}',
         tone: ElixTone.warning,
       ),
-      (
+      CalendarMetricTile(
         key: const Key('teacher_calendar_overdue'),
         icon: FluentIcons.warning,
         label: 'Overdue',
-        value: overview.overdueCount,
+        value: '${overview.overdueCount}',
         tone: ElixTone.error,
       ),
-      (
+      CalendarMetricTile(
         key: const Key('teacher_calendar_upcoming'),
         icon: FluentIcons.calendar,
         label: 'Upcoming this month',
-        value: overview.upcomingThisMonthCount,
+        value: '${overview.upcomingThisMonthCount}',
+        detail: '${overview.upcomingThisWeekCount} this week',
         tone: ElixTone.selected,
       ),
-      (
+      CalendarMetricTile(
         key: const Key('teacher_calendar_classrooms'),
         icon: FluentIcons.education,
         label: 'Classrooms this month',
-        value: overview.visibleClassroomCount,
+        value: '${overview.visibleClassroomCount}',
         tone: ElixTone.milestone,
       ),
     ];
@@ -341,80 +335,14 @@ class _TeacherWorkloadOverview extends StatelessWidget {
         key: const Key('teacher_calendar_overview'),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 720;
-            if (wide) {
-              return Row(
-                children: [
-                  for (var i = 0; i < items.length; i++) ...[
-                    if (i > 0) const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: _OverviewChip(
-                        chipKey: items[i].key,
-                        icon: items[i].icon,
-                        label: items[i].label,
-                        value: items[i].value,
-                        tone: items[i].tone,
-                        detail:
-                            items[i].key ==
-                                const Key('teacher_calendar_upcoming')
-                            ? '${overview.upcomingThisWeekCount} this week'
-                            : null,
-                      ),
-                    ),
-                  ],
-                ],
-              );
+            if (constraints.maxWidth >= CalendarLayout.metricsPairBreakpoint) {
+              return _MetricRow(tiles: tiles);
             }
             return Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _OverviewChip(
-                        chipKey: items[0].key,
-                        icon: items[0].icon,
-                        label: items[0].label,
-                        value: items[0].value,
-                        tone: items[0].tone,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: _OverviewChip(
-                        chipKey: items[1].key,
-                        icon: items[1].icon,
-                        label: items[1].label,
-                        value: items[1].value,
-                        tone: items[1].tone,
-                      ),
-                    ),
-                  ],
-                ),
+                _MetricRow(tiles: tiles.sublist(0, 2)),
                 const SizedBox(height: AppSpacing.sm),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _OverviewChip(
-                        chipKey: items[2].key,
-                        icon: items[2].icon,
-                        label: items[2].label,
-                        value: items[2].value,
-                        tone: items[2].tone,
-                        detail: '${overview.upcomingThisWeekCount} this week',
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: _OverviewChip(
-                        chipKey: items[3].key,
-                        icon: items[3].icon,
-                        label: items[3].label,
-                        value: items[3].value,
-                        tone: items[3].tone,
-                      ),
-                    ),
-                  ],
-                ),
+                _MetricRow(tiles: tiles.sublist(2)),
               ],
             );
           },
@@ -424,68 +352,21 @@ class _TeacherWorkloadOverview extends StatelessWidget {
   }
 }
 
-class _OverviewChip extends StatelessWidget {
-  const _OverviewChip({
-    required this.chipKey,
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.tone,
-    this.detail,
-  });
+class _MetricRow extends StatelessWidget {
+  const _MetricRow({required this.tiles});
 
-  final Key chipKey;
-  final IconData icon;
-  final String label;
-  final int value;
-  final ElixTone tone;
-  final String? detail;
+  final List<Widget> tiles;
 
   @override
   Widget build(BuildContext context) {
-    final color = ElixToneCues.color(context.elixColors, tone);
-    final highContrast = context.isHighContrast;
-    return ElixPanelCard(
-      key: chipKey,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+    return IntrinsicHeight(
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Icon(
-            icon,
-            size: 14,
-            color: highContrast ? context.elixTextPrimary : color,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: ElixTypography.label(color: context.elixTextSecondary),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '$value',
-                  style: ElixTypography.cardTitle(
-                    color: context.elixTextPrimary,
-                  ),
-                ),
-                if (detail != null)
-                  Text(
-                    detail!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                      fontSize: 11,
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          for (var i = 0; i < tiles.length; i++) ...[
+            if (i > 0) const SizedBox(width: AppSpacing.sm),
+            Expanded(child: tiles[i]),
+          ],
         ],
       ),
     );
@@ -497,82 +378,125 @@ class _TeacherCalendarFilters extends StatelessWidget {
     required this.classrooms,
     required this.classroomId,
     required this.deadlineFilter,
+    required this.filtersActive,
     required this.onClassroomChanged,
     required this.onDeadlineChanged,
+    this.onClearFilters,
   });
 
   final List<TeacherCalendarClassroomOption> classrooms;
   final String classroomId;
   final TeacherDeadlineFilter deadlineFilter;
+  final bool filtersActive;
   final ValueChanged<String?> onClassroomChanged;
   final ValueChanged<TeacherDeadlineFilter?> onDeadlineChanged;
+  final VoidCallback? onClearFilters;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.sm,
-      crossAxisAlignment: WrapCrossAlignment.end,
-      children: [
-        _FilterField(
-          label: 'Classroom',
-          child: ComboBox<String>(
-            key: const Key('teacher_calendar_classroom_filter'),
-            value: classroomId,
-            isExpanded: true,
-            items: [
-              const ComboBoxItem<String>(
-                value: '',
-                child: Text('All classrooms'),
+    final colors = context.elixColors;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceRaised,
+          borderRadius: BorderRadius.circular(CalendarLayout.controlRadius),
+          border: Border.all(
+            color: filtersActive
+                ? colors.borderInteractive
+                : colors.borderSubtle,
+            width: filtersActive && context.isHighContrast ? 2 : 1,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+          child: Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (filtersActive)
+                ElixPill(
+                  text: 'Filtered',
+                  color: colors.brandSecondary,
+                  compact: true,
+                ),
+              _ToolbarFilter(
+                label: 'Classroom',
+                width: 168,
+                child: ComboBox<String>(
+                  key: const Key('teacher_calendar_classroom_filter'),
+                  value: classroomId,
+                  isExpanded: true,
+                  items: [
+                    const ComboBoxItem<String>(
+                      value: '',
+                      child: Text('All classrooms'),
+                    ),
+                    for (final classroom in classrooms)
+                      ComboBoxItem<String>(
+                        value: classroom.id,
+                        child: Text(classroom.name),
+                      ),
+                  ],
+                  onChanged: onClassroomChanged,
+                ),
               ),
-              for (final classroom in classrooms)
-                ComboBoxItem<String>(
-                  value: classroom.id,
-                  child: Text(classroom.name),
+              _ToolbarFilter(
+                label: 'Deadline',
+                width: 132,
+                child: ComboBox<TeacherDeadlineFilter>(
+                  key: const Key('teacher_calendar_deadline_filter'),
+                  value: deadlineFilter,
+                  isExpanded: true,
+                  items: [
+                    for (final filter in TeacherDeadlineFilter.values)
+                      ComboBoxItem<TeacherDeadlineFilter>(
+                        value: filter,
+                        child: Text(filter.label),
+                      ),
+                  ],
+                  onChanged: onDeadlineChanged,
+                ),
+              ),
+              if (onClearFilters != null)
+                Button(
+                  onPressed: onClearFilters,
+                  child: const Text('Clear filters'),
                 ),
             ],
-            onChanged: onClassroomChanged,
           ),
         ),
-        _FilterField(
-          label: 'Deadline',
-          child: ComboBox<TeacherDeadlineFilter>(
-            key: const Key('teacher_calendar_deadline_filter'),
-            value: deadlineFilter,
-            isExpanded: true,
-            items: [
-              for (final filter in TeacherDeadlineFilter.values)
-                ComboBoxItem<TeacherDeadlineFilter>(
-                  value: filter,
-                  child: Text(filter.label),
-                ),
-            ],
-            onChanged: onDeadlineChanged,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
-class _FilterField extends StatelessWidget {
-  const _FilterField({required this.label, required this.child});
+class _ToolbarFilter extends StatelessWidget {
+  const _ToolbarFilter({
+    required this.label,
+    required this.child,
+    required this.width,
+  });
 
   final String label;
   final Widget child;
+  final double width;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 220,
+      width: width,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: ElixTypography.label(color: context.elixTextSecondary),
+            style: ElixTypography.label(
+              color: context.elixTextSecondary,
+            ).copyWith(fontSize: 10),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           child,
         ],
       ),
@@ -598,37 +522,38 @@ class _TeacherCalendarGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final byDay = teacherCalendarEventsByDay(events);
+    final colors = context.elixColors;
     final dates = monthGridDates(visibleMonth.year, visibleMonth.month);
-    return CalendarSurface(
-      child: Column(
-        key: const Key('teacher_calendar_grid'),
-        children: [
-          const CalendarWeekdayHeader(),
-          const SizedBox(height: AppSpacing.sm),
-          for (var week = 0; week < dates.length ~/ 7; week++) ...[
-            if (week > 0) const SizedBox(height: 6),
-            Row(
-              children: [
-                for (var day = 0; day < 7; day++)
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(right: day == 6 ? 0 : 6),
-                      child: _TeacherCalendarDayCell(
-                        date: dates[week * 7 + day],
-                        dayEvents: byDay[dates[week * 7 + day]] ?? const [],
-                        isOutsideMonth:
-                            dates[week * 7 + day].month != visibleMonth.month,
-                        isSelected: dates[week * 7 + day] == selectedDate,
-                        isToday: dates[week * 7 + day] == today,
-                        onTap: () => onDateSelected(dates[week * 7 + day]),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
+    return CalendarMonthShell(
+      dates: dates,
+      visibleMonth: visibleMonth,
+      selectedDate: selectedDate,
+      todayDate: today,
+      gridKey: const Key('teacher_calendar_grid'),
+      footer: CalendarLegendBar(
+        items: [
+          (FluentIcons.warning, colors.error, 'Overdue'),
+          (FluentIcons.clock, colors.warning, 'Due today'),
+          (FluentIcons.calendar, colors.brandSecondary, 'Upcoming'),
         ],
       ),
+      cellBuilder:
+          (
+            context,
+            date, {
+            required isOutsideMonth,
+            required isSelected,
+            required isToday,
+          }) {
+            return _TeacherCalendarDayCell(
+              date: date,
+              dayEvents: byDay[date] ?? const [],
+              isOutsideMonth: isOutsideMonth,
+              isSelected: isSelected,
+              isToday: isToday,
+              onTap: () => onDateSelected(date),
+            );
+          },
     );
   }
 }
@@ -675,6 +600,7 @@ class _TeacherCalendarDayCell extends StatelessWidget {
       isOutsideMonth: isOutsideMonth,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           CalendarDayNumber(
             day: date.day,
@@ -682,7 +608,6 @@ class _TeacherCalendarDayCell extends StatelessWidget {
             isSelected: isSelected,
             isOutsideMonth: isOutsideMonth,
           ),
-          const SizedBox(height: 6),
           if (count > 0)
             _DayDeadlineMarks(
               count: count,
@@ -709,132 +634,50 @@ class _DayDeadlineMarks extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.elixColors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 4,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            _CountBadge(count: count, dimmed: dimmed),
-            if (states.contains(TeacherDeadlineState.overdue))
-              _StateGlyph(
-                icon: FluentIcons.warning,
-                color: colors.error,
-                tooltip: 'Overdue',
-                dimmed: dimmed,
-              ),
-            if (states.contains(TeacherDeadlineState.dueToday))
-              _StateGlyph(
-                icon: FluentIcons.clock,
-                color: colors.warning,
-                tooltip: 'Due today',
-                dimmed: dimmed,
-              ),
-            if (states.contains(TeacherDeadlineState.upcoming))
-              _StateGlyph(
-                icon: FluentIcons.calendar,
-                color: colors.brandSecondary,
-                tooltip: 'Upcoming',
-                dimmed: dimmed,
-              ),
-          ],
+    final chips = <Widget>[
+      CalendarMarkerChip(
+        icon: FluentIcons.more,
+        tooltip: '$count assignment${count == 1 ? '' : 's'}',
+        color: colors.brandSecondary,
+        count: count,
+        dimmed: dimmed,
+      ),
+    ];
+    if (states.contains(TeacherDeadlineState.overdue)) {
+      chips.add(
+        CalendarMarkerChip(
+          icon: FluentIcons.warning,
+          tooltip: 'Overdue',
+          color: colors.error,
+          label: 'Late',
+          dimmed: dimmed,
         ),
-        if (count >= 3) ...[
-          const SizedBox(height: 4),
-          _DensityBar(count: count, dimmed: dimmed),
-        ],
-      ],
-    );
-  }
-}
-
-class _CountBadge extends StatelessWidget {
-  const _CountBadge({required this.count, required this.dimmed});
-
-  final int count;
-  final bool dimmed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.elixColors;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: colors.surfaceInteractive,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Text(
-        '$count',
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          color: context.elixTextPrimary.withValues(alpha: dimmed ? 0.55 : 1),
+      );
+    }
+    if (states.contains(TeacherDeadlineState.dueToday) && chips.length < 3) {
+      chips.add(
+        CalendarMarkerChip(
+          icon: FluentIcons.clock,
+          tooltip: 'Due today',
+          color: colors.warning,
+          label: 'Today',
+          dimmed: dimmed,
         ),
-      ),
-    );
-  }
-}
+      );
+    }
+    if (states.contains(TeacherDeadlineState.upcoming) && chips.length < 3) {
+      chips.add(
+        CalendarMarkerChip(
+          icon: FluentIcons.calendar,
+          tooltip: 'Upcoming',
+          color: colors.brandSecondary,
+          label: 'Soon',
+          dimmed: dimmed,
+        ),
+      );
+    }
 
-class _StateGlyph extends StatelessWidget {
-  const _StateGlyph({
-    required this.icon,
-    required this.color,
-    required this.tooltip,
-    required this.dimmed,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String tooltip;
-  final bool dimmed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Icon(
-        icon,
-        size: 10,
-        color: color.withValues(alpha: dimmed ? 0.45 : 1),
-      ),
-    );
-  }
-}
-
-class _DensityBar extends StatelessWidget {
-  const _DensityBar({required this.count, required this.dimmed});
-
-  final int count;
-  final bool dimmed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.elixColors;
-    final filled = count.clamp(1, 4);
-    return Row(
-      children: [
-        for (var i = 0; i < 4; i++)
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(right: i == 3 ? 0 : 2),
-              child: Container(
-                height: 3,
-                decoration: BoxDecoration(
-                  color: i < filled
-                      ? colors.brandSecondary.withValues(
-                          alpha: dimmed ? 0.35 : 0.85,
-                        )
-                      : colors.borderSubtle.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
+    return Wrap(spacing: 3, runSpacing: 3, children: chips);
   }
 }
 
@@ -857,35 +700,28 @@ class _SelectedDeadlinePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElixPanelCard(
+    return KeyedSubtree(
       key: const Key('teacher_calendar_selected_day'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            DateFormat.MMMMEEEEd().format(date),
-            style: ElixTypography.cardTitle(color: context.elixTextPrimary),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            events.isEmpty
-                ? 'No deadlines on this date'
-                : '${events.length} deadline${events.length == 1 ? '' : 's'}',
-            style: ElixTypography.label(color: context.elixTextSecondary),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          if (events.isEmpty)
-            _SelectedDayEmpty(
-              filtersActive: filtersActive,
-              hasAnyDeadlines: hasAnyDeadlines,
-              onClearFilters: onClearFilters,
-            )
-          else
-            for (final event in events) ...[
-              _DeadlineCard(event: event, onOpen: () => onOpen(event)),
-              if (event != events.last) const SizedBox(height: AppSpacing.sm),
-            ],
-        ],
+      child: CalendarAgendaPanel(
+        date: date,
+        subtitle: events.isEmpty
+            ? 'No deadlines on this date'
+            : '${events.length} deadline${events.length == 1 ? '' : 's'}',
+        child: events.isEmpty
+            ? _SelectedDayEmpty(
+                filtersActive: filtersActive,
+                hasAnyDeadlines: hasAnyDeadlines,
+                onClearFilters: onClearFilters,
+              )
+            : Column(
+                children: [
+                  for (final event in events) ...[
+                    _DeadlineCard(event: event, onOpen: () => onOpen(event)),
+                    if (event != events.last)
+                      const SizedBox(height: AppSpacing.sm),
+                  ],
+                ],
+              ),
       ),
     );
   }
@@ -912,15 +748,9 @@ class _SelectedDayEmpty extends StatelessWidget {
         : hasAnyDeadlines
         ? 'Select a date with a count badge to inspect classroom work.'
         : 'Published assignment deadlines will appear here.';
-    return Container(
-      key: const Key('teacher_calendar_selected_empty'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.elixBorder),
-      ),
+    return CalendarAgendaInset(
       child: Column(
+        key: const Key('teacher_calendar_selected_empty'),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(FluentIcons.calendar, color: context.elixColors.brandSecondary),
@@ -932,7 +762,7 @@ class _SelectedDayEmpty extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             message,
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+            style: ElixTypography.supporting(color: context.elixTextSecondary),
           ),
           if (onClearFilters != null) ...[
             const SizedBox(height: AppSpacing.md),
@@ -974,92 +804,16 @@ class _DeadlineCard extends StatelessWidget {
         FluentIcons.warning,
       ),
     };
-    return Button(
+    return CalendarWorkRow(
       key: Key('teacher_calendar_event_${event.assignment.id}'),
-      onPressed: onOpen,
-      style: ButtonStyle(padding: WidgetStateProperty.all(EdgeInsets.zero)),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(AppSpacing.sm),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.38)),
-          color: color.withValues(
-            alpha: context.isHighContrast
-                ? 0
-                : context.isDarkTheme
-                ? 0.08
-                : 0.06,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              event.assignment.displayTitle,
-              style: AppTheme.body.copyWith(
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(
-                  FluentIcons.education,
-                  size: 12,
-                  color: context.elixTextSecondary,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    event.classroomName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Icon(
-                  FluentIcons.clock,
-                  size: 12,
-                  color: context.elixTextSecondary,
-                ),
-                Text(
-                  DateFormat.jm().format(dueAt),
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                ElixPill(text: label, color: color, compact: true),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 11, color: color),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Open classwork',
-                      style: AppTheme.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: context.elixTextPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+      title: event.assignment.displayTitle,
+      subtitle: event.classroomName,
+      meta: DateFormat.jm().format(dueAt),
+      leadingIcon: icon,
+      accent: color,
+      actionLabel: 'Open classwork',
+      onOpen: onOpen,
+      badges: [ElixPill(text: label, color: color, compact: true)],
     );
   }
 }

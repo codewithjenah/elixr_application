@@ -19,6 +19,7 @@ import 'models/training_day_snapshot.dart';
 import 'models/calendar_classroom_assignment.dart';
 import 'utils/calendar_metrics.dart';
 import 'utils/training_plan_progress.dart';
+import 'widgets/calendar_chrome.dart';
 import 'widgets/calendar_header.dart';
 import 'widgets/calendar_month_grid.dart';
 import 'widgets/calendar_summary_cards.dart';
@@ -500,7 +501,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       onNextMonth: _goToNextMonth,
                       onToday: _goToToday,
                     ),
-                    const SizedBox(height: AppSpacing.md),
+                    const SizedBox(height: AppSpacing.sm),
                     CalendarSummaryCards(
                       plannedDays: metrics.plannedDays,
                       completedDays: metrics.completedDays,
@@ -540,68 +541,45 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: AppSpacing.lg),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final wide = constraints.maxWidth >= 980;
-                        final grid = CalendarMonthGrid(
-                          dates: monthGridDates(
-                            _visibleMonth.year,
-                            _visibleMonth.month,
+                    const SizedBox(height: AppSpacing.md),
+                    CalendarWorkspaceSplit(
+                      calendar: CalendarMonthGrid(
+                        dates: monthGridDates(
+                          _visibleMonth.year,
+                          _visibleMonth.month,
+                        ),
+                        visibleMonth: _visibleMonth,
+                        selectedDate: _selectedDate,
+                        todayDate: _todayCivil,
+                        snapshotsByDate: _byDate,
+                        classroomCountsByDate: classroomCounts,
+                        classroomOverdueByDate: classroomOverdueCounts,
+                        onDateSelected: _onDateSelected,
+                      ),
+                      agenda: SelectedDayPanel(
+                        snapshot: _selectedSnapshot,
+                        todayKey: _todayKey,
+                        userId: userId,
+                        isEditing: _editing,
+                        isSaving: _saving,
+                        actionError: _actionError,
+                        onStartEditing: () => setState(() => _editing = true),
+                        onCancelEditing: () => setState(() => _editing = false),
+                        onSavePlan: _savePlan,
+                        onMarkRest: _markRest,
+                        onRemovePlan: _removePlan,
+                        onStartPractice: _startPractice,
+                        onViewHistory: () => context.go(
+                          trainingLocation(
+                            view: TrainingView.history,
+                            date: formatCalendarQueryDate(_selectedDate),
                           ),
-                          visibleMonth: _visibleMonth,
-                          selectedDate: _selectedDate,
-                          todayDate: _todayCivil,
-                          snapshotsByDate: _byDate,
-                          classroomCountsByDate: classroomCounts,
-                          classroomOverdueByDate: classroomOverdueCounts,
-                          onDateSelected: _onDateSelected,
-                        );
-                        final panel = SelectedDayPanel(
-                          snapshot: _selectedSnapshot,
-                          todayKey: _todayKey,
-                          userId: userId,
-                          isEditing: _editing,
-                          isSaving: _saving,
-                          actionError: _actionError,
-                          onStartEditing: () => setState(() => _editing = true),
-                          onCancelEditing: () =>
-                              setState(() => _editing = false),
-                          onSavePlan: _savePlan,
-                          onMarkRest: _markRest,
-                          onRemovePlan: _removePlan,
-                          onStartPractice: _startPractice,
-                          onViewHistory: () => context.go(
-                            trainingLocation(
-                              view: TrainingView.history,
-                              date: formatCalendarQueryDate(_selectedDate),
-                            ),
-                          ),
-                          classroomItems: selectedClassroom,
-                          onOpenClassroomAssignment: (item) => context.push(
-                            AppRoutePaths.assignmentDetail(item.assignment.id),
-                          ),
-                        );
-
-                        if (wide) {
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(flex: 3, child: grid),
-                              const SizedBox(width: AppSpacing.md),
-                              Expanded(flex: 2, child: panel),
-                            ],
-                          );
-                        }
-
-                        return Column(
-                          children: [
-                            grid,
-                            const SizedBox(height: AppSpacing.md),
-                            panel,
-                          ],
-                        );
-                      },
+                        ),
+                        classroomItems: selectedClassroom,
+                        onOpenClassroomAssignment: (item) => context.push(
+                          AppRoutePaths.assignmentDetail(item.assignment.id),
+                        ),
+                      ),
                     ),
                   ],
                 ),

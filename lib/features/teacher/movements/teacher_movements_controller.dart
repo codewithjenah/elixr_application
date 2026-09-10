@@ -67,6 +67,10 @@ class TeacherMovementsController extends ChangeNotifier {
   List<Movement> get officialCatalog =>
       movementCatalog.where((movement) => movement.enabled).toList();
 
+  /// Exact Official ELIXR assignable variants: one [PracticeCatalogStep]
+  /// per enabled movement and each of its [Movement.supportedProps].
+  List<PracticeCatalogStep> get officialActivities => enabledPracticeSteps();
+
   List<ElixrGroup> get activeGroups =>
       groups.where((group) => group.isActive).toList();
 

@@ -177,6 +177,7 @@ void main() {
     expect(find.text('Analytics'), findsOneWidget);
     expect(find.text('Activity Library'), findsOneWidget);
     expect(find.text('Review Work'), findsWidgets);
+    expect(find.text('Grades'), findsWidgets);
     expect(find.text('Notifications'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);
     expect(find.text('Create your first classroom'), findsOneWidget);
@@ -221,5 +222,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Analytics'), findsWidgets);
     expect(find.text('Analytics is not available right now.'), findsOneWidget);
+
+    await tester.tap(find.text('Grades'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(
+      find.byKey(const Key('teacher_grades_no_classrooms')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Available in a later ELIXR Teacher phase.'),
+      findsNothing,
+    );
   });
 }

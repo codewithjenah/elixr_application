@@ -42,13 +42,13 @@ class InMemoryGroupRepository implements GroupRepository {
       <String, StreamController<List<ElixrGroup>>>{};
   final _traineeGroupControllers = <String, StreamController<ElixrGroup?>>{};
   final _groupMembershipControllers =
-      <String, StreamController<List<GroupMembership>>>{};
+      <String, Set<StreamController<List<GroupMembership>>>>{};
   final _teacherMembershipControllers =
-      <String, StreamController<List<GroupMembership>>>{};
+      <String, Set<StreamController<List<GroupMembership>>>>{};
   final _traineeMembershipControllers =
-      <String, StreamController<List<GroupMembership>>>{};
+      <String, Set<StreamController<List<GroupMembership>>>>{};
   final _approvedMemberControllers =
-      <String, StreamController<List<GroupMembership>>>{};
+      <String, Set<StreamController<List<GroupMembership>>>>{};
 
   static String _defaultGroupId() =>
       'group-${DateTime.now().microsecondsSinceEpoch}';
@@ -119,17 +119,25 @@ class InMemoryGroupRepository implements GroupRepository {
     for (final controller in _traineeGroupControllers.values) {
       controller.close();
     }
-    for (final controller in _groupMembershipControllers.values) {
-      controller.close();
+    for (final controllers in _groupMembershipControllers.values) {
+      for (final controller in controllers) {
+        controller.close();
+      }
     }
-    for (final controller in _teacherMembershipControllers.values) {
-      controller.close();
+    for (final controllers in _teacherMembershipControllers.values) {
+      for (final controller in controllers) {
+        controller.close();
+      }
     }
-    for (final controller in _traineeMembershipControllers.values) {
-      controller.close();
+    for (final controllers in _traineeMembershipControllers.values) {
+      for (final controller in controllers) {
+        controller.close();
+      }
     }
-    for (final controller in _approvedMemberControllers.values) {
-      controller.close();
+    for (final controllers in _approvedMemberControllers.values) {
+      for (final controller in controllers) {
+        controller.close();
+      }
     }
   }
 
@@ -610,17 +618,25 @@ class InMemoryGroupRepository implements GroupRepository {
   }
 
   Stream<List<GroupMembership>> _watchMemberships(
-    Map<String, StreamController<List<GroupMembership>>> controllers,
+    Map<String, Set<StreamController<List<GroupMembership>>>> controllers,
     String key,
     List<GroupMembership> Function() current,
   ) {
-    final existing = controllers[key];
-    if (existing != null && !existing.isClosed) return existing.stream;
+    // Each subscriber gets its own broadcast controller so cancel/listen
+    // overlaps still receive an initial snapshot, matching Firestore.
     late final StreamController<List<GroupMembership>> controller;
     controller = StreamController<List<GroupMembership>>.broadcast(
-      onListen: () => controller.add(current()),
+      onListen: () {
+        if (!controller.isClosed) controller.add(current());
+      },
+      onCancel: () {
+        controllers[key]?.remove(controller);
+        if (controllers[key]?.isEmpty ?? false) {
+          controllers.remove(key);
+        }
+      },
     );
-    controllers[key] = controller;
+    (controllers[key] ??= {}).add(controller);
     return controller.stream;
   }
 
@@ -714,27 +730,33 @@ class InMemoryGroupRepository implements GroupRepository {
 
   void _emitMemberships() {
     for (final entry in _groupMembershipControllers.entries) {
-      if (!entry.value.isClosed) {
-        final (teacherId, groupId, status) = _parseMembershipWatchKey(
-          entry.key,
-        );
-        entry.value.add(_membershipsForGroup(teacherId, groupId, status));
+      final (teacherId, groupId, status) = _parseMembershipWatchKey(entry.key);
+      final items = _membershipsForGroup(teacherId, groupId, status);
+      for (final controller
+          in List<StreamController<List<GroupMembership>>>.from(entry.value)) {
+        if (!controller.isClosed) controller.add(items);
       }
     }
     for (final entry in _teacherMembershipControllers.entries) {
-      if (!entry.value.isClosed) {
-        entry.value.add(_membershipsForTeacher(entry.key));
+      final items = _membershipsForTeacher(entry.key);
+      for (final controller
+          in List<StreamController<List<GroupMembership>>>.from(entry.value)) {
+        if (!controller.isClosed) controller.add(items);
       }
     }
     for (final entry in _traineeMembershipControllers.entries) {
-      if (!entry.value.isClosed) {
-        entry.value.add(_membershipsForTrainee(entry.key));
+      final items = _membershipsForTrainee(entry.key);
+      for (final controller
+          in List<StreamController<List<GroupMembership>>>.from(entry.value)) {
+        if (!controller.isClosed) controller.add(items);
       }
     }
     for (final entry in _approvedMemberControllers.entries) {
-      if (!entry.value.isClosed) {
-        final (teacherId, groupId) = _parseApprovedMemberWatchKey(entry.key);
-        entry.value.add(_approvedMembersForGroup(teacherId, groupId));
+      final (teacherId, groupId) = _parseApprovedMemberWatchKey(entry.key);
+      final items = _approvedMembersForGroup(teacherId, groupId);
+      for (final controller
+          in List<StreamController<List<GroupMembership>>>.from(entry.value)) {
+        if (!controller.isClosed) controller.add(items);
       }
     }
     _emitTraineeGroups();

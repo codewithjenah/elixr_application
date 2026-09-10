@@ -20,12 +20,13 @@ import '../../features/teacher/teacher_phase3_test_support.dart';
 
 void main() {
   test('teacher sidebar follows the daily Teacher workflow', () {
-    expect(teacherSidebarItems, hasLength(9));
+    expect(teacherSidebarItems, hasLength(10));
     expect(teacherSidebarItems.map((item) => item.label), [
       'Dashboard',
       'Classrooms',
       'Activity Library',
       'Review Work',
+      'Grades',
       'Students',
       'Calendar',
       'Progress',
@@ -37,6 +38,7 @@ void main() {
       AppRoutePaths.teacherGroups,
       AppRoutePaths.teacherMovements,
       AppRoutePaths.teacherToReview,
+      AppRoutePaths.teacherGrades,
       AppRoutePaths.teacherStudents,
       AppRoutePaths.teacherCalendar,
       AppRoutePaths.teacherProgress,
@@ -72,6 +74,34 @@ void main() {
         AppRoutePaths.teacherStudents,
       ),
       isTrue,
+    );
+    expect(
+      isTeacherSidebarRouteActive(
+        AppRoutePaths.teacherGrades,
+        AppRoutePaths.teacherGrades,
+      ),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarRouteActive(
+        '${AppRoutePaths.teacherGrades}/classroom-1',
+        AppRoutePaths.teacherGrades,
+      ),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarRouteActive(
+        AppRoutePaths.teacherGradesForGroup('group-1'),
+        AppRoutePaths.teacherGrades,
+      ),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarRouteActive(
+        AppRoutePaths.teacherGrades,
+        AppRoutePaths.teacherStudents,
+      ),
+      isFalse,
     );
     expect(
       isTeacherSidebarRouteActive(
@@ -121,6 +151,43 @@ void main() {
       isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, analytics),
       isFalse,
     );
+  });
+
+  testWidgets('Grades is selected on the grades destination', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const Row(
+            children: [
+              TeacherSidebar(
+                currentRoute: AppRoutePaths.teacherGrades,
+                isCollapsed: false,
+                onToggleCollapse: _noop,
+                onLogout: _noop,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    ElixSidebarNavTile tileFor(String label) => tester
+        .widgetList<ElixSidebarNavTile>(find.byType(ElixSidebarNavTile))
+        .firstWhere((tile) => tile.label == label);
+
+    expect(find.text('Grades'), findsOneWidget);
+    expect(tileFor('Grades').isActive, isTrue);
+    expect(tileFor('Review Work').isActive, isFalse);
+    expect(tileFor('Students').isActive, isFalse);
   });
 
   testWidgets('Analytics is selected on the analytics route', (tester) async {

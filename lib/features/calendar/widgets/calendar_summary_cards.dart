@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_spacing.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/elix_summary_stat_card.dart';
+import '../../../core/theme/elix_design_tokens.dart';
+import 'calendar_chrome.dart';
+import 'calendar_metric_tile.dart';
 
 class CalendarSummaryCards extends StatelessWidget {
   const CalendarSummaryCards({
@@ -30,102 +31,97 @@ class CalendarSummaryCards extends StatelessWidget {
     final adherenceSub = adherencePercent == null
         ? 'No actionable plans yet'
         : 'Completed of due training days';
+    final classroomOverdueActive = classroomOverdue > 0;
+
+    final cards = [
+      CalendarMetricTile(
+        label: 'Planned Days',
+        value: '$plannedDays',
+        detail: 'Training days this month',
+        icon: FluentIcons.calendar,
+        tone: ElixTone.selected,
+      ),
+      CalendarMetricTile(
+        label: 'Completed',
+        value: '$completedDays',
+        detail: 'Targets reached',
+        icon: FluentIcons.completed_solid,
+        tone: ElixTone.success,
+      ),
+      CalendarMetricTile(
+        label: 'Adherence',
+        value: adherenceLabel,
+        detail: adherenceSub,
+        icon: FluentIcons.chart,
+        tone: ElixTone.milestone,
+      ),
+      CalendarMetricTile(
+        label: 'Practice Streak',
+        value: '$planStreak',
+        detail: planStreak == 1 ? 'Completed plan day' : 'Completed plan days',
+        icon: FluentIcons.lightning_bolt,
+        tone: ElixTone.milestone,
+      ),
+      CalendarMetricTile(
+        label: classroomOverdueActive ? 'Overdue work' : 'Classroom work',
+        value: '${classroomOverdueActive ? classroomOverdue : classroomDue}',
+        detail: classroomOverdueActive
+            ? 'Needs your attention'
+            : classroomDue == 1
+            ? 'Assignment due this month'
+            : 'Assignments due this month',
+        icon: classroomOverdueActive
+            ? FluentIcons.warning
+            : FluentIcons.education,
+        tone: classroomOverdueActive ? ElixTone.error : ElixTone.milestone,
+      ),
+    ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720;
-        final cards = [
-          ElixSummaryStatCard(
-            label: 'Planned Days',
-            value: '$plannedDays',
-            detail: 'Training days this month',
-            icon: FluentIcons.calendar,
-            accent: context.elixColors.brandPrimary,
-          ),
-          ElixSummaryStatCard(
-            label: 'Completed',
-            value: '$completedDays',
-            detail: 'Targets reached',
-            icon: FluentIcons.completed_solid,
-            accent: context.elixColors.success,
-          ),
-          ElixSummaryStatCard(
-            label: 'Adherence',
-            value: adherenceLabel,
-            detail: adherenceSub,
-            icon: FluentIcons.chart,
-            accent: context.elixColors.brandSecondary,
-          ),
-          ElixSummaryStatCard(
-            label: 'Practice Streak',
-            value: '$planStreak',
-            detail: planStreak == 1
-                ? 'Completed plan day'
-                : 'Completed plan days',
-            icon: FluentIcons.lightning_bolt,
-            accent: context.elixColors.milestone,
-          ),
-          ElixSummaryStatCard(
-            label: classroomOverdue > 0 ? 'Overdue work' : 'Classroom work',
-            value: '${classroomOverdue > 0 ? classroomOverdue : classroomDue}',
-            detail: classroomOverdue > 0
-                ? 'Needs your attention'
-                : classroomDue == 1
-                ? 'Assignment due this month'
-                : 'Assignments due this month',
-            icon: classroomOverdue > 0
-                ? FluentIcons.warning
-                : FluentIcons.education,
-            accent: classroomOverdue > 0
-                ? context.elixColors.error
-                : context.elixColors.milestone,
-          ),
-        ];
-
-        if (wide) {
-          return IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < cards.length; i++) ...[
-                  if (i > 0) const SizedBox(width: AppSpacing.sm),
-                  Expanded(child: cards[i]),
-                ],
-              ],
-            ),
+        if (constraints.maxWidth >= CalendarLayout.metricsWideBreakpoint) {
+          return _MetricRow(tiles: cards);
+        }
+        if (constraints.maxWidth >= CalendarLayout.metricsPairBreakpoint) {
+          return Column(
+            children: [
+              _MetricRow(tiles: cards.sublist(0, 3)),
+              const SizedBox(height: AppSpacing.sm),
+              _MetricRow(tiles: cards.sublist(3)),
+            ],
           );
         }
-
         return Column(
           children: [
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: cards[0]),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(child: cards[1]),
-                ],
-              ),
-            ),
+            _MetricRow(tiles: cards.sublist(0, 2)),
             const SizedBox(height: AppSpacing.sm),
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: cards[2]),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(child: cards[3]),
-                ],
-              ),
-            ),
+            _MetricRow(tiles: cards.sublist(2, 4)),
             const SizedBox(height: AppSpacing.sm),
-            IntrinsicHeight(
-              child: Row(children: [Expanded(child: cards[4])]),
-            ),
+            _MetricRow(tiles: cards.sublist(4)),
           ],
         );
       },
+    );
+  }
+}
+
+class _MetricRow extends StatelessWidget {
+  const _MetricRow({required this.tiles});
+
+  final List<Widget> tiles;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < tiles.length; i++) ...[
+            if (i > 0) const SizedBox(width: AppSpacing.sm),
+            Expanded(child: tiles[i]),
+          ],
+        ],
+      ),
     );
   }
 }

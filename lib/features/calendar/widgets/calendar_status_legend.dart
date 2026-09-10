@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../models/training_day_status.dart';
 import '../utils/training_day_status_style.dart';
+import 'calendar_chrome.dart';
 
 class CalendarStatusLegend extends StatelessWidget {
   const CalendarStatusLegend({super.key});
@@ -18,69 +18,18 @@ class CalendarStatusLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.sm),
-      child: Wrap(
-        spacing: 14,
-        runSpacing: 8,
-        children: [
-          for (final status in _items)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  trainingDayStatusIcon(status),
-                  size: 11,
-                  color: trainingDayStatusColor(status),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  status.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
-            ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                FluentIcons.education,
-                size: 11,
-                color: context.elixColors.brandSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Classroom',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ],
+    final colors = context.elixColors;
+    return CalendarLegendBar(
+      items: [
+        for (final status in _items)
+          (
+            trainingDayStatusIcon(status),
+            trainingDayStatusColor(status, colors),
+            status.label,
           ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                FluentIcons.warning,
-                size: 11,
-                color: context.elixColors.error,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Overdue',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+        (FluentIcons.education, colors.brandSecondary, 'Classroom'),
+        (FluentIcons.warning, colors.error, 'Overdue'),
+      ],
     );
   }
 }

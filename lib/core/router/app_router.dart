@@ -31,6 +31,7 @@ import '../../features/teacher/analytics/teacher_analytics_screen.dart';
 import '../../features/teacher/dashboard/teacher_dashboard_screen.dart';
 import '../../features/teacher/calendar/teacher_calendar_screen.dart';
 import '../../features/teacher/faculties/teacher_faculties_screen.dart';
+import '../../features/teacher/grades/teacher_grades_screen.dart';
 import '../../features/teacher/groups/teacher_group_detail_screen.dart';
 import '../../features/teacher/groups/teacher_groups_screen.dart';
 import '../../features/teacher/leaderboard/teacher_leaderboard_screen.dart';
@@ -601,6 +602,17 @@ class AppRouter {
                 key: state.pageKey,
                 child: const TeacherActivityCenterScreen(
                   initialView: TeacherActivityCenterView.toReview,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: AppRoutePaths.teacherGrades,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: const ValueKey(AppRoutePaths.teacherGrades),
+                child: TeacherGradesScreen(
+                  initialGroupId: state
+                      .uri
+                      .queryParameters[AppRoutePaths.teacherGradesGroupQuery],
                 ),
               ),
             ),

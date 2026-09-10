@@ -59,6 +59,12 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
+    label: 'Grades',
+    icon: FluentIcons.assessment_group,
+    route: AppRoutePaths.teacherGrades,
+    group: TeacherSidebarGroup.primary,
+  ),
+  TeacherSidebarItem(
     label: 'Students',
     icon: FluentIcons.contact,
     route: AppRoutePaths.teacherStudents,
@@ -109,7 +115,8 @@ const teacherSidebarUtilityItems = [
 
 @visibleForTesting
 bool isTeacherSidebarRouteActive(String currentPath, String itemRoute) {
-  return currentPath == itemRoute || currentPath.startsWith('$itemRoute/');
+  final path = Uri.tryParse(currentPath)?.path ?? currentPath;
+  return path == itemRoute || path.startsWith('$itemRoute/');
 }
 
 @visibleForTesting

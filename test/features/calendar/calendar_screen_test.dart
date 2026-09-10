@@ -615,4 +615,33 @@ void main() {
     expect(find.text('CLASSROOM WORK'), findsOneWidget);
     expect(find.text('Classroom stall drill'), findsOneWidget);
   });
+
+  testWidgets('narrow desktop width stacks without overflow', (tester) async {
+    await pumpCalendar(tester);
+    await tester.pumpAndSettle();
+    await tester.binding.setSurfaceSize(const Size(720, 900));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('August 2026'), findsOneWidget);
+    expect(find.text('MON'), findsOneWidget);
+    expect(find.text('Plan Practice'), findsOneWidget);
+    expect(find.text('Planned Days'), findsOneWidget);
+  });
+
+  testWidgets('medium desktop width keeps calendar and agenda reachable', (
+    tester,
+  ) async {
+    await pumpCalendar(tester);
+    await tester.pumpAndSettle();
+    await tester.binding.setSurfaceSize(const Size(1024, 900));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('August 2026'), findsOneWidget);
+    expect(find.text('No training planned'), findsOneWidget);
+    await tester.tap(find.widgetWithText(Button, 'Today'));
+    await tester.pumpAndSettle();
+    expect(find.text('August 2026'), findsOneWidget);
+  });
 }

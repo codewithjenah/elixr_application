@@ -23,6 +23,7 @@ class TeacherGradebookPane extends StatefulWidget {
     required this.onOpenStudent,
     required this.onOpenAssignment,
     required this.onOpenCell,
+    this.showHeading = true,
     this.fileSaver = const WindowsTeacherGradebookFileSaver(),
   });
 
@@ -31,6 +32,7 @@ class TeacherGradebookPane extends StatefulWidget {
   final ValueChanged<GroupMembership> onOpenStudent;
   final ValueChanged<GroupAssignment> onOpenAssignment;
   final void Function(GroupAssignment assignment, String traineeId) onOpenCell;
+  final bool showHeading;
   final TeacherGradebookFileSaver fileSaver;
 
   @override
@@ -89,13 +91,15 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Grades',
-          style: AppTheme.headingMedium.copyWith(
-            color: context.elixTextPrimary,
+        if (widget.showHeading) ...[
+          Text(
+            'Grades',
+            style: AppTheme.headingMedium.copyWith(
+              color: context.elixTextPrimary,
+            ),
           ),
-        ),
-        const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: AppSpacing.xs),
+        ],
         Text(
           '${controller.approvedMemberships.length} students · ${assignments.length} assignments · $toReview to review',
           style: AppTheme.bodySecondary.copyWith(

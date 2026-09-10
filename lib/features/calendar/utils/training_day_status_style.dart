@@ -1,16 +1,19 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../models/training_day_status.dart';
 
-Color trainingDayStatusColor(TrainingDayStatus status) {
+Color trainingDayStatusColor(
+  TrainingDayStatus status,
+  ElixSemanticColors colors,
+) {
   return switch (status) {
-    TrainingDayStatus.planned => AppColors.accent,
-    TrainingDayStatus.inProgress => AppColors.warning,
-    TrainingDayStatus.completed => AppColors.success,
-    TrainingDayStatus.missed => AppColors.error,
-    TrainingDayStatus.rest => AppColors.textSecondary,
-    TrainingDayStatus.unplanned => AppColors.border,
+    TrainingDayStatus.planned => colors.brandSecondary,
+    TrainingDayStatus.inProgress => colors.warning,
+    TrainingDayStatus.completed => colors.success,
+    TrainingDayStatus.missed => colors.error,
+    TrainingDayStatus.rest => colors.textSecondary,
+    TrainingDayStatus.unplanned => colors.borderSubtle,
   };
 }
 

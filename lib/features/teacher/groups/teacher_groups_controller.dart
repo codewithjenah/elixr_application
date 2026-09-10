@@ -60,6 +60,7 @@ class TeacherGroupsController extends ChangeNotifier {
   StreamSubscription<List<GroupMembership>>? _pendingSub;
   StreamSubscription<List<GroupMembership>>? _approvedSub;
   StreamSubscription<List<GroupAssignment>>? _assignmentsSub;
+  int _membershipWatchGeneration = 0;
   Map<String, List<GroupAssignment>> assignmentsByGroupId = const {};
   final Map<String, StreamSubscription<PublicProfile?>> _profileSubs = {};
   final Map<String, String> _profilePictureUrls = {};
@@ -218,6 +219,11 @@ class TeacherGroupsController extends ChangeNotifier {
   }
 
   Future<void> selectGroup(ElixrGroup group) async {
+    if (selectedGroup?.id != group.id) {
+      pendingMemberships = const [];
+      approvedMemberships = const [];
+      approvedMembershipsReady = false;
+    }
     selectedGroup = group;
     unauthorized = false;
     actionMessage = null;
@@ -231,8 +237,11 @@ class TeacherGroupsController extends ChangeNotifier {
     approvedMemberships = const [];
     approvedMembershipsReady = false;
     activeInvite = null;
+    _membershipWatchGeneration++;
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());
+    _pendingSub = null;
+    _approvedSub = null;
     _syncMemberProfileWatches();
     notifyListeners();
   }
@@ -422,10 +431,16 @@ class TeacherGroupsController extends ChangeNotifier {
       );
 
   Future<void> _watchSelectedGroup(String groupId) async {
-    await _pendingSub?.cancel();
-    await _approvedSub?.cancel();
+    final watchGeneration = ++_membershipWatchGeneration;
+    final previousPending = _pendingSub;
+    final previousApproved = _approvedSub;
+    _pendingSub = null;
+    _approvedSub = null;
+    unawaited(previousPending?.cancel());
+    unawaited(previousApproved?.cancel());
     approvedMembershipsReady = false;
     activeInvite = await repository.getActiveGroupInvite(groupId: groupId);
+    if (watchGeneration != _membershipWatchGeneration) return;
     final pendingFirst = Completer<void>();
     final approvedFirst = Completer<void>();
     _pendingSub = repository
@@ -436,12 +451,14 @@ class TeacherGroupsController extends ChangeNotifier {
         )
         .listen(
           (value) {
+            if (watchGeneration != _membershipWatchGeneration) return;
             pendingMemberships = value;
             _syncMemberProfileWatches();
             if (!pendingFirst.isCompleted) pendingFirst.complete();
             notifyListeners();
           },
           onError: (Object error, StackTrace stackTrace) {
+            if (watchGeneration != _membershipWatchGeneration) return;
             _logMembershipStreamFailure('pending', error, stackTrace);
             errorMessage = 'Could not load pending requests.';
             if (!pendingFirst.isCompleted) pendingFirst.complete();
@@ -456,6 +473,7 @@ class TeacherGroupsController extends ChangeNotifier {
         )
         .listen(
           (value) {
+            if (watchGeneration != _membershipWatchGeneration) return;
             approvedMemberships = value;
             approvedMembershipsReady = true;
             _syncMemberProfileWatches();
@@ -463,6 +481,7 @@ class TeacherGroupsController extends ChangeNotifier {
             notifyListeners();
           },
           onError: (Object error, StackTrace stackTrace) {
+            if (watchGeneration != _membershipWatchGeneration) return;
             _logMembershipStreamFailure('approved', error, stackTrace);
             errorMessage = 'Could not load members.';
             if (!approvedFirst.isCompleted) approvedFirst.complete();
@@ -470,6 +489,7 @@ class TeacherGroupsController extends ChangeNotifier {
           },
         );
     await Future.wait([pendingFirst.future, approvedFirst.future]);
+    if (watchGeneration != _membershipWatchGeneration) return;
     notifyListeners();
   }
 
@@ -611,6 +631,7 @@ class TeacherGroupsController extends ChangeNotifier {
   @override
   void dispose() {
     _closed = true;
+    _membershipWatchGeneration++;
     unawaited(_groupsSub?.cancel());
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());

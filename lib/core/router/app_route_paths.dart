@@ -49,6 +49,8 @@ abstract final class AppRoutePaths {
   static const teacherProgress = '/teacher/progress';
   static const teacherMovements = '/teacher/movements';
   static const teacherToReview = '/teacher/to-review';
+  static const teacherGrades = '/teacher/grades';
+  static const teacherGradesGroupQuery = 'groupId';
   static const teacherActivityCenter = '/teacher/activity-center';
   static const teacherMessages = '/teacher/messages';
   static const teacherSettings = '/teacher/settings';
@@ -76,6 +78,7 @@ abstract final class AppRoutePaths {
     teacherProgress,
     teacherMovements,
     teacherToReview,
+    teacherGrades,
     teacherActivityCenter,
     teacherMessages,
     teacherSettings,
@@ -194,6 +197,13 @@ abstract final class AppRoutePaths {
 
   static bool isTeacherShellRoute(String location) {
     return location.startsWith('/teacher/');
+  }
+
+  static String teacherGradesForGroup(String groupId) {
+    final id = groupId.trim();
+    if (id.isEmpty) return teacherGrades;
+    return '$teacherGrades?$teacherGradesGroupQuery='
+        '${Uri.encodeQueryComponent(id)}';
   }
 
   static String teacherStudentDetail(String traineeId, {String? groupId}) {

@@ -93,6 +93,10 @@ void main() {
     );
     expect(
       teacherShell.routes.whereType<GoRoute>().map((route) => route.path),
+      contains(AppRoutePaths.teacherGrades),
+    );
+    expect(
+      teacherShell.routes.whereType<GoRoute>().map((route) => route.path),
       isNot(contains(AppRoutePaths.activityCenter)),
     );
   });

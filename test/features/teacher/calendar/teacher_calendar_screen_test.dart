@@ -377,4 +377,58 @@ void main() {
     expect(find.text('Bottle balance'), findsOneWidget);
     expect(find.text('Hidden drill'), findsNothing);
   });
+
+  testWidgets('narrow desktop width stacks without overflow', (tester) async {
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+    await tester.binding.setSurfaceSize(const Size(720, 900));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      _app(
+        auth: auth,
+        assignments: Stream.value([_assignment()]),
+        groups: Stream.value([_group('group-1', 'BSHM 4A')]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Bottle balance'), findsOneWidget);
+    expect(find.text('Open classwork'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_calendar_classroom_filter')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('medium desktop width keeps filters and agenda usable', (
+    tester,
+  ) async {
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+    await tester.binding.setSurfaceSize(const Size(1024, 900));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      _app(
+        auth: auth,
+        assignments: Stream.value([_assignment()]),
+        groups: Stream.value([_group('group-1', 'BSHM 4A')]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Due today'), findsWidgets);
+    tester
+        .widget<ComboBox<TeacherDeadlineFilter>>(
+          find.byKey(const Key('teacher_calendar_deadline_filter')),
+        )
+        .onChanged!(TeacherDeadlineFilter.upcoming);
+    await tester.pumpAndSettle();
+    expect(find.text('No matching deadlines'), findsOneWidget);
+  });
 }

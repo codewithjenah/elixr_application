@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/constants/movements.dart';
 import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
@@ -12,6 +13,7 @@ import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
+import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
@@ -21,6 +23,9 @@ import '../../../services/auth_service.dart';
 import 'teacher_assignment_composer.dart';
 import 'teacher_movement_builder_dialog.dart';
 import 'teacher_movements_controller.dart';
+
+String _officialVariantKey(String movementName, TrainingProp prop) =>
+    '${movementName}_${prop.protocolValue}';
 
 class TeacherMovementsScreen extends StatefulWidget {
   const TeacherMovementsScreen({super.key, this.controller});
@@ -141,7 +146,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
                             ),
                           Text(
                             controller.tab == TeacherMovementsTab.official
-                                ? '${controller.officialCatalog.length} guided ELIXR movements'
+                                ? '${controller.officialActivities.length} guided ELIXR activities'
                                 : '${controller.myMovements.length} teacher-created activities',
                             style: AppTheme.caption.copyWith(
                               color: context.elixTextSecondary,
@@ -217,6 +222,7 @@ class _OfficialList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const difficulties = ['Easy', 'Medium', 'Hard'];
+    final activities = controller.officialActivities;
     return LayoutBuilder(
       builder: (context, constraints) {
         return Padding(
@@ -234,81 +240,14 @@ class _OfficialList extends StatelessWidget {
               clipBehavior: Clip.hardEdge,
               slivers: [
                 for (final difficulty in difficulties) ...[
-                  SliverPadding(
-                    padding: const EdgeInsets.only(right: AppSpacing.lg),
-                    sliver: SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(
-                          top: AppSpacing.sm,
-                          bottom: AppSpacing.md,
-                        ),
-                        child: _DifficultyHeading(
-                          difficulty: difficulty,
-                          count: controller.officialCatalog
-                              .where(
-                                (movement) => movement.difficulty == difficulty,
-                              )
-                              .length,
-                        ),
-                      ),
-                    ),
-                  ),
-                  SliverPadding(
-                    padding: const EdgeInsets.only(right: AppSpacing.lg),
-                    sliver: SliverGrid(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final movement = controller.officialCatalog
-                              .where((item) => item.difficulty == difficulty)
-                              .elementAt(index);
-                          return _OfficialMovementCard(
-                            movement: movement,
-                            busy: controller.busy,
-                            onViewGuide: () =>
-                                _showMovementGuide(context, movement),
-                            onAssign: () => _showAssignToClass(
-                              context,
-                              controller,
-                              official: movement,
-                            ),
-                          );
-                        },
-                        childCount: controller.officialCatalog
-                            .where(
-                              (movement) => movement.difficulty == difficulty,
-                            )
-                            .length,
-                      ),
-                      gridDelegate: BalancedSliverGridDelegate(
-                        crossAxisCount: _gridColumnsFor(
-                          constraints.maxWidth,
-                          controller.officialCatalog
-                              .where(
-                                (movement) => movement.difficulty == difficulty,
-                              )
-                              .length,
-                        ),
-                        childCount: controller.officialCatalog
-                            .where(
-                              (movement) => movement.difficulty == difficulty,
-                            )
-                            .length,
-                        mainAxisExtent: _cardExtent(
-                          context,
-                          // Five-column cards use the compact vertical layout;
-                          // reserve a little extra height for full metadata and
-                          // actions rather than clipping the content.
-                          base: 480,
-                          growth: 180,
-                        ),
-                        crossAxisSpacing: AppSpacing.md,
-                        mainAxisSpacing: AppSpacing.md,
-                        maxSingleCardWidth: 460,
-                      ),
-                    ),
-                  ),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.lg),
+                  ..._officialDifficultySlivers(
+                    context,
+                    difficulty: difficulty,
+                    activities: [
+                      for (final step in activities)
+                        if (step.movement.difficulty == difficulty) step,
+                    ],
+                    availableWidth: constraints.maxWidth,
                   ),
                 ],
               ],
@@ -317,6 +256,68 @@ class _OfficialList extends StatelessWidget {
         );
       },
     );
+  }
+
+  List<Widget> _officialDifficultySlivers(
+    BuildContext context, {
+    required String difficulty,
+    required List<PracticeCatalogStep> activities,
+    required double availableWidth,
+  }) {
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.only(right: AppSpacing.lg),
+        sliver: SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(
+              top: AppSpacing.sm,
+              bottom: AppSpacing.md,
+            ),
+            child: _DifficultyHeading(
+              difficulty: difficulty,
+              count: activities.length,
+            ),
+          ),
+        ),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.only(right: AppSpacing.lg),
+        sliver: SliverGrid(
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final step = activities[index];
+            return _OfficialMovementCard(
+              movement: step.movement,
+              prop: step.prop,
+              busy: controller.busy,
+              onViewGuide: () =>
+                  _showMovementGuide(context, step.movement, step.prop),
+              onAssign: () => _showAssignToClass(
+                context,
+                controller,
+                official: step.movement,
+                officialProp: step.prop,
+              ),
+            );
+          }, childCount: activities.length),
+          gridDelegate: BalancedSliverGridDelegate(
+            crossAxisCount: _gridColumnsFor(availableWidth, activities.length),
+            childCount: activities.length,
+            mainAxisExtent: _cardExtent(
+              context,
+              // Five-column cards use the compact vertical layout;
+              // reserve a little extra height for full metadata and
+              // actions rather than clipping the content.
+              base: 480,
+              growth: 180,
+            ),
+            crossAxisSpacing: AppSpacing.md,
+            mainAxisSpacing: AppSpacing.md,
+            maxSingleCardWidth: 460,
+          ),
+        ),
+      ),
+      const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+    ];
   }
 }
 
@@ -425,7 +426,7 @@ class _DifficultyHeading extends StatelessWidget {
           ),
         ),
         Text(
-          '$count movements',
+          '$count activities',
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
       ],
@@ -436,12 +437,14 @@ class _DifficultyHeading extends StatelessWidget {
 class _OfficialMovementCard extends StatelessWidget {
   const _OfficialMovementCard({
     required this.movement,
+    required this.prop,
     required this.busy,
     required this.onViewGuide,
     required this.onAssign,
   });
 
   final Movement movement;
+  final TrainingProp prop;
   final bool busy;
   final VoidCallback onViewGuide;
   final VoidCallback onAssign;
@@ -449,22 +452,25 @@ class _OfficialMovementCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = difficultyAccentColor(movement.difficulty);
+    final variantKey = _officialVariantKey(movement.name, prop);
     return Semantics(
       container: true,
       label:
-          'Official ELIXR movement: ${movement.name}, ${movement.difficulty}',
+          'Official ELIXR activity: ${movement.name}, ${movement.difficulty}, ${prop.displayLabel}',
       child: _TeacherMovementHoverCard(
-        focusKey: Key('teacher_movement_card_official_${movement.name}'),
+        focusKey: Key('teacher_movement_card_official_$variantKey'),
         accent: accent,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final horizontal = constraints.maxWidth >= 760;
             final details = _OfficialMovementDetails(
               movement: movement,
+              prop: prop,
               accent: accent,
             );
             final actions = _OfficialMovementActions(
               movement: movement,
+              prop: prop,
               busy: busy,
               onViewGuide: onViewGuide,
               onAssign: onAssign,
@@ -476,6 +482,7 @@ class _OfficialMovementCard extends StatelessWidget {
                   _MovementCardVisual(
                     movementName: movement.name,
                     accent: accent,
+                    propLabel: prop.displayLabel,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   Expanded(child: details),
@@ -492,6 +499,7 @@ class _OfficialMovementCard extends StatelessWidget {
                   child: _MovementCardVisual(
                     movementName: movement.name,
                     accent: accent,
+                    propLabel: prop.displayLabel,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -510,10 +518,12 @@ class _OfficialMovementCard extends StatelessWidget {
 class _OfficialMovementDetails extends StatelessWidget {
   const _OfficialMovementDetails({
     required this.movement,
+    required this.prop,
     required this.accent,
   });
 
   final Movement movement;
+  final TrainingProp prop;
   final Color accent;
 
   @override
@@ -531,8 +541,7 @@ class _OfficialMovementDetails extends StatelessWidget {
               color: AppColors.accent,
             ),
             _MetadataChip(label: movement.difficulty, color: accent),
-            for (final prop in movement.supportedProps)
-              _MetadataChip(label: prop.displayLabel, color: accent),
+            _MetadataChip(label: prop.displayLabel, color: accent),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -562,30 +571,33 @@ class _OfficialMovementDetails extends StatelessWidget {
 class _OfficialMovementActions extends StatelessWidget {
   const _OfficialMovementActions({
     required this.movement,
+    required this.prop,
     required this.busy,
     required this.onViewGuide,
     required this.onAssign,
   });
 
   final Movement movement;
+  final TrainingProp prop;
   final bool busy;
   final VoidCallback onViewGuide;
   final VoidCallback onAssign;
 
   @override
   Widget build(BuildContext context) {
+    final variantKey = _officialVariantKey(movement.name, prop);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Button(
-          key: Key('teacher_movement_guide_${movement.name}'),
+          key: Key('teacher_movement_guide_$variantKey'),
           onPressed: onViewGuide,
           child: const Text('View guide'),
         ),
         const SizedBox(height: AppSpacing.sm),
         FilledButton(
-          key: Key('teacher_movement_assign_official_${movement.name}'),
+          key: Key('teacher_movement_assign_official_$variantKey'),
           onPressed: busy ? null : onAssign,
           child: const Text('Assign to class'),
         ),
@@ -774,23 +786,69 @@ class _CustomMovementActions extends StatelessWidget {
 }
 
 class _MovementCardVisual extends StatelessWidget {
-  const _MovementCardVisual({required this.movementName, required this.accent});
+  const _MovementCardVisual({
+    required this.movementName,
+    required this.accent,
+    this.propLabel,
+  });
 
   final String movementName;
   final Color accent;
+  final String? propLabel;
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     return Container(
       height: 132,
       width: double.infinity,
       alignment: Alignment.center,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: accent.withValues(alpha: context.isDarkTheme ? 0.16 : 0.08),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: accent.withValues(alpha: 0.35)),
       ),
-      child: MovementImage(movementName: movementName, size: 118),
+      child: Stack(
+        children: [
+          Center(child: MovementImage(movementName: movementName, size: 118)),
+          if (propLabel != null)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: highContrast
+                      ? context.elixCardSurface
+                      : context.elixCardSurface.withValues(
+                          alpha: context.isDarkTheme ? 0.94 : 0.90,
+                        ),
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(12),
+                  ),
+                  border: Border(top: BorderSide(color: context.elixBorder)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: 5,
+                  ),
+                  child: Text(
+                    propLabel!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -950,6 +1008,7 @@ Future<void> _showAssignToClass(
   BuildContext context,
   TeacherMovementsController controller, {
   Movement? official,
+  TrainingProp? officialProp,
   TeacherMovement? custom,
 }) async {
   await showTeacherAssignmentComposer(
@@ -962,6 +1021,7 @@ Future<void> _showAssignToClass(
     groupRepository: controller.groupRepository,
     creationService: controller.assignmentCreationService,
     officialMovement: official,
+    initialOfficialProp: officialProp,
     teacherCreatedMovement: custom,
     materialRepository: _tryRead<ActivityLearningMaterialRepository>(context),
   );
@@ -969,7 +1029,11 @@ Future<void> _showAssignToClass(
 
 /// Read-only teacher view of the same lesson content used by trainee lessons.
 /// It deliberately has no progression-service dependency or completion action.
-Future<void> _showMovementGuide(BuildContext context, Movement movement) async {
+Future<void> _showMovementGuide(
+  BuildContext context,
+  Movement movement,
+  TrainingProp prop,
+) async {
   final lesson = MovementLesson.forMovement(movement);
   await showDialog<void>(
     context: context,
@@ -982,7 +1046,9 @@ Future<void> _showMovementGuide(BuildContext context, Movement movement) async {
         constraints: BoxConstraints(maxWidth: dialogWidth),
         title: Row(
           children: [
-            Expanded(child: Text('${movement.name} guide')),
+            Expanded(
+              child: Text('${movement.name} · ${prop.displayLabel} guide'),
+            ),
             Tooltip(
               message: 'Close guide',
               child: Semantics(
@@ -1010,6 +1076,7 @@ Future<void> _showMovementGuide(BuildContext context, Movement movement) async {
                   final twoColumn = constraints.maxWidth >= 760;
                   final overview = _GuideOverview(
                     movement: movement,
+                    prop: prop,
                     lesson: lesson,
                   );
                   final technique = _GuidePanel(
@@ -1108,9 +1175,14 @@ Future<void> _showMovementGuide(BuildContext context, Movement movement) async {
 }
 
 class _GuideOverview extends StatelessWidget {
-  const _GuideOverview({required this.movement, required this.lesson});
+  const _GuideOverview({
+    required this.movement,
+    required this.prop,
+    required this.lesson,
+  });
 
   final Movement movement;
+  final TrainingProp prop;
   final MovementLesson lesson;
 
   @override
@@ -1124,15 +1196,18 @@ class _GuideOverview extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _MovementCardVisual(movementName: movement.name, accent: accent),
+          _MovementCardVisual(
+            movementName: movement.name,
+            accent: accent,
+            propLabel: prop.displayLabel,
+          ),
           const SizedBox(height: AppSpacing.md),
           Wrap(
             spacing: AppSpacing.xs,
             runSpacing: AppSpacing.xs,
             children: [
               _MetadataChip(label: movement.difficulty, color: accent),
-              for (final prop in movement.supportedProps)
-                _MetadataChip(label: prop.displayLabel, color: accent),
+              _MetadataChip(label: prop.displayLabel, color: accent),
             ],
           ),
           const SizedBox(height: AppSpacing.md),

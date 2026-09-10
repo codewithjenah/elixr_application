@@ -1,18 +1,17 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
-import '../../../core/widgets/elix_panel_card.dart';
 import '../../../data/models/training_plan.dart';
+import '../models/calendar_classroom_assignment.dart';
 import '../models/training_day_snapshot.dart';
 import '../models/training_day_status.dart';
 import '../utils/training_day_status_style.dart';
 import '../utils/training_plan_progress.dart';
-import 'training_plan_editor.dart';
-import '../models/calendar_classroom_assignment.dart';
+import 'calendar_agenda_panel.dart';
 import 'classroom_day_section.dart';
+import 'training_plan_editor.dart';
 
 class SelectedDayPanel extends StatelessWidget {
   const SelectedDayPanel({
@@ -56,24 +55,18 @@ class SelectedDayPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElixPanelCard(
+    final subtitle = _isToday
+        ? 'Today'
+        : _isPast
+        ? 'Past day'
+        : 'Upcoming day';
+
+    return CalendarAgendaPanel(
+      date: snapshot.civilDate,
+      subtitle: subtitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            DateFormat.yMMMMEEEEd().format(snapshot.civilDate),
-            style: ElixTypography.cardTitle(color: context.elixTextPrimary),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _isToday
-                ? 'Today'
-                : _isPast
-                ? 'Past day'
-                : 'Upcoming day',
-            style: ElixTypography.label(color: context.elixTextSecondary),
-          ),
-          const SizedBox(height: AppSpacing.md),
           if (actionError != null) ...[
             InfoBar(
               title: const Text('Could not update the training plan.'),
@@ -94,7 +87,11 @@ class SelectedDayPanel extends StatelessWidget {
               onSave: onSavePlan,
             )
           else ...[
-            _buildBody(context),
+            CalendarAgendaSection(
+              title: 'TRAINING',
+              topSpacing: false,
+              child: _buildBody(context),
+            ),
             if (onOpenClassroomAssignment != null)
               ClassroomDaySection(
                 items: classroomItems,
@@ -110,10 +107,12 @@ class SelectedDayPanel extends StatelessWidget {
     final plan = snapshot.plan;
     if (plan == null) {
       return _isPast
-          ? const _CopyBlock(
-              title: 'No training was scheduled.',
-              body:
-                  'Historical days stay as they were so adherence stays honest.',
+          ? const CalendarAgendaInset(
+              child: _CopyText(
+                title: 'No training was scheduled.',
+                body:
+                    'Historical days stay as they were so adherence stays honest.',
+              ),
             )
           : _UnplannedActionable(
               isSaving: isSaving,
@@ -143,42 +142,29 @@ class SelectedDayPanel extends StatelessWidget {
   }
 }
 
-class _CopyBlock extends StatelessWidget {
-  const _CopyBlock({required this.title, required this.body});
+class _CopyText extends StatelessWidget {
+  const _CopyText({required this.title, required this.body});
 
   final String title;
   final String body;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? Colors.white.withValues(alpha: 0.02)
-            : Colors.black.withValues(alpha: 0.02),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.elixBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextPrimary,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            body,
-            style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
-          ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: ElixTypography.label(
+            color: context.elixTextPrimary,
+          ).copyWith(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          body,
+          style: ElixTypography.supporting(color: context.elixTextSecondary),
+        ),
+      ],
     );
   }
 }
@@ -196,31 +182,20 @@ class _UnplannedActionable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? Colors.white.withValues(alpha: 0.02)
-            : Colors.black.withValues(alpha: 0.02),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.elixBorder),
-      ),
+    return CalendarAgendaInset(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'No training planned',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
+            style: ElixTypography.label(
               color: context.elixTextPrimary,
-            ),
+            ).copyWith(fontSize: 14, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
             'Use this day to schedule a focused practice session or recovery day.',
-            style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
+            style: ElixTypography.supporting(color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           Wrap(
@@ -263,16 +238,12 @@ class _RestDayBody extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
         Text(
           'Rest day',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: context.elixTextPrimary,
-          ),
+          style: ElixTypography.cardTitle(color: context.elixTextPrimary),
         ),
         const SizedBox(height: 6),
         Text(
           'Recovery is part of the plan. This day does not count against adherence.',
-          style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
+          style: ElixTypography.supporting(color: context.elixTextSecondary),
         ),
         if (isActionable) ...[
           const SizedBox(height: AppSpacing.md),
@@ -322,26 +293,20 @@ class _TrainingPlanBody extends StatelessWidget {
       children: [
         Text(
           'Training Plan',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.4,
-            color: context.elixTextSecondary,
-          ),
+          style: ElixTypography.eyebrow(color: context.elixTextSecondary),
         ),
         const SizedBox(height: 8),
         Text(
           plan.movementName ?? '',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
+          style: ElixTypography.sectionTitle(
+            context,
             color: context.elixTextPrimary,
-          ),
+          ).copyWith(fontSize: 20, height: 1.15),
         ),
         const SizedBox(height: 4),
         Text(
           '${plan.difficulty} · ${plan.propType?.displayLabel ?? ''}',
-          style: TextStyle(fontSize: 13, color: context.elixTextSecondary),
+          style: ElixTypography.supporting(color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.md),
         Wrap(
@@ -405,30 +370,29 @@ class _MetricChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.elixColors;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? Colors.white.withValues(alpha: 0.03)
-            : Colors.black.withValues(alpha: 0.03),
+        color: colors.surfaceTinted,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: context.elixBorder),
+        border: Border.all(color: colors.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: TextStyle(fontSize: 10, color: context.elixTextSecondary),
+            style: ElixTypography.label(
+              color: context.elixTextSecondary,
+            ).copyWith(fontSize: 10),
           ),
           const SizedBox(height: 2),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
+            style: ElixTypography.label(
               color: context.elixTextPrimary,
-            ),
+            ).copyWith(fontSize: 13),
           ),
         ],
       ),
@@ -443,7 +407,7 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = trainingDayStatusColor(status);
+    final color = trainingDayStatusColor(status, context.elixColors);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -458,11 +422,7 @@ class _StatusChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             status.label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
+            style: ElixTypography.label(color: color).copyWith(fontSize: 11),
           ),
         ],
       ),

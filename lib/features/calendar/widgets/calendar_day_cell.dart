@@ -30,6 +30,7 @@ class CalendarDayCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.elixColors;
     final status = snapshot?.status ?? TrainingDayStatus.unplanned;
     final hasPlan = status != TrainingDayStatus.unplanned;
     final unplannedActivity =
@@ -37,7 +38,7 @@ class CalendarDayCell extends StatelessWidget {
         (snapshot?.hasUnplannedActivity ?? false);
     final hasClassroom = classroomCount > 0;
     final hasOverdueClassroom = classroomOverdueCount > 0;
-    final statusColor = trainingDayStatusColor(status);
+    final statusColor = trainingDayStatusColor(status, colors);
 
     final label = StringBuffer('${date.day}');
     if (isToday) label.write(', today');
@@ -70,62 +71,39 @@ class CalendarDayCell extends StatelessWidget {
           if (hasPlan || unplannedActivity || hasClassroom)
             Wrap(
               spacing: 4,
-              runSpacing: 2,
-              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: 3,
               children: [
                 if (hasPlan)
-                  Tooltip(
-                    message: status.label,
-                    child: Icon(
-                      trainingDayStatusIcon(status),
-                      size: 11,
-                      color: statusColor.withValues(
-                        alpha: isOutsideMonth ? 0.5 : 1,
-                      ),
-                    ),
+                  CalendarMarkerChip(
+                    icon: trainingDayStatusIcon(status),
+                    tooltip: status.label,
+                    color: statusColor,
+                    label: _compactStatusLabel(status),
+                    dimmed: isOutsideMonth,
                   )
                 else if (unplannedActivity)
-                  Tooltip(
-                    message: 'Practice recorded',
-                    child: Icon(
-                      FluentIcons.circle_fill,
-                      size: 8,
-                      color: context.elixColors.brandSecondary.withValues(
-                        alpha: isOutsideMonth ? 0.5 : 1,
-                      ),
-                    ),
+                  CalendarMarkerChip(
+                    icon: FluentIcons.circle_fill,
+                    tooltip: 'Practice recorded',
+                    color: colors.brandSecondary,
+                    dimmed: isOutsideMonth,
                   ),
                 if (hasClassroom)
                   Semantics(
                     label:
                         '$classroomCount classroom assignment${classroomCount == 1 ? '' : 's'} due${hasOverdueClassroom ? ', overdue' : ''}',
-                    child: Tooltip(
-                      message: hasOverdueClassroom
+                    child: CalendarMarkerChip(
+                      icon: hasOverdueClassroom
+                          ? FluentIcons.warning
+                          : FluentIcons.education,
+                      tooltip: hasOverdueClassroom
                           ? 'Overdue classroom work'
                           : 'Classroom assignment',
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            hasOverdueClassroom
-                                ? FluentIcons.warning
-                                : FluentIcons.education,
-                            size: 11,
-                            color: hasOverdueClassroom
-                                ? context.elixColors.error
-                                : context.elixColors.brandSecondary,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            '$classroomCount',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
+                      color: hasOverdueClassroom
+                          ? colors.error
+                          : colors.brandSecondary,
+                      count: classroomCount,
+                      dimmed: isOutsideMonth,
                     ),
                   ),
               ],
@@ -134,4 +112,14 @@ class CalendarDayCell extends StatelessWidget {
       ),
     );
   }
+
+  static String _compactStatusLabel(TrainingDayStatus status) =>
+      switch (status) {
+        TrainingDayStatus.planned => 'Plan',
+        TrainingDayStatus.inProgress => 'Active',
+        TrainingDayStatus.completed => 'Done',
+        TrainingDayStatus.missed => 'Missed',
+        TrainingDayStatus.rest => 'Rest',
+        TrainingDayStatus.unplanned => '',
+      };
 }

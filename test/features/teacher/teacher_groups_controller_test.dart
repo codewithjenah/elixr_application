@@ -684,6 +684,56 @@ void main() {
     },
   );
 
+  test('switching classrooms replaces the selected roster', () async {
+    Future<ElixrGroup> seedClass({
+      required String name,
+      required String traineeId,
+      required String traineeName,
+    }) async {
+      final group = await memory.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: name,
+      );
+      final invite = (await memory.getActiveGroupInvite(groupId: group.id))!;
+      final membership = await memory.requestGroupJoin(
+        traineeId: traineeId,
+        traineeDisplayName: traineeName,
+        code: invite.normalizedCode,
+      );
+      await memory.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+      return group;
+    }
+
+    final classA = await seedClass(
+      name: 'Class A',
+      traineeId: 't-ada',
+      traineeName: 'Ada Lovelace',
+    );
+    final classB = await seedClass(
+      name: 'Class B',
+      traineeId: 't-alan',
+      traineeName: 'Alan Turing',
+    );
+
+    await controller.start();
+    await controller.openGroupById(classA.id);
+    expect(
+      controller.approvedMemberships.map((item) => item.traineeDisplayName),
+      ['Ada Lovelace'],
+    );
+
+    await controller.openGroupById(classB.id);
+    expect(controller.selectedGroup?.id, classB.id);
+    expect(
+      controller.approvedMemberships.map((item) => item.traineeDisplayName),
+      ['Alan Turing'],
+    );
+  });
+
   test('openGroupById selects an owned class and rejects others', () async {
     final group = await memory.createGroup(
       teacherId: 'teacher-1',
