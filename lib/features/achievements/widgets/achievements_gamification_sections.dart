@@ -35,58 +35,144 @@ class ReadyToClaimSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final hasClaimableRewards = quests.isNotEmpty || achievements.isNotEmpty;
+    return Container(
       key: const Key('ready_to_claim_section'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const _SectionHeading(
-          icon: FluentIcons.giftbox_open,
-          title: 'Ready to claim',
-          subtitle: 'Collect completed quest XP and achievement rewards.',
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        if (loadingQuests)
-          const _LoadingState()
-        else if (questLoadError != null)
-          _LoadErrorState(onRetry: onRetryQuests)
-        else if (quests.isEmpty && achievements.isEmpty)
-          const _EmptyClaimState()
-        else
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 760 ? 2 : 1;
-              const gap = AppSpacing.sm;
-              final width = columns == 1
-                  ? constraints.maxWidth
-                  : (constraints.maxWidth - gap) / 2;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (final quest in quests)
-                    SizedBox(
-                      width: width,
-                      child: _ClaimableQuestCard(
-                        quest: quest,
-                        claiming: claimingQuestIds.contains(quest.id),
-                        onClaim: () => onClaimQuest(quest.id),
-                      ),
-                    ),
-                  for (final achievement in achievements)
-                    SizedBox(
-                      width: width,
-                      child: _ClaimableAchievementCard(
-                        view: achievement,
-                        claiming:
-                            claimingAchievementId == achievement.definition.id,
-                        onClaim: () =>
-                            onClaimAchievement(achievement.definition.id),
-                      ),
-                    ),
-                ],
-              );
-            },
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: context.elixColors.surfaceRaised.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: context.elixBorder.withValues(alpha: 0.7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ReadyToClaimHeader(hasClaimableRewards: hasClaimableRewards),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            height: 1,
+            color: context.elixBorder.withValues(alpha: 0.5),
           ),
+          const SizedBox(height: AppSpacing.md),
+          if (loadingQuests)
+            const _LoadingState()
+          else if (questLoadError != null)
+            _LoadErrorState(onRetry: onRetryQuests)
+          else if (!hasClaimableRewards)
+            const _EmptyClaimState()
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 760 ? 2 : 1;
+                const gap = AppSpacing.sm;
+                final width = columns == 1
+                    ? constraints.maxWidth
+                    : (constraints.maxWidth - gap) / 2;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (final quest in quests)
+                      SizedBox(
+                        width: width,
+                        child: _ClaimableQuestCard(
+                          quest: quest,
+                          claiming: claimingQuestIds.contains(quest.id),
+                          onClaim: () => onClaimQuest(quest.id),
+                        ),
+                      ),
+                    for (final achievement in achievements)
+                      SizedBox(
+                        width: width,
+                        child: _ClaimableAchievementCard(
+                          view: achievement,
+                          claiming:
+                              claimingAchievementId ==
+                              achievement.definition.id,
+                          onClaim: () =>
+                              onClaimAchievement(achievement.definition.id),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadyToClaimHeader extends StatelessWidget {
+  const _ReadyToClaimHeader({required this.hasClaimableRewards});
+
+  final bool hasClaimableRewards;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = hasClaimableRewards
+        ? AppColors.warning
+        : context.elixTextSecondary;
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.11),
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Icon(
+            hasClaimableRewards
+                ? FluentIcons.giftbox_open
+                : FluentIcons.completed_solid,
+            size: 16,
+            color: accent,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Ready to claim',
+                style: AppTheme.headingMedium.copyWith(
+                  color: context.elixTextPrimary,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                hasClaimableRewards
+                    ? 'Collect your completed quest XP and rewards.'
+                    : 'Your completed rewards will appear here.',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            hasClaimableRewards ? 'AVAILABLE' : 'ALL CAUGHT UP',
+            style: TextStyle(
+              color: accent,
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.7,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -533,13 +619,8 @@ class _EmptyClaimState extends StatelessWidget {
     return Container(
       key: const Key('ready_to_claim_empty_state'),
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.sm + 2,
-        vertical: AppSpacing.sm + 1,
-      ),
-      decoration: BoxDecoration(
-        color: context.elixColors.surfaceRaised.withValues(alpha: 0.36),
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.52)),
+        horizontal: 2,
+        vertical: AppSpacing.xs,
       ),
       child: Row(
         children: [
@@ -548,11 +629,11 @@ class _EmptyClaimState extends StatelessWidget {
             height: 30,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: context.elixColors.surfaceTinted.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(8),
+              color: context.elixColors.surfaceTinted.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              FluentIcons.giftbox,
+              FluentIcons.lightbulb,
               size: 14,
               color: context.elixTextSecondary,
             ),
