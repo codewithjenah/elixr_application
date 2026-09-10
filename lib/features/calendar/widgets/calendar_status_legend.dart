@@ -28,16 +28,10 @@ class CalendarStatusLegend extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: trainingDayStatusColor(status),
-                    shape: BoxShape.circle,
-                    border: status == TrainingDayStatus.rest
-                        ? Border.all(color: context.elixBorder)
-                        : null,
-                  ),
+                Icon(
+                  trainingDayStatusIcon(status),
+                  size: 11,
+                  color: trainingDayStatusColor(status),
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -49,6 +43,42 @@ class CalendarStatusLegend extends StatelessWidget {
                 ),
               ],
             ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                FluentIcons.education,
+                size: 11,
+                color: context.elixColors.brandSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Classroom',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                FluentIcons.warning,
+                size: 11,
+                color: context.elixColors.error,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Overdue',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

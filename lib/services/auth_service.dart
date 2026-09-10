@@ -259,6 +259,7 @@ class AuthService extends ChangeNotifier {
     _isLoading = false;
     _initializationState = AuthInitializationState.ready;
     _initializationFailure = null;
+    notifyListeners();
   }
 
   /// Restores Firebase-backed auth state and always reaches a terminal state.

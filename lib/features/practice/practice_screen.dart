@@ -25,6 +25,7 @@ import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/startup_diagnostics.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
 import '../learning/movement_lesson_content.dart';
@@ -621,6 +622,16 @@ class PracticeScreenState extends State<PracticeScreen>
         .loadSelectedCameraDeviceId();
     if (!mounted) return;
     if (!_run.isPreparingCamera) return;
+
+    _ws.startupDiagnostics.annotate(
+      sessionMode: 'guided',
+      movement: _movement,
+      camera: cameraDiagnosticIdentity(
+        deviceId: cameraDeviceId,
+        identityStable:
+            cameraDeviceId != null && !cameraDeviceId.startsWith('opencv:'),
+      ),
+    );
 
     final settings = context.read<SettingsService>();
     _commandInFlight = true;

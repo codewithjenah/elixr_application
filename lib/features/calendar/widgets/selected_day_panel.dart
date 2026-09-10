@@ -1,9 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../../../data/models/training_plan.dart';
 import '../models/training_day_snapshot.dart';
 import '../models/training_day_status.dart';
@@ -12,8 +13,6 @@ import '../utils/training_plan_progress.dart';
 import 'training_plan_editor.dart';
 import '../models/calendar_classroom_assignment.dart';
 import 'classroom_day_section.dart';
-
-const _purple = AppColors.accent;
 
 class SelectedDayPanel extends StatelessWidget {
   const SelectedDayPanel({
@@ -57,24 +56,22 @@ class SelectedDayPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.elixPanelSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _purple.withValues(alpha: 0.22)),
-      ),
+    return ElixPanelCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             DateFormat.yMMMMEEEEd().format(snapshot.civilDate),
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: context.elixTextPrimary,
-            ),
+            style: ElixTypography.cardTitle(color: context.elixTextPrimary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _isToday
+                ? 'Today'
+                : _isPast
+                ? 'Past day'
+                : 'Upcoming day',
+            style: ElixTypography.label(color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           if (actionError != null) ...[
@@ -450,17 +447,24 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
+        color: color.withValues(alpha: context.isHighContrast ? 0 : 0.14),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Text(
-        status.label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(trainingDayStatusIcon(status), size: 11, color: color),
+          const SizedBox(width: 6),
+          Text(
+            status.label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

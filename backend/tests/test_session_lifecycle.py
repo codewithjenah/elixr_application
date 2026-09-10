@@ -195,6 +195,71 @@ def test_prepare_opens_one_camera_session(monkeypatch):
     session.close()
 
 
+def test_preview_marks_first_jpeg_once_without_persisting(monkeypatch):
+    _patch_vision(monkeypatch)
+    from vision.startup_diagnostics import (
+        MARK_FIRST_JPEG_ENCODE,
+        MemorySink,
+        record_contains_image_payload,
+    )
+
+    session = websocket_api.VisionSession("Hand Stall", session_id="diag-preview")
+    sink = MemorySink()
+    session.startup.sink = sink
+    session.start()
+    first = session.process_preview_frame()
+    second = session.process_preview_frame()
+    assert first is not None
+    assert second is not None
+    assert session.startup.has_mark(MARK_FIRST_JPEG_ENCODE)
+    assert session.startup.mark_attempts(MARK_FIRST_JPEG_ENCODE) == 2
+    assert sink.write_calls == 0
+    session.close()
+    assert sink.write_calls == 1
+    assert record_contains_image_payload(sink.records[0]) is False
+    assert sink.records[0]["session_id"] == "diag-preview"
+
+
+def test_session_start_does_not_enumerate_cameras_for_diagnostics(monkeypatch):
+    _patch_vision(monkeypatch)
+    import vision.camera_devices as camera_devices
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("camera enumeration must not run during prepare diagnostics")
+
+    monkeypatch.setattr(camera_devices, "lookup_device", _boom)
+    monkeypatch.setattr(camera_devices, "enumerate_camera_devices", _boom)
+    session = websocket_api.VisionSession(
+        "Hand Stall",
+        camera_device_id=r"\\?\usb#vid_1234",
+        session_id="diag-ident",
+    )
+    assert session.start() is True
+    camera = session.startup.to_record()["camera"]
+    assert camera["identity_stable"] is True
+    assert camera["camera_diagnostic_id"] != r"\\?\usb#vid_1234"
+
+
+def test_detector_warmup_starts_after_first_preview_jpeg(monkeypatch):
+    _patch_vision(monkeypatch)
+    from vision.startup_diagnostics import (
+        MARK_FIRST_JPEG_ENCODE,
+        MARK_WARMUP_END,
+        MARK_WARMUP_START,
+    )
+
+    session = websocket_api.VisionSession("Hand Stall", session_id="diag-warm")
+    session.start()
+    preview = session.process_preview_frame()
+    assert preview is not None
+    assert session.startup.has_mark(MARK_FIRST_JPEG_ENCODE)
+    assert session.startup.has_mark(MARK_WARMUP_START) is False
+    assert session.warm_readiness() is None
+    assert session.startup.has_mark(MARK_WARMUP_START)
+    assert session.startup.has_mark(MARK_WARMUP_END)
+    session.close()
+
+
 def test_readiness_warmup_is_reused_by_begin_readiness(monkeypatch):
     _patch_vision(monkeypatch)
 

@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_summary_stat_card.dart';
@@ -41,21 +40,21 @@ class CalendarSummaryCards extends StatelessWidget {
             value: '$plannedDays',
             detail: 'Training days this month',
             icon: FluentIcons.calendar,
-            accent: AppColors.primarySoft,
+            accent: context.elixColors.brandPrimary,
           ),
           ElixSummaryStatCard(
             label: 'Completed',
             value: '$completedDays',
             detail: 'Targets reached',
             icon: FluentIcons.completed_solid,
-            accent: AppColors.success,
+            accent: context.elixColors.success,
           ),
           ElixSummaryStatCard(
             label: 'Adherence',
             value: adherenceLabel,
             detail: adherenceSub,
             icon: FluentIcons.chart,
-            accent: AppColors.accent,
+            accent: context.elixColors.brandSecondary,
           ),
           ElixSummaryStatCard(
             label: 'Practice Streak',
@@ -74,9 +73,11 @@ class CalendarSummaryCards extends StatelessWidget {
                 : classroomDue == 1
                 ? 'Assignment due this month'
                 : 'Assignments due this month',
-            icon: FluentIcons.education,
+            icon: classroomOverdue > 0
+                ? FluentIcons.warning
+                : FluentIcons.education,
             accent: classroomOverdue > 0
-                ? AppColors.error
+                ? context.elixColors.error
                 : context.elixColors.milestone,
           ),
         ];

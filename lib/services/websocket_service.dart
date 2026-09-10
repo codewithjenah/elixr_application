@@ -10,6 +10,7 @@ import '../data/models/training_prop.dart';
 import '../data/models/teacher_activity_assessment.dart';
 import '../data/models/ws_protocol.dart';
 import 'backend_service.dart';
+import 'startup_diagnostics.dart';
 
 enum WebSocketConnectionState { disconnected, connecting, connected, error }
 
@@ -21,13 +22,16 @@ class WebSocketService extends ChangeNotifier {
     this.commandTimeout = const Duration(seconds: 15),
     this.prepareTimeout = const Duration(seconds: 25),
     WsMessageDecoder decoder = const WsMessageDecoder(),
+    StartupDiagnosticsRecorder? startupDiagnostics,
   }) : _channelFactory = channelFactory ?? WebSocketChannel.connect,
-       _decoder = decoder;
+       _decoder = decoder,
+       _startup = startupDiagnostics ?? StartupDiagnosticsRecorder();
 
   final WebSocketChannelFactory _channelFactory;
   final WsMessageDecoder _decoder;
   final Duration commandTimeout;
   final Duration prepareTimeout;
+  final StartupDiagnosticsRecorder _startup;
 
   WebSocketChannel? _channel;
   StreamSink<dynamic>? _outboundSink;
@@ -93,6 +97,8 @@ class WebSocketService extends ChangeNotifier {
   Stream<ProtocolErrorMessage> get protocolErrorStream =>
       _protocolErrorController.stream;
 
+  StartupDiagnosticsRecorder get startupDiagnostics => _startup;
+
   @visibleForTesting
   bool get hasPendingCommands => _pending.isNotEmpty;
 
@@ -107,6 +113,7 @@ class WebSocketService extends ChangeNotifier {
 
     _setState(WebSocketConnectionState.connecting);
     _errorMessage = null;
+    _startup.markConnectStart();
 
     try {
       final channel = _channelFactory(BackendRuntime.wsUri);
@@ -122,8 +129,10 @@ class WebSocketService extends ChangeNotifier {
         cancelOnError: true,
       );
 
+      _startup.markConnectEnd(success: true);
       _setState(WebSocketConnectionState.connected);
     } catch (e) {
+      _startup.markConnectEnd(success: false, errorCode: 'backend_unavailable');
       _errorMessage =
           BackendRuntime.startupError ??
           'Unable to connect to backend. Is it running?';
@@ -140,6 +149,7 @@ class WebSocketService extends ChangeNotifier {
     _sessionPrepared = false;
     _sessionActive = false;
     _sessionReadying = false;
+    _startup.beginAttempt(sessionId: sessionId);
     if (!_disposing) notifyListeners();
     return sessionId;
   }
@@ -435,6 +445,7 @@ class WebSocketService extends ChangeNotifier {
     if (_currentSessionId != resolvedSessionId) {
       return;
     }
+    _startup.teardown();
     _currentSessionId = null;
     _sessionPrepared = false;
     _sessionActive = false;
@@ -830,6 +841,21 @@ class WebSocketService extends ChangeNotifier {
       pending.completer.completeError(
         CommandTimeoutException(requestId, action),
       );
+      if (action == 'prepare') {
+        _startup.markPrepareAck(
+          sessionId: sessionId,
+          requestId: requestId,
+          accepted: false,
+          errorCode: 'command_timeout',
+        );
+      } else if (action == 'activate') {
+        _startup.markActivateAck(
+          sessionId: sessionId,
+          requestId: requestId,
+          accepted: false,
+          errorCode: 'command_timeout',
+        );
+      }
     });
 
     _pending[requestId] = _PendingCommand(
@@ -838,6 +864,14 @@ class WebSocketService extends ChangeNotifier {
       completer: completer,
       timer: timer,
     );
+
+    if (action == 'prepare') {
+      _startup.markPrepareSent(sessionId: sessionId, requestId: requestId);
+    } else if (action == 'activate') {
+      _startup.markActivateSent(sessionId: sessionId, requestId: requestId);
+    } else if (action == 'begin_readiness') {
+      _startup.markBeginReadiness(sessionId: sessionId);
+    }
 
     try {
       _outboundSink!.add(jsonEncode(payload));
@@ -894,6 +928,10 @@ class WebSocketService extends ChangeNotifier {
       _reconcileFromSessionState(feedback.sessionState!);
     }
 
+    if (feedback.readinessStable == true && feedbackSessionId != null) {
+      _startup.markReadinessStable(sessionId: feedbackSessionId);
+    }
+
     if (!_feedbackController.isClosed) {
       _feedbackController.add(feedback);
     }
@@ -904,6 +942,9 @@ class WebSocketService extends ChangeNotifier {
     if (previewSessionId != null) {
       if (_currentSessionId == null || previewSessionId != _currentSessionId) {
         return;
+      }
+      if (frame.hasJpeg) {
+        _startup.markFirstPreview(sessionId: previewSessionId);
       }
     }
 
@@ -976,6 +1017,22 @@ class WebSocketService extends ChangeNotifier {
           );
         }
         return;
+      }
+
+      if (pending.action == 'prepare') {
+        _startup.markPrepareAck(
+          sessionId: pending.sessionId,
+          requestId: ack.requestId,
+          accepted: ack.accepted,
+          errorCode: ack.errorCode,
+        );
+      } else if (pending.action == 'activate') {
+        _startup.markActivateAck(
+          sessionId: pending.sessionId,
+          requestId: ack.requestId,
+          accepted: ack.accepted,
+          errorCode: ack.errorCode,
+        );
       }
 
       final mayApplyLifecycle = _ackMatchesCurrentSession(ack, pending);
@@ -1169,6 +1226,7 @@ class WebSocketService extends ChangeNotifier {
     _errorMessage = 'Connection lost.';
     _clearSessionFlags(notify: false);
     _currentSessionId = null;
+    _startup.teardown(errorCode: 'connection_error');
     _failAllPending(CommandDisconnectedException('', 'connection_error'));
     _setState(WebSocketConnectionState.error);
     _cleanupChannel();
@@ -1177,6 +1235,7 @@ class WebSocketService extends ChangeNotifier {
   void _onDone() {
     _clearSessionFlags(notify: false);
     _currentSessionId = null;
+    _startup.teardown(errorCode: 'connection_closed');
     _failAllPending(CommandDisconnectedException('', 'connection_closed'));
     if (_connectionState != WebSocketConnectionState.error) {
       _setState(WebSocketConnectionState.disconnected);
@@ -1213,6 +1272,7 @@ class WebSocketService extends ChangeNotifier {
     _failAllPending(CommandDisconnectedException('', 'disconnect'));
     _clearSessionFlags(notify: false);
     _currentSessionId = null;
+    _startup.teardown(errorCode: 'disconnect');
     await _cleanupChannel();
     _setState(WebSocketConnectionState.disconnected);
   }
@@ -1254,6 +1314,7 @@ class WebSocketService extends ChangeNotifier {
     _sessionActive = false;
     _sessionReadying = false;
     _currentSessionId = null;
+    _startup.teardown(errorCode: 'dispose');
     if (_outboundSink != null &&
         _connectionState == WebSocketConnectionState.connected) {
       try {

@@ -4,10 +4,10 @@ import '../models/feedback.dart';
 import '../models/session.dart';
 
 class SessionRepository {
-  SessionRepository({FirestoreHelper? db})
-    : _db = db ?? FirestoreHelper.instance;
+  SessionRepository({FirestoreHelper? db}) : _dbOverride = db;
 
-  final FirestoreHelper _db;
+  final FirestoreHelper? _dbOverride;
+  FirestoreHelper get _db => _dbOverride ?? FirestoreHelper.instance;
 
   String allocateSessionId() => _db.allocateSessionId();
 

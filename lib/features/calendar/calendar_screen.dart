@@ -3,11 +3,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/session.dart';
 import '../../data/models/training_plan.dart';
 import '../../data/repositories/session_repository.dart';
@@ -443,10 +442,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ),
     ]);
     final classroomCounts = <DateTime, int>{};
+    final classroomOverdueCounts = <DateTime, int>{};
     for (final item in classroomItems) {
       if (item.dueAt == null) continue;
       final date = _classroomCivilDate(item);
       classroomCounts[date] = (classroomCounts[date] ?? 0) + 1;
+      if (item.isOverdue) {
+        classroomOverdueCounts[date] = (classroomOverdueCounts[date] ?? 0) + 1;
+      }
     }
     final selectedClassroom = classroomItems
         .where(
@@ -551,6 +554,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           todayDate: _todayCivil,
                           snapshotsByDate: _byDate,
                           classroomCountsByDate: classroomCounts,
+                          classroomOverdueByDate: classroomOverdueCounts,
                           onDateSelected: _onDateSelected,
                         );
                         final panel = SelectedDayPanel(
@@ -622,29 +626,15 @@ class _CalendarErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              FluentIcons.error_badge,
-              size: 36,
-              color: AppColors.error,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'Unable to load your planner.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: ElixStatusPanel(
+          title: 'Unable to load your planner.',
+          message: 'Check your connection and try again.',
+          isError: true,
+          icon: FluentIcons.error_badge,
+          actionLabel: 'Retry',
+          onAction: onRetry,
         ),
       ),
     );

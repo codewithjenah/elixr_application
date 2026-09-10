@@ -50,6 +50,10 @@ Keep Flutter independent of these implementation details except for the document
 - Camera capture-producer contention metrics (read duration, publish interval,
   loop gap, blank/fail counts, backend, `CAP_PROP_FPS`) are aggregated per
   telemetry interval and must not be logged per frame.
+- Session startup diagnostics (ELX-010) record milestone timestamps in memory
+  and persist JSONL once at `VisionSession.close`. Do not write diagnostic
+  files from the capture producer or per-frame path. See
+  `docs/startup-diagnostics.md`.
 
 ## Camera lifecycle
 

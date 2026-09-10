@@ -132,4 +132,106 @@ void main() {
       TeacherDeadlineState.upcoming,
     ]);
   });
+
+  test('filters by classroom and deadline state', () {
+    final events = teacherCalendarEvents(
+      assignments: [
+        _assignment(id: 'a', groupId: 'g1', dueAt: DateTime.utc(2026, 9, 3)),
+        _assignment(
+          id: 'b',
+          groupId: 'g2',
+          dueAt: DateTime.utc(2026, 9, 4, 14),
+        ),
+        _assignment(
+          id: 'c',
+          groupId: 'g1',
+          dueAt: DateTime.utc(2026, 9, 4, 18),
+        ),
+      ],
+      authorizedGroups: [_group('g1', 'BSHM 4A'), _group('g2', 'BSHM 4B')],
+      now: DateTime.utc(2026, 9, 4, 12),
+    );
+
+    expect(
+      filterTeacherCalendarEvents(
+        events,
+        classroomId: 'g1',
+      ).map((e) => e.assignment.id),
+      ['a', 'c'],
+    );
+    expect(
+      filterTeacherCalendarEvents(
+        events,
+        deadlineFilter: TeacherDeadlineFilter.overdue,
+      ).map((e) => e.assignment.id),
+      ['a'],
+    );
+    expect(
+      filterTeacherCalendarEvents(
+        events,
+        classroomId: 'g1',
+        deadlineFilter: TeacherDeadlineFilter.upcoming,
+      ).map((e) => e.assignment.id),
+      ['c'],
+    );
+  });
+
+  test('overview counts follow classroom scope and visible month', () {
+    final events = teacherCalendarEvents(
+      assignments: [
+        _assignment(id: 'past', groupId: 'g1', dueAt: DateTime.utc(2026, 9, 3)),
+        _assignment(
+          id: 'today',
+          groupId: 'g2',
+          dueAt: DateTime.utc(2026, 9, 4, 14),
+        ),
+        _assignment(
+          id: 'week',
+          groupId: 'g1',
+          dueAt: DateTime.utc(2026, 9, 6, 8),
+        ),
+        _assignment(
+          id: 'later-month',
+          groupId: 'g1',
+          dueAt: DateTime.utc(2026, 9, 20),
+        ),
+        _assignment(
+          id: 'next-month',
+          groupId: 'g2',
+          dueAt: DateTime.utc(2026, 10, 2),
+        ),
+      ],
+      authorizedGroups: [_group('g1', 'BSHM 4A'), _group('g2', 'BSHM 4B')],
+      now: DateTime.utc(2026, 9, 4, 12),
+    );
+
+    final all = teacherCalendarOverview(
+      events: events,
+      visibleMonth: DateTime(2026, 9),
+      today: DateTime(2026, 9, 4),
+    );
+    expect(all.dueTodayCount, 1);
+    expect(all.overdueCount, 1);
+    expect(all.upcomingThisMonthCount, 2);
+    expect(all.upcomingThisWeekCount, 1);
+    expect(all.visibleClassroomCount, 2);
+
+    final classroom = teacherCalendarOverview(
+      events: filterTeacherCalendarEvents(events, classroomId: 'g1'),
+      visibleMonth: DateTime(2026, 9),
+      today: DateTime(2026, 9, 4),
+    );
+    expect(classroom.dueTodayCount, 0);
+    expect(classroom.overdueCount, 1);
+    expect(classroom.visibleClassroomCount, 1);
+  });
+
+  test('lists active classrooms for filtering', () {
+    final options = teacherCalendarClassroomOptions([
+      _group('g2', 'BSHM 4B'),
+      _group('g1', 'BSHM 4A'),
+      _group('g3', 'Archived', status: ElixrGroupStatus.archived),
+    ]);
+    expect(options.map((option) => option.id), ['g1', 'g2']);
+  });
 }

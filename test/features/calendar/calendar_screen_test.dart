@@ -8,7 +8,15 @@ import 'package:elixr_application/data/models/training_plan.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_core/repositories/in_memory_classroom_announcement_repository.dart';
+import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:elixr_application/features/calendar/calendar_screen.dart';
+import 'package:elixr_application/features/teacher/activity_center/activity_read_store.dart';
+import 'package:elixr_application/features/trainee/activity_center/trainee_activity_controller.dart';
+import 'package:elixr_application/data/models/group_assignment.dart';
+import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/session_service.dart';
 import 'package:elixr_application/services/trainee_progression_service.dart';
@@ -198,6 +206,41 @@ Future<void> _setSurface(WidgetTester tester) async {
   });
 }
 
+class _StubClassroomActivity extends TraineeActivityController {
+  _StubClassroomActivity(this.work)
+    : super(
+        groupRepository: InMemoryGroupRepository(),
+        assignmentRepository: InMemoryClassroomAssignmentRepository(),
+        announcementRepository: InMemoryClassroomAnnouncementRepository(),
+        readStore: InMemoryActivityReadStore(),
+      );
+
+  final List<TraineeClassroomWorkItem> work;
+
+  @override
+  TraineeClassroomDataStatus get classroomDataStatus =>
+      TraineeClassroomDataStatus.ready;
+
+  @override
+  List<TraineeClassroomWorkItem> get classroomWork => work;
+}
+
+GroupAssignment _classroomAssignment() => GroupAssignment(
+  id: 'class-1',
+  teacherId: 'teacher',
+  groupId: 'group-1',
+  movementId: 'movement-1',
+  revisionId: 'revision-1',
+  origin: MovementOrigin.officialElixr,
+  assessmentMode: AssessmentMode.officialGuided,
+  status: GroupAssignmentStatus.active,
+  displayTitle: 'Classroom stall drill',
+  teacherDisplayName: 'Grace Hopper',
+  groupName: 'BSHM 4A',
+  officialMovementName: 'Hand Stall',
+  dueAt: DateTime.utc(2026, 8, 19, 4),
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -246,6 +289,7 @@ void main() {
     String? initialDate,
     CalendarSessionsLoader? sessionsLoader,
     List<String>? navigated,
+    TraineeActivityController? activity,
   }) async {
     await _setSurface(tester);
     final locations = navigated ?? <String>[];
@@ -291,6 +335,10 @@ void main() {
           ChangeNotifierProvider<TutorialProgressService>(
             create: (_) => _ReadyTutorials(),
           ),
+          if (activity != null)
+            ChangeNotifierProvider<TraineeActivityController>.value(
+              value: activity,
+            ),
         ],
         child: FluentApp.router(
           theme: AppTheme.dark,
@@ -506,5 +554,65 @@ void main() {
     await tester.tap(find.text('View History'));
     await tester.pumpAndSettle();
     expect(navigated, ['/training?view=history&date=2026-08-18']);
+  });
+
+  testWidgets('Retry recovers after a planner load failure', (tester) async {
+    var shouldFail = true;
+    await pumpCalendar(
+      tester,
+      sessionsLoader: (_) async {
+        if (shouldFail) throw Exception('offline');
+        return const [];
+      },
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unable to load your planner.'), findsOneWidget);
+    shouldFail = false;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(find.text('August 2026'), findsOneWidget);
+    expect(find.text('Plan Practice'), findsOneWidget);
+  });
+
+  testWidgets('Remove Plan stays available on an actionable rest day', (
+    tester,
+  ) async {
+    planStore.plans['20260820'] = TrainingPlan.rest(
+      userId: _userId,
+      dayKey: '20260820',
+    );
+    await pumpCalendar(tester, initialDate: '2026-08-20');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Rest day'), findsOneWidget);
+    expect(find.text('Remove Plan'), findsOneWidget);
+    await tester.tap(find.text('Remove Plan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove Plan').last);
+    await tester.pumpAndSettle();
+    expect(planStore.plans.containsKey('20260820'), isFalse);
+    expect(find.text('No training planned'), findsOneWidget);
+  });
+
+  testWidgets('personal plan and classroom work can share one date', (
+    tester,
+  ) async {
+    final activity = _StubClassroomActivity([
+      TraineeClassroomWorkItem(
+        assignment: _classroomAssignment(),
+        latestSubmission: null,
+      ),
+    ]);
+    addTearDown(activity.dispose);
+    planStore.plans['20260819'] = _plan(dayKey: '20260819');
+    await pumpCalendar(tester, initialDate: '2026-08-19', activity: activity);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Training Plan'), findsOneWidget);
+    expect(find.text('Hand Stall'), findsWidgets);
+    expect(find.text('Start Practice'), findsOneWidget);
+    expect(find.text('CLASSROOM WORK'), findsOneWidget);
+    expect(find.text('Classroom stall drill'), findsOneWidget);
   });
 }

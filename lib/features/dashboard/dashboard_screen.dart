@@ -15,6 +15,8 @@ import '../../core/utils/manila_day.dart';
 import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 import '../../data/models/session.dart';
 import '../../data/models/training_prop.dart';
+import '../../data/repositories/gamification_repository.dart';
+import '../../data/repositories/leaderboard_repository.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
@@ -25,6 +27,8 @@ import '../calendar/utils/calendar_metrics.dart';
 import '../trainee/activity_center/trainee_activity_controller.dart';
 import '../progress/training_recommendation.dart';
 import '../training/training_view.dart';
+import 'dashboard_session_metrics.dart';
+import 'dashboard_stats_loader.dart';
 import 'widgets/dashboard_calendar_card.dart';
 import 'widgets/dashboard_header.dart';
 import 'widgets/dashboard_panel_card.dart';
@@ -36,22 +40,27 @@ import 'widgets/dashboard_training_overview.dart';
 import 'widgets/recommended_practice_card.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({
+    super.key,
+    this.sessionRepository,
+    this.leaderboardRepository,
+    this.gamificationRepository,
+  });
+
+  final SessionRepository? sessionRepository;
+  final LeaderboardRepository? leaderboardRepository;
+  final GamificationRepository? gamificationRepository;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _progressRepo = ProgressRepository();
-  final _sessionRepo = SessionRepository();
-  ProgressStats? _stats;
-  List<Session> _sessions = const [];
-  TrainingRecommendation? _trainingRecommendation;
-  bool _loading = true;
-  String? _loadError;
-  String? _loadedUserId;
+  late final SessionRepository _sessionRepo;
+  late final DashboardStatsLoader _loader;
+  String? _authUserId;
   SessionService? _sessionService;
+  AuthService? _authService;
 
   static const _maxContentWidth = 1440.0;
   static const _wideBreakpoint = 1080.0;
@@ -60,7 +69,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadStats();
+    _sessionRepo = widget.sessionRepository ?? SessionRepository();
+    _loader = DashboardStatsLoader(sessionRepository: _sessionRepo);
   }
 
   @override
@@ -71,95 +81,80 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _sessionService?.removeListener(_onSessionSaved);
       _sessionService = service..addListener(_onSessionSaved);
     }
+    final auth = context.read<AuthService>();
+    if (auth != _authService) {
+      _authService?.removeListener(_onAuthChanged);
+      _authService = auth..addListener(_onAuthChanged);
+    }
+    _syncUser(auth.currentUser?.id);
   }
 
   @override
   void dispose() {
     _sessionService?.removeListener(_onSessionSaved);
+    _authService?.removeListener(_onAuthChanged);
     super.dispose();
   }
 
   void _onSessionSaved() => _loadStats();
 
+  void _onAuthChanged() {
+    _syncUser(_authService?.currentUser?.id);
+  }
+
+  void _syncUser(String? userId) {
+    if (userId == _authUserId) return;
+    _authUserId = userId;
+    _loadStats();
+  }
+
   Future<void> _loadStats() async {
     if (!mounted) return;
-    final user = context.read<AuthService>().currentUser;
-    final userId = user?.id;
-    if (userId == null) {
-      if (mounted) {
-        setState(() {
-          _stats = null;
-          _sessions = const [];
-          _trainingRecommendation = null;
-          _loadedUserId = null;
-          _loading = false;
-        });
-      }
-      return;
-    }
-
-    if (_loadedUserId != userId) {
-      setState(() {
-        _loading = true;
-        _trainingRecommendation = null;
-      });
-    }
-
-    try {
-      final stats = await _progressRepo.getStatsForUser(userId);
-      final sessions = await _sessionRepo.getSessionsForUser(userId);
-      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
-        return;
-      }
-      final recommendation = buildTrainingRecommendation(
-        sessions: sessions,
-        movements: movementCatalog,
-        readyPracticeVariantFor: (movement) {
-          final progression = context.read<TraineeProgressionService>();
-          final tutorials = context.read<TutorialProgressService>();
-          if (!progression.isReady || !tutorials.isInitialized) {
-            return null;
-          }
-          for (final prop in movement.supportedProps) {
-            final access = evaluatePersonal(
-              variant: PracticeVariant(
-                movementName: movement.name,
-                trainingProp: prop,
-              ),
-              currentLevel: progression.currentLevelOrNull,
-              tutorialCompleted: tutorials.hasCompletedLesson(
-                movement.name,
-                prop,
-              ),
-            );
-            if (access == ProgressionAccessResult.personalReady) {
-              return PracticeVariant(
-                movementName: movement.name,
-                trainingProp: prop,
-              );
+    final userId = context.read<AuthService>().currentUser?.id;
+    final pending = _loader.load(
+      userId,
+      stillCurrent: () =>
+          mounted && context.read<AuthService>().currentUser?.id == userId,
+      buildRecommendation: (sessions) {
+        return buildTrainingRecommendation(
+          sessions: sessions,
+          movements: movementCatalog,
+          readyPracticeVariantFor: (movement) {
+            final progression = context.read<TraineeProgressionService>();
+            final tutorials = context.read<TutorialProgressService>();
+            if (!progression.isReady || !tutorials.isInitialized) {
+              return null;
             }
-          }
-          return null;
-        },
-      );
-      setState(() {
-        _stats = stats;
-        _sessions = sessions;
-        _trainingRecommendation = recommendation;
-        _loadedUserId = userId;
-        _loadError = null;
-        _loading = false;
-      });
-    } catch (error, stackTrace) {
-      debugPrint('Dashboard statistics load failed: $error\n$stackTrace');
-      if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
-        return;
-      }
-      setState(() {
-        _loadError = 'We could not load your dashboard. Please try again.';
-        _loading = false;
-      });
-    }
+            for (final prop in movement.supportedProps) {
+              final access = evaluatePersonal(
+                variant: PracticeVariant(
+                  movementName: movement.name,
+                  trainingProp: prop,
+                ),
+                currentLevel: progression.currentLevelOrNull,
+                tutorialCompleted: tutorials.hasCompletedLesson(
+                  movement.name,
+                  prop,
+                ),
+              );
+              if (access == ProgressionAccessResult.personalReady) {
+                return PracticeVariant(
+                  movementName: movement.name,
+                  trainingProp: prop,
+                );
+              }
+            }
+            return null;
+          },
+        );
+      },
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+    await pending;
+    if (!mounted) return;
+    setState(() {});
   }
 
   String _timeGreeting() {
@@ -169,86 +164,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return 'Good Evening';
   }
 
-  int get _sessionsThisWeek {
-    final now = DateTime.now().toUtc();
-    final today = ManilaDay.civilDateFor(now);
-    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
-    return _sessions.where((s) {
-      final d = parseSessionLocalDate(s);
-      return d != null && !d.isBefore(startOfWeek);
-    }).length;
-  }
-
-  Set<DateTime> get _practicedDays => practicedDates(_sessions);
-
-  int get _streakDays => currentStreak(_practicedDays);
-
-  /// Week-over-week change in average rubric total (Assessment V2 only).
-  ///
-  /// Legacy percentage sessions are excluded so the two scales never mix.
-  ComparableRubricComparison get _weeklyComparison {
-    final today = ManilaDay.civilDateFor(DateTime.now().toUtc());
-    List<int> scoresBetween(int fromDaysAgo, int toDaysAgo) {
-      final scores = <int>[];
-      for (final session in _sessions) {
-        if (!_isWithin(session, today, fromDaysAgo, toDaysAgo)) continue;
-        final score = ComparableRubricProgress.scoreFor(
-          assessmentVersion: session.assessmentVersion,
-          rubricTotal: session.rubricTotal,
-        );
-        if (score != null) scores.add(score);
-      }
-      return scores;
-    }
-
-    return ComparableRubricProgress.compare(
-      currentScores: scoresBetween(6, 0),
-      comparisonScores: scoresBetween(13, 7),
-    );
-  }
-
-  static bool _isWithin(
-    Session session,
-    DateTime today,
-    int fromDaysAgo,
-    int toDaysAgo,
-  ) {
-    final date = parseSessionLocalDate(session);
-    if (date == null) return false;
-    final diff = today.difference(date).inDays;
-    return diff >= toDaysAgo && diff <= fromDaysAgo;
-  }
-
-  /// Personal best, preferring the Assessment V2 cohort.
-  ///
-  /// A rubric total (0..12) is never compared against a legacy score (0..100),
-  /// so legacy sessions are only considered when no V2 session exists.
-  Session? get _bestSession {
-    Session? bestRubric;
-    Session? bestLegacy;
-    for (final s in _sessions) {
-      if (s.isRubricAssessed) {
-        if (bestRubric == null || s.rubricTotal! > bestRubric.rubricTotal!) {
-          bestRubric = s;
-        }
-      } else if (s.legacyScore != null) {
-        if (bestLegacy == null || s.legacyScore! > bestLegacy.legacyScore!) {
-          bestLegacy = s;
-        }
-      }
-    }
-    return bestRubric ?? bestLegacy;
-  }
+  DashboardSessionMetrics get _metrics =>
+      DashboardSessionMetrics.fromSessions(_loader.sessions);
 
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
+    final userId = user?.id;
     final normalizedFirstName = normalizeNamePart(user?.firstName ?? '');
     final firstName = normalizedFirstName.isNotEmpty
         ? normalizedFirstName
         : 'Trainee';
 
-    if (_loading) {
+    final firstLoadErrorForUser =
+        _loader.showFullPageError && _loader.requestedUserId == userId;
+    if (firstLoadErrorForUser) {
+      return ElixScaffoldPage(
+        padding: EdgeInsets.zero,
+        content: Center(
+          child: ElixStatusPanel(
+            isError: true,
+            icon: FluentIcons.warning,
+            title: 'Dashboard unavailable',
+            message: _loader.loadError!,
+            actionLabel: 'Retry',
+            onAction: _loadStats,
+          ),
+        ),
+      );
+    }
+
+    if (userId != null && !_loader.hasDataFor(userId)) {
       return const ElixScaffoldPage(
         padding: EdgeInsets.zero,
         content: Center(
@@ -260,39 +206,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       );
     }
-    if (_loadError != null && _stats == null) {
-      return ElixScaffoldPage(
-        padding: EdgeInsets.zero,
-        content: Center(
-          child: ElixStatusPanel(
-            isError: true,
-            icon: FluentIcons.warning,
-            title: 'Dashboard unavailable',
-            message: _loadError!,
-            actionLabel: 'Retry',
-            onAction: _loadStats,
-          ),
-        ),
-      );
-    }
 
+    final metrics = _metrics;
     final rightRail = _RightRail(
       userId: user?.id,
-      sessions: _sessions,
-      streakDays: _streakDays,
-      practicedDays: _practicedDays,
-      bestSession: _bestSession,
+      sessions: _loader.sessions,
+      streakDays: metrics.currentStreak,
+      practicedDays: metrics.practicedDays,
+      bestSession: metrics.bestSession,
+      gamificationRepository: widget.gamificationRepository,
     );
 
     final mainColumn = _MainColumn(
-      stats: _stats,
-      sessionsThisWeek: _sessionsThisWeek,
-      weeklyComparison: _weeklyComparison,
+      stats: _loader.stats,
+      sessionsThisWeek: metrics.sessionsThisWeek,
+      weeklyComparison: metrics.weeklyComparison,
       currentUserId: user?.id,
       displayName: user?.fullName ?? 'Trainee',
       profilePictureUrl: user?.profilePictureUrl,
-      trainingRecommendation: _trainingRecommendation,
-      recommendationLoading: _loading,
+      trainingRecommendation: _loader.trainingRecommendation,
+      recommendationLoading: _loader.loading,
+      leaderboardRepository: widget.leaderboardRepository,
     );
 
     return ElixScaffoldPage(
@@ -306,11 +240,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         child: Column(
           children: [
-            if (_loadError != null) ...[
+            if (_loader.showInlineError) ...[
               ElixStatusPanel(
                 isError: true,
                 icon: FluentIcons.warning,
-                message: _loadError!,
+                message: _loader.loadError!,
                 actionLabel: 'Retry',
                 onAction: _loadStats,
               ),
@@ -370,6 +304,7 @@ class _MainColumn extends StatelessWidget {
     required this.trainingRecommendation,
     required this.recommendationLoading,
     this.profilePictureUrl,
+    this.leaderboardRepository,
   });
 
   final ProgressStats? stats;
@@ -380,6 +315,7 @@ class _MainColumn extends StatelessWidget {
   final TrainingRecommendation? trainingRecommendation;
   final bool recommendationLoading;
   final String? profilePictureUrl;
+  final LeaderboardRepository? leaderboardRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -410,6 +346,7 @@ class _MainColumn extends StatelessWidget {
           currentUserId: currentUserId,
           displayName: displayName,
           profilePictureUrl: profilePictureUrl,
+          repository: leaderboardRepository,
         ),
       ],
     );
@@ -546,6 +483,7 @@ class _RightRail extends StatelessWidget {
     required this.streakDays,
     required this.practicedDays,
     required this.bestSession,
+    this.gamificationRepository,
   });
 
   final String? userId;
@@ -553,6 +491,7 @@ class _RightRail extends StatelessWidget {
   final int streakDays;
   final Set<DateTime> practicedDays;
   final Session? bestSession;
+  final GamificationRepository? gamificationRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -574,6 +513,7 @@ class _RightRail extends StatelessWidget {
             userId: userId!,
             sessions: sessions,
             streakDays: streakDays,
+            repository: gamificationRepository,
           ),
         const SizedBox(height: 18),
         DashboardCalendarCard(

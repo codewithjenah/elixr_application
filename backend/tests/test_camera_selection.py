@@ -751,6 +751,20 @@ def test_startup_required_consecutive_usable_frames_succeed(monkeypatch):
     assert camera_mod._frame_is_usable(frame)
 
 
+def test_startup_probe_records_first_usable_once(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    timings = camera_mod.CameraStartupTimings()
+    needed = camera_mod._STARTUP_REQUIRED_CONSECUTIVE_FRAMES
+    cap = _SequenceCap([_usable_frame() for _ in range(needed)])
+    ok, _ = camera_mod._probe_stable_startup(cap, timings=timings)
+    assert ok is True
+    first = timings.first_usable_at
+    assert first is not None
+    later = _SequenceCap([_usable_frame() for _ in range(needed)])
+    camera_mod._probe_stable_startup(later, timings=timings)
+    assert timings.first_usable_at == first
+
+
 def test_startup_blank_frame_resets_consecutive_counter(monkeypatch):
     monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
     needed = camera_mod._STARTUP_REQUIRED_CONSECUTIVE_FRAMES

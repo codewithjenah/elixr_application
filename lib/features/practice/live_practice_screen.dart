@@ -28,6 +28,7 @@ import '../../services/auth_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/startup_diagnostics.dart';
 import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
@@ -781,6 +782,16 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     if (!mounted || _leaving) return;
     if (!_run.isPreparingCamera) return;
 
+    _ws.startupDiagnostics.annotate(
+      sessionMode: 'guided',
+      movement: TeacherCreatedAssignmentPractice.backendMovementName,
+      camera: cameraDiagnosticIdentity(
+        deviceId: cameraDeviceId,
+        identityStable:
+            cameraDeviceId != null && !cameraDeviceId.startsWith('opencv:'),
+      ),
+    );
+
     // Internal Free Practice vision mode: camera + prop detection only.
     // Teacher-created titles must never be sent as prepare.movement.
     _commandInFlight = true;
@@ -871,6 +882,15 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         !_run.isPreparingCamera) {
       return;
     }
+    _ws.startupDiagnostics.annotate(
+      sessionMode: 'freestyle',
+      movement: TeacherCreatedAssignmentPractice.backendMovementName,
+      camera: cameraDiagnosticIdentity(
+        deviceId: cameraDeviceId,
+        identityStable:
+            cameraDeviceId != null && !cameraDeviceId.startsWith('opencv:'),
+      ),
+    );
     _commandInFlight = true;
     try {
       final ack = await _ws.sendPrepare(

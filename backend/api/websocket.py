@@ -90,6 +90,22 @@ from vision.camera import (
     snapshot_capture_producer_telemetry,
     release_shared_camera,
 )
+from vision.startup_diagnostics import (
+    MARK_ACTIVATE_ACK,
+    MARK_ACTIVATE_START,
+    MARK_FIRST_JPEG_ENCODE,
+    MARK_FIRST_JPEG_SEND,
+    MARK_ORIGIN,
+    MARK_PREPARE_END,
+    MARK_READINESS_START,
+    MARK_READINESS_STABLE,
+    MARK_WARMUP_END,
+    MARK_WARMUP_START,
+    StartupDiagnostics,
+    camera_diagnostic_identity,
+    default_sink,
+    infer_identity_stable_from_device_id,
+)
 from vision.submission_recorder import (
     SubmissionRecorder,
     SubmissionRecorderError,
@@ -487,6 +503,19 @@ class VisionSession:
         self.bottle_detection_enabled = bottle_detection_enabled
         self.session_id = session_id
         self.readiness_spec = readiness_spec
+        if self._is_freestyle:
+            diagnostics_mode = "freestyle"
+        elif movement == "Free Practice":
+            diagnostics_mode = "free_practice"
+        else:
+            diagnostics_mode = session_mode or "guided"
+        self.startup = StartupDiagnostics(
+            session_id or "legacy-session",
+            sink=default_sink(),
+            session_mode=diagnostics_mode,
+            movement=movement,
+        )
+        self.startup.mark(MARK_ORIGIN)
 
         self.camera = CameraCapture(
             camera_index=camera_index,
@@ -801,7 +830,29 @@ class VisionSession:
         return self.movement
 
     def start(self) -> bool:
-        return self.camera.open()
+        opened = self.camera.open()
+        timings = getattr(self.camera, "startup_timings", None)
+        if timings is not None:
+            self.startup.ingest_camera_timings(
+                open_started_at=timings.open_started_at,
+                first_usable_at=timings.first_usable_at,
+                open_completed_at=timings.open_completed_at,
+                reused_shared=bool(timings.reused_shared),
+                success=bool(timings.success and opened),
+            )
+        if opened:
+            device_id = getattr(self.camera, "active_device_id", None)
+            # Classify from the id string only. Enumerating DirectShow devices
+            # here would add discovery latency to prepare.
+            self.startup.set_camera_identity(
+                camera_diagnostic_identity(
+                    device_id,
+                    identity_stable=infer_identity_stable_from_device_id(device_id),
+                )
+            )
+        elif timings is None:
+            self.startup.fail("camera_open", "camera_unavailable")
+        return opened
 
     def _stamp(self, message: FeedbackMessage) -> FeedbackMessage:
         stamped = message.with_session(self.session_id)
@@ -873,10 +924,13 @@ class VisionSession:
         if self._readiness_warmed:
             return self._model_error
 
+        self.startup.mark(MARK_WARMUP_START)
         self._ensure_readiness_detectors()
         model_error = self._check_model()
         if model_error is not None:
             self._readiness_warmed = True
+            self.startup.fail("detector_warmup", "model_load_failed")
+            self.startup.mark(MARK_WARMUP_END)
             return model_error
 
         captured = (
@@ -892,7 +946,10 @@ class VisionSession:
             if self.pose_detector is not None:
                 self.pose_detector.detect(captured.frame)
 
+        runtime, provider = yolo_runtime_info(self.prop_detector)
+        self.startup.set_yolo_runtime(runtime, provider)
         self._readiness_warmed = True
+        self.startup.mark(MARK_WARMUP_END)
         return None
 
     def warm_readiness(self) -> FeedbackMessage | None:
@@ -933,6 +990,7 @@ class VisionSession:
             self._clear_overlay()
             self._last_ai_sequence = None
             self._lifecycle = SESSION_READYING
+            self.startup.mark(MARK_READINESS_START)
             return True
         finally:
             self._release_ai_state()
@@ -1119,6 +1177,7 @@ class VisionSession:
         )
         self.timings.add("encode", time.perf_counter() - t0)
         self.timings.add("processing_total", time.perf_counter() - total_start)
+        self.startup.mark(MARK_FIRST_JPEG_ENCODE)
         return message
 
     def render_preview(self) -> PreviewFrameMessage | None:
@@ -1184,6 +1243,7 @@ class VisionSession:
         )
         self.preview_timings.add("encode", time.perf_counter() - t0)
         self.preview_timings.add("processing_total", time.perf_counter() - total_start)
+        self.startup.mark(MARK_FIRST_JPEG_ENCODE)
         return message
 
     def analyze_tick(self) -> FeedbackMessage | None:
@@ -1321,6 +1381,8 @@ class VisionSession:
         readiness_stable_progress = (
             snapshot.readiness_stable_progress if snapshot is not None else None
         )
+        if readiness_stable:
+            self.startup.mark(MARK_READINESS_STABLE)
 
         boxes_to_draw = list(normalized.annotation)
         self._publish_overlay(
@@ -1873,6 +1935,7 @@ class VisionSession:
             self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
         finally:
             self._release_ai_state()
+            self.startup.finalize()
 
 
 def _signal_prepare_gate(
@@ -2112,6 +2175,7 @@ async def _cv_session_loop(
             await asyncio.to_thread(session.activate)
 
         _signal_prepare_gate(prepare_gate, ok=True)
+        session.startup.mark(MARK_PREPARE_END)
 
         explicit = camera_device_id is not None or camera_index is not None
         logger.info(
@@ -2320,6 +2384,7 @@ async def _cv_session_loop(
                         await _send(item.payload)
                         if item.kind == "preview":
                             first_preview_sent.set()
+                            session.startup.mark(MARK_FIRST_JPEG_SEND)
                         send_s = time.perf_counter() - t_send
                         now = time.perf_counter()
                         if item.kind == "preview":
@@ -3027,6 +3092,7 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             return
 
+        session.startup.mark(MARK_ACTIVATE_START)
         activated, activation_error = await asyncio.to_thread(session.activate)
         logger.info(
             "CV session activate: movement=%s ok=%s lifecycle=%s session_id=%s",
@@ -3038,6 +3104,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         if not activated:
             code = activation_error or "session_not_prepared"
+            session.startup.fail("activate_ack", code)
             await send_ack(
                 request_id=command.request_id,
                 session_id=command.session_id,
@@ -3059,6 +3126,7 @@ async def websocket_endpoint(websocket: WebSocket):
             accepted=True,
             session_state="active",
         )
+        session.startup.mark(MARK_ACTIVATE_ACK)
 
     async def handle_v1_pause_or_resume(command: PauseCommand | ResumeCommand) -> None:
         session = session_ref.get("session")

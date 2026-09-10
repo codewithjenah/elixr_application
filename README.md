@@ -579,6 +579,8 @@ Guided practice and free practice share camera ownership and prepare/activate bo
 8. **Hold confirmation** — Backend-authoritative during `session_state: active` only. Preview, readiness, and countdown frames never advance hold confirmation.
 9. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends protocol v1 `stop`; readiness attempts are never saved as sessions.
 
+Startup-latency diagnostics (ELX-010) record session-correlated milestone timings locally. They do not change this lifecycle, do not store camera images, and are documented in `docs/startup-diagnostics.md`.
+
 ### Free practice flow
 
 Free practice keeps `prepare` → first JPEG → countdown → `activate` (no readiness gate). It remains unscored and does not persist sessions.

@@ -1,4 +1,7 @@
+import 'package:elixr_core/utils/comparable_rubric_progress.dart';
+
 import '../database/firestore_helper.dart';
+import '../models/session.dart';
 
 class ProgressStats {
   const ProgressStats({
@@ -32,13 +35,70 @@ class ProgressStats {
 
   bool get hasRubricData => rubricSessionCount > 0;
   bool get hasLegacyOnly => rubricSessionCount == 0 && legacySessionCount > 0;
+
+  /// Dashboard/all-time aggregates from an already-loaded session list.
+  ///
+  /// Matches [ProgressRepository.getStatsForUser] client-side math on the same
+  /// snapshot: V1/V2 stay partitioned, and [totalSessions] is the list length.
+  factory ProgressStats.fromSessions(List<Session> sessions) {
+    var rubricCount = 0;
+    var rubricSum = 0;
+    var rubricBest = 0;
+    var legacyCount = 0;
+    var legacySum = 0;
+    var legacyBest = 0;
+    final byMovement = <String, int>{};
+
+    for (final session in sessions) {
+      byMovement.update(
+        session.movementName,
+        (value) => value + 1,
+        ifAbsent: () => 1,
+      );
+      final rubricTotal = ComparableRubricProgress.scoreFor(
+        assessmentVersion: session.assessmentVersion,
+        rubricTotal: session.rubricTotal,
+      );
+      if (rubricTotal != null) {
+        rubricCount++;
+        rubricSum += rubricTotal;
+        if (rubricTotal > rubricBest) rubricBest = rubricTotal;
+      } else if (session.legacyScore != null) {
+        final score = session.legacyScore!;
+        legacyCount++;
+        legacySum += score;
+        if (score > legacyBest) legacyBest = score;
+      }
+    }
+
+    String? mostPracticed;
+    var maxCount = 0;
+    byMovement.forEach((movement, count) {
+      if (count > maxCount) {
+        maxCount = count;
+        mostPracticed = movement;
+      }
+    });
+
+    return ProgressStats(
+      totalSessions: sessions.length,
+      rubricSessionCount: rubricCount,
+      averageRubricTotal: rubricCount == 0 ? null : rubricSum / rubricCount,
+      bestRubricTotal: rubricCount == 0 ? null : rubricBest,
+      legacySessionCount: legacyCount,
+      averageLegacyScore: legacyCount == 0 ? null : legacySum / legacyCount,
+      bestLegacyScore: legacyCount == 0 ? null : legacyBest,
+      mostPracticedMovement: mostPracticed,
+      sessionsByMovement: byMovement,
+    );
+  }
 }
 
 class ProgressRepository {
-  ProgressRepository({FirestoreHelper? db})
-    : _db = db ?? FirestoreHelper.instance;
+  ProgressRepository({FirestoreHelper? db}) : _dbOverride = db;
 
-  final FirestoreHelper _db;
+  final FirestoreHelper? _dbOverride;
+  FirestoreHelper get _db => _dbOverride ?? FirestoreHelper.instance;
 
   Future<ProgressStats> getStatsForUser(String userId) async {
     final total = await _db.countSessionsForUser(userId);

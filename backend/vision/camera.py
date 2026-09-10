@@ -36,6 +36,22 @@ from vision.pipeline_telemetry import CaptureProducerMetrics, CaptureProducerSna
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class CameraStartupTimings:
+    """Monotonic camera-open milestones for one CameraCapture.open() call.
+
+    Recorded in-memory only. Callers copy durations into StartupDiagnostics
+    after open() returns. The capture producer must not write these to disk.
+    """
+
+    open_started_at: float | None = None
+    first_usable_at: float | None = None
+    open_completed_at: float | None = None
+    reused_shared: bool = False
+    success: bool = False
+
+
 _CAMERA_LOCK = threading.Lock()
 _DISCOVERY_LOCK = threading.Lock()
 
@@ -673,6 +689,7 @@ def _probe_stable_startup(
     timeout_s: float = _STARTUP_TIMEOUT_S,
     required_consecutive: int = _STARTUP_REQUIRED_CONSECUTIVE_FRAMES,
     read_sleep_s: float = _STARTUP_READ_SLEEP_S,
+    timings: CameraStartupTimings | None = None,
 ) -> tuple[bool, Optional[np.ndarray]]:
     """Require consecutive usable frames before accepting a capture profile."""
     deadline = time.monotonic() + timeout_s
@@ -682,6 +699,8 @@ def _probe_stable_startup(
     while time.monotonic() < deadline:
         ok, frame = cap.read()
         if ok and frame is not None and _frame_is_usable(frame):
+            if timings is not None and timings.first_usable_at is None:
+                timings.first_usable_at = time.monotonic()
             consecutive += 1
             last_valid = frame
             if consecutive >= required_consecutive:
@@ -877,6 +896,7 @@ def _open_video_capture(
     prefer_after: CaptureProfile | None = None,
     dshow_only: bool = False,
     for_discovery: bool = False,
+    timings: CameraStartupTimings | None = None,
 ) -> Optional[tuple[cv2.VideoCapture, CaptureProfile]]:
     profiles = _profiles_starting_after(
         _capture_profiles(index, dshow_only=dshow_only),
@@ -895,7 +915,10 @@ def _open_video_capture(
         if for_discovery:
             ok, frame = _probe_discovery(cap)
         else:
-            ok, frame = _probe_stable_startup(cap)
+            profile_timings = CameraStartupTimings() if timings is not None else None
+            ok, frame = _probe_stable_startup(cap, timings=profile_timings)
+            if ok and timings is not None and profile_timings is not None:
+                timings.first_usable_at = profile_timings.first_usable_at
 
         if not ok or frame is None:
             logger.debug(
@@ -954,6 +977,7 @@ def _try_reuse_shared_capture(
     allowed_indices: list[int],
     *,
     preferred_index: int | None = None,
+    timings: CameraStartupTimings | None = None,
 ) -> bool:
     global _shared_cap, _shared_index, _shared_profile
 
@@ -999,6 +1023,7 @@ def _try_reuse_shared_capture(
         _shared_cap,
         timeout_s=min(_STARTUP_TIMEOUT_S, 1.0),
         required_consecutive=_STARTUP_REQUIRED_CONSECUTIVE_FRAMES,
+        timings=timings,
     )
     if ok:
         logger.info(
@@ -1180,6 +1205,7 @@ class CameraCapture:
         self._active_device_id: str | None = None
         self._last_captured_at_monotonic: float | None = None
         self._last_capture_sequence: int | None = None
+        self.startup_timings = CameraStartupTimings()
 
         if camera_device_id is not None:
             self._auto = False
@@ -1271,6 +1297,14 @@ class CameraCapture:
         _start_capture_producer(cap, width=self._width, height=self._height)
 
     def open(self) -> bool:
+        timings = CameraStartupTimings(open_started_at=time.monotonic())
+        self.startup_timings = timings
+
+        def _finish(success: bool) -> bool:
+            timings.open_completed_at = time.monotonic()
+            timings.success = success
+            return success
+
         allowed = self._resolve_allowed_indices()
         mode = "auto-select" if self._auto else "explicit"
         if self._requested_device_id is not None:
@@ -1286,7 +1320,7 @@ class CameraCapture:
                 self._requested_device_id,
             )
             self._last_read_status = CameraReadStatus.UNAVAILABLE
-            return False
+            return _finish(False)
 
         logger.info(
             "Camera open requested: mode=%s requested=%s candidates=%s",
@@ -1299,11 +1333,16 @@ class CameraCapture:
             _cancel_pending_release()
 
             preferred = allowed[0] if allowed else None
-            if _try_reuse_shared_capture(allowed, preferred_index=preferred):
+            if _try_reuse_shared_capture(
+                allowed,
+                preferred_index=preferred,
+                timings=timings,
+            ):
                 assert _shared_cap is not None
                 if _start_capture_producer(
                     _shared_cap, width=self._width, height=self._height
                 ):
+                    timings.reused_shared = True
                     self._blank_frame_streak = 0
                     self._active_device_id = _shared_device_id
                     self._used_fallback = (
@@ -1321,7 +1360,7 @@ class CameraCapture:
                         _shared_profile.label if _shared_profile else "unknown",
                         self._used_fallback,
                     )
-                    return True
+                    return _finish(True)
                 # Previous producer was abandoned while still reading this
                 # handle; drop shared refs (producer owns release) and reopen.
                 logger.warning(
@@ -1329,6 +1368,8 @@ class CameraCapture:
                     "VideoCapture — opening a fresh device handle"
                 )
                 _orphan_shared_capture_refs_unlocked()
+                timings.first_usable_at = None
+                timings.reused_shared = False
 
             _release_shared_unlocked()
 
@@ -1338,6 +1379,7 @@ class CameraCapture:
                 opened = _open_video_capture(
                     candidate,
                     dshow_only=dshow_only and self._requested_device_id is not None,
+                    timings=timings,
                 )
 
                 if opened is not None:
@@ -1363,7 +1405,7 @@ class CameraCapture:
                         self._height,
                     )
 
-                    return True
+                    return _finish(True)
 
             if self._auto:
                 logger.error(
@@ -1383,7 +1425,7 @@ class CameraCapture:
                 )
 
             self._last_read_status = CameraReadStatus.UNAVAILABLE
-            return False
+            return _finish(False)
 
     def _recovery_allowed(self) -> bool:
         if _RECOVERY_COOLDOWN_S <= 0:

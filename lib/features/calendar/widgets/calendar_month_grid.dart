@@ -1,9 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
-import '../../../core/theme/app_theme.dart';
 import '../models/training_day_snapshot.dart';
+import 'calendar_chrome.dart';
 import 'calendar_day_cell.dart';
 import 'calendar_status_legend.dart';
 
@@ -16,6 +15,7 @@ class CalendarMonthGrid extends StatelessWidget {
     required this.todayDate,
     required this.snapshotsByDate,
     this.classroomCountsByDate = const {},
+    this.classroomOverdueByDate = const {},
     required this.onDateSelected,
   });
 
@@ -25,45 +25,15 @@ class CalendarMonthGrid extends StatelessWidget {
   final DateTime todayDate;
   final Map<DateTime, TrainingDaySnapshot> snapshotsByDate;
   final Map<DateTime, int> classroomCountsByDate;
+  final Map<DateTime, int> classroomOverdueByDate;
   final ValueChanged<DateTime> onDateSelected;
-
-  static const _weekdayLabels = [
-    'MON',
-    'TUE',
-    'WED',
-    'THU',
-    'FRI',
-    'SAT',
-    'SUN',
-  ];
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.elixPanelSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.accent.withValues(alpha: 0.22)),
-      ),
+    return CalendarSurface(
       child: Column(
         children: [
-          Row(
-            children: [
-              for (final label in _weekdayLabels)
-                Expanded(
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          const CalendarWeekdayHeader(),
           const SizedBox(height: AppSpacing.sm),
           for (var week = 0; week < dates.length ~/ 7; week++) ...[
             if (week > 0) const SizedBox(height: 6),
@@ -80,6 +50,9 @@ class CalendarMonthGrid extends StatelessWidget {
                           snapshot: snapshotsByDate[dates[week * 7 + dow]],
                           classroomCount:
                               classroomCountsByDate[dates[week * 7 + dow]] ?? 0,
+                          classroomOverdueCount:
+                              classroomOverdueByDate[dates[week * 7 + dow]] ??
+                              0,
                           isOutsideMonth:
                               dates[week * 7 + dow].month != visibleMonth.month,
                           isSelected: dates[week * 7 + dow] == selectedDate,

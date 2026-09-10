@@ -7,6 +7,7 @@ import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/features/teacher/calendar/teacher_calendar_models.dart';
 import 'package:elixr_application/features/teacher/calendar/teacher_calendar_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/elixr_group.dart';
@@ -19,20 +20,32 @@ import 'package:provider/provider.dart';
 
 import '../teacher_phase3_test_support.dart';
 
-GroupAssignment _assignment() => GroupAssignment(
-  id: 'assignment-1',
+GroupAssignment _assignment({
+  String id = 'assignment-1',
+  String groupId = 'group-1',
+  DateTime? dueAt,
+  String title = 'Bottle balance',
+}) => GroupAssignment(
+  id: id,
   teacherId: 'teacher',
-  groupId: 'group-1',
+  groupId: groupId,
   movementId: 'movement-1',
   revisionId: 'revision-1',
   origin: MovementOrigin.officialElixr,
   assessmentMode: AssessmentMode.officialGuided,
   status: GroupAssignmentStatus.active,
-  displayTitle: 'Bottle balance',
+  displayTitle: title,
   teacherDisplayName: 'Grace Hopper',
   groupName: 'Stored name',
   officialMovementName: 'Hand Stall',
-  dueAt: DateTime.utc(2026, 9, 4, 14),
+  dueAt: dueAt ?? DateTime.utc(2026, 9, 4, 14),
+);
+
+ElixrGroup _group(String id, String name) => ElixrGroup(
+  id: id,
+  teacherId: 'teacher',
+  name: name,
+  status: ElixrGroupStatus.active,
 );
 
 Widget _app({
@@ -168,5 +181,200 @@ void main() {
 
     expect(assignments.watchedTeacherIds, ['teacher']);
     expect(groups.watchedTeacherIds, ['teacher']);
+  });
+
+  testWidgets('shows summary counts and selected-day events for today', (
+    tester,
+  ) async {
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      _app(
+        auth: auth,
+        assignments: Stream.value([
+          _assignment(id: 'overdue', dueAt: DateTime.utc(2026, 9, 3)),
+          _assignment(),
+          _assignment(
+            id: 'upcoming',
+            dueAt: DateTime.utc(2026, 9, 4, 18),
+            title: 'Later drill',
+          ),
+        ]),
+        groups: Stream.value([_group('group-1', 'BSHM 4A')]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('teacher_calendar_due_today')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('teacher_calendar_overdue')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Bottle balance'), findsOneWidget);
+    expect(find.text('Later drill'), findsNothing);
+    expect(find.text('BSHM 4A'), findsWidgets);
+    expect(find.text('Due today'), findsWidgets);
+    expect(find.text('Open classwork'), findsOneWidget);
+  });
+
+  testWidgets('classroom filter updates selected-day events and overview', (
+    tester,
+  ) async {
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      _app(
+        auth: auth,
+        assignments: Stream.value([
+          _assignment(title: 'Class A drill'),
+          _assignment(
+            id: 'assignment-2',
+            groupId: 'group-2',
+            title: 'Class B drill',
+          ),
+        ]),
+        groups: Stream.value([
+          _group('group-1', 'BSHM 4A'),
+          _group('group-2', 'BSHM 4B'),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Class A drill'), findsOneWidget);
+    expect(find.text('Class B drill'), findsOneWidget);
+
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_calendar_classroom_filter')),
+        )
+        .onChanged!('group-2');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Class A drill'), findsNothing);
+    expect(find.text('Class B drill'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('teacher_calendar_classrooms')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('deadline filter hides non-matching selected-day work', (
+    tester,
+  ) async {
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      _app(
+        auth: auth,
+        assignments: Stream.value([
+          _assignment(),
+          _assignment(
+            id: 'upcoming',
+            dueAt: DateTime.utc(2026, 9, 4, 18),
+            title: 'Later drill',
+          ),
+        ]),
+        groups: Stream.value([_group('group-1', 'BSHM 4A')]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    tester
+        .widget<ComboBox<TeacherDeadlineFilter>>(
+          find.byKey(const Key('teacher_calendar_deadline_filter')),
+        )
+        .onChanged!(TeacherDeadlineFilter.upcoming);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bottle balance'), findsNothing);
+    expect(find.text('No matching deadlines'), findsOneWidget);
+
+    tester
+        .widget<ComboBox<TeacherDeadlineFilter>>(
+          find.byKey(const Key('teacher_calendar_deadline_filter')),
+        )
+        .onChanged!(TeacherDeadlineFilter.dueToday);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bottle balance'), findsOneWidget);
+  });
+
+  testWidgets('filter empty state can clear filters', (tester) async {
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      _app(
+        auth: auth,
+        assignments: Stream.value([_assignment()]),
+        groups: Stream.value([
+          _group('group-1', 'BSHM 4A'),
+          _group('group-2', 'BSHM 4B'),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_calendar_classroom_filter')),
+        )
+        .onChanged!('group-2');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('teacher_calendar_filter_empty')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Clear filters').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Bottle balance'), findsOneWidget);
+  });
+
+  testWidgets('keeps unauthorized classrooms off the calendar', (tester) async {
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(
+      _app(
+        auth: auth,
+        assignments: Stream.value([
+          _assignment(),
+          _assignment(id: 'hidden', groupId: 'hidden', title: 'Hidden drill'),
+        ]),
+        groups: Stream.value([_group('group-1', 'BSHM 4A')]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bottle balance'), findsOneWidget);
+    expect(find.text('Hidden drill'), findsNothing);
   });
 }

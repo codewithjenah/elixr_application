@@ -1,9 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../models/calendar_classroom_assignment.dart';
 
 class ClassroomDaySection extends StatelessWidget {
@@ -25,12 +26,7 @@ class ClassroomDaySection extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         Text(
           'CLASSROOM WORK',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: .4,
-            color: context.elixTextSecondary,
-          ),
+          style: ElixTypography.eyebrow(color: context.elixTextSecondary),
         ),
         const SizedBox(height: 8),
         for (final item in items) ...[
@@ -51,7 +47,9 @@ class _ClassroomAssignmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final dueAt = item.dueAt!;
     final overdue = item.isOverdue;
-    final color = overdue ? AppColors.error : AppColors.accent;
+    final colors = context.elixColors;
+    final color = overdue ? colors.error : colors.brandSecondary;
+    final icon = overdue ? FluentIcons.warning : FluentIcons.education;
     return Button(
       onPressed: onOpen,
       style: ButtonStyle(padding: WidgetStateProperty.all(EdgeInsets.zero)),
@@ -60,13 +58,19 @@ class _ClassroomAssignmentTile extends StatelessWidget {
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: .35)),
-          color: color.withValues(alpha: .08),
+          border: Border.all(color: color.withValues(alpha: 0.35)),
+          color: color.withValues(
+            alpha: context.isHighContrast
+                ? 0
+                : context.isDarkTheme
+                ? 0.08
+                : 0.06,
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(FluentIcons.education, size: 16, color: color),
+            Icon(icon, size: 16, color: color),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -95,16 +99,29 @@ class _ClassroomAssignmentTile extends StatelessWidget {
                         color: context.elixTextSecondary,
                       ),
                     ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Open assignment',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: context.elixTextPrimary,
+                    ),
+                  ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
             Column(
               children: [
-                _StatusPill(label: item.statusLabel, color: color),
+                ElixPill(text: item.statusLabel, color: color, compact: true),
                 if (item.isChecked) ...[
                   const SizedBox(height: 4),
-                  _StatusPill(label: 'Checked', color: AppColors.success),
+                  ElixPill(
+                    text: 'Checked',
+                    color: colors.success,
+                    compact: true,
+                  ),
                 ],
               ],
             ),
@@ -113,22 +130,4 @@ class _ClassroomAssignmentTile extends StatelessWidget {
       ),
     );
   }
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label, required this.color});
-  final String label;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: .16),
-      borderRadius: BorderRadius.circular(7),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color),
-    ),
-  );
 }
