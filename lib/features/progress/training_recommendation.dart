@@ -426,8 +426,16 @@ int _compareSameTimestampResult(Session a, Session b) {
     assessmentVersion: b.assessmentVersion,
     rubricTotal: b.rubricTotal,
   );
-  final aCohort = aRubric != null ? 0 : a.legacyScore != null ? 1 : 2;
-  final bCohort = bRubric != null ? 0 : b.legacyScore != null ? 1 : 2;
+  final aCohort = aRubric != null
+      ? 0
+      : a.legacyScore != null
+      ? 1
+      : 2;
+  final bCohort = bRubric != null
+      ? 0
+      : b.legacyScore != null
+      ? 1
+      : 2;
   if (aCohort != bCohort) return aCohort.compareTo(bCohort);
   return switch (aCohort) {
     0 => aRubric!.compareTo(bRubric!),

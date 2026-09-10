@@ -383,62 +383,65 @@ void main() {
     expect(snapshot.matchedStudentCount, 1);
   });
 
-  test('keeps valid zero rubric scores distinct from unavailable comparisons', () {
-    final memberships = [
-      _membership(
-        groupId: 'group-1',
-        traineeId: 'a',
-        updatedAt: DateTime.utc(2026, 7, 1, 16),
-      ),
-    ];
-    final matched = _calculate(
-      window: _customWindow(),
-      groups: [_group()],
-      memberships: memberships,
-      current: {
-        'a': [
-          _session(
-            id: 'current-zero',
-            userId: 'a',
-            createdAt: DateTime.utc(2026, 8, 10, 17),
-            rubricTotal: 0,
-          ),
-        ],
-      },
-      comparison: {
-        'a': [
-          _session(
-            id: 'comparison-zero',
-            userId: 'a',
-            createdAt: DateTime.utc(2026, 8, 3, 17),
-            rubricTotal: 0,
-          ),
-        ],
-      },
-    );
-    expect(matched.averageScore, 0);
-    expect(matched.improvement, 0);
-    expect(matched.matchedStudentCount, 1);
+  test(
+    'keeps valid zero rubric scores distinct from unavailable comparisons',
+    () {
+      final memberships = [
+        _membership(
+          groupId: 'group-1',
+          traineeId: 'a',
+          updatedAt: DateTime.utc(2026, 7, 1, 16),
+        ),
+      ];
+      final matched = _calculate(
+        window: _customWindow(),
+        groups: [_group()],
+        memberships: memberships,
+        current: {
+          'a': [
+            _session(
+              id: 'current-zero',
+              userId: 'a',
+              createdAt: DateTime.utc(2026, 8, 10, 17),
+              rubricTotal: 0,
+            ),
+          ],
+        },
+        comparison: {
+          'a': [
+            _session(
+              id: 'comparison-zero',
+              userId: 'a',
+              createdAt: DateTime.utc(2026, 8, 3, 17),
+              rubricTotal: 0,
+            ),
+          ],
+        },
+      );
+      expect(matched.averageScore, 0);
+      expect(matched.improvement, 0);
+      expect(matched.matchedStudentCount, 1);
 
-    final unavailable = _calculate(
-      window: _customWindow(),
-      groups: [_group()],
-      memberships: memberships,
-      current: {
-        'a': [
-          _session(
-            id: 'current-only-zero',
-            userId: 'a',
-            createdAt: DateTime.utc(2026, 8, 10, 17),
-            rubricTotal: 0,
-          ),
-        ],
-      },
-    );
-    expect(unavailable.averageScore, 0);
-    expect(unavailable.improvement, isNull);
-    expect(unavailable.matchedStudentCount, 0);
-  });
+      final unavailable = _calculate(
+        window: _customWindow(),
+        groups: [_group()],
+        memberships: memberships,
+        current: {
+          'a': [
+            _session(
+              id: 'current-only-zero',
+              userId: 'a',
+              createdAt: DateTime.utc(2026, 8, 10, 17),
+              rubricTotal: 0,
+            ),
+          ],
+        },
+      );
+      expect(unavailable.averageScore, 0);
+      expect(unavailable.improvement, isNull);
+      expect(unavailable.matchedStudentCount, 0);
+    },
+  );
 
   test('uses start-inclusive and end-exclusive Manila range boundaries', () {
     final snapshot = _calculate(

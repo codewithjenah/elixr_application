@@ -127,28 +127,31 @@ void main() {
       run.dispose();
     });
 
-    test('late readiness confirmation after cancellation cannot start countdown', () {
-      final run = PracticeRunController();
-      run.beginPreparing(onTimeout: () {});
-      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
-      run.enterReadiness();
-      run.applyReadinessFeedback(
-        items: const [],
-        complete: true,
-        stable: true,
-        progress: 1,
-      );
-      expect(run.requestStartPractice(readinessStable: true), isTrue);
-      expect(run.readinessConfirming, isTrue);
+    test(
+      'late readiness confirmation after cancellation cannot start countdown',
+      () {
+        final run = PracticeRunController();
+        run.beginPreparing(onTimeout: () {});
+        run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        run.enterReadiness();
+        run.applyReadinessFeedback(
+          items: const [],
+          complete: true,
+          stable: true,
+          progress: 1,
+        );
+        expect(run.requestStartPractice(readinessStable: true), isTrue);
+        expect(run.readinessConfirming, isTrue);
 
-      run.cancelToIdle();
-      expect(run.onConfirmReadinessAccepted(), isFalse);
-      expect(run.phase, PracticeRunPhase.idle);
-      expect(run.readinessConfirming, isFalse);
-      expect(run.shouldShowSummaryOnStop, isFalse);
-      expect(run.hasElapsedTimer, isFalse);
-      run.dispose();
-    });
+        run.cancelToIdle();
+        expect(run.onConfirmReadinessAccepted(), isFalse);
+        expect(run.phase, PracticeRunPhase.idle);
+        expect(run.readinessConfirming, isFalse);
+        expect(run.shouldShowSummaryOnStop, isFalse);
+        expect(run.hasElapsedTimer, isFalse);
+        run.dispose();
+      },
+    );
 
     test('Try Again style reset returns to full preparation flow', () {
       final run = PracticeRunController();

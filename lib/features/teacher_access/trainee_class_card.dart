@@ -348,13 +348,14 @@ class _TraineeClassCardState extends State<TraineeClassCard> {
                                 widget.teacherName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: ElixTypography.supporting(
-                                  color: context.elixTextPrimary,
-                                ).copyWith(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.2,
-                                ),
+                                style:
+                                    ElixTypography.supporting(
+                                      color: context.elixTextPrimary,
+                                    ).copyWith(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.2,
+                                    ),
                               ),
                             ),
                           ],
@@ -913,13 +914,12 @@ class _ClassCardWorkLine extends StatelessWidget {
                 item.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: ElixTypography.body(
-                  color: context.elixTextPrimary,
-                ).copyWith(
-                  fontSize: 13,
-                  height: 1.2,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: ElixTypography.body(color: context.elixTextPrimary)
+                    .copyWith(
+                      fontSize: 13,
+                      height: 1.2,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
               Text(
                 item.dueLabel,
@@ -976,10 +976,7 @@ class _ClassCardEmptyWork extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: ElixTypography.supporting(
               color: context.elixTextSecondary,
-            ).copyWith(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+            ).copyWith(fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ),
       ],

@@ -2932,7 +2932,9 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
       },
       { merge: true },
     );
-    await assertFails(batch.commit());
+    await assertSucceeds(batch.commit());
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().equipped_border_id, 'starter_glow');
   });
 
   test('20 daily quest claim preserves equipped_border_id', async () => {
@@ -2971,9 +2973,11 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
       },
       { merge: true },
     );
-    await assertSucceeds(batch.commit());
+    // claimDailyQuest (Admin) is the sole writer; client creates stay denied.
+    await assertFails(batch.commit());
     const after = await getDoc(doc(db, 'leaderboard', 'alice'));
     assert.equal(after.data().equipped_border_id, 'starter_glow');
+    assert.equal(after.data().quest_xp, 0);
   });
 
   test('21 public profile metadata update preserves equipped_border_id', async () => {

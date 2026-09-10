@@ -260,7 +260,7 @@ class FirebaseChatRepository implements ChatRepository {
       // participant-scoped Firestore transaction below.
       final existingConversation = await conversationRef.get();
       if (!existingConversation.exists) {
-        return _sendFirstMessage(
+        return await _sendFirstMessage(
           senderId: sender.id,
           recipientId: recipient.id,
           conversationId: conversationId,

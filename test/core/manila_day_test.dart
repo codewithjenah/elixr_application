@@ -136,10 +136,7 @@ void main() {
         isNull,
       );
       expect(
-        ComparableRubricProgress.scoreFor(
-          assessmentVersion: 2,
-          rubricTotal: 0,
-        ),
+        ComparableRubricProgress.scoreFor(assessmentVersion: 2, rubricTotal: 0),
         0,
       );
     });

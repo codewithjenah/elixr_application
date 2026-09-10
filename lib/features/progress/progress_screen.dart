@@ -120,9 +120,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
               (session) =>
                   session.createdAt != null &&
                   ComparableRubricProgress.scoreFor(
-                    assessmentVersion: session.assessmentVersion,
-                    rubricTotal: session.rubricTotal,
-                  ) !=
+                        assessmentVersion: session.assessmentVersion,
+                        rubricTotal: session.rubricTotal,
+                      ) !=
                       null,
             )
             .toList()

@@ -622,36 +622,39 @@ void main() {
       await sub.cancel();
     });
 
-    test('duplicate accepted ack has no second lifecycle publication', () async {
-      var notifications = 0;
-      service.addListener(() => notifications++);
-      final sessionId = service.beginPracticeAttempt();
-      final prepare = service.sendPrepare(
-        movement: 'Normal Grip',
-        difficulty: 'Easy',
-        sessionId: sessionId,
-      );
-      await Future<void>.delayed(Duration.zero);
-      final requestId = sent.last['request_id'] as String;
-      final ack = {
-        'protocol_version': 1,
-        'message_type': 'command_ack',
-        'request_id': requestId,
-        'session_id': sessionId,
-        'action': 'prepare',
-        'accepted': true,
-        'session_state': 'preparing',
-      };
+    test(
+      'duplicate accepted ack has no second lifecycle publication',
+      () async {
+        var notifications = 0;
+        service.addListener(() => notifications++);
+        final sessionId = service.beginPracticeAttempt();
+        final prepare = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: sessionId,
+        );
+        await Future<void>.delayed(Duration.zero);
+        final requestId = sent.last['request_id'] as String;
+        final ack = {
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': requestId,
+          'session_id': sessionId,
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        };
 
-      await push(ack);
-      await prepare;
-      final notificationsAfterFirstAck = notifications;
-      await push(ack);
+        await push(ack);
+        await prepare;
+        final notificationsAfterFirstAck = notifications;
+        await push(ack);
 
-      expect(service.sessionPrepared, isTrue);
-      expect(service.currentSessionId, sessionId);
-      expect(notifications, notificationsAfterFirstAck);
-    });
+        expect(service.sessionPrepared, isTrue);
+        expect(service.currentSessionId, sessionId);
+        expect(notifications, notificationsAfterFirstAck);
+      },
+    );
 
     test('pending command timeout completes with controlled failure', () async {
       final future = service.sendPrepare(

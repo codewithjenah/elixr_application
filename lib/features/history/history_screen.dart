@@ -151,8 +151,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
       assessmentVersion: b.assessmentVersion,
       rubricTotal: b.rubricTotal,
     );
-    final aCohort = aRubric != null ? 0 : a.legacyScore != null ? 1 : 2;
-    final bCohort = bRubric != null ? 0 : b.legacyScore != null ? 1 : 2;
+    final aCohort = aRubric != null
+        ? 0
+        : a.legacyScore != null
+        ? 1
+        : 2;
+    final bCohort = bRubric != null
+        ? 0
+        : b.legacyScore != null
+        ? 1
+        : 2;
     if (aCohort != bCohort) return aCohort.compareTo(bCohort);
 
     final comparison = switch (aCohort) {
