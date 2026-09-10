@@ -184,6 +184,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
+    expect(find.text('Teacher Access'), findsNothing);
+    expect(find.text('Invite another Teacher'), findsNothing);
+
     await tester.tap(find.text('Settings'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));

@@ -1,43 +1,50 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/utils/manila_day.dart';
 import '../database/firestore_helper.dart';
 import '../models/daily_quest.dart';
 import '../models/daily_quest_board.dart';
-import '../models/leaderboard_period.dart';
-import '../models/leaderboard_period_aggregate.dart';
 import '../models/quest_claim.dart';
 import '../models/session.dart';
 
 /// Persistence for the daily quest board and quest claims.
 ///
-/// CAPSTONE SECURITY NOTE: [claimQuest]'s pre-transaction completion check
-/// (and its `boardExpired` pre-check) are defense-in-depth / UX guards only
-/// — they let the UI show a precise message instead of an opaque
-/// permission error, and they save a doomed round-trip to Firestore. They
-/// are **not** a security boundary: a modified client could skip this
-/// class entirely and write to Firestore directly. The actual security
-/// boundary is `firestore.rules` — XP-arithmetic invariants, catalog
-/// membership, replay-proof claim/leaderboard linkage, and the
-/// server-time-anchored Asia/Manila real-day window (`request.time` is
-/// stamped by the Firestore server and cannot be spoofed by the client).
+/// Local quest evaluation is only a progress prediction for the UI. Claiming
+/// always calls the trusted Function, which derives identity, day, session
+/// evidence, completion, and XP independently.
 class GamificationRepository {
-  GamificationRepository({FirebaseFirestore? firestore})
-    : _injectedFirestore = firestore;
+  GamificationRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    Uri? apiBaseUri,
+    HttpClient Function()? httpClientFactory,
+    this.requestTimeout = const Duration(seconds: 12),
+  }) : _injectedFirestore = firestore,
+       _auth = auth ?? FirebaseAuth.instance,
+       apiBaseUri = apiBaseUri ?? Uri.parse(_configuredApiBaseUrl),
+       _httpClientFactory = httpClientFactory ?? HttpClient.new;
+
+  static const _configuredApiBaseUrl = String.fromEnvironment(
+    'ELIXR_ASSIGNMENTS_API_BASE_URL',
+    defaultValue: 'https://asia-southeast1-elixr-app-2026.cloudfunctions.net/',
+  );
 
   final FirebaseFirestore? _injectedFirestore;
+  final FirebaseAuth _auth;
+  final Uri apiBaseUri;
+  final HttpClient Function() _httpClientFactory;
+  final Duration requestTimeout;
 
   FirebaseFirestore get _firestore =>
       _injectedFirestore ?? FirebaseFirestore.instance;
 
   DocumentReference<Map<String, dynamic>> _boardRef(String boardId) =>
       _firestore.collection(FirestoreCollections.dailyQuestBoards).doc(boardId);
-
-  DocumentReference<Map<String, dynamic>> _claimRef(String claimId) =>
-      _firestore.collection(FirestoreCollections.dailyQuestClaims).doc(claimId);
-
-  DocumentReference<Map<String, dynamic>> _leaderboardRef(String userId) =>
-      _firestore.collection(FirestoreCollections.leaderboard).doc(userId);
 
   /// Returns today's (Manila calendar day) board for [userId], creating it
   /// deterministically on first access. Never mutates `quest_ids`/`day_key`/
@@ -104,8 +111,9 @@ class GamificationRepository {
         });
   }
 
-  /// Claims [questId] for [userId], awarding its fixed catalog XP exactly
-  /// once. See the class-level capstone security note above.
+  /// Claims [questId] through the trusted Firebase Function. [userId],
+  /// [sessionsToday], and [nowUtc] remain for source compatibility and local
+  /// UX only; none are sent as award authority.
   Future<QuestClaimResult> claimQuest({
     required String userId,
     required String questId,
@@ -116,88 +124,55 @@ class GamificationRepository {
     if (quest == null) {
       return const QuestClaimResult.invalidQuest();
     }
-
-    final now = (nowUtc ?? DateTime.now()).toUtc();
-    final currentDayKey = ManilaDay.dayKeyFor(now);
-
-    // Defense-in-depth only (see class doc comment) — evaluated against the
-    // caller-supplied sessionsToday, which should already be filtered to
-    // the board's Manila window via sessionsWithinBoardWindow.
-    if (!quest.evaluate(sessionsToday).completed) {
-      return const QuestClaimResult.questNotCompleted();
+    // Local progress is advisory only. A user-initiated claim must reach the
+    // server because cached or filtered client sessions can be stale.
+    quest.evaluate(sessionsToday);
+    final user = _auth.currentUser;
+    if (user == null || user.uid != userId) {
+      throw StateError('A matching authenticated user is required.');
     }
-
-    final boardId = DailyQuestBoard.documentId(userId, currentDayKey);
-    final boardRef = _boardRef(boardId);
-    final leaderboardRef = _leaderboardRef(userId);
-    final claimId = QuestClaim.documentId(userId, currentDayKey, questId);
-    final claimRef = _claimRef(claimId);
-
-    return _firestore.runTransaction<QuestClaimResult>((tx) async {
-      final claimSnap = await tx.get(claimRef);
-      if (claimSnap.exists) {
-        return const QuestClaimResult.alreadyClaimed();
+    final token = await user.getIdToken(true);
+    if (token == null || token.isEmpty) {
+      throw StateError('Unable to authenticate quest claim.');
+    }
+    final client = _httpClientFactory();
+    try {
+      final request = await client
+          .postUrl(apiBaseUri.resolve('claimDailyQuest'))
+          .timeout(requestTimeout);
+      request.headers.set('X-Firebase-Authorization', 'Bearer $token');
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode({'quest_id': questId}));
+      final response = await request.close().timeout(requestTimeout);
+      final raw = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(requestTimeout);
+      final decoded = raw.isEmpty ? <String, dynamic>{} : jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Malformed quest response');
       }
-
-      final boardSnap = await tx.get(boardRef);
-      if (!boardSnap.exists || boardSnap.data() == null) {
-        return const QuestClaimResult.boardMissing();
-      }
-      final board = DailyQuestBoard.tryFromMap(boardSnap.data()!);
-      if (board == null) {
-        return const QuestClaimResult.boardMissing();
-      }
-      // Client-side-only freshness check; firestore.rules independently
-      // enforces the real window via request.time regardless of this.
-      if (!ManilaDay.dayKeyEquals(board.dayKey, currentDayKey)) {
-        return const QuestClaimResult.boardExpired();
-      }
-      if (!board.questIds.contains(questId)) {
-        return const QuestClaimResult.invalidQuest();
-      }
-
-      final leaderboardSnap = await tx.get(leaderboardRef);
-      if (!leaderboardSnap.exists || leaderboardSnap.data() == null) {
-        return const QuestClaimResult.leaderboardMissing();
-      }
-
-      final plan = QuestAwardPlan.fromExisting(
-        claimExists: false,
-        existing: leaderboardSnap.data(),
-        xpAwarded: quest.xp,
-      );
-      final eventDayKey = board.dayKey;
-      final eventMonthKey = ManilaDay.monthKeyFromDayKey(eventDayKey);
-      final daily = LeaderboardPeriodAggregate.fromExisting(
-        period: LeaderboardPeriod.today,
-        existing: leaderboardSnap.data(),
-      ).applyQuest(eventKey: eventDayKey, xpAwarded: quest.xp).aggregate;
-      final monthly = LeaderboardPeriodAggregate.fromExisting(
-        period: LeaderboardPeriod.thisMonth,
-        existing: leaderboardSnap.data(),
-      ).applyQuest(eventKey: eventMonthKey, xpAwarded: quest.xp).aggregate;
-
-      final claim = QuestClaim(
-        userId: userId,
-        boardId: boardId,
-        dayKey: currentDayKey,
-        dayStart: board.dayStart,
-        questId: questId,
-        xpAwarded: quest.xp,
-      );
-      tx.set(claimRef, {
-        ...claim.toMap(),
-        'claimed_at': FieldValue.serverTimestamp(),
-      });
-      tx.set(leaderboardRef, {
-        'quest_xp': plan.questXp,
-        'total_xp': plan.totalXp,
-        'last_claim_id': claimId,
-        ...daily.toFirestoreFields(),
-        ...monthly.toFirestoreFields(),
-      }, SetOptions(merge: true));
-
-      return QuestClaimResult.claimed(quest.xp);
-    });
+      final status = decoded['status'] ?? decoded['error'];
+      return switch (status) {
+        'claimed' => QuestClaimResult.claimed(
+          (decoded['xp_awarded'] as num?)?.toInt() ?? 0,
+        ),
+        'already_claimed' => const QuestClaimResult.alreadyClaimed(),
+        'quest_not_completed' ||
+        'invalid_evidence' => const QuestClaimResult.questNotCompleted(),
+        'board_missing' => const QuestClaimResult.boardMissing(),
+        'leaderboard_missing' => const QuestClaimResult.leaderboardMissing(),
+        'invalid_quest' => const QuestClaimResult.invalidQuest(),
+        _ => throw StateError(
+          'Quest claim service unavailable (${response.statusCode}).',
+        ),
+      };
+    } on TimeoutException {
+      throw StateError('Quest claim service timed out.');
+    } on SocketException {
+      throw StateError('Quest claim service is unavailable.');
+    } finally {
+      client.close(force: true);
+    }
   }
 }

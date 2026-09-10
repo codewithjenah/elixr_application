@@ -7,6 +7,7 @@ const {initializeApp, getApps} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require('firebase-admin/firestore');
 const {getStorage} = require('firebase-admin/storage');
+const {claimDailyQuest, questComplete, manilaDay} = require('./lib/daily_quest_claim');
 const {
   TEACHER_ROLE,
   ensureTeacherRoleClaimForUid,
@@ -267,6 +268,33 @@ async function authenticatedTeacherUid(request) {
     return decoded.role === TEACHER_ROLE ? decoded.uid : null;
   } catch (_) {
     return null;
+  }
+}
+
+async function claimDailyQuestHandler(request, response, {
+  verifyToken = async (request) => {
+    const token = firebaseBearerToken(request);
+    return token ? getAuth().verifyIdToken(token, true) : null;
+  }, databaseFactory = getFirestore, now = () => new Date(),
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  let token;
+  try { token = await verifyToken(request); } catch (_) { token = null; }
+  if (!token || !validId(token.uid)) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body == null ? {} : request.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || typeof body.quest_id !== 'string' || !body.quest_id.trim()) {
+    return response.status(400).json({error: 'invalid_request'});
+  }
+  try {
+    const result = await claimDailyQuest({firestore: databaseFactory(), uid: token.uid, questId: body.quest_id, now: now(), FieldValue, Timestamp});
+    return response.status(result.status === 'invalid_quest' ? 400 : 200).json(
+      result.status === 'invalid_quest' ? {error: result.status} : result,
+    );
+  } catch (error) {
+    console.error('Daily quest claim failed', error);
+    return response.status(503).json({error: 'unavailable'});
   }
 }
 
@@ -2898,6 +2926,10 @@ exports.ensureTeacherRoleClaim = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 30}, ensureTeacherRoleClaimHandler,
 );
 
+exports.claimDailyQuest = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30}, claimDailyQuestHandler,
+);
+
 exports.permanentDeleteAssignment = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 540, memory: '512MiB'},
   permanentDeleteAssignmentHandler,
@@ -3486,6 +3518,10 @@ exports.archiveChatForAccountErasure = onRequest(
 );
 
 exports._test = {
+  claimDailyQuestHandler,
+  claimDailyQuest,
+  questComplete,
+  manilaDay,
   normalizeSearchText,
   buildSearchPrefixes,
   conversationIdFor,

@@ -6,6 +6,7 @@ import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_stat_card.dart';
+import 'package:elixr_application/core/widgets/elix_summary_stat_card.dart';
 import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
@@ -20,6 +21,7 @@ import 'package:elixr_application/features/assigned_movements/assignment_detail_
 import 'package:elixr_application/features/assigned_movements/assignment_detail_screen.dart';
 import 'package:elixr_application/features/calendar/widgets/calendar_header.dart';
 import 'package:elixr_application/features/calendar/widgets/calendar_summary_cards.dart';
+import 'package:elixr_application/features/history/widgets/history_summary_section.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_podium.dart';
 import 'package:elixr_application/features/learning/learning_center_screen.dart';
 import 'package:elixr_application/features/learning/movement_lesson.dart';
@@ -427,39 +429,57 @@ void main() {
     expect(practiced.style!.fontSize, 44);
   });
 
-  testWidgets('calendar summaries use metric type and milestone streak gold', (
-    tester,
-  ) async {
-    await _setSurface(tester, const Size(1100, 800));
-    await tester.pumpWidget(
-      _app(
-        Column(
-          children: [
-            CalendarHeader(
-              visibleMonth: DateTime(2026, 8),
-              onPreviousMonth: () {},
-              onNextMonth: () {},
-              onToday: () {},
-            ),
-            const CalendarSummaryCards(
-              plannedDays: 2,
-              completedDays: 1,
-              adherencePercent: 50,
-              planStreak: 7,
-            ),
-          ],
+  testWidgets(
+    'planner and history summaries share compact cards and milestone streak gold',
+    (tester) async {
+      await _setSurface(tester, const Size(1100, 800));
+      await tester.pumpWidget(
+        _app(
+          Column(
+            children: [
+              CalendarHeader(
+                visibleMonth: DateTime(2026, 8),
+                onPreviousMonth: () {},
+                onNextMonth: () {},
+                onToday: () {},
+              ),
+              const CalendarSummaryCards(
+                plannedDays: 2,
+                completedDays: 1,
+                adherencePercent: 50,
+                planStreak: 7,
+              ),
+              const HistorySummarySection(
+                totalSessions: 3,
+                rubricSessionCount: 3,
+                averageRubricTotal: 9.5,
+                bestRubricTotal: 11,
+                legacySessionCount: 0,
+                averageLegacyScore: null,
+                bestLegacyScore: null,
+                totalDurationSeconds: 300,
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
 
-    expect(find.text('August 2026'), findsOneWidget);
-    final planned = tester.widget<Text>(find.text('2'));
-    expect(planned.style!.fontSize, 44);
-    final streak = tester.widget<Text>(find.text('7'));
-    expect(streak.style!.fontSize, 44);
-    expect(streak.style!.color, ElixSemanticColors.dark.milestone);
-    expect(streak.style!.color, isNot(AppColors.warning));
-  });
+      expect(find.text('August 2026'), findsOneWidget);
+      expect(find.byType(ElixSummaryStatCard), findsNWidgets(9));
+
+      final planned = tester.widget<Text>(find.text('2'));
+      expect(planned.style!.fontSize, 20);
+      final streak = tester.widget<Text>(find.text('7'));
+      expect(streak.style!.fontSize, 20);
+      expect(streak.style!.color, ElixSemanticColors.dark.textPrimary);
+
+      final streakIcon = tester.widget<Icon>(
+        find.byIcon(FluentIcons.lightning_bolt),
+      );
+      expect(streakIcon.color, ElixSemanticColors.dark.milestone);
+      expect(streakIcon.color, isNot(AppColors.warning));
+    },
+  );
 
   testWidgets('high contrast calendar summaries drop shadow', (tester) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -475,12 +495,17 @@ void main() {
       ),
     );
 
-    final label = find.text('Planned Days');
-    final container = tester.widget<Container>(
-      find.ancestor(of: label, matching: find.byType(Container)).first,
+    final chrome = tester.widget<AnimatedContainer>(
+      find
+          .descendant(
+            of: find.byType(ElixSummaryStatCard).first,
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
     );
-    final decoration = container.decoration! as BoxDecoration;
+    final decoration = chrome.decoration! as BoxDecoration;
     expect(decoration.boxShadow ?? const <BoxShadow>[], isEmpty);
+    expect(decoration.gradient, isNull);
   });
 
   testWidgets('leaderboard rank 1 uses milestone gold and metric XP', (

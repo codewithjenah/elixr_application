@@ -1425,7 +1425,7 @@ describe('daily_quest_boards', () => {
 });
 
 describe('daily_quest_claims + leaderboard quest_xp', () => {
-  test('atomic claim + leaderboard update succeeds together', async () => {
+  test('direct client claim plus leaderboard quest-XP update is rejected', async () => {
     const db = aliceDb();
     const now = new Date();
     const { id: boardId, data: board } = boardData('alice', now);
@@ -1457,11 +1457,7 @@ describe('daily_quest_claims + leaderboard quest_xp', () => {
       },
       { merge: true },
     );
-    await assertSucceeds(batch.commit());
-
-    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
-    assert.equal(after.data().quest_xp, CLAIM_QUEST_XP);
-    assert.equal(after.data().total_xp, 25 + CLAIM_QUEST_XP);
+    await assertFails(batch.commit());
   });
 
   test('claim-only write without a matching leaderboard bump is rejected', async () => {
@@ -1517,7 +1513,7 @@ describe('daily_quest_claims + leaderboard quest_xp', () => {
       },
       { merge: true },
     );
-    await assertSucceeds(firstBatch.commit());
+    await assertFails(firstBatch.commit());
 
     // Second write reuses claimId as last_claim_id without recreating the
     // claim document (it already exists) — must be rejected.
@@ -1561,9 +1557,7 @@ describe('daily_quest_claims + leaderboard quest_xp', () => {
       },
       { merge: true },
     );
-    await assertSucceeds(batch.commit());
-
-    await assertFails(setDoc(doc(db, 'daily_quest_claims', claimId), claim));
+    await assertFails(batch.commit());
   });
 
   test('claim with mismatched board/claim day_start is rejected', async () => {
@@ -2291,13 +2285,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
       },
       { merge: true },
     );
-    await assertSucceeds(batch.commit());
-
-    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
-    assert.equal(after.data().daily_xp, 35);
-    assert.equal(after.data().daily_sessions_completed, 1);
-    assert.equal(after.data().daily_score_sum, 80);
-    assert.equal(after.data().monthly_sessions_completed, 1);
+    await assertFails(batch.commit());
   });
 
   test('quest update rejects omitted, forged, or fabricated period state', async () => {
@@ -2944,9 +2932,7 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
       },
       { merge: true },
     );
-    await assertSucceeds(batch.commit());
-    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
-    assert.equal(after.data().equipped_border_id, 'starter_glow');
+    await assertFails(batch.commit());
   });
 
   test('20 daily quest claim preserves equipped_border_id', async () => {
@@ -3843,7 +3829,7 @@ describe('account self-erasure deletes', () => {
     await assertFails(deleteDoc(doc(alice, 'users', 'bob')));
   });
 
-  test('owner can delete own daily_quest_claim; other user cannot', async () => {
+  test('clients cannot delete a daily_quest_claim', async () => {
     const now = new Date();
     const { id: boardId, data: board } = boardData('alice', now);
     const claim = claimData({
@@ -3861,7 +3847,7 @@ describe('account self-erasure deletes', () => {
     await assertFails(deleteDoc(doc(bob, 'daily_quest_claims', claim.id)));
 
     const alice = aliceDb();
-    await assertSucceeds(deleteDoc(doc(alice, 'daily_quest_claims', claim.id)));
+    await assertFails(deleteDoc(doc(alice, 'daily_quest_claims', claim.id)));
   });
 
   test('owner can delete own achievement_claim and user_cosmetics', async () => {

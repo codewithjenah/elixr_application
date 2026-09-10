@@ -1447,34 +1447,10 @@ service cloud.firestore {
     match /daily_quest_claims/{claimId} {
       allow get: if isSignedIn() && (resource == null || resource.data.user_id == request.auth.uid);
       allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
-
-      allow create: if isSignedIn()
-        && request.resource.data.keys().hasOnly(claimKeys())
-        && request.resource.data.user_id == request.auth.uid
-        && request.resource.data.quest_id is string
-        && isKnownQuestId(request.resource.data.quest_id)
-        && request.resource.data.xp_awarded == questXpFor(request.resource.data.quest_id)
-        && request.resource.data.day_key is string
-        && request.resource.data.day_start is timestamp
-        && claimId == request.resource.data.user_id + '_' + request.resource.data.day_key + '_' + request.resource.data.quest_id
-        && request.resource.data.board_id == request.auth.uid + '_' + manilaDayKey(request.time)
-        && exists(boardPath(request.resource.data.board_id))
-        && claimReferencesOwnCurrentBoard(request.resource.data)
-        // Server-time-anchored real-day window: rejects claiming a stale
-        // (already-ended) or not-yet-started board day regardless of any
-        // client-supplied value, because request.time cannot be spoofed.
-        && request.resource.data.day_start == manilaDayStart(request.time)
-        && request.resource.data.day_key == manilaDayKey(request.time)
-        && request.time >= request.resource.data.day_start
-        && request.time < request.resource.data.day_start + duration.value(24, 'h')
-        // Bidirectional link: this claim must correspond to the leaderboard
-        // write happening atomically alongside it (rejects a "dangling"
-        // claim created without ever bumping quest_xp).
-        && leaderboardAfter(request.resource.data.user_id).last_claim_id == claimId;
-
-      allow update: if false;
-      // Owner self-erasure (RA 10173).
-      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      // Firebase Admin in claimDailyQuest is the sole quest-award writer.
+      // Rules cannot attest session completion, so clients fail closed here.
+      allow create: if false;
+      allow update, delete: if false;
     }
 
     // Immutable achievement-claim markers. Atomic with user_cosmetics unlocks;

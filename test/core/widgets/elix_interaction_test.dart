@@ -7,6 +7,7 @@ import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/elix_sidebar_chrome.dart';
 import 'package:elixr_application/core/widgets/elix_stat_card.dart';
+import 'package:elixr_application/core/widgets/elix_summary_stat_card.dart';
 import 'package:elixr_application/core/widgets/elix_tone_label.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
@@ -506,6 +507,34 @@ void main() {
     final value = tester.widget<Text>(find.text('12'));
     expect(value.style?.fontSize, 44);
     expect(value.style?.fontWeight, FontWeight.w800);
+  });
+
+  testWidgets('summary stat cards use compact type and accent wash', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        const ElixSummaryStatCard(
+          label: 'Planned Days',
+          value: '4',
+          detail: 'Training days this month',
+          icon: FluentIcons.calendar,
+          accent: Color(0xFF7C5CFF),
+        ),
+      ),
+    );
+
+    final value = tester.widget<Text>(find.text('4'));
+    expect(value.style?.fontSize, 20);
+    expect(value.style?.fontWeight, FontWeight.w800);
+    expect(find.text('Training days this month'), findsOneWidget);
+
+    final chrome = tester.widget<AnimatedContainer>(
+      find.byType(AnimatedContainer),
+    );
+    final decoration = chrome.decoration! as BoxDecoration;
+    expect(decoration.gradient, isNotNull);
+    expect(decoration.borderRadius, BorderRadius.circular(14));
   });
 
   testWidgets('warning labels include an icon as well as colour', (

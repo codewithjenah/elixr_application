@@ -29,6 +29,9 @@ import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
 import '../learning/movement_lesson_content.dart';
 import '../learning/movement_tutorial_dialog.dart';
+import '../settings/settings_screen.dart';
+import '../settings/settings_section.dart';
+import 'camera_recovery_presentation.dart';
 import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
 import 'practice_run_phase.dart';
@@ -145,6 +148,7 @@ class PracticeScreenState extends State<PracticeScreen>
   final ValueNotifier<double> _holdProgressNotifier = ValueNotifier<double>(0);
   bool _connecting = false;
   String? _sessionError;
+  String? _sessionErrorCode;
   bool _isShowingSummary = false;
   bool _movementConfirmedShowing = false;
   bool _commandInFlight = false;
@@ -317,6 +321,7 @@ class PracticeScreenState extends State<PracticeScreen>
       _holdProgressNotifier.value = 0;
       setState(() {
         _sessionError = feedback.feedback;
+        _sessionErrorCode = feedback.errorCode;
         _feedback.latestFeedback = null;
       });
       return;
@@ -551,9 +556,47 @@ class PracticeScreenState extends State<PracticeScreen>
   }
 
   Future<void> _connect() async {
+    if (_connecting) return;
     setState(() => _connecting = true);
-    await _ws.connect();
-    if (mounted) setState(() => _connecting = false);
+    try {
+      await _ws.connect();
+    } catch (error, stackTrace) {
+      debugPrint('Practice connection failed: $error\n$stackTrace');
+      if (mounted) {
+        setState(() => _sessionError = 'Camera service unavailable.');
+      }
+    } finally {
+      _connecting = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _resetInterruptedAttempt() async {
+    _commandInFlight = false;
+    await _stopWebSocketSession();
+    _run.cancelToIdle();
+    await _music.stop();
+    await _sfx.stop();
+    if (!mounted) return;
+    setState(_clearSessionState);
+  }
+
+  Future<void> _retrySession() async {
+    if (_leaving || _connecting) return;
+    await _resetInterruptedAttempt();
+    if (!mounted || _leaving) return;
+    await _connect();
+    if (!mounted || !_ws.isConnected) return;
+    await _startSession();
+  }
+
+  Future<void> _chooseCamera() async {
+    await _resetInterruptedAttempt();
+    if (!mounted || _leaving) return;
+    await SettingsScreen.show(
+      context,
+      initialSection: SettingsSection.practice,
+    );
   }
 
   Future<void> _startSession() async {
@@ -605,6 +648,7 @@ class PracticeScreenState extends State<PracticeScreen>
         unawaited(_stopWebSocketSession());
         setState(() {
           _sessionError = message;
+          _sessionErrorCode = ack.errorCode;
           _clearFrame();
         });
       }
@@ -621,6 +665,9 @@ class PracticeScreenState extends State<PracticeScreen>
       unawaited(_stopWebSocketSession());
       setState(() {
         _sessionError = message;
+        _sessionErrorCode = error is CommandTimeoutException
+            ? 'prepare_timeout'
+            : null;
         _clearFrame();
       });
     } finally {
@@ -635,6 +682,7 @@ class PracticeScreenState extends State<PracticeScreen>
     unawaited(_sfx.stop());
     setState(() {
       _sessionError = _run.errorMessage;
+      _sessionErrorCode = 'prepare_timeout';
       _clearFrame();
     });
   }
@@ -675,6 +723,7 @@ class PracticeScreenState extends State<PracticeScreen>
         unawaited(_stopWebSocketSession());
         setState(() {
           _sessionError = message;
+          _sessionErrorCode = ack.errorCode;
           _clearFrame();
         });
         return;
@@ -700,6 +749,9 @@ class PracticeScreenState extends State<PracticeScreen>
       unawaited(_stopWebSocketSession());
       setState(() {
         _sessionError = message;
+        _sessionErrorCode = error is CommandTimeoutException
+            ? 'command_timeout'
+            : null;
         _clearFrame();
       });
     } finally {
@@ -715,6 +767,7 @@ class PracticeScreenState extends State<PracticeScreen>
   void _clearSessionState() {
     _feedback.reset();
     _sessionError = null;
+    _sessionErrorCode = null;
     _clearFrame();
     _assessmentNotifier.value = null;
     _holdProgressNotifier.value = 0;
@@ -1262,7 +1315,20 @@ class PracticeScreenState extends State<PracticeScreen>
       idleCaption: 'Keep your upper body, hands, and bottle visible.',
       errorMessage: _ws.errorMessage,
       sessionError: _sessionError ?? _run.errorMessage,
-      onRetry: _connect,
+      recoveryPresentation:
+          (_sessionError ?? _run.errorMessage) != null ||
+              _ws.connectionState == WebSocketConnectionState.error
+          ? CameraRecoveryPresentation.fromFailure(
+              errorCode: _sessionErrorCode,
+              diagnosticMessage:
+                  _sessionError ?? _run.errorMessage ?? _ws.errorMessage,
+              connectionFailed:
+                  _ws.connectionState == WebSocketConnectionState.error,
+            )
+          : null,
+      onRetry: _retrySession,
+      onChooseCamera: _chooseCamera,
+      onOpenSetupHelp: () => showCameraRecoverySetupHelp(context),
       countdownActive: _run.isCountdown,
       onCountdownComplete: _beginSessionAfterCountdown,
       overlayFeedback: isTrainingActive ? null : _feedback.latestFeedback,

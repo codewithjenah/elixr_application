@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
@@ -158,10 +160,7 @@ class _DashboardBody extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _TeacherCommandHeader(
-                  teacher: teacher,
-                  unreadCount: activityController?.unreadCount ?? 0,
-                ),
+                _TeacherCommandHeader(teacher: teacher),
                 const SizedBox(height: AppSpacing.md),
                 _TeacherKpiGrid(
                   controller: controller,
@@ -187,13 +186,9 @@ class _DashboardBody extends StatelessWidget {
 }
 
 class _TeacherCommandHeader extends StatelessWidget {
-  const _TeacherCommandHeader({
-    required this.teacher,
-    required this.unreadCount,
-  });
+  const _TeacherCommandHeader({required this.teacher});
 
   final User? teacher;
-  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -243,7 +238,7 @@ class _TeacherCommandHeader extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              _TeacherNotificationButton(unreadCount: unreadCount),
+              const _TeacherNotificationButton(),
               FilledButton(
                 key: const Key('teacher_dashboard_to_review'),
                 onPressed: () => context.go(AppRoutePaths.teacherToReview),
@@ -278,13 +273,45 @@ class _TeacherCommandHeader extends StatelessWidget {
   }
 }
 
-class _TeacherNotificationButton extends StatelessWidget {
-  const _TeacherNotificationButton({required this.unreadCount});
+class _TeacherNotificationButton extends StatefulWidget {
+  const _TeacherNotificationButton();
 
-  final int unreadCount;
+  @override
+  State<_TeacherNotificationButton> createState() =>
+      _TeacherNotificationButtonState();
+}
+
+class _TeacherNotificationButtonState
+    extends State<_TeacherNotificationButton> {
+  final _flyoutController = FlyoutController();
+
+  @override
+  void dispose() {
+    _flyoutController.dispose();
+    super.dispose();
+  }
+
+  void _showNotifications() {
+    _flyoutController.showFlyout<void>(
+      placementMode: FlyoutPlacementMode.bottomRight,
+      additionalOffset: AppSpacing.sm,
+      builder: (flyoutContext) => _TeacherNotificationsFlyout(
+        controller: context.read<TeacherActivityController?>(),
+        onOpen: (activity) async {
+          Flyout.of(flyoutContext).close();
+          final controller = context.read<TeacherActivityController?>();
+          if (controller == null) return;
+          await controller.markRead(activity);
+          if (mounted) context.push(activity.destination);
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final unreadCount =
+        context.watch<TeacherActivityController?>()?.unreadCount ?? 0;
     final label = unreadCount == 0
         ? 'Notifications'
         : 'Notifications, $unreadCount unread';
@@ -293,46 +320,311 @@ class _TeacherNotificationButton extends StatelessWidget {
       label: label,
       child: Tooltip(
         message: label,
-        child: Button(
-          key: const Key('teacher_dashboard_notifications'),
-          onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
-          child: SizedBox(
-            width: 30,
-            height: 30,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Center(
-                  child: Icon(
-                    FluentIcons.ringer,
-                    size: 18,
-                    color: context.elixTextPrimary,
+        child: FlyoutTarget(
+          controller: _flyoutController,
+          child: Button(
+            key: const Key('teacher_dashboard_notifications'),
+            onPressed: _showNotifications,
+            child: SizedBox(
+              width: 30,
+              height: 30,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: Icon(
+                      FluentIcons.ringer,
+                      size: 18,
+                      color: context.elixTextPrimary,
+                    ),
                   ),
-                ),
-                if (unreadCount > 0)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: IgnorePointer(
-                      child: ExcludeSemantics(
-                        child: MessageUnreadBadge(
-                          key: const ValueKey(
-                            'teacher-dashboard-notification-unread-badge',
+                  if (unreadCount > 0)
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: IgnorePointer(
+                        child: ExcludeSemantics(
+                          child: MessageUnreadBadge(
+                            key: const ValueKey(
+                              'teacher-dashboard-notification-unread-badge',
+                            ),
+                            count: unreadCount,
+                            compact: true,
+                            semanticLabel: '$unreadCount unread notifications',
                           ),
-                          count: unreadCount,
-                          compact: true,
-                          semanticLabel: '$unreadCount unread notifications',
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
+
+class _TeacherNotificationsFlyout extends StatefulWidget {
+  const _TeacherNotificationsFlyout({
+    required this.controller,
+    required this.onOpen,
+  });
+
+  final TeacherActivityController? controller;
+  final Future<void> Function(TeacherActivity activity) onOpen;
+
+  @override
+  State<_TeacherNotificationsFlyout> createState() =>
+      _TeacherNotificationsFlyoutState();
+}
+
+class _TeacherNotificationsFlyoutState
+    extends State<_TeacherNotificationsFlyout> {
+  static const _maxItems = 5;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller?.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    widget.controller?.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final activities =
+        controller?.activities.take(_maxItems).toList() ??
+        const <TeacherActivity>[];
+    return FlyoutContent(
+      key: const ValueKey('teacher-dashboard-notifications-flyout'),
+      color: context.elixCardSurface,
+      useAcrylic: false,
+      constraints: const BoxConstraints.tightFor(width: 360),
+      padding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: context.elixBorder),
+      ),
+      child: SizedBox(
+        height: 410,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+              child: Row(
+                children: [
+                  Text(
+                    'Notifications',
+                    style: AppTheme.body.copyWith(
+                      color: context.elixTextPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  if ((controller?.unreadCount ?? 0) > 0)
+                    Container(
+                      key: const ValueKey(
+                        'teacher-dashboard-notification-unread-count',
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: context.elixColors.brandSecondary.withValues(
+                          alpha: 0.14,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${controller!.unreadCount} new',
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixColors.brandSecondary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Divider(style: DividerThemeData(thickness: 1)),
+            Expanded(
+              child: controller == null || controller.loading
+                  ? const Center(child: ProgressRing())
+                  : activities.isEmpty
+                  ? _TeacherNotificationsEmptyState(
+                      hasError: controller.hasStreamError,
+                      onRetry: controller.retry,
+                    )
+                  : ListView.separated(
+                      key: const ValueKey(
+                        'teacher-dashboard-notifications-list',
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: activities.length,
+                      separatorBuilder: (_, _) => Divider(
+                        style: DividerThemeData(
+                          thickness: 1,
+                          decoration: BoxDecoration(color: context.elixBorder),
+                        ),
+                      ),
+                      itemBuilder: (context, index) =>
+                          _TeacherNotificationPreview(
+                            activity: activities[index],
+                            onPressed: () =>
+                                unawaited(widget.onOpen(activities[index])),
+                          ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TeacherNotificationsEmptyState extends StatelessWidget {
+  const _TeacherNotificationsEmptyState({
+    required this.hasError,
+    required this.onRetry,
+  });
+
+  final bool hasError;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(AppSpacing.lg),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          hasError ? FluentIcons.warning : FluentIcons.ringer,
+          size: 28,
+          color: context.elixTextSecondary,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          hasError
+              ? 'Notifications could not be refreshed.'
+              : "You're all caught up.",
+          textAlign: TextAlign.center,
+          style: AppTheme.body.copyWith(color: context.elixTextPrimary),
+        ),
+        if (hasError) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Button(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ],
+    ),
+  );
+}
+
+class _TeacherNotificationPreview extends StatelessWidget {
+  const _TeacherNotificationPreview({
+    required this.activity,
+    required this.onPressed,
+  });
+
+  final TeacherActivity activity;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label:
+        '${activity.isRead ? 'Read' : 'Unread'} notification: ${activity.title}',
+    child: HoverButton(
+      key: Key('teacher_dashboard_notification_${activity.id}'),
+      onPressed: onPressed,
+      builder: (context, states) => Container(
+        color: states.isHovered
+            ? context.elixPanelSurface
+            : activity.isRead
+            ? Colors.transparent
+            : context.elixColors.brandSecondary.withValues(alpha: 0.07),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              _iconFor(activity.type),
+              size: 17,
+              color: activity.isRead
+                  ? context.elixTextSecondary
+                  : context.elixColors.brandSecondary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    activity.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.body.copyWith(
+                      color: context.elixTextPrimary,
+                      fontWeight: activity.isRead
+                          ? FontWeight.w500
+                          : FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    activity.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    formatElixrDateTime(activity.occurredAt),
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!activity.isRead)
+              Container(
+                width: 7,
+                height: 7,
+                margin: const EdgeInsets.only(left: 8, top: 5),
+                decoration: BoxDecoration(
+                  color: context.elixColors.brandSecondary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  static IconData _iconFor(TeacherActivityType type) => switch (type) {
+    TeacherActivityType.joinRequest => FluentIcons.people_add,
+    TeacherActivityType.newSubmission => FluentIcons.upload,
+    TeacherActivityType.retryResubmission => FluentIcons.refresh,
+    TeacherActivityType.message => FluentIcons.chat,
+    TeacherActivityType.upcomingDeadline => FluentIcons.calendar,
+    TeacherActivityType.movementCompleted => FluentIcons.completed,
+  };
 }
 
 class _TeacherKpiGrid extends StatelessWidget {

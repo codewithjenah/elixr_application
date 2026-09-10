@@ -8,6 +8,7 @@ import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/coaching_verdict_style.dart';
 import '../../../data/models/practice_feedback.dart';
 import '../../../services/websocket_service.dart';
+import '../camera_recovery_presentation.dart';
 import '../practice_game_widgets.dart';
 
 class TrainingCameraStatusItem {
@@ -29,6 +30,9 @@ class TrainingCameraWorkspace extends StatelessWidget {
     required this.isSessionActive,
     required this.onRetry,
     required this.onCountdownComplete,
+    this.onChooseCamera,
+    this.onOpenSetupHelp,
+    this.recoveryPresentation,
     this.errorMessage,
     this.sessionError,
     this.countdownActive = false,
@@ -56,6 +60,9 @@ class TrainingCameraWorkspace extends StatelessWidget {
   final bool isSessionActive;
   final VoidCallback onRetry;
   final VoidCallback onCountdownComplete;
+  final VoidCallback? onChooseCamera;
+  final VoidCallback? onOpenSetupHelp;
+  final CameraRecoveryPresentation? recoveryPresentation;
   final String? errorMessage;
   final String? sessionError;
   final bool countdownActive;
@@ -258,7 +265,12 @@ class TrainingCameraWorkspace extends StatelessWidget {
   }
 
   Widget _buildErrorSurface(BuildContext context) {
-    final isFatal = sessionError != null;
+    final recovery =
+        recoveryPresentation ??
+        CameraRecoveryPresentation.fromFailure(
+          diagnosticMessage: sessionError ?? errorMessage,
+          connectionFailed: connectionState == WebSocketConnectionState.error,
+        );
     return ColoredBox(
       color: AppColors.background.withValues(alpha: 0.88),
       child: Padding(
@@ -266,14 +278,10 @@ class TrainingCameraWorkspace extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              isFatal ? FluentIcons.error : FluentIcons.warning,
-              color: AppColors.error,
-              size: 40,
-            ),
+            Icon(FluentIcons.error, color: AppColors.error, size: 40),
             const SizedBox(height: AppSpacing.md),
             Text(
-              isFatal ? 'Session error' : 'Connection error',
+              recovery.title,
               style: AppTheme.sectionTitle(
                 context,
                 color: AppColors.textPrimary,
@@ -282,20 +290,40 @@ class TrainingCameraWorkspace extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              sessionError ?? errorMessage ?? 'Connection error',
+              recovery.message,
               // The camera viewport remains dark in every app theme. Do not
               // inherit the light-theme body color here, or this message
               // becomes unreadable on the dark error surface.
               style: AppTheme.body.copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
             ),
-            if (connectionState == WebSocketConnectionState.error) ...[
+            if (recovery.canRetry ||
+                (recovery.canChooseCamera && onChooseCamera != null) ||
+                (recovery.canOpenSetupHelp && onOpenSetupHelp != null)) ...[
               const SizedBox(height: AppSpacing.lg),
-              ElixPrimaryButton(
-                label: 'Retry',
-                onPressed: connecting ? null : onRetry,
-                isLoading: connecting,
-                expanded: false,
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                alignment: WrapAlignment.center,
+                children: [
+                  if (recovery.canRetry)
+                    ElixPrimaryButton(
+                      label: 'Retry',
+                      onPressed: connecting ? null : onRetry,
+                      isLoading: connecting,
+                      expanded: false,
+                    ),
+                  if (recovery.canChooseCamera && onChooseCamera != null)
+                    Button(
+                      onPressed: connecting ? null : onChooseCamera,
+                      child: const Text('Choose camera'),
+                    ),
+                  if (recovery.canOpenSetupHelp && onOpenSetupHelp != null)
+                    Button(
+                      onPressed: onOpenSetupHelp,
+                      child: const Text('Open setup help'),
+                    ),
+                ],
               ),
             ],
           ],

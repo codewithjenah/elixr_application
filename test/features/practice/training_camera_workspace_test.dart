@@ -4,6 +4,7 @@ import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/features/practice/camera_recovery_presentation.dart';
 import 'package:elixr_application/features/practice/widgets/training_camera_workspace.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -165,13 +166,87 @@ void main() {
       );
       await tester.pump();
 
-      final title = tester.widget<Text>(find.text('Connection error'));
+      final title = tester.widget<Text>(
+        find.text('Camera service unavailable'),
+      );
       final message = tester.widget<Text>(
-        find.text('Selected camera is unavailable.'),
+        find.text(
+          "ELIXR couldn't start the camera service. Retry the connection before starting practice.",
+        ),
       );
 
       expect(title.style?.color, AppColors.textPrimary);
       expect(message.style?.color, AppColors.textSecondary);
+    });
+
+    testWidgets('shows selected-camera recovery actions only when useful', (
+      tester,
+    ) async {
+      var chooseCameraPressed = false;
+      var helpPressed = false;
+      await tester.pumpWidget(
+        _wrap(
+          SizedBox(
+            width: 640,
+            height: 480,
+            child: TrainingCameraWorkspace(
+              mirrored: false,
+              connectionState: WebSocketConnectionState.error,
+              connecting: false,
+              isSessionActive: false,
+              onRetry: () {},
+              onChooseCamera: () => chooseCameraPressed = true,
+              onOpenSetupHelp: () => helpPressed = true,
+              onCountdownComplete: () {},
+              recoveryPresentation: CameraRecoveryPresentation.fromFailure(
+                errorCode: 'selected_camera_unavailable',
+                connectionFailed: false,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Selected camera unavailable'), findsOneWidget);
+      expect(find.textContaining("can't find the camera"), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Choose camera'), findsOneWidget);
+      expect(find.text('Open setup help'), findsOneWidget);
+      await tester.tap(find.text('Choose camera'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('Open setup help'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(chooseCameraPressed, isTrue);
+      expect(helpPressed, isTrue);
+    });
+
+    testWidgets('backend recovery does not offer irrelevant camera actions', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          SizedBox(
+            width: 640,
+            height: 480,
+            child: TrainingCameraWorkspace(
+              mirrored: false,
+              connectionState: WebSocketConnectionState.error,
+              connecting: false,
+              isSessionActive: false,
+              onRetry: () {},
+              onCountdownComplete: () {},
+              recoveryPresentation: CameraRecoveryPresentation.fromFailure(
+                connectionFailed: true,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Camera service unavailable'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Choose camera'), findsNothing);
+      expect(find.text('Open setup help'), findsNothing);
     });
   });
 

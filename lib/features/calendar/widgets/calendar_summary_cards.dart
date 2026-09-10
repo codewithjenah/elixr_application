@@ -3,11 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-
-const _pink = AppColors.primary;
-const _purple = AppColors.accent;
-const _violet = AppColors.accentSoft;
-const _cyan = AppColors.primarySoft;
+import '../../../core/widgets/elix_summary_stat_card.dart';
 
 class CalendarSummaryCards extends StatelessWidget {
   const CalendarSummaryCards({
@@ -40,40 +36,40 @@ class CalendarSummaryCards extends StatelessWidget {
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 720;
         final cards = [
-          _SummaryCard(
+          ElixSummaryStatCard(
             label: 'Planned Days',
             value: '$plannedDays',
-            subLabel: 'Training days this month',
+            detail: 'Training days this month',
             icon: FluentIcons.calendar,
-            accent: _cyan,
+            accent: AppColors.primarySoft,
           ),
-          _SummaryCard(
+          ElixSummaryStatCard(
             label: 'Completed',
             value: '$completedDays',
-            subLabel: 'Targets reached',
+            detail: 'Targets reached',
             icon: FluentIcons.completed_solid,
             accent: AppColors.success,
           ),
-          _SummaryCard(
+          ElixSummaryStatCard(
             label: 'Adherence',
             value: adherenceLabel,
-            subLabel: adherenceSub,
+            detail: adherenceSub,
             icon: FluentIcons.chart,
-            accent: _purple,
+            accent: AppColors.accent,
           ),
-          _SummaryCard(
+          ElixSummaryStatCard(
             label: 'Practice Streak',
             value: '$planStreak',
-            subLabel: planStreak == 1
+            detail: planStreak == 1
                 ? 'Completed plan day'
                 : 'Completed plan days',
             icon: FluentIcons.lightning_bolt,
             accent: context.elixColors.milestone,
           ),
-          _SummaryCard(
+          ElixSummaryStatCard(
             label: classroomOverdue > 0 ? 'Overdue work' : 'Classroom work',
             value: '${classroomOverdue > 0 ? classroomOverdue : classroomDue}',
-            subLabel: classroomOverdue > 0
+            detail: classroomOverdue > 0
                 ? 'Needs your attention'
                 : classroomDue == 1
                 ? 'Assignment due this month'
@@ -129,91 +125,6 @@ class CalendarSummaryCards extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
-    required this.label,
-    required this.value,
-    required this.subLabel,
-    required this.icon,
-    required this.accent,
-  });
-
-  final String label;
-  final String value;
-  final String subLabel;
-  final IconData icon;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.elixPanelSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
-        boxShadow: context.isHighContrast
-            ? const []
-            : [
-                BoxShadow(
-                  color: accent.withValues(alpha: 0.07),
-                  blurRadius: 18,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: accent, size: 14),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: context.elixTextSecondary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            value,
-            style: AppTheme.metric(
-              context,
-              color: accent == _pink ? _violet : accent,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            subLabel,
-            style: TextStyle(fontSize: 11, color: context.elixTextSecondary),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
     );
   }
 }

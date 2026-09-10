@@ -31,6 +31,9 @@ import '../../services/settings_service.dart';
 import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
+import '../settings/settings_screen.dart';
+import '../settings/settings_section.dart';
+import 'camera_recovery_presentation.dart';
 import 'freestyle/freestyle_models.dart';
 import 'freestyle/freestyle_session_controller.dart';
 import 'practice_run_phase.dart';
@@ -141,6 +144,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _bottleDetected = false;
   bool _connecting = false;
   String? _sessionError;
+  String? _sessionErrorCode;
   bool _leaving = false;
   bool _quitDialogOpen = false;
   bool _stopInFlight = false;
@@ -384,6 +388,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _clearFrame();
       setState(() {
         _sessionError = feedback.feedback;
+        _sessionErrorCode = feedback.errorCode;
         _latestFeedback = null;
       });
       return;
@@ -592,6 +597,43 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     }
   }
 
+  Future<void> _resetInterruptedAttempt() async {
+    _commandInFlight = false;
+    _startInFlight = false;
+    _freestyleActivationInFlight = false;
+    _freestyle.cancelToIdle();
+    await _stopWebSocketSession();
+    _run.cancelToIdle();
+    await _music.stop();
+    await _sfx.stop();
+    if (!mounted) return;
+    setState(() {
+      _clearFrame();
+      _latestFeedback = null;
+      _bottleDetected = false;
+      _sessionError = null;
+      _sessionErrorCode = null;
+    });
+  }
+
+  Future<void> _retrySession() async {
+    if (_leaving || _connecting) return;
+    await _resetInterruptedAttempt();
+    if (!mounted || _leaving) return;
+    await _connect();
+    if (!mounted || !_ws.isConnected) return;
+    await _startSession();
+  }
+
+  Future<void> _chooseCamera() async {
+    await _resetInterruptedAttempt();
+    if (!mounted || _leaving) return;
+    await SettingsScreen.show(
+      context,
+      initialSection: SettingsSection.practice,
+    );
+  }
+
   Future<void> _startSession() async {
     if (!_ws.isConnected) {
       _connect();
@@ -768,6 +810,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         unawaited(_stopWebSocketSession());
         setState(() {
           _sessionError = message;
+          _sessionErrorCode = ack.errorCode;
           _clearFrame();
         });
       }
@@ -788,6 +831,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       unawaited(_stopWebSocketSession());
       setState(() {
         _sessionError = message;
+        _sessionErrorCode = error is CommandTimeoutException
+            ? 'prepare_timeout'
+            : null;
         _clearFrame();
       });
     } finally {
@@ -803,6 +849,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     unawaited(_sfx.stop());
     setState(() {
       _sessionError = _run.errorMessage;
+      _sessionErrorCode = 'prepare_timeout';
       _clearFrame();
     });
   }
@@ -1307,7 +1354,23 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       : 'Keep your upper body, hands, and bottle visible.',
                   errorMessage: _ws.errorMessage,
                   sessionError: _sessionError ?? _run.errorMessage,
-                  onRetry: _connect,
+                  recoveryPresentation:
+                      (_sessionError ?? _run.errorMessage) != null ||
+                          _ws.connectionState == WebSocketConnectionState.error
+                      ? CameraRecoveryPresentation.fromFailure(
+                          errorCode: _sessionErrorCode,
+                          diagnosticMessage:
+                              _sessionError ??
+                              _run.errorMessage ??
+                              _ws.errorMessage,
+                          connectionFailed:
+                              _ws.connectionState ==
+                              WebSocketConnectionState.error,
+                        )
+                      : null,
+                  onRetry: _retrySession,
+                  onChooseCamera: _chooseCamera,
+                  onOpenSetupHelp: () => showCameraRecoverySetupHelp(context),
                   // The shared overlay owns countdown completion for Guided
                   // Practice and Teacher Activity only. Playground activates
                   // from the first usable JPEG without a Get Ready clock.

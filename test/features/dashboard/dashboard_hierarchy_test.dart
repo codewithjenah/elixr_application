@@ -144,18 +144,33 @@ class _TestTraineeActivityController extends TraineeActivityController {
 }
 
 class _TestTeacherActivityController extends TeacherActivityController {
-  _TestTeacherActivityController(this.count)
-    : super(
-        groupRepository: InMemoryGroupRepository(),
-        assignmentRepository: InMemoryClassroomAssignmentRepository(),
-        chatRepository: InMemoryChatRepository(),
-        readStore: InMemoryActivityReadStore(),
-      );
+  _TestTeacherActivityController(
+    this.count, {
+    List<TeacherActivity> activities = const [],
+  }) : _activities = activities,
+       super(
+         groupRepository: InMemoryGroupRepository(),
+         assignmentRepository: InMemoryClassroomAssignmentRepository(),
+         chatRepository: InMemoryChatRepository(),
+         readStore: InMemoryActivityReadStore(),
+       );
 
   int count;
+  final List<TeacherActivity> _activities;
+  final List<String> markedReadIds = [];
 
   @override
   int get unreadCount => count;
+
+  @override
+  List<TeacherActivity> get activities => _activities;
+
+  @override
+  Future<void> markRead(TeacherActivity activity) async {
+    markedReadIds.add(activity.id);
+    if (!activity.isRead && count > 0) count--;
+    notifyListeners();
+  }
 }
 
 Future<void> _setSurface(WidgetTester tester, Size size) async {
@@ -285,7 +300,7 @@ void main() {
       );
       expect((heroSlogan.image as AssetImage).assetName, 'assets/slogan_2.png');
       expect(heroSlogan.fit, BoxFit.contain);
-      expect(find.text('Practice Normal Grip'), findsOneWidget);
+      expect(find.text('Continue Practice'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -314,7 +329,7 @@ void main() {
         find.byKey(const ValueKey('dashboard-hero-slogan')),
         findsOneWidget,
       );
-      expect(find.text('Start Recommended Practice'), findsOneWidget);
+      expect(find.text('Continue Practice'), findsOneWidget);
       expect(find.text('Explore Movements'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -343,7 +358,7 @@ void main() {
     expect(find.byType(Image), findsNothing);
     expect(find.text('Master'), findsOneWidget);
     expect(find.text('Normal Grip'), findsOneWidget);
-    expect(find.text('Start Recommended Practice'), findsOneWidget);
+    expect(find.text('Start Your First Practice'), findsOneWidget);
   });
 
   testWidgets('dashboard header separates welcome copy from quick actions', (
@@ -579,7 +594,7 @@ void main() {
     expect(find.text("COACH'S FOCUS"), findsOneWidget);
     expect(find.byType(ElixEyebrow), findsOneWidget);
     expect(find.byKey(ElixEyebrow.ruleKey), findsOneWidget);
-    expect(find.text('Practice this'), findsOneWidget);
+    expect(find.text('Practice this'), findsNothing);
   });
 
   testWidgets('personal record uses metric type and milestone gold', (
@@ -799,7 +814,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('teacher notification bell navigates to the activity center', (
+  testWidgets('teacher notification bell previews activity before navigation', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -815,7 +830,24 @@ void main() {
       awaitInitialAuthState: () async {},
     );
     final groups = InMemoryGroupRepository();
-    final activity = _TestTeacherActivityController(3);
+    final recentActivities = List.generate(
+      6,
+      (index) => TeacherActivity(
+        id: 'activity-$index',
+        type: index == 0
+            ? TeacherActivityType.newSubmission
+            : TeacherActivityType.message,
+        occurredAt: DateTime.utc(2026, 1, 1, 12, index),
+        title: 'Activity $index',
+        description: 'Teacher notification $index',
+        destination: AppRoutePaths.teacherActivityCenter,
+        isRead: index > 1,
+      ),
+    );
+    final activity = _TestTeacherActivityController(
+      2,
+      activities: recentActivities,
+    );
     addTearDown(auth.dispose);
     addTearDown(groups.dispose);
     addTearDown(activity.dispose);
@@ -847,8 +879,88 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.tap(find.byKey(const Key('teacher_dashboard_notifications')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.byKey(const ValueKey('teacher-dashboard-notifications-flyout')),
+      findsOneWidget,
+    );
+    expect(find.text('Teacher activity destination'), findsNothing);
+    expect(find.text('2 new'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_dashboard_notification_activity-0')),
+      findsOneWidget,
+    );
+    final notificationList = tester.widget<ListView>(
+      find.byKey(const ValueKey('teacher-dashboard-notifications-list')),
+    );
+    expect(notificationList.semanticChildCount, 5);
+
+    await tester.tap(
+      find.byKey(const Key('teacher_dashboard_notification_activity-0')),
+    );
     await tester.pumpAndSettle();
 
+    expect(activity.markedReadIds, ['activity-0']);
+    expect(
+      find.byKey(const ValueKey('teacher-dashboard-notifications-flyout')),
+      findsNothing,
+    );
     expect(find.text('Teacher activity destination'), findsOneWidget);
   });
+
+  testWidgets(
+    'teacher notification flyout safely renders empty and loading states',
+    (tester) async {
+      await _setSurface(tester, const Size(1100, 800));
+      final teacher = const User(
+        id: 'teacher-1',
+        firstName: 'Jiro',
+        lastName: 'Lapuz',
+        email: 'jiro@example.test',
+        role: User.roleTeacher,
+      );
+      final auth = AuthService(
+        repository: _SilentAuthRepository(teacher),
+        awaitInitialAuthState: () async {},
+      );
+      final groups = InMemoryGroupRepository();
+      final activity = _TestTeacherActivityController(0);
+      addTearDown(auth.dispose);
+      addTearDown(groups.dispose);
+      addTearDown(activity.dispose);
+      await auth.initialize();
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthService>.value(value: auth),
+              Provider<GroupRepository>.value(value: groups),
+              ChangeNotifierProvider<TeacherActivityController>.value(
+                value: activity,
+              ),
+            ],
+            child: const TeacherDashboardScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('teacher_dashboard_notifications')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text("You're all caught up."), findsOneWidget);
+      activity.loading = true;
+      activity.notifyListeners();
+      await tester.pump();
+      expect(find.byType(ProgressRing), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_summary_stat_card.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -427,6 +428,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.byType(ElixSummaryStatCard), findsNWidgets(4));
       expect(find.text('Average Rubric'), findsOneWidget);
       expect(find.text('9.5/12 • 79.2%'), findsOneWidget);
       expect(find.text('Best Rubric'), findsOneWidget);

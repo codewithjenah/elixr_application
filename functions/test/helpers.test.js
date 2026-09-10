@@ -47,6 +47,9 @@ const {
   validateSearchQuery,
   runScheduledAnnouncementPublication,
   sendFirstChatMessageHandler,
+  claimDailyQuestHandler,
+  questComplete,
+  manilaDay,
 } = require('../index')._test;
 
 test('Class Challenge payload and response dates preserve the UTC contract', () => {
@@ -414,6 +417,35 @@ function fakeResponse() {
     },
   };
 }
+
+test('daily quest evaluator mirrors catalog semantics and excludes legacy rubric scores', () => {
+  const v2 = (total, extra = {}) => ({assessment_version: 2, rubric_total: total, ...extra});
+  const legacy = {assessment_version: 1, score: 100, duration_seconds: 1};
+  assert.equal(questComplete('score_70', [legacy]), false);
+  assert.equal(questComplete('score_70', [v2(7)]), true);
+  assert.equal(questComplete('sessions_above_70_x2', [v2(7), v2(7)]), true);
+  assert.equal(questComplete('duration_10min', [{duration_seconds: 600}]), true);
+  assert.equal(questComplete('two_movements', [{movement_name: ' Grip '}, {movement_name: 'grip'}, {movement_name: 'Stall'}]), true);
+  assert.equal(questComplete('distinct_props_2', [{prop_type: 'bottle'}, {prop_type: 'shaker'}]), true);
+  assert.equal(questComplete('use_bottle_and_shaker_combo', [{prop_type: 'bottle_and_shaker'}]), true);
+});
+
+test('daily quest claim handler rejects unauthenticated and extra client authority fields', async () => {
+  for (const body of [{quest_id: 'session_count_1'}, {quest_id: 'session_count_1', user_id: 'victim'}]) {
+    const response = fakeResponse();
+    await claimDailyQuestHandler({method: 'POST', body}, response, {verifyToken: async () => null});
+    assert.equal(response.statusCode, 401);
+  }
+  const response = fakeResponse();
+  await claimDailyQuestHandler({method: 'POST', body: {quest_id: 'session_count_1', xp_awarded: 999}}, response, {verifyToken: async () => ({uid: 'alice'})});
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'invalid_request');
+});
+
+test('Manila day boundary is derived from server time', () => {
+  assert.equal(manilaDay(new Date('2026-01-01T15:59:59.000Z')).dayKey, '20260101');
+  assert.equal(manilaDay(new Date('2026-01-01T16:00:00.000Z')).dayKey, '20260102');
+});
 
 function claimSnapshot(data) {
   return {
