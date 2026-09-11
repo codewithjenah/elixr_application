@@ -1569,6 +1569,15 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
         },
       },
       {
+        id: 'draft',
+        data: {
+          group_id: 'g1',
+          teacher_id: 'teacher-a',
+          audience_type: 'entire_class',
+          status: 'draft',
+        },
+      },
+      {
         id: 'wrong-owner',
         data: {group_id: 'g1', teacher_id: 'teacher-b'},
       },

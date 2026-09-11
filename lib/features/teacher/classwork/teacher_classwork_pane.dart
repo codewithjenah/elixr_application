@@ -354,12 +354,20 @@ class _AssignmentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDraft = assignment.isDraft;
+    final colors = context.elixColors;
     return Container(
       key: Key('teacher_group_assignment_${assignment.id}'),
       decoration: BoxDecoration(
-        color: context.elixPanelSurface,
+        color: isDraft
+            ? colors.warning.withValues(alpha: 0.08)
+            : context.elixPanelSurface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: context.elixColors.borderSubtle),
+        border: Border.all(
+          color: isDraft
+              ? colors.warning.withValues(alpha: 0.55)
+              : colors.borderSubtle,
+        ),
       ),
       child: Row(
         children: [
@@ -381,6 +389,19 @@ class _AssignmentRow extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (isDraft) ...[
+                              Semantics(
+                                label: 'Draft. Not visible to trainees.',
+                                child: ElixPill(
+                                  key: Key(
+                                    'teacher_group_assignment_draft_${assignment.id}',
+                                  ),
+                                  text: 'DRAFT · NOT VISIBLE TO TRAINEES',
+                                  color: colors.warning,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.sm),
+                            ],
                             Text(
                               assignment.displayTitle,
                               style: AppTheme.body.copyWith(
@@ -420,7 +441,17 @@ class _AssignmentRow extends StatelessWidget {
               ),
             ),
           ),
-          if (assignment.isDraft || assignment.isScheduled) ...[
+          if (assignment.isDraft) ...[
+            ElixPrimaryButton(
+              key: Key('teacher_group_publish_assignment_${assignment.id}'),
+              label: 'Publish draft',
+              icon: FluentIcons.upload,
+              expanded: false,
+              dense: true,
+              onPressed: onPublish,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+          ] else if (assignment.isScheduled) ...[
             Button(
               key: Key('teacher_group_publish_assignment_${assignment.id}'),
               onPressed: onPublish,

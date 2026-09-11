@@ -77,6 +77,43 @@ void main() {
     expect(assignment.topic, 'Bottle control');
   });
 
+  test(
+    'drafts stay teacher-visible and require explicit publication',
+    () async {
+      final draft = await assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        officialMovementName: 'Hand Stall',
+        allowedProp: TrainingProp.bottle,
+        status: GroupAssignmentStatus.draft,
+      );
+
+      expect(draft.status, GroupAssignmentStatus.draft);
+      expect(
+        await assignments.fetchAssignmentsForGroup(
+          groupId: 'g1',
+          teacherId: 'teacher-1',
+        ),
+        contains(draft),
+      );
+      expect(
+        await assignments.fetchAssignmentsForTrainee(traineeId: 'trainee-1'),
+        isEmpty,
+      );
+
+      await assignments.publishAssignmentNow(
+        teacherId: 'teacher-1',
+        assignmentId: draft.id,
+      );
+
+      expect(
+        assignments.assignments[draft.id]!.status,
+        GroupAssignmentStatus.active,
+      );
+    },
+  );
+
   test('official assignment rejects unsupported allowed prop', () async {
     expect(
       () => assignments.createOfficialAssignment(

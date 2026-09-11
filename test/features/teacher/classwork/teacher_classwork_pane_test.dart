@@ -332,6 +332,51 @@ void main() {
     expect(edited?.id, 'assignment');
   });
 
+  testWidgets(
+    'draft cards prominently identify trainee visibility and publish explicitly',
+    (tester) async {
+      final draft = assignments.assignments['assignment']!.copyWith(
+        status: GroupAssignmentStatus.draft,
+      );
+      assignments.seedAssignment(draft);
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: Padding(
+            padding: const EdgeInsets.all(16),
+            child: AnimatedBuilder(
+              animation: controller,
+              builder: (context, _) => TeacherClassworkAssignmentList(
+                controller: controller,
+                onOpen: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+
+      expect(
+        find.byKey(const Key('teacher_group_assignment_draft_assignment')),
+        findsOneWidget,
+      );
+      expect(find.text('DRAFT · NOT VISIBLE TO TRAINEES'), findsOneWidget);
+      final publish = find.byKey(
+        const Key('teacher_group_publish_assignment_assignment'),
+      );
+      expect(publish, findsOneWidget);
+      expect(find.text('Publish draft'), findsOneWidget);
+
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+
+      expect(
+        assignments.assignments['assignment']!.status,
+        GroupAssignmentStatus.active,
+      );
+    },
+  );
+
   testWidgets('submitted work opens in the shared grading detail', (
     tester,
   ) async {
