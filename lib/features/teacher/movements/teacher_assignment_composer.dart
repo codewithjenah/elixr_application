@@ -21,7 +21,6 @@ import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/assessment_mode.dart';
 import '../../../data/models/activity_learning_material.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
-import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
@@ -1339,14 +1338,50 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               setState(() {
                 _validationError = null;
                 _dueAt = checked == true
-                    ? manilaEndOfDayUtc(
+                    ? _manilaCivilDateTimeUtc(
                         _manilaCivilDateNow().add(const Duration(days: 7)),
+                        23,
+                        59,
                       )
                     : null;
               });
             },
-            onChanged: (value) =>
-                setState(() => _dueAt = manilaEndOfDayUtc(value)),
+            onDateChanged: (value) => setState(() {
+              final dueAt = _dueAt;
+              if (dueAt == null) return;
+              _dueAt = _manilaCivilDateTimeUtc(
+                value,
+                _manilaCivilHour(dueAt),
+                _manilaCivilMinute(dueAt),
+              );
+            }),
+            onHourChanged: (value) => setState(() {
+              final dueAt = _dueAt;
+              if (dueAt == null) return;
+              _dueAt = _manilaCivilDateTimeUtc(
+                _manilaCivilDate(dueAt),
+                _hour24From12(value, _periodForHour24(_manilaCivilHour(dueAt))),
+                _manilaCivilMinute(dueAt),
+              );
+            }),
+            onMinuteChanged: (value) => setState(() {
+              final dueAt = _dueAt;
+              if (dueAt == null) return;
+              _dueAt = _manilaCivilDateTimeUtc(
+                _manilaCivilDate(dueAt),
+                _manilaCivilHour(dueAt),
+                value,
+              );
+            }),
+            onPeriodChanged: (value) => setState(() {
+              final dueAt = _dueAt;
+              if (dueAt == null) return;
+              _dueAt = _manilaCivilDateTimeUtc(
+                _manilaCivilDate(dueAt),
+                _hour24From12(_hour12From24(_manilaCivilHour(dueAt)), value),
+                _manilaCivilMinute(dueAt),
+              );
+            }),
           ),
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
@@ -4458,13 +4493,19 @@ class _DueDateField extends StatelessWidget {
     required this.dueAt,
     required this.enabled,
     required this.onToggle,
-    required this.onChanged,
+    required this.onDateChanged,
+    required this.onHourChanged,
+    required this.onMinuteChanged,
+    required this.onPeriodChanged,
   });
 
   final DateTime? dueAt;
   final bool enabled;
   final ValueChanged<bool?> onToggle;
-  final ValueChanged<DateTime> onChanged;
+  final ValueChanged<DateTime> onDateChanged;
+  final ValueChanged<int> onHourChanged;
+  final ValueChanged<int> onMinuteChanged;
+  final ValueChanged<String> onPeriodChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -4495,7 +4536,7 @@ class _DueDateField extends StatelessWidget {
               children: [
                 Text('Add a due date (optional)'),
                 SizedBox(height: 2),
-                Text('Default is one week from today.'),
+                Text('Default is one week from today at 11:59 PM.'),
               ],
             ),
             onChanged: enabled ? onToggle : null,
@@ -4508,8 +4549,82 @@ class _DueDateField extends StatelessWidget {
             child: DatePicker(
               key: const Key('teacher_assignment_due_date'),
               selected: _manilaCivilDate(dueAt!),
-              onChanged: enabled ? onChanged : null,
+              onChanged: enabled ? onDateChanged : null,
             ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text('Time', style: AppTheme.bodySecondary),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            children: [
+              Expanded(
+                child: _scheduleTimePart(
+                  label: 'Hour',
+                  child: ComboBox<int>(
+                    key: const Key('teacher_assignment_due_hour'),
+                    value: _hour12From24(_manilaCivilHour(dueAt!)),
+                    isExpanded: true,
+                    placeholder: const Text('Hour'),
+                    items: [
+                      for (var value = 1; value <= 12; value++)
+                        ComboBoxItem(
+                          value: value,
+                          child: Text(value.toString()),
+                        ),
+                    ],
+                    onChanged: enabled
+                        ? (value) {
+                            if (value != null) onHourChanged(value);
+                          }
+                        : null,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: _scheduleTimePart(
+                  label: 'Minute',
+                  child: ComboBox<int>(
+                    key: const Key('teacher_assignment_due_minute'),
+                    value: _manilaCivilMinute(dueAt!),
+                    isExpanded: true,
+                    placeholder: const Text('Minute'),
+                    items: [
+                      for (var value = 0; value < 60; value++)
+                        ComboBoxItem(
+                          value: value,
+                          child: Text(value.toString().padLeft(2, '0')),
+                        ),
+                    ],
+                    onChanged: enabled
+                        ? (value) {
+                            if (value != null) onMinuteChanged(value);
+                          }
+                        : null,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: _scheduleTimePart(
+                  label: 'AM / PM',
+                  child: ComboBox<String>(
+                    key: const Key('teacher_assignment_due_period'),
+                    value: _periodForHour24(_manilaCivilHour(dueAt!)),
+                    isExpanded: true,
+                    items: const [
+                      ComboBoxItem(value: 'AM', child: Text('AM')),
+                      ComboBoxItem(value: 'PM', child: Text('PM')),
+                    ],
+                    onChanged: enabled
+                        ? (value) {
+                            if (value != null) onPeriodChanged(value);
+                          }
+                        : null,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ],
@@ -4949,17 +5064,17 @@ class _PublicationScheduleField extends StatelessWidget {
       ],
     );
   }
+}
 
-  Widget _scheduleTimePart({required String label, required Widget child}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: AppTheme.caption),
-        const SizedBox(height: AppSpacing.xs),
-        child,
-      ],
-    );
-  }
+Widget _scheduleTimePart({required String label, required Widget child}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: AppTheme.caption),
+      const SizedBox(height: AppSpacing.xs),
+      child,
+    ],
+  );
 }
 
 class _SummaryItem extends StatelessWidget {
@@ -5041,4 +5156,22 @@ DateTime _manilaCivilDateNow() {
 DateTime _manilaCivilDate(DateTime utcValue) {
   final manila = utcValue.toUtc().add(const Duration(hours: 8));
   return DateTime(manila.year, manila.month, manila.day);
+}
+
+int _manilaCivilHour(DateTime utcValue) =>
+    utcValue.toUtc().add(const Duration(hours: 8)).hour;
+
+int _manilaCivilMinute(DateTime utcValue) =>
+    utcValue.toUtc().add(const Duration(hours: 8)).minute;
+
+/// Converts an Asia/Manila civil date and time to its canonical UTC instant
+/// without consulting the Windows machine's local timezone.
+DateTime _manilaCivilDateTimeUtc(DateTime civilDate, int hour, int minute) {
+  return DateTime.utc(
+    civilDate.year,
+    civilDate.month,
+    civilDate.day,
+    hour - 8,
+    minute,
+  );
 }

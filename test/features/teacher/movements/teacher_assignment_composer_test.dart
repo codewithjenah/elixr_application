@@ -37,6 +37,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   String? lastDisplayInstructions;
   String? lastDisplaySafetyGuidance;
   DateTime? lastPublishAt;
+  DateTime? lastDueAt;
 
   @override
   Future<GroupAssignment> createOfficialAssignment({
@@ -57,6 +58,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     lastAudience = audience;
     lastAllowedProp = allowedProp;
     lastPublishAt = publishAt;
+    lastDueAt = dueAt;
     final gate = createGate;
     if (gate != null) await gate.future;
     return super.createOfficialAssignment(
@@ -97,6 +99,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     lastAudience = audience;
     lastActivityAssessment = activityAssessment;
     lastPublishAt = publishAt;
+    lastDueAt = dueAt;
     lastDisplayTitle = displayTitle;
     lastDisplayInstructions = displayInstructions;
     lastDisplaySafetyGuidance = displaySafetyGuidance;
@@ -615,6 +618,363 @@ void main() {
     expect(displayedCivilTime.minute, minute);
     return publishAt;
   }
+
+  Future<void> enableDueDate(WidgetTester tester) async {
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_due_date_toggle')),
+    );
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_due_date_toggle')),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> saveDraft(WidgetTester tester) async {
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_save_draft')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_draft')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('deadline time controls appear only after enabling a due date', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+
+    expect(find.byKey(const Key('teacher_assignment_due_date')), findsNothing);
+    expect(find.byKey(const Key('teacher_assignment_due_hour')), findsNothing);
+    expect(
+      find.byKey(const Key('teacher_assignment_due_minute')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('teacher_assignment_due_period')),
+      findsNothing,
+    );
+
+    await enableDueDate(tester);
+
+    final date = tester.widget<DatePicker>(
+      find.byKey(const Key('teacher_assignment_due_date')),
+    );
+    final manilaNow = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final expectedDate = DateTime(
+      manilaNow.year,
+      manilaNow.month,
+      manilaNow.day,
+    ).add(const Duration(days: 7));
+    expect(date.selected, expectedDate);
+    expect(
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('teacher_assignment_due_hour')),
+          )
+          .value,
+      11,
+    );
+    expect(
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('teacher_assignment_due_minute')),
+          )
+          .value,
+      59,
+    );
+    expect(
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const Key('teacher_assignment_due_period')),
+          )
+          .value,
+      'PM',
+    );
+  });
+
+  testWidgets('deadline stores the selected Manila date and 12-hour time', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    await enableDueDate(tester);
+    tester
+        .widget<DatePicker>(
+          find.byKey(const Key('teacher_assignment_due_date')),
+        )
+        .onChanged!(DateTime(2026, 9, 15));
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_hour')),
+        )
+        .onChanged!(8);
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_minute')),
+        )
+        .onChanged!(30);
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_due_period')),
+        )
+        .onChanged!('PM');
+    await tester.pump();
+
+    await saveDraft(tester);
+    expect(assignments.lastDueAt, DateTime.utc(2026, 9, 15, 12, 30));
+  });
+
+  testWidgets('deadline handles an AM minute and midnight conversion', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    await enableDueDate(tester);
+    final dueDate = find.byKey(const Key('teacher_assignment_due_date'));
+    tester.widget<DatePicker>(dueDate).onChanged!(DateTime(2026, 9, 16));
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_hour')),
+        )
+        .onChanged!(9);
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_minute')),
+        )
+        .onChanged!(7);
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_due_period')),
+        )
+        .onChanged!('AM');
+    await tester.pump();
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_hour')),
+        )
+        .onChanged!(12);
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_due_period')),
+        )
+        .onChanged!('AM');
+    await tester.pump();
+    await saveDraft(tester);
+    expect(assignments.lastDueAt, DateTime.utc(2026, 9, 15, 16, 7));
+  });
+
+  testWidgets('deadline converts 12 PM to Manila noon', (tester) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    await enableDueDate(tester);
+    tester
+        .widget<DatePicker>(
+          find.byKey(const Key('teacher_assignment_due_date')),
+        )
+        .onChanged!(DateTime(2026, 9, 17));
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_hour')),
+        )
+        .onChanged!(12);
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_minute')),
+        )
+        .onChanged!(0);
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_due_period')),
+        )
+        .onChanged!('PM');
+    await tester.pump();
+    await saveDraft(tester);
+    expect(assignments.lastDueAt, DateTime.utc(2026, 9, 17, 4));
+  });
+
+  testWidgets(
+    'deadline date and time changes preserve their other components',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+      );
+      await enableDueDate(tester);
+      final date = find.byKey(const Key('teacher_assignment_due_date'));
+      tester.widget<DatePicker>(date).onChanged!(DateTime(2026, 9, 18));
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('teacher_assignment_due_hour')),
+          )
+          .onChanged!(8);
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('teacher_assignment_due_minute')),
+          )
+          .onChanged!(30);
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const Key('teacher_assignment_due_period')),
+          )
+          .onChanged!('PM');
+      await tester.pump();
+      tester.widget<DatePicker>(date).onChanged!(DateTime(2026, 9, 19));
+      await tester.pump();
+      expect(
+        tester
+            .widget<ComboBox<int>>(
+              find.byKey(const Key('teacher_assignment_due_hour')),
+            )
+            .value,
+        8,
+      );
+      expect(
+        tester
+            .widget<ComboBox<int>>(
+              find.byKey(const Key('teacher_assignment_due_minute')),
+            )
+            .value,
+        30,
+      );
+      expect(
+        tester
+            .widget<ComboBox<String>>(
+              find.byKey(const Key('teacher_assignment_due_period')),
+            )
+            .value,
+        'PM',
+      );
+      await saveDraft(tester);
+      expect(assignments.lastDueAt, DateTime.utc(2026, 9, 19, 12, 30));
+    },
+  );
+
+  testWidgets('editing initializes deadline controls from the stored instant', (
+    tester,
+  ) async {
+    final existing = await service().create(
+      group: group,
+      officialMovement: movementCatalog.first,
+      dueAt: DateTime.utc(2026, 9, 15, 12, 30),
+    );
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: existing,
+    );
+
+    final date = tester.widget<DatePicker>(
+      find.byKey(const Key('teacher_assignment_due_date')),
+    );
+    expect(date.selected, DateTime(2026, 9, 15));
+    expect(
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('teacher_assignment_due_hour')),
+          )
+          .value,
+      8,
+    );
+    expect(
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('teacher_assignment_due_minute')),
+          )
+          .value,
+      30,
+    );
+    expect(
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const Key('teacher_assignment_due_period')),
+          )
+          .value,
+      'PM',
+    );
+  });
+
+  testWidgets('disabling a deadline saves a null dueAt', (tester) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    await enableDueDate(tester);
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_due_date_toggle')),
+    );
+    await tester.pump();
+    await saveDraft(tester);
+    expect(assignments.lastDueAt, isNull);
+  });
+
+  testWidgets('scheduled publication requires an exact later deadline', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    final publishDate = tester
+        .widget<DatePicker>(
+          find.byKey(const Key('teacher_assignment_publish_date')),
+        )
+        .selected!;
+    await enableDueDate(tester);
+    tester
+        .widget<DatePicker>(
+          find.byKey(const Key('teacher_assignment_due_date')),
+        )
+        .onChanged!(publishDate);
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_hour')),
+        )
+        .onChanged!(9);
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_minute')),
+        )
+        .onChanged!(0);
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_due_period')),
+        )
+        .onChanged!('AM');
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_schedule')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_schedule')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('teacher_assignment_error')), findsOneWidget);
+    expect(assignments.lastPublishAt, isNull);
+
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_due_minute')),
+        )
+        .onChanged!(1);
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('teacher_assignment_schedule')));
+    await tester.pumpAndSettle();
+    expect(assignments.lastPublishAt, isNotNull);
+  });
 
   testWidgets('scheduled publication converts 12:00 AM to hour zero', (
     tester,
