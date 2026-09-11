@@ -694,13 +694,69 @@ void main() {
     }
   });
 
+  testWidgets(
+    'Official ELIXR Bottle and Cocktail Shaker cards align their content',
+    (tester) async {
+      await pumpScreen(tester, size: const Size(1280, 900));
+
+      final bottleCard = find.byKey(
+        const Key('teacher_movement_card_official_Hand Stall_bottle'),
+      );
+      final shakerCard = find.byKey(
+        const Key('teacher_movement_card_official_Hand Stall_shaker'),
+      );
+      await tester.scrollUntilVisible(
+        bottleCard,
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      final bottleTitle = find.descendant(
+        of: bottleCard,
+        matching: find.text('Hand Stall'),
+      );
+      final shakerTitle = find.descendant(
+        of: shakerCard,
+        matching: find.text('Hand Stall'),
+      );
+      final bottleDescription = find.descendant(
+        of: bottleCard,
+        matching: find.text('Balance the bottle on your open palm.'),
+      );
+      final shakerDescription = find.descendant(
+        of: shakerCard,
+        matching: find.text('Balance the bottle on your open palm.'),
+      );
+      final bottleAssign = find.descendant(
+        of: bottleCard,
+        matching: find.text('Assign to class'),
+      );
+      final shakerAssign = find.descendant(
+        of: shakerCard,
+        matching: find.text('Assign to class'),
+      );
+
+      expect(
+        tester.getTopLeft(bottleTitle).dy,
+        closeTo(tester.getTopLeft(shakerTitle).dy, 1),
+      );
+      expect(
+        tester.getTopLeft(bottleDescription).dy,
+        closeTo(tester.getTopLeft(shakerDescription).dy, 1),
+      );
+      expect(
+        tester.getTopLeft(bottleAssign).dy,
+        closeTo(tester.getTopLeft(shakerAssign).dy, 1),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('keyboard focus gives an Official ELIXR card a visible border', (
     tester,
   ) async {
     await pumpScreen(tester);
-    final guide = find.byKey(
-      const Key('teacher_movement_guide_Normal Grip_bottle'),
-    );
     final card = find.byWidgetPredicate(
       (widget) =>
           widget is Focus &&
@@ -708,7 +764,7 @@ void main() {
               const Key('teacher_movement_card_official_Normal Grip_bottle'),
     );
 
-    Focus.of(tester.element(guide)).requestFocus();
+    tester.widget<Focus>(card).focusNode!.requestFocus();
     await tester.pumpAndSettle();
 
     expect(tester.widget<Focus>(card).focusNode!.hasFocus, isTrue);
@@ -721,7 +777,7 @@ void main() {
     expect(border.top.width, 2);
   });
 
-  testWidgets('View guide uses the canonical trainee lesson content', (
+  testWidgets('card click uses the canonical trainee lesson content', (
     tester,
   ) async {
     final movement = movementCatalog.first;
@@ -729,7 +785,9 @@ void main() {
     await pumpScreen(tester);
 
     await tester.tap(
-      find.byKey(const Key('teacher_movement_guide_Normal Grip_bottle')),
+      find.byKey(
+        const Key('teacher_movement_card_official_Normal Grip_bottle'),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -756,6 +814,21 @@ void main() {
     expect(find.text('Normal Grip · Bottle guide'), findsNothing);
   });
 
+  testWidgets('clicking an Official ELIXR card opens its guide', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    await tester.tap(
+      find.byKey(
+        const Key('teacher_movement_card_official_Normal Grip_bottle'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Normal Grip · Bottle guide'), findsOneWidget);
+  });
+
   testWidgets('guide shows safety where the canonical lesson provides it', (
     tester,
   ) async {
@@ -764,17 +837,17 @@ void main() {
     );
     final lesson = MovementLesson.forMovement(movement);
     await pumpScreen(tester);
-    final guide = find.byKey(
-      const Key('teacher_movement_guide_Hand Stall_bottle'),
+    final card = find.byKey(
+      const Key('teacher_movement_card_official_Hand Stall_bottle'),
     );
     await tester.scrollUntilVisible(
-      guide,
+      card,
       240,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.ensureVisible(guide);
+    await tester.ensureVisible(card);
     await tester.pumpAndSettle();
-    await tester.tap(guide);
+    await tester.tap(card);
     await tester.pumpAndSettle();
 
     expect(find.text('Practice safely'), findsOneWidget);
@@ -785,14 +858,14 @@ void main() {
     tester,
   ) async {
     await pumpScreen(tester, size: const Size(760, 720));
-    final guide = find.byKey(
-      const Key('teacher_movement_guide_Normal Grip_bottle'),
+    final card = find.byKey(
+      const Key('teacher_movement_card_official_Normal Grip_bottle'),
     );
     // The compact shell reserves a bottom command area; move the first card's
     // controls into the actual hit-testable viewport, not merely its bounds.
     await tester.drag(find.byType(CustomScrollView), const Offset(0, -180));
     await tester.pumpAndSettle();
-    await tester.tap(guide);
+    await tester.tap(card);
     await tester.pumpAndSettle();
 
     expect(find.text('Normal Grip · Bottle guide'), findsOneWidget);
@@ -807,7 +880,9 @@ void main() {
     await pumpScreen(tester, tutorialProgress: tutorials);
 
     await tester.tap(
-      find.byKey(const Key('teacher_movement_guide_Normal Grip_bottle')),
+      find.byKey(
+        const Key('teacher_movement_card_official_Normal Grip_bottle'),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('teacher_movement_guide_close')));
@@ -1155,15 +1230,15 @@ void main() {
       );
       await pumpScreen(tester);
 
-      final guide = find.byKey(
-        const Key('teacher_movement_guide_Hand Stall_shaker'),
+      final card = find.byKey(
+        const Key('teacher_movement_card_official_Hand Stall_shaker'),
       );
       await tester.scrollUntilVisible(
-        guide,
+        card,
         240,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.ensureVisible(guide);
+      await tester.ensureVisible(card);
       await tester.pumpAndSettle();
       final assign = find.byKey(
         const Key('teacher_movement_assign_official_Hand Stall_shaker'),

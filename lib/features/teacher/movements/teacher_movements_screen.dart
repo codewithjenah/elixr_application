@@ -394,10 +394,8 @@ class _OfficialList extends StatelessWidget {
             childCount: activities.length,
             mainAxisExtent: _cardExtent(
               context,
-              // Five-column cards use the compact vertical layout;
-              // reserve a little extra height for full metadata and
-              // actions rather than clipping the content.
-              base: 480,
+              // Five-column cards use the compact vertical layout.
+              base: 430,
               growth: 180,
             ),
             crossAxisSpacing: AppSpacing.md,
@@ -550,19 +548,15 @@ class _OfficialMovementCard extends StatelessWidget {
       child: _TeacherMovementHoverCard(
         focusKey: Key('teacher_movement_card_official_$variantKey'),
         accent: accent,
+        onTap: onViewGuide,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final horizontal = constraints.maxWidth >= 760;
-            final details = _OfficialMovementDetails(
-              movement: movement,
-              prop: prop,
-              accent: accent,
-            );
+            final details = _OfficialMovementDetails(movement: movement);
             final actions = _OfficialMovementActions(
               movement: movement,
               prop: prop,
               busy: busy,
-              onViewGuide: onViewGuide,
               onAssign: onAssign,
             );
             if (!horizontal) {
@@ -608,15 +602,9 @@ class _OfficialMovementCard extends StatelessWidget {
 }
 
 class _OfficialMovementDetails extends StatelessWidget {
-  const _OfficialMovementDetails({
-    required this.movement,
-    required this.prop,
-    required this.accent,
-  });
+  const _OfficialMovementDetails({required this.movement});
 
   final Movement movement;
-  final TrainingProp prop;
-  final Color accent;
 
   @override
   Widget build(BuildContext context) {
@@ -624,19 +612,6 @@ class _OfficialMovementDetails extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: AppSpacing.xs,
-          runSpacing: AppSpacing.xs,
-          children: [
-            const _MetadataChip(
-              label: 'OFFICIAL ELIXR',
-              color: AppColors.accent,
-            ),
-            _MetadataChip(label: movement.difficulty, color: accent),
-            _MetadataChip(label: prop.displayLabel, color: accent),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.sm),
         Text(
           movement.name,
           maxLines: 1,
@@ -646,17 +621,32 @@ class _OfficialMovementDetails extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.xs),
-        Text(
-          movement.description,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: AppTheme.body.copyWith(
-            color: context.elixTextSecondary,
-            height: 1.35,
+        SizedBox(
+          height: _descriptionHeight(context),
+          child: Text(
+            movement.description,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.body.copyWith(
+              color: context.elixTextSecondary,
+              height: 1.35,
+            ),
           ),
         ),
       ],
     );
+  }
+
+  double _descriptionHeight(BuildContext context) {
+    const lines = 3;
+    final style = AppTheme.body.copyWith(height: 1.35);
+    final textPainter = TextPainter(
+      text: TextSpan(text: 'Ag', style: style),
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    return textPainter.height * lines;
   }
 }
 
@@ -665,35 +655,21 @@ class _OfficialMovementActions extends StatelessWidget {
     required this.movement,
     required this.prop,
     required this.busy,
-    required this.onViewGuide,
     required this.onAssign,
   });
 
   final Movement movement;
   final TrainingProp prop;
   final bool busy;
-  final VoidCallback onViewGuide;
   final VoidCallback onAssign;
 
   @override
   Widget build(BuildContext context) {
     final variantKey = _officialVariantKey(movement.name, prop);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Button(
-          key: Key('teacher_movement_guide_$variantKey'),
-          onPressed: onViewGuide,
-          child: const Text('View guide'),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        FilledButton(
-          key: Key('teacher_movement_assign_official_$variantKey'),
-          onPressed: busy ? null : onAssign,
-          child: const Text('Assign to class'),
-        ),
-      ],
+    return FilledButton(
+      key: Key('teacher_movement_assign_official_$variantKey'),
+      onPressed: busy ? null : onAssign,
+      child: const Text('Assign to class'),
     );
   }
 }
@@ -1443,11 +1419,13 @@ class _TeacherMovementHoverCard extends StatefulWidget {
     required this.focusKey,
     required this.accent,
     required this.child,
+    this.onTap,
   });
 
   final Key focusKey;
   final Color accent;
   final Widget child;
+  final VoidCallback? onTap;
 
   @override
   State<_TeacherMovementHoverCard> createState() =>
@@ -1539,43 +1517,47 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
               widget.accent.withValues(alpha: (isDark ? 0.16 : 0.08) * t),
               baseSurface,
             );
-            return AnimatedContainer(
-              duration: reduceMotion
-                  ? Duration.zero
-                  : const Duration(milliseconds: 90),
-              curve: Curves.easeOut,
-              decoration: BoxDecoration(
-                color: highContrast ? highContrastSurface : hoverSurface,
-                borderRadius: BorderRadius.circular(_radius),
-                border: Border.all(
-                  color: highContrast
-                      ? context.elixBorder
-                      : _focused
-                      ? widget.accent
-                      : Color.lerp(
-                          context.elixBorder,
-                          widget.accent,
-                          0.22 + (0.28 * t),
-                        )!,
-                  width: highContrast || _focused ? 2 : 1,
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onTap,
+              child: AnimatedContainer(
+                duration: reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 90),
+                curve: Curves.easeOut,
+                decoration: BoxDecoration(
+                  color: highContrast ? highContrastSurface : hoverSurface,
+                  borderRadius: BorderRadius.circular(_radius),
+                  border: Border.all(
+                    color: highContrast
+                        ? context.elixBorder
+                        : _focused
+                        ? widget.accent
+                        : Color.lerp(
+                            context.elixBorder,
+                            widget.accent,
+                            0.22 + (0.28 * t),
+                          )!,
+                    width: highContrast || _focused ? 2 : 1,
+                  ),
+                  boxShadow: highContrast
+                      ? const []
+                      : [
+                          BoxShadow(
+                            color: const Color(
+                              0xFF000000,
+                            ).withValues(alpha: isDark ? 0.42 : 0.12),
+                            blurRadius: 14,
+                            offset: const Offset(0, 7),
+                          ),
+                        ],
                 ),
-                boxShadow: highContrast
-                    ? const []
-                    : [
-                        BoxShadow(
-                          color: const Color(
-                            0xFF000000,
-                          ).withValues(alpha: isDark ? 0.42 : 0.12),
-                          blurRadius: 14,
-                          offset: const Offset(0, 7),
-                        ),
-                      ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(_radius),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  child: child,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(_radius),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    child: child,
+                  ),
                 ),
               ),
             );
