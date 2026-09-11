@@ -1459,6 +1459,80 @@ void main() {
     expect(materials.removedMaterialIds, ['material-1']);
   });
 
+  testWidgets('editing a draft saves edited values privately', (tester) async {
+    final draft = await service().create(
+      group: group,
+      officialMovement: movementCatalog.first,
+      status: GroupAssignmentStatus.draft,
+      topic: 'Original topic',
+    );
+
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: draft,
+      materialRepository: _MaterialRepository(),
+    );
+
+    expect(find.text('DRAFT ASSIGNMENT'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_assignment_save_draft')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_assignment_publish_draft')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextBox>(find.byKey(const Key('teacher_assignment_topic')))
+          .controller!
+          .text,
+      'Original topic',
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('teacher_assignment_topic')),
+      'Saved privately',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_save_draft')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_draft')));
+    await tester.pumpAndSettle();
+    final saved = await assignments.getAssignment(assignmentId: draft.id);
+    expect(saved?.status, GroupAssignmentStatus.draft);
+    expect(saved?.topic, 'Saved privately');
+  });
+
+  testWidgets('publishing a draft saves its latest edits first', (
+    tester,
+  ) async {
+    final draft = await service().create(
+      group: group,
+      officialMovement: movementCatalog.first,
+      status: GroupAssignmentStatus.draft,
+      topic: 'Original topic',
+    );
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: draft,
+      materialRepository: _MaterialRepository(),
+    );
+    await tester.enterText(
+      find.byKey(const Key('teacher_assignment_topic')),
+      'Ready to publish',
+    );
+    final publish = find.byKey(const Key('teacher_assignment_publish_draft'));
+    await tester.ensureVisible(publish);
+    await tester.tap(publish);
+    await tester.pumpAndSettle();
+    final published = await assignments.getAssignment(assignmentId: draft.id);
+    expect(published?.status, GroupAssignmentStatus.active);
+    expect(published?.topic, 'Ready to publish');
+  });
+
   testWidgets(
     'Teacher Activity defaults prefill and assignment overrides publish a v2 snapshot',
     (tester) async {

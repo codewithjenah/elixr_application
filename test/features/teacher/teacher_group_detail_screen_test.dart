@@ -4,6 +4,7 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
@@ -146,6 +147,24 @@ void main() {
     testWidgets(
       '${classroom ? 'classroom' : 'assignment'} deletion pending, failure, retry and success',
       (tester) async {
+        String? copiedPhrase;
+        if (!classroom) {
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            (call) async {
+              if (call.method == 'Clipboard.setData') {
+                copiedPhrase =
+                    (call.arguments as Map<Object?, Object?>)['text']
+                        as String?;
+              }
+              return null;
+            },
+          );
+          addTearDown(
+            () => tester.binding.defaultBinaryMessenger
+                .setMockMethodCallHandler(SystemChannels.platform, null),
+          );
+        }
         final assignments = _PendingDeleteRepository();
         addTearDown(assignments.dispose);
         final group = await repository.createGroup(
@@ -181,6 +200,16 @@ void main() {
         await tester.ensureVisible(open);
         await tester.tap(open);
         await tester.pumpAndSettle();
+        if (!classroom) {
+          expect(find.text('DELETE ASSIGNMENT'), findsOneWidget);
+          final copy = find.byKey(
+            const Key('teacher_assignment_copy_delete_phrase'),
+          );
+          await tester.tap(copy);
+          await tester.pump();
+          expect(copiedPhrase, 'DELETE ASSIGNMENT');
+          expect(find.text('Copied'), findsOneWidget);
+        }
         final prefix = classroom ? 'teacher_group' : 'teacher_assignment';
         final field = find.byKey(Key('${prefix}_delete_confirmation'));
         await tester.enterText(
@@ -218,7 +247,9 @@ void main() {
         expect(find.text('Deleting...'), findsNothing);
         expect(
           find.descendant(
-            of: find.byType(ContentDialog),
+            of: classroom
+                ? find.byType(ContentDialog)
+                : find.byType(ElixDialog),
             matching: find.text('Deletion denied.'),
           ),
           findsOneWidget,

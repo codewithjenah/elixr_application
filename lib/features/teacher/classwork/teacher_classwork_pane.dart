@@ -441,6 +441,22 @@ class _AssignmentRow extends StatelessWidget {
               ),
             ),
           ),
+          if (assignment.status == GroupAssignmentStatus.archived) ...[
+            Button(
+              key: Key('teacher_group_restore_assignment_${assignment.id}'),
+              onPressed: onRestore,
+              child: const Text('Restore'),
+            ),
+            const SizedBox(width: AppSpacing.md),
+          ],
+          if (onEdit != null) ...[
+            Button(
+              key: Key('teacher_group_edit_assignment_${assignment.id}'),
+              onPressed: onEdit,
+              child: const Text('Edit'),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+          ],
           if (assignment.isDraft) ...[
             ElixPrimaryButton(
               key: Key('teacher_group_publish_assignment_${assignment.id}'),
@@ -459,21 +475,7 @@ class _AssignmentRow extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.xs),
           ],
-          if (assignment.status == GroupAssignmentStatus.archived) ...[
-            Button(
-              key: Key('teacher_group_restore_assignment_${assignment.id}'),
-              onPressed: onRestore,
-              child: const Text('Restore'),
-            ),
-            const SizedBox(width: AppSpacing.md),
-          ],
           if (assignment.isActive) ...[
-            Button(
-              key: Key('teacher_group_edit_assignment_${assignment.id}'),
-              onPressed: onEdit,
-              child: const Text('Edit'),
-            ),
-            const SizedBox(width: AppSpacing.xs),
             Button(
               key: Key('teacher_group_archive_assignment_${assignment.id}'),
               onPressed: onArchive,

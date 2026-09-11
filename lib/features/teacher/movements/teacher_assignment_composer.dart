@@ -450,6 +450,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   GroupAssignment? _savedEditAssignment;
 
   bool get _isEditing => widget.existingAssignment != null;
+  bool get _isEditingDraft => _editingAssignment?.isDraft == true;
   GroupAssignment? get _editingAssignment => widget.existingAssignment;
   bool get _canEditTeacherActivity =>
       _isEditing &&
@@ -914,7 +915,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         : _classroomScoped
         ? 'Create assignment'
         : 'Assign to class';
-    final subtitle = _isEditing
+    final subtitle = _isEditingDraft
+        ? 'You are editing a private draft. Trainees cannot see it until you publish it.'
+        : _isEditing
         ? 'Update the settings and learning materials for this assignment.'
         : _classroomScoped
         ? 'Choose a movement, set expectations, and send it to your class.'
@@ -923,7 +926,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return TeacherScaffoldPage(
       header: ElixEditorialPageHeader(
         heading: title,
-        eyebrow: 'ASSIGNMENT STUDIO',
+        eyebrow: _isEditingDraft ? 'DRAFT ASSIGNMENT' : 'ASSIGNMENT STUDIO',
         subtitle: subtitle,
         variant: ElixEditorialHeaderVariant.compact,
         commandBar: CommandBar(
@@ -991,12 +994,15 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       canSubmit: _canSubmit,
       isSubmitting: _submitting,
       isEditing: _isEditing,
-      onSaveDraft: _canSubmit && !_isEditing
-          ? () => _submit(context, _PublicationAction.draft)
+      isEditingDraft: _isEditingDraft,
+      onSaveDraft: _canSubmit && (!_isEditing || _isEditingDraft)
+          ? () => _isEditingDraft
+                ? _submitEdit(context)
+                : _submit(context, _PublicationAction.draft)
           : null,
       onPublish: _canSubmit
           ? () => _isEditing
-                ? _submitEdit(context)
+                ? _submitEdit(context, publishDraft: _isEditingDraft)
                 : _submit(context, _PublicationAction.publish)
           : null,
       onSchedule: _canSubmit && !_isEditing && _publicationSchedulingEnabled
@@ -2954,7 +2960,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     throw StateError('The uploaded file is still processing.');
   }
 
-  Future<void> _submitEdit(BuildContext pageContext) async {
+  Future<void> _submitEdit(
+    BuildContext pageContext, {
+    bool publishDraft = false,
+  }) async {
     if (_submitting) return;
     final validationError = _formValidationError();
     if (validationError != null) {
@@ -3014,6 +3023,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               'Assignment changes were saved, but some learning material changes need to be retried.';
         });
         return;
+      }
+      if (publishDraft) {
+        await widget.creationService.assignmentRepository.publishAssignmentNow(
+          teacherId: widget.teacherId,
+          assignmentId: assignment.id,
+        );
       }
       if (pageContext.mounted) Navigator.pop(pageContext, true);
     } on ClassroomException catch (error) {
@@ -4882,6 +4897,7 @@ class _AssignmentActionFooter extends StatelessWidget {
     required this.canSubmit,
     required this.isSubmitting,
     required this.isEditing,
+    required this.isEditingDraft,
     required this.onSaveDraft,
     required this.onPublish,
     required this.onSchedule,
@@ -4892,6 +4908,7 @@ class _AssignmentActionFooter extends StatelessWidget {
   final bool canSubmit;
   final bool isSubmitting;
   final bool isEditing;
+  final bool isEditingDraft;
   final VoidCallback? onSaveDraft;
   final VoidCallback? onPublish;
   final VoidCallback? onSchedule;
@@ -4930,16 +4947,24 @@ class _AssignmentActionFooter extends StatelessWidget {
           ],
           ElixPrimaryButton(
             key: Key(
-              isEditing
+              isEditing && !isEditingDraft
                   ? 'teacher_assignment_save_changes'
+                  : isEditingDraft
+                  ? 'teacher_assignment_publish_draft'
                   : 'teacher_assignment_publish_now',
             ),
-            label: isEditing ? 'Save changes' : 'Publish now',
-            icon: isEditing ? FluentIcons.save : FluentIcons.send,
+            label: isEditing && !isEditingDraft
+                ? 'Save changes'
+                : isEditingDraft
+                ? 'Publish draft'
+                : 'Publish now',
+            icon: isEditing && !isEditingDraft
+                ? FluentIcons.save
+                : FluentIcons.send,
             isLoading: isSubmitting,
             onPressed: onPublish,
           ),
-          if (!isEditing) ...[
+          if (!isEditing || isEditingDraft) ...[
             const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
@@ -4950,14 +4975,16 @@ class _AssignmentActionFooter extends StatelessWidget {
                     child: const Text('Save draft'),
                   ),
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Button(
-                    key: const Key('teacher_assignment_schedule'),
-                    onPressed: isSubmitting ? null : onSchedule,
-                    child: const Text('Schedule'),
+                if (!isEditing) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Button(
+                      key: const Key('teacher_assignment_schedule'),
+                      onPressed: isSubmitting ? null : onSchedule,
+                      child: const Text('Schedule'),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ],

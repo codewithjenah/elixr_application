@@ -363,7 +363,8 @@ class InMemoryClassroomAssignmentRepository
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    if (!existing.isActive || existing.isRetiredTemplate) {
+    if ((!existing.isActive && !existing.isDraft && !existing.isScheduled) ||
+        existing.isRetiredTemplate) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
     if (maxScore != null) {
@@ -414,7 +415,7 @@ class InMemoryClassroomAssignmentRepository
     }
     if (!existing.isTeacherCreated ||
         existing.assessmentMode != AssessmentMode.teacherReviewed ||
-        !existing.isActive ||
+        (!existing.isActive && !existing.isDraft && !existing.isScheduled) ||
         existing.configurationRevision != expectedConfigurationRevision) {
       throw const ClassroomException(ClassroomError.conflict);
     }

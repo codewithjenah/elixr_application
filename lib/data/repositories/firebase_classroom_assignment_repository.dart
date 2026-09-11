@@ -345,7 +345,8 @@ class FirebaseClassroomAssignmentRepository
     if (current.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    if (!current.isActive || current.isRetiredTemplate) {
+    if ((!current.isActive && !current.isDraft && !current.isScheduled) ||
+        current.isRetiredTemplate) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
     if (maxScore != null) {

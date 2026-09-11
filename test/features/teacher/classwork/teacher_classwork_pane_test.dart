@@ -339,6 +339,7 @@ void main() {
         status: GroupAssignmentStatus.draft,
       );
       assignments.seedAssignment(draft);
+      GroupAssignment? edited;
       await tester.pumpWidget(
         FluentApp(
           theme: AppTheme.dark,
@@ -349,6 +350,7 @@ void main() {
               builder: (context, _) => TeacherClassworkAssignmentList(
                 controller: controller,
                 onOpen: (_) {},
+                onEdit: (assignment) => edited = assignment,
               ),
             ),
           ),
@@ -366,6 +368,12 @@ void main() {
       );
       expect(publish, findsOneWidget);
       expect(find.text('Publish draft'), findsOneWidget);
+      final edit = find.byKey(
+        const Key('teacher_group_edit_assignment_assignment'),
+      );
+      expect(edit, findsOneWidget);
+      await tester.tap(edit);
+      expect(edited?.id, draft.id);
 
       await tester.tap(publish);
       await tester.pumpAndSettle();
@@ -376,6 +384,43 @@ void main() {
       );
     },
   );
+
+  testWidgets('scheduled assignments retain Edit when editing is available', (
+    tester,
+  ) async {
+    final scheduled = assignments.assignments['assignment']!.copyWith(
+      status: GroupAssignmentStatus.scheduled,
+      publishAt: DateTime.utc(2026, 9, 15),
+    );
+    assignments.seedAssignment(scheduled);
+    GroupAssignment? edited;
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: Padding(
+          padding: const EdgeInsets.all(16),
+          child: AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) => TeacherClassworkAssignmentList(
+              controller: controller,
+              onOpen: (_) {},
+              onEdit: (assignment) => edited = assignment,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+
+    final edit = find.byKey(
+      const Key('teacher_group_edit_assignment_assignment'),
+    );
+    expect(edit, findsOneWidget);
+    expect(find.text('Publish now'), findsOneWidget);
+    await tester.tap(edit);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(edited?.id, scheduled.id);
+  });
 
   testWidgets('submitted work opens in the shared grading detail', (
     tester,
