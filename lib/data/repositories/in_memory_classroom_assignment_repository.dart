@@ -565,9 +565,14 @@ class InMemoryClassroomAssignmentRepository
   @override
   Future<List<GroupAssignment>> fetchAssignmentsForGroup({
     required String groupId,
+    required String teacherId,
   }) async {
     final items = assignments.values
-        .where((assignment) => assignment.groupId == groupId)
+        .where(
+          (assignment) =>
+              assignment.groupId == groupId &&
+              assignment.teacherId == teacherId,
+        )
         .toList();
     _sortAssignments(items);
     return items;

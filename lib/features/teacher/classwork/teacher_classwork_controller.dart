@@ -187,7 +187,10 @@ class TeacherClassworkController extends ChangeNotifier {
     if (_disposed) return;
     try {
       _applyAssignments(
-        await assignmentRepository.fetchAssignmentsForGroup(groupId: groupId),
+        await assignmentRepository.fetchAssignmentsForGroup(
+          groupId: groupId,
+          teacherId: teacherId,
+        ),
       );
     } catch (error, stackTrace) {
       _logFailure('assignments fetch', error, stackTrace);

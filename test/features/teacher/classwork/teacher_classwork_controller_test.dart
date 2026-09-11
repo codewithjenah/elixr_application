@@ -27,6 +27,25 @@ class _FailingAttemptStreamRepository
   }
 }
 
+class _TrackingGroupAssignmentFetchRepository
+    extends InMemoryClassroomAssignmentRepository {
+  String? fetchedGroupId;
+  String? fetchedTeacherId;
+
+  @override
+  Future<List<GroupAssignment>> fetchAssignmentsForGroup({
+    required String groupId,
+    required String teacherId,
+  }) {
+    fetchedGroupId = groupId;
+    fetchedTeacherId = teacherId;
+    return super.fetchAssignmentsForGroup(
+      groupId: groupId,
+      teacherId: teacherId,
+    );
+  }
+}
+
 class _BlockingAssignmentUpdateRepository
     extends InMemoryClassroomAssignmentRepository {
   final started = Completer<void>();
@@ -127,6 +146,27 @@ void main() {
       now: () => DateTime.utc(2026, 9, 2),
     );
   }
+
+  test(
+    'forwards the opened group and authenticated Teacher to its initial fetch',
+    () async {
+      final trackingAssignments = _TrackingGroupAssignmentFetchRepository();
+      addTearDown(trackingAssignments.dispose);
+      final controller = TeacherClassworkController(
+        teacherId: 'teacher',
+        teacherDisplayName: 'Grace Hopper',
+        groupId: 'g1',
+        groupRepository: groups,
+        assignmentRepository: trackingAssignments,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.start();
+
+      expect(trackingAssignments.fetchedGroupId, 'g1');
+      expect(trackingAssignments.fetchedTeacherId, 'teacher');
+    },
+  );
 
   GroupMembership member(
     String traineeId, {

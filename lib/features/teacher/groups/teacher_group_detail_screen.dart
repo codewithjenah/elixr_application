@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:elixr_core/models/elixr_group.dart';
@@ -82,6 +83,8 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
   ClassroomAnnouncementsController? _ownedAnnouncements;
   late final bool _ownsController;
   late final bool _ownsClassworkController;
+  bool _ownedWorkspaceStartScheduled = false;
+  bool _teacherAuthorizationFailed = false;
 
   TeacherGroupsController? get _controller => widget.controller ?? _owned;
   TeacherClassworkController? get _classworkController =>
@@ -99,6 +102,41 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    AuthService? auth;
+    try {
+      auth = context.read<AuthService>();
+    } on ProviderNotFoundException {
+      return;
+    }
+    final user = auth.currentUser;
+    if (user == null ||
+        user.id == null ||
+        (!_ownsController && !_ownsClassworkController) ||
+        _ownedWorkspaceStartScheduled) {
+      return;
+    }
+    _ownedWorkspaceStartScheduled = true;
+    unawaited(_startOwnedWorkspace(auth));
+  }
+
+  Future<void> _startOwnedWorkspace(AuthService auth) async {
+    final authorized = await auth.ensureTeacherAuthorizationFresh();
+    if (!mounted) return;
+    if (!authorized) {
+      _teacherAuthorizationFailed = true;
+      setState(() {});
+      return;
+    }
+
+    final user = auth.currentUser;
+    final userId = user?.id;
+    if (user == null || userId == null) return;
+    PublicProfileRepository? publicProfileRepository;
+    try {
+      publicProfileRepository = context.read<PublicProfileRepository>();
+    } on ProviderNotFoundException {
+      publicProfileRepository = null;
+    }
     final suppliedController = widget.controller;
     final suppliedAssignments = suppliedController?.assignmentRepository;
     if (_ownsClassworkController &&
@@ -121,21 +159,6 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
         approvedMembershipsReady: () =>
             suppliedController.approvedMembershipsReady,
       )..start();
-    }
-    AuthService? auth;
-    try {
-      auth = context.read<AuthService>();
-    } on ProviderNotFoundException {
-      return;
-    }
-    final user = auth.currentUser;
-    final userId = user?.id;
-    if (user == null || userId == null) return;
-    PublicProfileRepository? publicProfileRepository;
-    try {
-      publicProfileRepository = context.read<PublicProfileRepository>();
-    } on ProviderNotFoundException {
-      publicProfileRepository = null;
     }
     if (_ownsController && _owned == null) {
       _owned =
@@ -182,6 +205,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
         )..start();
       }
     }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -202,6 +226,21 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     _listenForFeedback();
     final controller = _controller;
     final classwork = _classworkController;
+    if (_teacherAuthorizationFailed) {
+      return const TeacherScaffoldPage(
+        header: ElixEditorialPageHeader(
+          heading: 'Group',
+          eyebrow: 'TEACHER WORKSPACE',
+          variant: ElixEditorialHeaderVariant.compact,
+        ),
+        content: Center(
+          child: ElixStatusPanel(
+            message:
+                'Teacher authorization could not be confirmed. Please sign in again.',
+          ),
+        ),
+      );
+    }
     if (controller == null || classwork == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(

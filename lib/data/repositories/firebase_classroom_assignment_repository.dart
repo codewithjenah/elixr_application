@@ -580,9 +580,11 @@ class FirebaseClassroomAssignmentRepository
   @override
   Future<List<GroupAssignment>> fetchAssignmentsForGroup({
     required String groupId,
+    required String teacherId,
   }) async {
     final snapshot = await _assignments
         .where('group_id', isEqualTo: groupId)
+        .where('teacher_id', isEqualTo: teacherId)
         .get();
     final items = snapshot.docs
         .map((doc) => GroupAssignment.tryFromMap(doc.data(), id: doc.id))

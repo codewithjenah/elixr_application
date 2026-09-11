@@ -194,6 +194,7 @@ abstract class ClassroomAssignmentRepository {
 
   Future<List<GroupAssignment>> fetchAssignmentsForGroup({
     required String groupId,
+    required String teacherId,
   });
 
   /// Returns only assignments this authenticated Trainee may access.

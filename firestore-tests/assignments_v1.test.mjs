@@ -838,6 +838,33 @@ describe('Phase 5 teacher movements and attempts', () => {
       getDocs(query(collection(other, 'group_assignments'), where('teacher_id', '==', 'teacher'))),
     );
   });
+
+  test('Teacher assignment lists require both the owned group and teacher predicates', async () => {
+    await seedClassroom();
+    const teacher = context('teacher').firestore();
+    const other = context('other').firestore();
+
+    await assertSucceeds(
+      getDocs(query(
+        collection(teacher, 'group_assignments'),
+        where('group_id', '==', GROUP_ID),
+        where('teacher_id', '==', 'teacher'),
+      )),
+    );
+    await assertFails(
+      getDocs(query(
+        collection(teacher, 'group_assignments'),
+        where('group_id', '==', GROUP_ID),
+      )),
+    );
+    await assertFails(
+      getDocs(query(
+        collection(other, 'group_assignments'),
+        where('group_id', '==', GROUP_ID),
+        where('teacher_id', '==', 'teacher'),
+      )),
+    );
+  });
 });
 
 function teacherReviewedSpec({
