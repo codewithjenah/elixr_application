@@ -36,7 +36,6 @@ import '../../features/teacher/groups/teacher_group_detail_screen.dart';
 import '../../features/teacher/groups/teacher_groups_screen.dart';
 import '../../features/teacher/leaderboard/teacher_leaderboard_screen.dart';
 import '../../features/teacher/movements/teacher_movements_screen.dart';
-import '../../features/teacher/progress/teacher_progress_screen.dart';
 import '../../features/teacher/students/teacher_student_detail_screen.dart';
 import '../../features/teacher/students/teacher_student_classwork_screen.dart';
 import '../../features/teacher/students/teacher_student_practice_history_screen.dart';
@@ -557,10 +556,7 @@ class AppRouter {
             ),
             GoRoute(
               path: AppRoutePaths.teacherProgress,
-              pageBuilder: (context, state) => fadeTransitionPage(
-                key: state.pageKey,
-                child: const TeacherProgressScreen(),
-              ),
+              redirect: (context, state) => AppRoutePaths.teacherAnalytics,
             ),
             GoRoute(
               path: AppRoutePaths.teacherLeaderboard,

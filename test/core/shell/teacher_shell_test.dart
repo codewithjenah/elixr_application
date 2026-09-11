@@ -173,8 +173,9 @@ void main() {
     expect(find.text('Classrooms'), findsWidgets);
     expect(find.text('Teacher Access'), findsOneWidget);
     expect(find.text('Students'), findsWidgets);
-    expect(find.text('Progress'), findsOneWidget);
+    expect(find.text('Progress'), findsNothing);
     expect(find.text('Analytics'), findsOneWidget);
+    expect(find.text('Leaderboard'), findsOneWidget);
     expect(find.text('Activity Library'), findsOneWidget);
     expect(find.text('Review Work'), findsWidgets);
     expect(find.text('Grades'), findsWidgets);
@@ -194,9 +195,8 @@ void main() {
     router.go(AppRoutePaths.teacherProgress);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Choose a progress view'), findsOneWidget);
-    expect(find.text('Class progress'), findsOneWidget);
-    expect(find.text('Student rankings'), findsOneWidget);
+    expect(router.state.uri.path, AppRoutePaths.teacherAnalytics);
+    expect(find.text('Analytics'), findsWidgets);
 
     router.go(AppRoutePaths.teacherLeaderboard);
     await tester.pump();

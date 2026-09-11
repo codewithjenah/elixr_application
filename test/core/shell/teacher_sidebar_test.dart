@@ -29,8 +29,8 @@ void main() {
       'Grades',
       'Students',
       'Calendar',
-      'Progress',
       'Analytics',
+      'Leaderboard',
       'Messages',
     ]);
     expect(teacherSidebarItems.map((item) => item.route), [
@@ -41,8 +41,8 @@ void main() {
       AppRoutePaths.teacherGrades,
       AppRoutePaths.teacherStudents,
       AppRoutePaths.teacherCalendar,
-      AppRoutePaths.teacherProgress,
       AppRoutePaths.teacherAnalytics,
+      AppRoutePaths.teacherLeaderboard,
       AppRoutePaths.teacherMessages,
     ]);
     expect(teacherSidebarUtilityItems, hasLength(2));
@@ -119,36 +119,50 @@ void main() {
     );
   });
 
-  test('Progress stays active for the retained Leaderboard deep link', () {
-    final progress = teacherSidebarItems.singleWhere(
-      (item) => item.label == 'Progress',
-    );
+  test('Analytics and Leaderboard have independent active states', () {
     final analytics = teacherSidebarItems.singleWhere(
       (item) => item.label == 'Analytics',
     );
+    final leaderboard = teacherSidebarItems.singleWhere(
+      (item) => item.label == 'Leaderboard',
+    );
 
     expect(
-      isTeacherSidebarItemActive(AppRoutePaths.teacherProgress, progress),
-      isTrue,
-    );
-    expect(
-      isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, progress),
-      isTrue,
-    );
-    expect(
-      isTeacherSidebarItemActive(AppRoutePaths.teacherAnalytics, progress),
-      isFalse,
+      teacherSidebarItems.map((item) => item.label),
+      isNot(contains('Progress')),
     );
     expect(
       isTeacherSidebarItemActive(AppRoutePaths.teacherAnalytics, analytics),
       isTrue,
     );
     expect(
-      isTeacherSidebarItemActive(AppRoutePaths.teacherProgress, analytics),
+      isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, analytics),
       isFalse,
     );
     expect(
-      isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, analytics),
+      isTeacherSidebarItemActive(AppRoutePaths.teacherLeaderboard, leaderboard),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherAnalytics, leaderboard),
+      isFalse,
+    );
+    expect(
+      isTeacherSidebarItemActive(
+        '${AppRoutePaths.teacherAnalytics}/details',
+        analytics,
+      ),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarItemActive(
+        '${AppRoutePaths.teacherLeaderboard}/details',
+        leaderboard,
+      ),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarItemActive(AppRoutePaths.teacherProgress, analytics),
       isFalse,
     );
   });
@@ -223,7 +237,44 @@ void main() {
 
     expect(find.text('Analytics'), findsOneWidget);
     expect(tileFor('Analytics').isActive, isTrue);
-    expect(tileFor('Progress').isActive, isFalse);
+    expect(tileFor('Leaderboard').isActive, isFalse);
+  });
+
+  testWidgets('Leaderboard is selected on the leaderboard route', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = phase3TeacherAuth();
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const Row(
+            children: [
+              TeacherSidebar(
+                currentRoute: AppRoutePaths.teacherLeaderboard,
+                isCollapsed: false,
+                onToggleCollapse: _noop,
+                onLogout: _noop,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    ElixSidebarNavTile tileFor(String label) => tester
+        .widgetList<ElixSidebarNavTile>(find.byType(ElixSidebarNavTile))
+        .firstWhere((tile) => tile.label == label);
+
+    expect(tileFor('Leaderboard').isActive, isTrue);
+    expect(tileFor('Analytics').isActive, isFalse);
   });
 
   testWidgets('teacher sidebar uses Trainee chrome without XP copy', (

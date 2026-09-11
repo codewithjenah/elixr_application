@@ -46,6 +46,7 @@ abstract final class AppRoutePaths {
   static const teacherStudentDetailSegment = 'students';
   static const teacherLeaderboard = '/teacher/leaderboard';
   static const teacherAnalytics = '/teacher/analytics';
+  /// Legacy deep link retained only to redirect existing URLs to Analytics.
   static const teacherProgress = '/teacher/progress';
   static const teacherMovements = '/teacher/movements';
   static const teacherToReview = '/teacher/to-review';

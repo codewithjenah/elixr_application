@@ -77,15 +77,15 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
-    label: 'Progress',
-    icon: FluentIcons.bar_chart_vertical_fill,
-    route: AppRoutePaths.teacherProgress,
-    group: TeacherSidebarGroup.primary,
-  ),
-  TeacherSidebarItem(
     label: 'Analytics',
     icon: FluentIcons.analytics_view,
     route: AppRoutePaths.teacherAnalytics,
+    group: TeacherSidebarGroup.primary,
+  ),
+  TeacherSidebarItem(
+    label: 'Leaderboard',
+    icon: FluentIcons.trophy,
+    route: AppRoutePaths.teacherLeaderboard,
     group: TeacherSidebarGroup.primary,
   ),
   TeacherSidebarItem(
@@ -121,14 +121,7 @@ bool isTeacherSidebarRouteActive(String currentPath, String itemRoute) {
 
 @visibleForTesting
 bool isTeacherSidebarItemActive(String currentPath, TeacherSidebarItem item) {
-  if (isTeacherSidebarRouteActive(currentPath, item.route)) return true;
-  // Rankings stay under Progress while Analytics has its own destination.
-  // The Progress hub route remains a valid deep link.
-  if (item.route != AppRoutePaths.teacherProgress) return false;
-  return isTeacherSidebarRouteActive(
-    currentPath,
-    AppRoutePaths.teacherLeaderboard,
-  );
+  return isTeacherSidebarRouteActive(currentPath, item.route);
 }
 
 class TeacherSidebar extends StatelessWidget {
