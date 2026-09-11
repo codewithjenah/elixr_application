@@ -168,6 +168,23 @@ void main() {
     expect(startHour.items!.map((item) => item.value), containsAll([1, 12]));
     expect(startHour.items!.map((item) => item.value), isNot(contains(0)));
     expect(startHour.items!.map((item) => item.value), isNot(contains(13)));
+    for (final key in const [
+      Key('class_challenge_start_minute'),
+      Key('class_challenge_deadline_minute'),
+    ]) {
+      final minuteBox = tester.widget<ComboBox<int>>(find.byKey(key));
+      expect(
+        minuteBox.items!.map((item) => item.value),
+        orderedEquals(List<int>.generate(60, (index) => index)),
+      );
+      for (final minute in [7, 23, 59]) {
+        final item = minuteBox.items!.singleWhere(
+          (item) => item.value == minute,
+        );
+        expect(item.child, isA<Text>());
+        expect((item.child as Text).data, minute.toString().padLeft(2, '0'));
+      }
+    }
     expect(tester.takeException(), isNull);
   });
 
@@ -266,6 +283,23 @@ void main() {
       classChallengeDateTimeFrom12Hour(base, hour: 1, minute: 30, period: 'PM'),
       DateTime(2026, 9, 11, 13, 30),
     );
+    expect(
+      classChallengeDateTimeFrom12Hour(base, hour: 9, minute: 7, period: 'AM'),
+      DateTime(2026, 9, 11, 9, 7),
+    );
+    expect(
+      classChallengeDateTimeFrom12Hour(base, hour: 1, minute: 23, period: 'PM'),
+      DateTime(2026, 9, 11, 13, 23),
+    );
+    expect(
+      classChallengeDateTimeFrom12Hour(
+        base,
+        hour: 11,
+        minute: 59,
+        period: 'PM',
+      ),
+      DateTime(2026, 9, 11, 23, 59),
+    );
   });
 
   testWidgets('creating stores the selected 12-hour time as UTC', (
@@ -309,7 +343,7 @@ void main() {
         .widget<ComboBox<int>>(
           find.byKey(const Key('class_challenge_start_minute')),
         )
-        .onChanged!(30);
+        .onChanged!(23);
     await tester.pump();
     tester
         .widget<ComboBox<String>>(
@@ -329,7 +363,7 @@ void main() {
         startDate.month,
         startDate.day,
         17,
-        30,
+        23,
       ).toUtc(),
     );
     expect(repository.createdChallenge!.deadline, deadline.toUtc());

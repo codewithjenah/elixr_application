@@ -568,6 +568,18 @@ void main() {
       hourBox.items!.map((item) => item.value),
       orderedEquals(List<int>.generate(12, (index) => index + 1)),
     );
+    final minuteBox = tester.widget<ComboBox<int>>(
+      find.byKey(const Key('teacher_assignment_publish_minute')),
+    );
+    expect(
+      minuteBox.items!.map((item) => item.value),
+      orderedEquals(List<int>.generate(60, (index) => index)),
+    );
+    for (final minute in [7, 23, 59]) {
+      final item = minuteBox.items!.singleWhere((item) => item.value == minute);
+      expect(item.child, isA<Text>());
+      expect((item.child as Text).data, minute.toString().padLeft(2, '0'));
+    }
     expect(find.textContaining('Manila'), findsNothing);
     hourBox.onChanged!(hour);
     await tester.pump();
@@ -642,6 +654,81 @@ void main() {
     final afternoonCivil = afternoon.toUtc().add(const Duration(hours: 8));
     expect(afternoonCivil.hour, 13);
     expect(afternoonCivil.minute, 30);
+  });
+
+  testWidgets('scheduled publication preserves arbitrary selected minutes', (
+    tester,
+  ) async {
+    final scheduled = await scheduleAt(
+      tester,
+      hour: 9,
+      minute: 7,
+      period: 'AM',
+    );
+    expect(scheduled.toUtc().add(const Duration(hours: 8)).minute, 7);
+  });
+
+  testWidgets('Teacher Activity scheduler exposes every minute', (
+    tester,
+  ) async {
+    final customMovement = await createTeacherMovement();
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      teacherCreatedMovement: customMovement,
+    );
+
+    final minuteBox = tester.widget<ComboBox<int>>(
+      find.byKey(const Key('teacher_assignment_publish_minute')),
+    );
+    expect(
+      minuteBox.items!.map((item) => item.value),
+      orderedEquals(List<int>.generate(60, (index) => index)),
+    );
+  });
+
+  testWidgets('Teacher Activity scheduling preserves an arbitrary minute', (
+    tester,
+  ) async {
+    final customMovement = await createTeacherMovement();
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      teacherCreatedMovement: customMovement,
+    );
+    final date = tester
+        .widget<DatePicker>(
+          find.byKey(const Key('teacher_assignment_publish_date')),
+        )
+        .selected!;
+
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_publish_hour')),
+        )
+        .onChanged!(11);
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_publish_minute')),
+        )
+        .onChanged!(59);
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_publish_period')),
+        )
+        .onChanged!('PM');
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_schedule')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_schedule')));
+    await tester.pumpAndSettle();
+
+    expect(
+      assignments.lastPublishAt,
+      DateTime.utc(date.year, date.month, date.day, 15, 59),
+    );
   });
 
   testWidgets('invalid maximum score disables the create action', (

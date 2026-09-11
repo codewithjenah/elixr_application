@@ -147,108 +147,108 @@ class ClassChallengesPane extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Class Challenges',
-                            style: AppTheme.headingMedium,
-                          ),
-                          const SizedBox(height: AppSpacing.xs),
-                          Text(
-                            isTeacher
-                                ? 'Create competitive movement challenges for this class.'
-                                : 'Compete with classmates. Only your best valid attempt ranks.',
-                            style: AppTheme.bodySecondary,
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (isTeacher)
-                      ElixPrimaryButton(
-                        key: const Key('class_challenge_create'),
-                        label: 'New challenge',
-                        icon: FluentIcons.add,
-                        expanded: false,
-                        onPressed: groupIsActive
-                            ? () => _showChallengeEditor(
-                                context,
-                                repository: repository,
-                                groupId: groupId,
-                                teacherId: teacherId,
-                                teacherDisplayName: teacherDisplayName,
-                              )
-                            : null,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (challenges.isEmpty)
-                  ElixStatusPanel(
-                    key: const Key('class_challenges_empty'),
-                    icon: FluentIcons.trophy,
-                    title: 'No challenges yet',
-                    message: isTeacher
-                        ? 'Create the first timed movement challenge for this class.'
-                        : 'Your teacher has not published a challenge yet.',
-                  )
-                else
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final columns = constraints.maxWidth >= 1100 ? 2 : 1;
-                      final width = columns == 2
-                          ? (constraints.maxWidth - AppSpacing.md) / 2
-                          : constraints.maxWidth;
-                      return Wrap(
-                        spacing: AppSpacing.md,
-                        runSpacing: AppSpacing.md,
-                        children: [
-                          for (final challenge in challenges)
-                            SizedBox(
-                              width: width,
-                              child: _ChallengeCard(
-                                challenge: challenge,
-                                entries: rankClassChallengeEntries(
-                                  results.where(
-                                    (entry) =>
-                                        entry.challengeId == challenge.id,
-                                  ),
-                                ),
-                                currentUserId: currentUserId,
-                                participantCount: participantCount,
-                                isTeacher: isTeacher,
-                                onOpenLeaderboard: () =>
-                                    onOpenLeaderboard(challenge),
-                                onStart: onStart == null
-                                    ? null
-                                    : () => onStart!(challenge),
-                                onEdit: !isTeacher || !groupIsActive
-                                    ? null
-                                    : () => _showChallengeEditor(
-                                        context,
-                                        repository: repository,
-                                        groupId: groupId,
-                                        teacherId: teacherId,
-                                        teacherDisplayName: teacherDisplayName,
-                                        existing: challenge,
-                                      ),
-                                onArchive:
-                                    !isTeacher || challenge.archivedAt != null
-                                    ? null
-                                    : () => _archiveChallenge(
-                                        context,
-                                        repository,
-                                        challenge,
-                                      ),
-                              ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Class Challenges',
+                              style: AppTheme.headingMedium,
                             ),
-                        ],
-                      );
-                    },
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              isTeacher
+                                  ? 'Create competitive movement challenges for this class.'
+                                  : 'Compete with classmates. Only your best valid attempt ranks.',
+                              style: AppTheme.bodySecondary,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (isTeacher)
+                        ElixPrimaryButton(
+                          key: const Key('class_challenge_create'),
+                          label: 'New challenge',
+                          icon: FluentIcons.add,
+                          expanded: false,
+                          onPressed: groupIsActive
+                              ? () => _showChallengeEditor(
+                                  context,
+                                  repository: repository,
+                                  groupId: groupId,
+                                  teacherId: teacherId,
+                                  teacherDisplayName: teacherDisplayName,
+                                )
+                              : null,
+                        ),
+                    ],
                   ),
+                  const SizedBox(height: AppSpacing.md),
+                  if (challenges.isEmpty)
+                    ElixStatusPanel(
+                      key: const Key('class_challenges_empty'),
+                      icon: FluentIcons.trophy,
+                      title: 'No challenges yet',
+                      message: isTeacher
+                          ? 'Create the first timed movement challenge for this class.'
+                          : 'Your teacher has not published a challenge yet.',
+                    )
+                  else
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns = constraints.maxWidth >= 1100 ? 2 : 1;
+                        final width = columns == 2
+                            ? (constraints.maxWidth - AppSpacing.md) / 2
+                            : constraints.maxWidth;
+                        return Wrap(
+                          spacing: AppSpacing.md,
+                          runSpacing: AppSpacing.md,
+                          children: [
+                            for (final challenge in challenges)
+                              SizedBox(
+                                width: width,
+                                child: _ChallengeCard(
+                                  challenge: challenge,
+                                  entries: rankClassChallengeEntries(
+                                    results.where(
+                                      (entry) =>
+                                          entry.challengeId == challenge.id,
+                                    ),
+                                  ),
+                                  currentUserId: currentUserId,
+                                  participantCount: participantCount,
+                                  isTeacher: isTeacher,
+                                  onOpenLeaderboard: () =>
+                                      onOpenLeaderboard(challenge),
+                                  onStart: onStart == null
+                                      ? null
+                                      : () => onStart!(challenge),
+                                  onEdit: !isTeacher || !groupIsActive
+                                      ? null
+                                      : () => _showChallengeEditor(
+                                          context,
+                                          repository: repository,
+                                          groupId: groupId,
+                                          teacherId: teacherId,
+                                        teacherDisplayName: teacherDisplayName,
+                                          existing: challenge,
+                                        ),
+                                  onArchive:
+                                      !isTeacher || challenge.archivedAt != null
+                                      ? null
+                                      : () => _archiveChallenge(
+                                          context,
+                                          repository,
+                                          challenge,
+                                        ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                 ],
               ),
             );
@@ -654,151 +654,151 @@ Future<void> _showChallengeEditor(
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                      _EditorSection(
-                        icon: FluentIcons.edit,
-                        title: 'Challenge details',
-                        description:
-                            'Give the challenge a clear name and simple instructions.',
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _ChallengeField(
-                              label: 'Challenge title',
-                              helperText:
-                                  'Choose a name your class will recognize.',
-                              errorText: titleError,
-                              child: TextBox(
-                                key: const Key('class_challenge_title'),
-                                controller: title,
-                                autofocus: true,
-                                placeholder: 'Example: Friday Bottle Flair',
-                                maxLength: ClassChallenge.maxTitleLength,
-                                onChanged: (_) {
-                                  if (titleError != null) {
-                                    setDialogState(() => titleError = null);
-                                  }
-                                },
-                              ),
+                    _EditorSection(
+                      icon: FluentIcons.edit,
+                      title: 'Challenge details',
+                      description:
+                          'Give the challenge a clear name and simple instructions.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _ChallengeField(
+                            label: 'Challenge title',
+                            helperText:
+                                'Choose a name your class will recognize.',
+                            errorText: titleError,
+                            child: TextBox(
+                              key: const Key('class_challenge_title'),
+                              controller: title,
+                              autofocus: true,
+                              placeholder: 'Example: Friday Bottle Flair',
+                              maxLength: ClassChallenge.maxTitleLength,
+                              onChanged: (_) {
+                                if (titleError != null) {
+                                  setDialogState(() => titleError = null);
+                                }
+                              },
                             ),
-                            const SizedBox(height: AppSpacing.md),
-                            _ChallengeField(
-                              label: 'Instructions',
-                              helperText:
-                                  'Tell trainees what to practice and submit.',
-                              errorText: descriptionError,
-                              child: TextBox(
-                                key: const Key('class_challenge_description'),
-                                controller: description,
-                                placeholder:
-                                    'Add a short description of the challenge.',
-                                maxLength: ClassChallenge.maxDescriptionLength,
-                                minLines: 2,
-                                maxLines: 4,
-                                onChanged: (_) {
-                                  if (descriptionError != null) {
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          _ChallengeField(
+                            label: 'Instructions',
+                            helperText:
+                                'Tell trainees what to practice and submit.',
+                            errorText: descriptionError,
+                            child: TextBox(
+                              key: const Key('class_challenge_description'),
+                              controller: description,
+                              placeholder:
+                                  'Add a short description of the challenge.',
+                              maxLength: ClassChallenge.maxDescriptionLength,
+                              minLines: 2,
+                              maxLines: 4,
+                              onChanged: (_) {
+                                if (descriptionError != null) {
                                     setDialogState(
                                       () => descriptionError = null,
                                     );
-                                  }
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      _EditorSection(
-                        icon: FluentIcons.product_variant,
-                        title: 'Movement',
-                        description:
-                            'Choose the movement and prop trainees will use.',
-                        child: _MovementAndPropFields(
-                          wide: wide,
-                          movement: movement,
-                          prop: prop,
-                          enabledMovements: enabledMovements,
-                          onMovementChanged: (value) => setDialogState(() {
-                            if (value == null) return;
-                            movement = value;
-                            prop = movement.supportedProps.first;
-                          }),
-                          onPropChanged: (value) =>
-                              setDialogState(() => prop = value ?? prop),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      _EditorSection(
-                        icon: FluentIcons.calendar,
-                        title: 'Schedule',
-                        description:
-                            'Set when trainees can start and when the challenge closes.',
-                        child: _ResponsivePair(
-                          wide: wide,
-                          left: _DateTimeField(
-                            key: const Key('class_challenge_start'),
-                            label: 'Start',
-                            value: start,
-                            onChanged: (value) =>
-                                setDialogState(() => start = value),
-                          ),
-                          right: _DateTimeField(
-                            key: const Key('class_challenge_deadline'),
-                            label: 'Deadline',
-                            value: deadline,
-                            onChanged: (value) =>
-                                setDialogState(() => deadline = value),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      _EditorSection(
-                        icon: FluentIcons.settings,
-                        title: 'Challenge settings',
-                        description:
-                            'Make the challenge fit the way your class practices.',
-                        child: _ResponsivePair(
-                          wide: wide,
-                          left: _ChallengeField(
-                            label: 'Attempts per trainee',
-                            helperText: 'Leave blank for unlimited attempts.',
-                            errorText: attemptsError,
-                            child: TextBox(
-                              key: const Key('class_challenge_attempts'),
-                              controller: attempts,
-                              keyboardType: TextInputType.number,
-                              placeholder: 'Unlimited',
-                              onChanged: (_) => setDialogState(() {
-                                attemptsError = null;
-                                error = null;
-                              }),
+                                }
+                              },
                             ),
                           ),
-                          right: _ChallengeField(
-                            label: 'Goal score',
-                            helperText:
-                                'Optional. Set a score trainees can aim for.',
-                            errorText: targetError,
-                            child: TextBox(
-                              key: const Key('class_challenge_target'),
-                              controller: target,
-                              keyboardType: TextInputType.number,
-                              placeholder: '0–12',
-                              onChanged: (_) => setDialogState(() {
-                                targetError = null;
-                                error = null;
-                              }),
-                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _EditorSection(
+                      icon: FluentIcons.product_variant,
+                      title: 'Movement',
+                      description:
+                          'Choose the movement and prop trainees will use.',
+                      child: _MovementAndPropFields(
+                        wide: wide,
+                        movement: movement,
+                        prop: prop,
+                        enabledMovements: enabledMovements,
+                        onMovementChanged: (value) => setDialogState(() {
+                          if (value == null) return;
+                          movement = value;
+                          prop = movement.supportedProps.first;
+                        }),
+                        onPropChanged: (value) =>
+                            setDialogState(() => prop = value ?? prop),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _EditorSection(
+                      icon: FluentIcons.calendar,
+                      title: 'Schedule',
+                      description:
+                          'Set when trainees can start and when the challenge closes.',
+                      child: _ResponsivePair(
+                        wide: wide,
+                        left: _DateTimeField(
+                          key: const Key('class_challenge_start'),
+                          label: 'Start',
+                          value: start,
+                          onChanged: (value) =>
+                              setDialogState(() => start = value),
+                        ),
+                        right: _DateTimeField(
+                          key: const Key('class_challenge_deadline'),
+                          label: 'Deadline',
+                          value: deadline,
+                          onChanged: (value) =>
+                              setDialogState(() => deadline = value),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _EditorSection(
+                      icon: FluentIcons.settings,
+                      title: 'Challenge settings',
+                      description:
+                          'Make the challenge fit the way your class practices.',
+                      child: _ResponsivePair(
+                        wide: wide,
+                        left: _ChallengeField(
+                          label: 'Attempts per trainee',
+                          helperText: 'Leave blank for unlimited attempts.',
+                          errorText: attemptsError,
+                          child: TextBox(
+                            key: const Key('class_challenge_attempts'),
+                            controller: attempts,
+                            keyboardType: TextInputType.number,
+                            placeholder: 'Unlimited',
+                            onChanged: (_) => setDialogState(() {
+                              attemptsError = null;
+                              error = null;
+                            }),
+                          ),
+                        ),
+                        right: _ChallengeField(
+                          label: 'Goal score',
+                          helperText:
+                              'Optional. Set a score trainees can aim for.',
+                          errorText: targetError,
+                          child: TextBox(
+                            key: const Key('class_challenge_target'),
+                            controller: target,
+                            keyboardType: TextInputType.number,
+                            placeholder: '0–12',
+                            onChanged: (_) => setDialogState(() {
+                              targetError = null;
+                              error = null;
+                            }),
                           ),
                         ),
                       ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    const _ScoringInfo(),
+                    if (error != null &&
+                        attemptsError == null &&
+                        targetError == null) ...[
                       const SizedBox(height: AppSpacing.md),
-                      const _ScoringInfo(),
-                      if (error != null &&
-                          attemptsError == null &&
-                          targetError == null) ...[
-                        const SizedBox(height: AppSpacing.md),
-                        _EditorErrorNotice(message: error!),
-                      ],
+                      _EditorErrorNotice(message: error!),
+                    ],
                   ],
                 );
               },
@@ -1289,11 +1289,6 @@ Color _difficultyAccent(BuildContext context, String difficulty) {
   };
 }
 
-List<int> _visibleMinuteOptions(int minute) {
-  final options = <int>{0, 15, 30, 45, minute}.toList()..sort();
-  return options;
-}
-
 class _DateTimeField extends StatelessWidget {
   const _DateTimeField({
     super.key,
@@ -1388,7 +1383,7 @@ class _DateTimeField extends StatelessWidget {
                 isExpanded: true,
                 placeholder: const Text('Minute'),
                 items: [
-                  for (final minute in _visibleMinuteOptions(value.minute))
+                  for (var minute = 0; minute < 60; minute++)
                     ComboBoxItem(
                       value: minute,
                       child: Text(minute.toString().padLeft(2, '0')),

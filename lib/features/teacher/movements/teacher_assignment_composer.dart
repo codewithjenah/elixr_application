@@ -4563,11 +4563,12 @@ class _PublicationScheduleField extends StatelessWidget {
                   value: minute,
                   isExpanded: true,
                   placeholder: const Text('Minute'),
-                  items: const [
-                    ComboBoxItem(value: 0, child: Text('00')),
-                    ComboBoxItem(value: 15, child: Text('15')),
-                    ComboBoxItem(value: 30, child: Text('30')),
-                    ComboBoxItem(value: 45, child: Text('45')),
+                  items: [
+                    for (var value = 0; value < 60; value++)
+                      ComboBoxItem(
+                        value: value,
+                        child: Text(value.toString().padLeft(2, '0')),
+                      ),
                   ],
                   onChanged: enabled
                       ? (value) {
