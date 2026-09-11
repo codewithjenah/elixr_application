@@ -3015,11 +3015,8 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
     assert.equal(after.data().equipped_border_id, 'starter_glow');
   });
 
-  test('20 daily quest claim preserves equipped_border_id', async () => {
-    const now = new Date();
-    const { id: boardId, data: board } = boardData('alice', now);
+  test('20 direct client quest XP award fails and preserves equipped_border_id', async () => {
     await seedBypassingRules(async (adminDb) => {
-      await setDoc(doc(adminDb, 'daily_quest_boards', boardId), board);
       await setDoc(
         doc(adminDb, 'leaderboard', 'alice'),
         leaderboardSeed('alice', {
@@ -3031,31 +3028,23 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
     });
 
     const db = aliceDb();
-    const { id: claimId, data: claim } = claimData({
-      userId: 'alice',
-      boardId,
-      dayKey: board.day_key,
-      dayStart: now,
-    });
-    claim.day_start = board.day_start;
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'daily_quest_claims', claimId), claim);
-    batch.set(
-      doc(db, 'leaderboard', 'alice'),
-      {
-        quest_xp: CLAIM_QUEST_XP,
-        total_xp: 25 + CLAIM_QUEST_XP,
-        last_claim_id: claimId,
-        equipped_border_id: 'starter_glow',
-        ...questPeriodFields(board.day_key, CLAIM_QUEST_XP),
-      },
-      { merge: true },
+    await assertFails(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        {
+          quest_xp: CLAIM_QUEST_XP,
+          total_xp: 25 + CLAIM_QUEST_XP,
+          last_claim_id: 'forged-quest-claim',
+          equipped_border_id: 'starter_glow',
+        },
+        { merge: true },
+      ),
     );
-    // claimDailyQuest (Admin) is the sole writer; client creates stay denied.
-    await assertFails(batch.commit());
     const after = await getDoc(doc(db, 'leaderboard', 'alice'));
     assert.equal(after.data().equipped_border_id, 'starter_glow');
     assert.equal(after.data().quest_xp, 0);
+    assert.equal(after.data().total_xp, 25);
+    assert.equal(after.data().last_claim_id, '');
   });
 
   test('21 public profile metadata update preserves equipped_border_id', async () => {

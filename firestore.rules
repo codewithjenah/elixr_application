@@ -54,8 +54,6 @@ service cloud.firestore {
         && planId == request.auth.uid + '_' + dayKey;
     }
 
-    function claimPath(claimId) { return /databases/$(database)/documents/daily_quest_claims/$(claimId); }
-
     function dailyLeaderboardKeys() {
       return [
         'daily_key', 'daily_xp', 'daily_sessions_completed',
@@ -973,127 +971,6 @@ service cloud.firestore {
         );
     }
 
-    // Quest claim -> leaderboard update is replay-proof: last_claim_id must
-    // point at a claim created in this same commit (!exists && existsAfter).
-    // Client claim creates are closed; Firebase Admin is the sole writer.
-    function claimAfter(claimId) { return getAfter(claimPath(claimId)).data; }
-
-    function claimMatchesLeaderboardUpdate() {
-      let claimId = request.resource.data.last_claim_id;
-      // Do not `let claim = claimAfter(claimId)`: let is eager and would
-      // read .data before existsAfter() can short-circuit. Repeat claimAfter
-      // inside the && chain so .data stays gated.
-      return claimId is string
-        && claimId != lastClaimIdOf(resource.data)
-        && !exists(claimPath(claimId))
-        && existsAfter(claimPath(claimId))
-        && claimAfter(claimId).user_id == request.auth.uid
-        && isKnownQuestId(claimAfter(claimId).quest_id)
-        && claimAfter(claimId).day_key is string
-        && claimAfter(claimId).day_key.matches('^[0-9]{8}$')
-        && claimAfter(claimId).day_key == manilaDayKey(request.time)
-        && claimAfter(claimId).xp_awarded == questXpFor(claimAfter(claimId).quest_id)
-        && request.resource.data.quest_xp == questXpOf(resource.data) + claimAfter(claimId).xp_awarded;
-    }
-
-    function questAwardXp() { return claimAfter(request.resource.data.last_claim_id).xp_awarded; }
-
-    function questAwardDayKey() { return claimAfter(request.resource.data.last_claim_id).day_key; }
-
-    function questAwardMonthKey() { return manilaMonthKey(request.time); }
-
-    function dailyQuestAggregateReset() {
-      return request.resource.data.daily_key == questAwardDayKey()
-        && request.resource.data.daily_xp == questAwardXp()
-        && request.resource.data.daily_sessions_completed == 0
-        && request.resource.data.daily_score_sum == 0
-        && request.resource.data.daily_average_score == 0
-        && request.resource.data.daily_best_score == 0;
-    }
-
-    function monthlyQuestAggregateReset() {
-      return request.resource.data.monthly_key == questAwardMonthKey()
-        && request.resource.data.monthly_xp == questAwardXp()
-        && request.resource.data.monthly_sessions_completed == 0
-        && request.resource.data.monthly_score_sum == 0
-        && request.resource.data.monthly_average_score == 0
-        && request.resource.data.monthly_best_score == 0;
-    }
-
-    function dailyQuestAggregateAccumulates() {
-      return request.resource.data.daily_key == resource.data.daily_key
-        && request.resource.data.daily_xp
-          == resource.data.daily_xp + questAwardXp()
-        && request.resource.data.daily_sessions_completed
-          == resource.data.daily_sessions_completed
-        && request.resource.data.daily_score_sum == resource.data.daily_score_sum
-        && request.resource.data.daily_average_score
-          == resource.data.daily_average_score
-        && request.resource.data.daily_best_score == resource.data.daily_best_score;
-    }
-
-    function monthlyQuestAggregateAccumulates() {
-      return request.resource.data.monthly_key == resource.data.monthly_key
-        && request.resource.data.monthly_xp
-          == resource.data.monthly_xp + questAwardXp()
-        && request.resource.data.monthly_sessions_completed
-          == resource.data.monthly_sessions_completed
-        && request.resource.data.monthly_score_sum == resource.data.monthly_score_sum
-        && request.resource.data.monthly_average_score
-          == resource.data.monthly_average_score
-        && request.resource.data.monthly_best_score == resource.data.monthly_best_score;
-    }
-
-    function validDailyQuestAggregateTransition() {
-      let eventKey = questAwardDayKey();
-      return (eventKey > resource.data.daily_key && dailyQuestAggregateReset())
-        || (
-          eventKey == resource.data.daily_key
-          && dailyQuestAggregateAccumulates()
-        )
-        || (eventKey < resource.data.daily_key && dailyPeriodUnchanged());
-    }
-
-    function validMonthlyQuestAggregateTransition() {
-      let eventKey = questAwardMonthKey();
-      return (eventKey > resource.data.monthly_key && monthlyQuestAggregateReset())
-        || (
-          eventKey == resource.data.monthly_key
-          && monthlyQuestAggregateAccumulates()
-        )
-        || (eventKey < resource.data.monthly_key && monthlyPeriodUnchanged());
-    }
-
-    function validQuestPeriodUpdate() {
-      return (
-          !resource.data.keys().hasAny(['daily_key'])
-          && dailyQuestAggregateReset()
-          && monthlyQuestAggregateReset()
-        )
-        || (
-          resource.data.keys().hasAny(['daily_key'])
-          && validDailyQuestAggregateTransition()
-          && validMonthlyQuestAggregateTransition()
-        );
-    }
-
-    function validQuestClaimUpdate() {
-      return resource.data.user_id == request.auth.uid
-        && request.resource.data.user_id == resource.data.user_id
-        && request.resource.data.sessions_completed == resource.data.sessions_completed
-        && request.resource.data.score_sum == resource.data.score_sum
-        && request.resource.data.average_score == resource.data.average_score
-        && request.resource.data.best_score == resource.data.best_score
-        && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
-        && request.resource.data.last_session_at == resource.data.last_session_at
-        && lastActiveUnchanged()
-        && equippedBorderUnchanged()
-        && request.resource.data.total_xp
-           == request.resource.data.sessions_completed * 25 + questXpOf(request.resource.data)
-        && claimMatchesLeaderboardUpdate()
-        && validQuestPeriodUpdate();
-    }
-
     // Teacher self-registration is the sole pre-claim bootstrap. The profile
     // and one-time code consumption must commit together; privileged access
     // after that point is authorized by the server-issued Auth claim.
@@ -1296,13 +1173,8 @@ service cloud.firestore {
     // Public aggregate rankings. Authenticated read; own-document writes only.
     // last_active_at is optional presence metadata, distinct from
     // last_session_at (completed practice) and updated_at (any owner write).
-    // Limitation: a modified client that still satisfies the XP-arithmetic
-    // invariants (session award = +25/+1 session, quest claim = fixed
-    // catalog XP backed by a freshly-created claim marker) can inflate its
-    // own ranking faster than the intended pace, but cannot forge another
-    // user's XP, replay a claim, or exceed the 5-quest/day catalog cap.
-    // Suitable for a controlled capstone, not tamper-proof against a
-    // hostile modified client.
+    // Limitation: client-written session awards are suitable for a controlled
+    // capstone, but are not tamper-proof against a hostile modified client.
     match /leaderboard/{userId} {
       allow read: if isSignedIn();
 
@@ -1321,11 +1193,7 @@ service cloud.firestore {
           || (
             validLeaderboardUpdateShape(request.resource.data)
             && (
-              (
-                questXpOf(request.resource.data) > questXpOf(resource.data)
-                && validQuestClaimUpdate()
-              )
-              || validPublicProfileMetadataUpdate()
+              validPublicProfileMetadataUpdate()
               || validEquippedBorderUpdate()
             )
           )
@@ -1430,9 +1298,7 @@ service cloud.firestore {
         && (resource == null || resource.data.user_id == request.auth.uid);
     }
 
-    // Idempotent, replay-proof quest-claim marker. Fully immutable after
-    // creation. See claimMatchesLeaderboardUpdate() above for how this
-    // collection and the leaderboard update reference each other atomically.
+    // Idempotent quest-claim marker. Fully immutable after creation.
     match /daily_quest_claims/{claimId} {
       allow get: if isSignedIn() && (resource == null || resource.data.user_id == request.auth.uid);
       allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
