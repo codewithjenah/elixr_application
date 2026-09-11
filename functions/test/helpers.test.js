@@ -1277,6 +1277,38 @@ test('assignment creation accepts an uncapped targeted subset atomically', async
   );
 });
 
+test('assignment creation persists and returns a requested draft status', async () => {
+  const database = fakeCreationDatabase({recipientIds: []});
+  const response = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1',
+        audience_type: 'entire_class',
+        recipient_ids: [],
+        origin: 'official_elixr',
+        official_movement_name: 'Hand Stall',
+        allowed_prop: 'bottle',
+        status: 'draft',
+      },
+      get: () => '',
+    },
+    response,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true, role: 'Teacher'}),
+      databaseFactory: () => database,
+    },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.assignment.status, 'draft');
+  const assignmentWrite = database.writes.find((write) =>
+    write.path === 'group_assignments/assignment-created');
+  assert.ok(assignmentWrite);
+  assert.equal(assignmentWrite.data.status, 'draft');
+});
+
 test('official Hand Stall assignment accepts the exact Shaker variant', async () => {
   const database = fakeCreationDatabase({recipientIds: []});
   const response = fakeResponse();
