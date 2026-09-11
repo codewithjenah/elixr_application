@@ -84,6 +84,32 @@ abstract class ClassroomAssignmentRepository {
     String? topic,
   });
 
+  /// Replaces an assignment's editable configuration without changing its ID
+  /// or lifecycle status. Implementations must reject semantic changes to an
+  /// active assignment once a trainee attempt exists.
+  Future<GroupAssignment> updateAssignmentConfiguration({
+    required String teacherId,
+    required String assignmentId,
+    required int expectedConfigurationRevision,
+    required ElixrGroup group,
+    String? officialMovementName,
+    TrainingProp? officialAllowedProp,
+    TeacherMovement? teacherMovement,
+    TeacherMovementRevision? teacherMovementRevision,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required AssignmentAttemptPolicy attemptPolicy,
+    TeacherActivityAssessmentConfig? activityAssessment,
+  });
+
+  /// True when changing identity, recipients, or scoring would reinterpret
+  /// work that has already started for this assignment.
+  Future<bool> hasTraineeWork({required String assignmentId});
+
   Future<GroupAssignment> updateTeacherActivityAssignment({
     required String teacherId,
     required String assignmentId,

@@ -390,6 +390,69 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<bool> hasTraineeWork({required String assignmentId}) async {
+    final snapshot = await _attempts
+        .where('assignment_id', isEqualTo: assignmentId)
+        .limit(1)
+        .get();
+    return snapshot.docs.isNotEmpty;
+  }
+
+  @override
+  Future<GroupAssignment> updateAssignmentConfiguration({
+    required String teacherId,
+    required String assignmentId,
+    required int expectedConfigurationRevision,
+    required ElixrGroup group,
+    String? officialMovementName,
+    TrainingProp? officialAllowedProp,
+    TeacherMovement? teacherMovement,
+    TeacherMovementRevision? teacherMovementRevision,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required AssignmentAttemptPolicy attemptPolicy,
+    TeacherActivityAssessmentConfig? activityAssessment,
+  }) async {
+    if (_auth.currentUser?.uid != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final decoded = await _postAuthorizedFunction('updateAssignmentConfiguration', {
+      'assignment_id': assignmentId,
+      'expected_configuration_revision': expectedConfigurationRevision,
+      'group_id': group.id,
+      'official_movement_name': officialMovementName?.trim(),
+      'allowed_prop': officialAllowedProp?.protocolValue,
+      'teacher_movement_id': teacherMovement?.id,
+      'teacher_revision_id': teacherMovementRevision?.id,
+      'display_title': displayTitle?.trim(),
+      'display_instructions': displayInstructions?.trim(),
+      'display_safety_guidance': displaySafetyGuidance?.trim(),
+      'topic': topic?.trim(),
+      'due_at': dueAt?.toUtc().toIso8601String(),
+      'audience_type': audience.type.wireValue,
+      'recipient_ids': audience.isEntireClass ? const <String>[] : audience.targetTraineeIds,
+      'attempt_policy': attemptPolicy.toMap(),
+      'activity_assessment': activityAssessment?.toMap(),
+    });
+    final raw = decoded['assignment'];
+    if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);
+    final map = Map<String, dynamic>.from(raw);
+    final id = map.remove('id');
+    if (id is! String) throw const ClassroomException(ClassroomError.malformed);
+    final parsed = GroupAssignment.tryFromMap(map, id: id);
+    if (parsed == null) throw const ClassroomException(ClassroomError.malformed);
+    final recipients = decoded['recipient_ids'];
+    if (recipients is List && !parsed.audience.isEntireClass) {
+      return parsed.copyWith(audience: parsed.audience.withRecipientIds(recipients.whereType<String>()));
+    }
+    return parsed;
+  }
+
+  @override
   Future<GroupAssignment> updateTeacherActivityAssignment({
     required String teacherId,
     required String assignmentId,

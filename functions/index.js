@@ -1538,6 +1538,124 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
   }
 }
 
+// Authoritative editor path for Draft/Scheduled assignments and active
+// assignments without trainee work. Direct rules intentionally cannot mutate
+// identity or recipient projections.
+async function updateAssignmentConfigurationHandler(request, response, {
+  authenticate = authenticatedTeacherUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  const audienceType = body.audience_type;
+  const recipientIds = Array.isArray(body.recipient_ids) ? [...new Set(body.recipient_ids.map((id) => String(id).trim()))] : [];
+  const official = boundedText(body.official_movement_name, 80, {required: false});
+  const isOfficial = Boolean(official);
+  const title = boundedText(body.display_title, 80, {required: false});
+  const instructions = boundedText(body.display_instructions, 2000, {required: false});
+  const safety = body.display_safety_guidance == null || body.display_safety_guidance === '' ? null : boundedText(body.display_safety_guidance, 1000);
+  const topic = body.topic == null || body.topic === '' ? null : boundedText(body.topic, 80);
+  if (!validId(body.assignment_id) || !validId(body.group_id) ||
+      !Number.isInteger(body.expected_configuration_revision) || body.expected_configuration_revision < 1 ||
+      !['entire_class', 'selected_students', 'individual_student'].includes(audienceType) ||
+      (audienceType === 'entire_class' && recipientIds.length) ||
+      (audienceType === 'selected_students' && !recipientIds.length) ||
+      (audienceType === 'individual_student' && recipientIds.length !== 1) ||
+      recipientIds.some((id) => !validId(id)) || !validAssignmentAttemptPolicy(body.attempt_policy) ||
+      (body.topic && !topic) || (body.display_safety_guidance && !safety) ||
+      (isOfficial
+        ? (!OFFICIAL_ASSIGNMENTS.has(official) || !officialMovementSupportsProp(official, body.allowed_prop))
+        : (!validId(body.teacher_movement_id) || !validId(body.teacher_revision_id) || !title || !instructions ||
+            !validActivityAssessment(body.activity_assessment, body.activity_assessment?.rubric?.maximum_score)))) {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+  let dueAt = null;
+  if (body.due_at != null) {
+    const parsed = new Date(body.due_at);
+    if (Number.isNaN(parsed.getTime())) return response.status(400).json({error: 'invalid_due_at'});
+    dueAt = Timestamp.fromDate(parsed);
+  }
+  const firestore = databaseFactory();
+  const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+  try {
+    const result = await firestore.runTransaction(async (transaction) => {
+      const assignmentSnapshot = await transaction.get(assignmentRef);
+      const groupSnapshot = await transaction.get(firestore.collection('groups').doc(body.group_id));
+      if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
+      const assignment = assignmentSnapshot.data();
+      if (assignment.teacher_id !== uid || !['draft', 'scheduled', 'active'].includes(assignment.status) ||
+          assignment.deletion_state === 'deleting' || (assignment.configuration_revision || 1) !== body.expected_configuration_revision ||
+          !groupSnapshot.exists || groupSnapshot.get('teacher_id') !== uid || groupSnapshot.get('status') !== 'active') {
+        const error = new Error('conflict'); error.code = 'conflict'; throw error;
+      }
+      let next = {};
+      if (isOfficial) {
+        const ids = OFFICIAL_ASSIGNMENTS.get(official);
+        next = {movement_id: ids[0], revision_id: ids[1], origin: 'official_elixr', assessment_mode: 'official_guided',
+          official_movement_name: official, display_title: official, allowed_prop: body.allowed_prop,
+          display_instructions: FieldValue.delete(), display_safety_guidance: FieldValue.delete(),
+          activity_assessment: FieldValue.delete(), max_score: FieldValue.delete(), grading_locked: FieldValue.delete(), grading_locked_at: FieldValue.delete()};
+      } else {
+        const movementRef = firestore.collection('teacher_movements').doc(body.teacher_movement_id);
+        const revisionRef = movementRef.collection('revisions').doc(body.teacher_revision_id);
+        const [movement, revision] = await Promise.all([transaction.get(movementRef), transaction.get(revisionRef)]);
+        const spec = revision.exists ? revision.get('spec') : null;
+        if (!movement.exists || !revision.exists || movement.get('teacher_id') !== uid || movement.get('status') !== 'active' ||
+            movement.get('current_revision_id') !== body.teacher_revision_id || revision.get('teacher_id') !== uid ||
+            revision.get('movement_id') !== body.teacher_movement_id || revision.get('assessment_mode') !== 'teacher_reviewed' ||
+            !spec || spec.capability !== 'teacher_review_only' || !['bottle', 'shaker', 'bottle_and_shaker'].includes(spec.required_prop)) {
+          const error = new Error('invalid_movement'); error.code = 'invalid_movement'; throw error;
+        }
+        next = {movement_id: body.teacher_movement_id, revision_id: body.teacher_revision_id, origin: 'teacher_created',
+          assessment_mode: 'teacher_reviewed', official_movement_name: FieldValue.delete(), display_title: title,
+          display_instructions: instructions, display_safety_guidance: safety || FieldValue.delete(), allowed_prop: spec.required_prop,
+          activity_assessment: body.activity_assessment, max_score: body.activity_assessment.rubric.maximum_score,
+          grading_locked: false, grading_locked_at: FieldValue.delete()};
+      }
+      const attempts = await transaction.get(firestore.collection('assignment_attempts').where('assignment_id', '==', body.assignment_id));
+      const semanticKeys = ['group_id', 'movement_id', 'revision_id', 'origin', 'assessment_mode', 'official_movement_name', 'allowed_prop', 'audience_type', 'attempt_policy', 'activity_assessment', 'max_score'];
+      const proposed = {...assignment, ...next, group_id: body.group_id, audience_type: audienceType, attempt_policy: body.attempt_policy};
+      const semanticChanged = semanticKeys.some((key) => JSON.stringify(assignment[key] ?? null) !== JSON.stringify(proposed[key] ?? null));
+      if (assignment.status === 'active' && !attempts.empty && semanticChanged) {
+        const error = new Error('trainee_work_exists'); error.code = 'trainee_work_exists'; throw error;
+      }
+      if (dueAt && assignment.status === 'scheduled' && assignment.publish_at && dueAt.toDate() <= assignment.publish_at.toDate()) {
+        const error = new Error('invalid_publication'); error.code = 'invalid_publication'; throw error;
+      }
+      for (const traineeId of recipientIds) {
+        const membership = await transaction.get(firestore.collection('group_memberships').doc(`${body.group_id}_${traineeId}`));
+        if (!membership.exists || membership.get('status') !== 'approved' || membership.get('teacher_id') !== uid || membership.get('group_id') !== body.group_id) {
+          const error = new Error('invalid_recipient'); error.code = 'invalid_recipient'; throw error;
+        }
+      }
+      const recipients = await transaction.get(assignmentRef.collection('assignment_recipients'));
+      const now = Timestamp.now();
+      transaction.update(assignmentRef, {...next, group_id: body.group_id, group_name: groupSnapshot.get('name'), audience_type: audienceType,
+        attempt_policy: body.attempt_policy, ...(topic ? {topic} : {topic: FieldValue.delete()}), ...(dueAt ? {due_at: dueAt} : {due_at: FieldValue.delete()}),
+        configuration_revision: body.expected_configuration_revision + 1, updated_at: now});
+      const desired = new Set(recipientIds);
+      for (const recipient of recipients.docs) if (!desired.has(recipient.id)) transaction.delete(recipient.ref);
+      for (const traineeId of recipientIds) transaction.set(assignmentRef.collection('assignment_recipients').doc(traineeId),
+        {assignment_id: body.assignment_id, group_id: body.group_id, teacher_id: uid, trainee_id: traineeId, audience_type: audienceType, schema_version: 1, created_at: now});
+      const responseAssignment = {...assignment, ...proposed, group_name: groupSnapshot.get('name'), ...(topic ? {topic} : {}), ...(dueAt ? {due_at: dueAt} : {}),
+        configuration_revision: body.expected_configuration_revision + 1, updated_at: now};
+      if (!topic) delete responseAssignment.topic;
+      if (!dueAt) delete responseAssignment.due_at;
+      return responseAssignment;
+    });
+    return response.status(200).json({assignment: {id: body.assignment_id, ...assignmentJsonValue(result)}, recipient_ids: recipientIds});
+  } catch (error) {
+    const known = ['not_found', 'conflict', 'invalid_recipient', 'invalid_movement', 'invalid_publication', 'trainee_work_exists'];
+    if (known.includes(error.code)) return response.status(409).json({error: error.code});
+    console.error('Assignment configuration update failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
 async function gradeTeacherActivityAttemptHandler(request, response, {
   authenticate = authenticatedTeacherUid,
   databaseFactory = getFirestore,
@@ -2988,6 +3106,12 @@ exports.completeClassChallengeAttempt = onRequest(
 exports.updateTeacherActivityAssignment = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 60},
   updateTeacherActivityAssignmentHandler,
+  updateAssignmentConfigurationHandler,
+);
+
+exports.updateAssignmentConfiguration = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 60},
+  updateAssignmentConfigurationHandler,
 );
 
 exports.gradeTeacherActivityAttempt = onRequest(

@@ -414,6 +414,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   int _publicationHour = 9;
   int _publicationMinute = 0;
   bool _publicationSchedulingEnabled = false;
+  bool _loadingEditSafety = false;
+  bool _hasTraineeWork = false;
+  TeacherMovementRevision? _persistedTeacherRevision;
   bool _submitting = false;
   bool _creatingTeacherMovement = false;
   bool _loadingTeacherMovements = false;
@@ -452,13 +455,20 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   bool get _isEditing => widget.existingAssignment != null;
   bool get _isEditingDraft => _editingAssignment?.isDraft == true;
   GroupAssignment? get _editingAssignment => widget.existingAssignment;
-  bool get _canEditTeacherActivity =>
-      _isEditing &&
-      _editingAssignment!.isTeacherCreated &&
-      _editingAssignment!.activityAssessment != null &&
-      !_editingAssignment!.gradingLocked;
+  bool get _canEditIdentity =>
+      !_isEditing ||
+      (!_loadingEditSafety && (!_editingAssignment!.isActive || !_hasTraineeWork));
+  bool get _canEditAudience => _canEditIdentity;
+  bool get _canEditAssessment =>
+      _canEditIdentity && (!_isEditing || !_editingAssignment!.gradingLocked);
+  bool get _canEditPublication =>
+      _isEditing && (_editingAssignment!.isDraft || _editingAssignment!.isScheduled);
+  String? get _editLockExplanation => _isEditing && !_canEditIdentity
+      ? 'Movement, classroom, audience, attempts, prop, and scoring are locked because trainee work already exists.'
+      : _isEditing && _editingAssignment!.gradingLocked
+      ? 'Scoring settings are locked because a trainee submission has already been reviewed.'
+      : null;
   bool get _hasMovementOverride =>
-      _isEditing ||
       widget.officialMovement != null ||
       widget.teacherCreatedMovement != null;
 
@@ -683,6 +693,16 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _targetTraineeIds = existing.audience.targetTraineeIds.toSet();
       _maxScoreController.text = '${existing.maxScore ?? 100}';
       _initializeEditAssessment(existing);
+      final publishAt = existing.publishAt;
+      if (publishAt != null) {
+        _publicationSchedulingEnabled = true;
+        _publicationDate = _manilaCivilDate(publishAt);
+        _publicationHour = _manilaCivilHour(publishAt);
+        _publicationMinute = _manilaCivilMinute(publishAt);
+      }
+      _loadEditSafety();
+      _startWatchingTeacherMovements();
+      if (existing.isTeacherCreated) _loadPersistedTeacherRevision(existing);
       if (_audienceType.isTargeted) unawaited(_watchRosterForSelectedGroup());
       unawaited(_loadPersistedMaterials());
       return;
@@ -694,6 +714,36 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     } else {
       unawaited(_prefillActivityDefaultsForSelectedMovement());
     }
+  }
+
+  Future<void> _loadEditSafety() async {
+    final assignment = _editingAssignment;
+    if (assignment == null) return;
+    setState(() => _loadingEditSafety = true);
+    try {
+      final hasWork = await widget.creationService.assignmentRepository
+          .hasTraineeWork(assignmentId: assignment.id);
+      if (!mounted) return;
+      setState(() {
+        _hasTraineeWork = hasWork;
+        _loadingEditSafety = false;
+        if (hasWork) _customizeActivity = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingEditSafety = false);
+    }
+  }
+
+  Future<void> _loadPersistedTeacherRevision(GroupAssignment assignment) async {
+    final repository = widget.movementRepository;
+    if (repository == null) return;
+    final revision = await repository.getRevision(
+      movementId: assignment.movementId,
+      revisionId: assignment.revisionId,
+    );
+    if (!mounted) return;
+    setState(() => _persistedTeacherRevision = revision);
   }
 
   ElixrGroup? _groupFor(GroupAssignment assignment) {
@@ -995,18 +1045,21 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       isSubmitting: _submitting,
       isEditing: _isEditing,
       isEditingDraft: _isEditingDraft,
-      onSaveDraft: _canSubmit && (!_isEditing || _isEditingDraft)
-          ? () => _isEditingDraft
+      onSaveDraft: _canSubmit && (!_isEditing || _isEditingDraft || _editingAssignment!.isScheduled)
+          ? () => _isEditing
                 ? _submitEdit(context)
                 : _submit(context, _PublicationAction.draft)
           : null,
       onPublish: _canSubmit
           ? () => _isEditing
-                ? _submitEdit(context, publishDraft: _isEditingDraft)
+                ? _submitEdit(context, publish: _isEditingDraft || _editingAssignment!.isScheduled)
                 : _submit(context, _PublicationAction.publish)
           : null,
-      onSchedule: _canSubmit && !_isEditing && _publicationSchedulingEnabled
-          ? () => _submit(context, _PublicationAction.schedule)
+      onSchedule: _canSubmit && _publicationSchedulingEnabled &&
+              (!_isEditing || _canEditPublication)
+          ? () => _isEditing
+              ? _submitEdit(context, schedule: true)
+              : _submit(context, _PublicationAction.schedule)
           : null,
     );
     final summary = _AssignmentSummaryCard(
@@ -1079,7 +1132,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               : 'Choose the class that should receive this movement.',
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (_classroomScoped || _isEditing)
+        if (_classroomScoped)
           _ComposerReadOnlyField(
             key: const Key('teacher_assignment_locked_group'),
             label: 'Classroom',
@@ -1087,9 +1140,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 _selectedGroup?.name ??
                 _editingAssignment?.groupName ??
                 'Classroom',
-            hint: _isEditing
-                ? 'The classroom is fixed for this existing assignment.'
-                : 'The class is fixed from the group workspace.',
+            hint: 'The class is fixed from the group workspace.',
             icon: FluentIcons.lock,
           )
         else
@@ -1108,28 +1159,24 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 for (final group in _activeGroups)
                   Text(group.name, overflow: TextOverflow.ellipsis),
               ],
-              onChanged: _submitting ? null : _onGroupChanged,
+              onChanged: _submitting || !_canEditIdentity ? null : _onGroupChanged,
             ),
           ),
         const SizedBox(height: AppSpacing.xl),
-        if (!_isEditing || _canEditTeacherActivity)
-          _ComposerSectionHeading(
+        _ComposerSectionHeading(
             icon: FluentIcons.contact,
             eyebrow: 'AUDIENCE',
             title: 'Who should receive it?',
             description:
                 'Choose the whole class, a small group, or one trainee.',
           ),
-        if (!_isEditing || _canEditTeacherActivity)
-          const SizedBox(height: AppSpacing.lg),
-        if (!_isEditing || _canEditTeacherActivity)
-          _AssignmentAudienceSelector(
+        const SizedBox(height: AppSpacing.lg),
+        _AssignmentAudienceSelector(
             selected: _audienceType,
-            enabled: !_submitting,
+            enabled: !_submitting && _canEditAudience,
             onChanged: _onAudienceTypeChanged,
           ),
-        if ((!_isEditing || _canEditTeacherActivity) &&
-            _audienceType.isTargeted) ...[
+        if (_audienceType.isTargeted) ...[
           const SizedBox(height: AppSpacing.md),
           _buildRosterPicker(context),
         ],
@@ -1146,7 +1193,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         if (_classroomScoped) ...[
           _MovementSourceSelector(
             selected: _origin,
-            enabled: !_submitting,
+            enabled: !_submitting && _canEditIdentity,
             onChanged: _onOriginChanged,
           ),
           const SizedBox(height: AppSpacing.md),
@@ -1176,9 +1223,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const SizedBox(height: AppSpacing.md),
           const _AutomaticScoringCard(),
         ],
-        if ((!_isEditing || _canEditTeacherActivity) &&
-            ((_isTeacherCreated && _hasValidTeacherMovement) ||
-                _selectedOfficialMovement != null)) ...[
+        if ((_isTeacherCreated && _hasValidTeacherMovement) ||
+            _selectedOfficialMovement != null) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
             icon: FluentIcons.clock,
@@ -1188,7 +1234,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 'Choose how many completed attempts this classroom receives.',
           ),
           const SizedBox(height: AppSpacing.lg),
-          _attemptAllowanceField(),
+          _attemptAllowanceField(enabled: _canEditAudience),
         ],
         if (_isTeacherCreated && _hasValidTeacherMovement) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -1199,12 +1245,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             description: _activityInheritanceSummary,
           ),
           const SizedBox(height: AppSpacing.md),
-          if (!_isEditing)
+          if (!_isEditing || _canEditAssessment)
             ToggleSwitch(
               key: const Key('teacher_assignment_customize_activity'),
               checked: _customizeActivity,
               content: const Text('Customize for this assignment'),
-              onChanged: _submitting
+              onChanged: _submitting || !_canEditAssessment
                   ? null
                   : (value) => setState(() {
                       _customizeActivity = value;
@@ -1270,7 +1316,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             _activityAssessmentFields(context),
           ],
         ],
-        if (_isEditing && _isTeacherCreated && !_canEditTeacherActivity) ...[
+        if (_isEditing && _isTeacherCreated && !_canEditAssessment) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
             icon: FluentIcons.calculator,
@@ -1287,7 +1333,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             child: TextBox(
               key: const Key('teacher_assignment_max_score'),
               controller: _maxScoreController,
-              enabled: !_submitting && !_editingAssignment!.gradingLocked,
+              enabled: !_submitting && _canEditAssessment,
               keyboardType: TextInputType.number,
               maxLength: 3,
               onChanged: (_) => setState(() => _validationError = null),
@@ -1308,9 +1354,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             hint: 'Supporting PDFs, images, videos, or secure web links.',
             child: _buildLearningMaterials(context),
           ),
-          if (!_isEditing) const SizedBox(height: AppSpacing.xl),
-          if (!_isEditing)
-            _ComposerSectionHeading(
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
               icon: FluentIcons.tag,
               eyebrow: 'ORGANIZATION',
               title: 'Add a topic',
@@ -1394,7 +1439,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             description:
                 'Save a private draft, publish now, or choose when it should go live.',
           ),
-          if (!_isEditing) ...[
+          if (!_isEditing || _canEditPublication) ...[
             const SizedBox(height: AppSpacing.lg),
             _PublicationScheduleToggle(
               enabled: _publicationSchedulingEnabled,
@@ -1405,7 +1450,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               }),
             ),
           ],
-          if (!_isEditing && _publicationSchedulingEnabled) ...[
+          if ((!_isEditing || _canEditPublication) &&
+              _publicationSchedulingEnabled) ...[
             const SizedBox(height: AppSpacing.md),
             _PublicationScheduleField(
               date: _publicationDate,
@@ -1436,6 +1482,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               }),
             ),
           ],
+        ],
+        if (_editLockExplanation != null) ...[
+          const SizedBox(height: AppSpacing.lg),
+          InfoBar(
+            severity: InfoBarSeverity.warning,
+            title: const Text('Some settings are locked'),
+            content: Text(_editLockExplanation!),
+          ),
         ],
         if (_movementLoadError != null && _classroomScoped) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -1855,7 +1909,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     );
   }
 
-  Widget _attemptAllowanceField() => _ComposerField(
+  Widget _attemptAllowanceField({required bool enabled}) => _ComposerField(
     label: 'Attempt allowance',
     hint: 'A finite attempt is counted only when recording genuinely starts.',
     child: ComboBox<String>(
@@ -1876,7 +1930,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         Text('3 attempts', overflow: TextOverflow.ellipsis),
         Text('Unlimited attempts', overflow: TextOverflow.ellipsis),
       ],
-      onChanged: _submitting
+      onChanged: _submitting || !enabled
           ? null
           : (value) {
               if (value == null) return;
@@ -1970,7 +2024,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   );
 
   String get _movementTitle =>
-      _editingAssignment?.displayTitle ??
       _selectedOfficialMovement?.name ??
       (_isTeacherCreated && _assignmentTitleController.text.trim().isNotEmpty
           ? _assignmentTitleController.text.trim()
@@ -2119,7 +2172,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                   for (final prop in props)
                     ComboBoxItem(value: prop, child: Text(prop.displayLabel)),
                 ],
-                onChanged: _submitting
+                onChanged: _submitting || !_canEditIdentity
                     ? null
                     : (value) {
                         if (value == null) return;
@@ -2161,7 +2214,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 description: _teacherMovementDescription(movement),
                 movementName: movement.title,
                 selected: _selectedTeacherCreatedMovement?.id == movement.id,
-                enabled: !_submitting,
+                enabled: !_submitting && _canEditIdentity,
                 isTeacherCreated: true,
                 onPressed: () => _onTeacherMovementChanged(movement.id),
                 selectionKey: Key('teacher_assignment_select_${movement.id}'),
@@ -2177,7 +2230,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           alignment: Alignment.centerLeft,
           child: Button(
             key: const Key('teacher_assignment_create_movement'),
-            onPressed: _submitting || _creatingTeacherMovement
+            onPressed: _submitting || _creatingTeacherMovement || !_canEditIdentity
                 ? null
                 : _showCreateTeacherMovement,
             child: const Row(
@@ -2962,10 +3015,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   Future<void> _submitEdit(
     BuildContext pageContext, {
-    bool publishDraft = false,
+    bool publish = false,
+    bool schedule = false,
   }) async {
     if (_submitting) return;
-    final validationError = _formValidationError();
+    final validationError = _formValidationError(
+      schedule ? _PublicationAction.schedule : null,
+    );
     if (validationError != null) {
       setState(() => _validationError = validationError);
       return;
@@ -2977,40 +3033,46 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _validationError = null;
     });
     try {
-      final savedAssignment = _savedEditAssignment;
-      if (savedAssignment == null &&
-          assignment.isTeacherCreated &&
-          _customizeActivity) {
-        final assessment = _activityAssessment;
-        final requiredProp = assignment.allowedProp;
-        if (assessment == null || requiredProp == null) {
-          throw const ClassroomException(ClassroomError.invalidState);
-        }
+      if (_savedEditAssignment == null) {
+        final group = _selectedGroup;
+        final selectedTeacherMovement = _selectedTeacherCreatedMovement;
+        final teacherRevision = selectedTeacherMovement?.id == assignment.movementId
+            ? _persistedTeacherRevision ??
+                  _teacherMovementRevisions[selectedTeacherMovement!.id]
+            : selectedTeacherMovement == null
+            ? null
+            : _teacherMovementRevisions[selectedTeacherMovement.id];
         _savedEditAssignment = await widget.creationService.assignmentRepository
-            .updateTeacherActivityAssignment(
+            .updateAssignmentConfiguration(
               teacherId: widget.teacherId,
               assignmentId: assignment.id,
               expectedConfigurationRevision: assignment.configurationRevision,
+              group: group!,
+              officialMovementName: _origin == _AssignmentOriginSelection.official
+                  ? _selectedOfficialMovement?.name
+                  : null,
+              officialAllowedProp: _origin == _AssignmentOriginSelection.official
+                  ? _selectedOfficialProp
+                  : null,
+              teacherMovement: _origin == _AssignmentOriginSelection.teacherCreated
+                  ? selectedTeacherMovement
+                  : null,
+              teacherMovementRevision:
+                  _origin == _AssignmentOriginSelection.teacherCreated
+                  ? teacherRevision
+                  : null,
               displayTitle: _assignmentTitleController.text.trim(),
-              instructions: _instructionsController.text.trim(),
-              safetyGuidance: _safetyGuidanceController.text.trim(),
+              displayInstructions: _instructionsController.text.trim(),
+              displaySafetyGuidance: _safetyGuidanceController.text.trim(),
               topic: _topicController.text.trim(),
               dueAt: _dueAt,
               audience: _audience,
-              activityAssessment: assessment,
               attemptPolicy: _attemptPolicy,
-              requiredProp: requiredProp,
-            );
-      } else if (savedAssignment == null) {
-        _savedEditAssignment = await widget.creationService.assignmentRepository
-            .updateAssignmentSettings(
-              teacherId: widget.teacherId,
-              assignmentId: assignment.id,
-              dueAt: _dueAt,
-              maxScore: assignment.isTeacherCreated && !assignment.gradingLocked
-                  ? _maximumScore
+              activityAssessment: _isTeacherCreated
+                  ? (_canEditAssessment
+                        ? _activityAssessment
+                        : assignment.activityAssessment)
                   : null,
-              topic: _topicController.text.trim(),
             );
       }
       final materialsSaved = await _persistQueuedMaterials(assignment.id);
@@ -3024,7 +3086,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         });
         return;
       }
-      if (publishDraft) {
+      if (schedule) {
+        await widget.creationService.assignmentRepository
+            .scheduleAssignmentPublication(
+              teacherId: widget.teacherId,
+              assignmentId: assignment.id,
+              publishAt: _scheduledPublishAt,
+            );
+      } else if (publish) {
         await widget.creationService.assignmentRepository.publishAssignmentNow(
           teacherId: widget.teacherId,
           assignmentId: assignment.id,
@@ -4964,7 +5033,7 @@ class _AssignmentActionFooter extends StatelessWidget {
             isLoading: isSubmitting,
             onPressed: onPublish,
           ),
-          if (!isEditing || isEditingDraft) ...[
+          if (!isEditing || isEditingDraft || onSaveDraft != null) ...[
             const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
@@ -4972,10 +5041,10 @@ class _AssignmentActionFooter extends StatelessWidget {
                   child: Button(
                     key: const Key('teacher_assignment_save_draft'),
                     onPressed: isSubmitting ? null : onSaveDraft,
-                    child: const Text('Save draft'),
+                    child: Text(isEditingDraft ? 'Save draft' : 'Save changes'),
                   ),
                 ),
-                if (!isEditing) ...[
+                if (!isEditing || onSchedule != null) ...[
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Button(

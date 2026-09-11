@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/constants/coaching_movement_names.dart';
 
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt_policy.dart';
@@ -11,9 +12,12 @@ import '../models/assignment_attempt_ids.dart';
 import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
+import '../models/movement_origin.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
+import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
+import '../../core/constants/movements.dart';
 import 'classroom_assignment_repository.dart';
 
 class InMemoryClassroomAssignmentRepository
@@ -385,6 +389,115 @@ class InMemoryClassroomAssignmentRepository
       clearTopic: topic == null || topic.trim().isEmpty,
       gradingLocked: maxScore == null ? null : false,
       clearGradingLockedAt: maxScore != null,
+    );
+    assignments[assignmentId] = updated;
+    _emitTeacher(teacherId);
+    return updated;
+  }
+
+  @override
+  Future<bool> hasTraineeWork({required String assignmentId}) async => attempts
+      .values
+      .any((attempt) => attempt.assignmentId == assignmentId);
+
+  @override
+  Future<GroupAssignment> updateAssignmentConfiguration({
+    required String teacherId,
+    required String assignmentId,
+    required int expectedConfigurationRevision,
+    required ElixrGroup group,
+    String? officialMovementName,
+    TrainingProp? officialAllowedProp,
+    TeacherMovement? teacherMovement,
+    TeacherMovementRevision? teacherMovementRevision,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required AssignmentAttemptPolicy attemptPolicy,
+    TeacherActivityAssessmentConfig? activityAssessment,
+  }) async {
+    final existing = assignments[assignmentId];
+    if (existing == null) throw const ClassroomException(ClassroomError.notFound);
+    if (existing.teacherId != teacherId || !group.isActive || group.teacherId != teacherId ||
+        !existing.status.name.contains('draft') && !existing.isScheduled && !existing.isActive ||
+        existing.configurationRevision != expectedConfigurationRevision) {
+      throw const ClassroomException(ClassroomError.conflict);
+    }
+    final official = officialMovementName?.trim();
+    final isOfficial = official != null && official.isNotEmpty;
+    if (isOfficial == (teacherMovement != null) ||
+        (isOfficial && (officialAllowedProp == null || !movementCatalog.any((movement) =>
+            movement.name == official && movement.supportedProps.contains(officialAllowedProp)))) ||
+        (!isOfficial && (teacherMovementRevision == null || !teacherMovement!.isActive ||
+            teacherMovement.teacherId != teacherId ||
+            teacherMovementRevision.movementId != teacherMovement.id ||
+            teacherMovementRevision.teacherId != teacherId ||
+            teacherMovementRevision.assessmentMode != AssessmentMode.teacherReviewed ||
+            teacherMovementRevision.spec is! TeacherReviewedMovementSpec ||
+            activityAssessment == null || !activityAssessment.isValid))) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    if (dueAt != null && existing.isScheduled && existing.publishAt != null &&
+        !dueAt.toUtc().isAfter(existing.publishAt!.toUtc())) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (!audience.isEntireClass) {
+      try {
+        await _ensureAudienceTargetsAreApprovedMembers(teacherId: teacherId, group: group, audience: audience);
+      } on ClassroomException {
+        throw const ClassroomException(ClassroomError.invalidRecipient);
+      }
+    }
+    final officialName = official ?? '';
+    final selectedTeacherMovement = teacherMovement;
+    final selectedTeacherRevision = teacherMovementRevision;
+    final officialIdentity = isOfficial
+        ? officialElixrIdentityForName(officialName)
+        : null;
+    if (isOfficial && officialIdentity == null) {
+      throw const ClassroomException(ClassroomError.unofficial);
+    }
+    final hasWork = await hasTraineeWork(assignmentId: assignmentId);
+    final requiredProp = isOfficial
+        ? officialAllowedProp
+        : (selectedTeacherRevision!.spec as TeacherReviewedMovementSpec).requiredProp;
+    final identityChanged = existing.groupId != group.id || existing.isOfficial != isOfficial ||
+        existing.movementId != (isOfficial ? officialIdentity!.movementId : selectedTeacherMovement!.id) ||
+        existing.revisionId != (isOfficial ? officialIdentity!.revisionId : selectedTeacherRevision!.id) ||
+        existing.allowedProp != requiredProp || existing.audience.type != audience.type ||
+        existing.audience.targetTraineeIds.toSet().toString() != audience.targetTraineeIds.toSet().toString() ||
+        existing.attemptPolicy.toMap().toString() != attemptPolicy.toMap().toString() ||
+        (isOfficial ? existing.activityAssessment != null : existing.activityAssessment != activityAssessment);
+    if (existing.isActive && hasWork && identityChanged) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (existing.gradingLocked && !isOfficial && existing.activityAssessment != activityAssessment) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final title = isOfficial ? officialName : displayTitle?.trim();
+    final instructions = isOfficial ? existing.displayInstructions : displayInstructions?.trim();
+    if ((!isOfficial && (title == null || title.isEmpty || instructions == null || instructions.isEmpty))) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final assessment = isOfficial ? null : activityAssessment;
+    final updated = GroupAssignment(
+      id: existing.id, teacherId: existing.teacherId, groupId: group.id,
+      movementId: isOfficial ? officialIdentity!.movementId : selectedTeacherMovement!.id,
+      revisionId: isOfficial ? officialIdentity!.revisionId : selectedTeacherRevision!.id,
+      origin: isOfficial ? MovementOrigin.officialElixr : MovementOrigin.teacherCreated,
+      assessmentMode: isOfficial ? AssessmentMode.officialGuided : AssessmentMode.teacherReviewed,
+      status: existing.status, displayTitle: title ?? existing.displayTitle, teacherDisplayName: existing.teacherDisplayName,
+      groupName: group.name, topic: topic?.trim().isEmpty == true ? null : topic?.trim(),
+      officialMovementName: isOfficial ? officialName : null, displayInstructions: instructions,
+      displaySafetyGuidance: isOfficial ? null : (displaySafetyGuidance?.trim().isEmpty == true ? null : displaySafetyGuidance?.trim()),
+      allowedProp: requiredProp, maxScore: assessment?.rubric.maximumScore,
+      attemptPolicy: attemptPolicy, configurationRevision: existing.configurationRevision + 1,
+      activityAssessment: assessment, gradingLocked: existing.gradingLocked,
+      gradingLockedAt: existing.gradingLockedAt, dueAt: dueAt, publishAt: existing.publishAt,
+      createdAt: existing.createdAt, updatedAt: now, audience: audience,
     );
     assignments[assignmentId] = updated;
     _emitTeacher(teacherId);
