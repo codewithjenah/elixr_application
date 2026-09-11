@@ -153,6 +153,59 @@ void main() {
     expect(sessions.isCollapsed, isTrue);
   });
 
+  testWidgets('trainee sidebar stays layout-safe through pane transitions', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = AuthService(
+      repository: _UnusedAuthRepository(),
+      awaitInitialAuthState: () async {},
+    );
+    addTearDown(auth.dispose);
+    var isCollapsed = false;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: StatefulBuilder(
+            builder: (context, setState) => Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ElixSidebar(
+                  currentRoute: '/dashboard',
+                  isCollapsed: isCollapsed,
+                  onToggleCollapse: () =>
+                      setState(() => isCollapsed = !isCollapsed),
+                  onLogout: _noop,
+                ),
+                const Expanded(child: ColoredBox(color: Color(0xFF050308))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byType(ElixSidebarCollapseButton));
+    await tester.pump();
+    await tester.pump(ElixSidebarMetrics.paneMotion ~/ 2);
+    expect(tester.takeException(), isNull);
+    await tester.pump(ElixSidebarMetrics.paneMotion);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byType(ElixSidebarCollapseButton));
+    await tester.pump();
+    await tester.pump(ElixSidebarMetrics.paneMotion ~/ 2);
+    expect(tester.takeException(), isNull);
+    await tester.pump(ElixSidebarMetrics.paneMotion);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('trainee sidebar docks flush in the application shell', (
     tester,
   ) async {

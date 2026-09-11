@@ -137,19 +137,30 @@ class ElixSidebarPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final contentWidth = isCollapsed
+        ? ElixSidebarMetrics.collapsedWidth
+        : ElixSidebarMetrics.expandedWidth;
+
     return AnimatedContainer(
       duration: ElixSidebarMetrics.paneDuration(context),
       curve: ElixMotion.standardCurve,
-      width: isCollapsed
-          ? ElixSidebarMetrics.collapsedWidth
-          : ElixSidebarMetrics.expandedWidth,
+      width: contentWidth,
       decoration: elixSidebarSurfaceDecoration(context),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         fit: StackFit.expand,
         children: [
           const ElixSidebarAmbientGlow(),
-          child,
+          // The surface width animates, but target-state content must never
+          // receive that intermediate width. In particular, the expanded
+          // header, nav labels, badges, and identity card need 272px while
+          // the pane is opening; the pane clips their still-hidden portion.
+          OverflowBox(
+            alignment: Alignment.topLeft,
+            minWidth: contentWidth,
+            maxWidth: contentWidth,
+            child: child,
+          ),
           const ElixSidebarFacingHighlight(),
         ],
       ),
@@ -249,8 +260,11 @@ class ElixSidebarFacingHighlight extends StatelessWidget {
   }
 }
 
-/// Fade plus a short horizontal travel for collapse/expand labels.
-class ElixSidebarReveal extends StatelessWidget {
+/// Fade plus a short horizontal travel for expanding labels.
+///
+/// Collapsing removes the child immediately so hidden labels, badges, and
+/// their fixed spacing never participate in compact-row layout.
+class ElixSidebarReveal extends StatefulWidget {
   const ElixSidebarReveal({
     super.key,
     required this.visible,
@@ -261,25 +275,48 @@ class ElixSidebarReveal extends StatelessWidget {
   final Widget child;
 
   @override
+  State<ElixSidebarReveal> createState() => _ElixSidebarRevealState();
+}
+
+class _ElixSidebarRevealState extends State<ElixSidebarReveal> {
+  late bool _revealed = widget.visible;
+
+  @override
+  void didUpdateWidget(covariant ElixSidebarReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.visible) {
+      _revealed = false;
+      return;
+    }
+    if (!oldWidget.visible) {
+      _revealed = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.visible) {
+          setState(() => _revealed = true);
+        }
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final reduced = ElixSidebarMetrics.reducedMotion(context);
-    return IgnorePointer(
-      ignoring: !visible,
-      child: ExcludeSemantics(
-        excluding: !visible,
-        child: AnimatedOpacity(
-          opacity: visible ? 1 : 0,
-          duration: ElixSidebarMetrics.paneDuration(context),
-          curve: ElixMotion.standardCurve,
-          child: AnimatedSlide(
-            offset: visible || reduced
-                ? Offset.zero
-                : const Offset(-ElixSidebarMetrics.navLabelSlide, 0),
-            duration: ElixSidebarMetrics.paneDuration(context),
-            curve: ElixMotion.standardCurve,
-            child: child,
-          ),
-        ),
+    if (!widget.visible) {
+      // An invisible label must not continue to reserve its fixed gap, badge,
+      // or text row during the compact layout.
+      return const SizedBox.shrink();
+    }
+    return AnimatedOpacity(
+      opacity: _revealed || reduced ? 1 : 0,
+      duration: ElixSidebarMetrics.paneDuration(context),
+      curve: ElixMotion.standardCurve,
+      child: AnimatedSlide(
+        offset: _revealed || reduced
+            ? Offset.zero
+            : const Offset(-ElixSidebarMetrics.navLabelSlide, 0),
+        duration: ElixSidebarMetrics.paneDuration(context),
+        curve: ElixMotion.standardCurve,
+        child: widget.child,
       ),
     );
   }
@@ -545,53 +582,47 @@ class ElixSidebarHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final motion = ElixSidebarMetrics.paneDuration(context);
-    return AnimatedSwitcher(
-      duration: motion,
-      switchInCurve: ElixMotion.standardCurve,
-      switchOutCurve: ElixMotion.standardCurve,
-      child: showCollapsedLayout
-          ? Padding(
-              key: const ValueKey('sidebar-header-collapsed'),
-              padding: const EdgeInsets.only(
-                top: AppSpacing.md + 6,
-                bottom: AppSpacing.sm,
-              ),
-              child: Column(
-                children: [
-                  const Center(child: ElixBrandMark(size: 56)),
-                  const SizedBox(height: AppSpacing.sm),
-                  Center(
-                    child: ElixSidebarCollapseButton(
-                      isCollapsed: isCollapsed,
-                      onTap: onToggleCollapse,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : Padding(
-              key: const ValueKey('sidebar-header-expanded'),
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md,
-                AppSpacing.md + 6,
-                AppSpacing.sm,
-                AppSpacing.sm,
-              ),
-              child: Row(
-                children: [
-                  const ElixBrandMark(size: 56),
-                  const SizedBox(width: 8),
-                  Expanded(child: ElixBrandWordmark(subtitle: subtitle)),
-                  const SizedBox(width: AppSpacing.xs),
-                  ElixSidebarCollapseButton(
+    return showCollapsedLayout
+        ? Padding(
+            key: const ValueKey('sidebar-header-collapsed'),
+            padding: const EdgeInsets.only(
+              top: AppSpacing.md + 6,
+              bottom: AppSpacing.sm,
+            ),
+            child: Column(
+              children: [
+                const Center(child: ElixBrandMark(size: 56)),
+                const SizedBox(height: AppSpacing.sm),
+                Center(
+                  child: ElixSidebarCollapseButton(
                     isCollapsed: isCollapsed,
                     onTap: onToggleCollapse,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-    );
+          )
+        : Padding(
+            key: const ValueKey('sidebar-header-expanded'),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.md + 6,
+              AppSpacing.sm,
+              AppSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                const ElixBrandMark(size: 56),
+                const SizedBox(width: 8),
+                Expanded(child: ElixBrandWordmark(subtitle: subtitle)),
+                const SizedBox(width: AppSpacing.xs),
+                ElixSidebarCollapseButton(
+                  isCollapsed: isCollapsed,
+                  onTap: onToggleCollapse,
+                ),
+              ],
+            ),
+          );
   }
 }
 

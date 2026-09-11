@@ -2429,6 +2429,21 @@ describe('leaderboard last_active_at', () => {
     assert.ok(after.data().last_active_at);
   });
 
+  test('owner can update presence on a legacy row that fails the full shape', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { legacy_presence_metadata: 'v0' }),
+      );
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(aliceDb(), 'leaderboard', 'alice'), {
+        last_active_at: serverTimestamp(),
+      }),
+    );
+  });
+
   test('another user cannot update last_active_at', async () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));

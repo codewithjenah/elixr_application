@@ -1336,6 +1336,7 @@ service cloud.firestore {
               == resource.data.sessions_completed + 1
             && validSessionAwardUpdate()
           )
+          || validLastActiveUpdate()
           || (
             validLeaderboardUpdateShape(request.resource.data)
             && (
@@ -1345,7 +1346,6 @@ service cloud.firestore {
               )
               || validPublicProfileMetadataUpdate()
               || validEquippedBorderUpdate()
-              || validLastActiveUpdate()
             )
           )
         );
