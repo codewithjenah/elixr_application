@@ -2096,153 +2096,155 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                 },
               ),
             },
-            child: ElixDialog(
-              title: 'Delete assignment permanently?',
-              subtitle: 'This action cannot be undone.',
-              icon: FluentIcons.delete,
-              iconColor: context.elixColors.error,
-              headerAccentColor: context.elixColors.error,
-              maxWidth: 600,
-              uniformActionSize: const Size(176, 40),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '“${assignment.displayTitle}” and all recipient records, '
-                    'submissions, and uploaded media will be permanently removed.',
-                    style: AppTheme.body.copyWith(
-                      color: context.elixTextSecondary,
-                      height: 1.45,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(
-                      color: context.isHighContrast
-                          ? context.elixCardSurface
-                          : context.elixColors.interactiveHover,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: context.elixColors.borderSubtle,
+            child: Center(
+              child: ElixDialog(
+                title: 'Delete assignment permanently?',
+                subtitle: 'This action cannot be undone.',
+                icon: FluentIcons.delete,
+                iconColor: context.elixColors.error,
+                headerAccentColor: context.elixColors.error,
+                maxWidth: 520,
+                uniformActionSize: const Size(176, 40),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '“${assignment.displayTitle}” and all recipient records, '
+                      'submissions, and uploaded media will be permanently removed.',
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextSecondary,
+                        height: 1.45,
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'CONFIRMATION PHRASE',
-                          style: AppTheme.bodySecondary.copyWith(
-                            color: context.elixTextSecondary,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SelectableText(
-                                'DELETE ASSIGNMENT',
-                                style: AppTheme.body.copyWith(
-                                  color: context.elixTextPrimary,
-                                  fontFamily: 'Consolas',
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.4,
-                                ),
-                              ),
-                            ),
-                            Tooltip(
-                              message: 'Copy confirmation phrase',
-                              child: Button(
-                                key: const Key(
-                                  'teacher_assignment_copy_delete_phrase',
-                                ),
-                                onPressed: () async {
-                                  await Clipboard.setData(
-                                    const ClipboardData(
-                                      text: 'DELETE ASSIGNMENT',
-                                    ),
-                                  );
-                                  if (context.mounted) {
-                                    setDialogState(() => copied = true);
-                                  }
-                                },
-                                child: Text(copied ? 'Copied' : 'Copy'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(
-                    'Paste or type the phrase above to enable permanent deletion.',
-                    style: AppTheme.bodySecondary.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  TextBox(
-                    key: const Key('teacher_assignment_delete_confirmation'),
-                    controller: confirmation,
-                    enabled: !controller.busy,
-                    autofocus: true,
-                    onChanged: (value) => setDialogState(
-                      () => phraseMatches = value == 'DELETE ASSIGNMENT',
-                    ),
-                  ),
-                  if (controller.errorMessage != null) ...[
                     const SizedBox(height: AppSpacing.md),
-                    InfoBar(
-                      title: Text(controller.errorMessage!),
-                      severity: InfoBarSeverity.error,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: context.isHighContrast
+                            ? context.elixCardSurface
+                            : context.elixColors.interactiveHover,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: context.elixColors.borderSubtle,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'CONFIRMATION PHRASE',
+                            style: AppTheme.bodySecondary.copyWith(
+                              color: context.elixTextSecondary,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SelectableText(
+                                  'DELETE ASSIGNMENT',
+                                  style: AppTheme.body.copyWith(
+                                    color: context.elixTextPrimary,
+                                    fontFamily: 'Consolas',
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ),
+                              Tooltip(
+                                message: 'Copy confirmation phrase',
+                                child: Button(
+                                  key: const Key(
+                                    'teacher_assignment_copy_delete_phrase',
+                                  ),
+                                  onPressed: () async {
+                                    await Clipboard.setData(
+                                      const ClipboardData(
+                                        text: 'DELETE ASSIGNMENT',
+                                      ),
+                                    );
+                                    if (context.mounted) {
+                                      setDialogState(() => copied = true);
+                                    }
+                                  },
+                                  child: Text(copied ? 'Copied' : 'Copy'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      'Paste or type the phrase above to enable permanent deletion.',
+                      style: AppTheme.bodySecondary.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    TextBox(
+                      key: const Key('teacher_assignment_delete_confirmation'),
+                      controller: confirmation,
+                      enabled: !controller.busy,
+                      autofocus: true,
+                      onChanged: (value) => setDialogState(
+                        () => phraseMatches = value == 'DELETE ASSIGNMENT',
+                      ),
+                    ),
+                    if (controller.errorMessage != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      InfoBar(
+                        title: Text(controller.errorMessage!),
+                        severity: InfoBarSeverity.error,
+                      ),
+                    ],
                   ],
+                ),
+                actions: [
+                  Button(
+                    onPressed: controller.busy
+                        ? null
+                        : () => Navigator.pop(dialogContext, false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    key: const Key('teacher_assignment_confirm_delete'),
+                    onPressed: phraseMatches && !controller.busy
+                        ? () async {
+                            // The controller sets busy synchronously before its first await.
+                            if (controller.busy) return;
+                            await controller.permanentlyDeleteAssignment(
+                              assignment,
+                            );
+                            if (!dialogContext.mounted) return;
+                            if (controller.errorMessage == null) {
+                              Navigator.pop(dialogContext, true);
+                            }
+                          }
+                        : null,
+                    child: controller.busy
+                        ? const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: ProgressRing(strokeWidth: 2),
+                              ),
+                              SizedBox(width: AppSpacing.sm),
+                              Flexible(child: Text('Deleting...')),
+                            ],
+                          )
+                        : const Text('Delete permanently'),
+                  ),
                 ],
               ),
-              actions: [
-                Button(
-                  onPressed: controller.busy
-                      ? null
-                      : () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  key: const Key('teacher_assignment_confirm_delete'),
-                  onPressed: phraseMatches && !controller.busy
-                      ? () async {
-                          // The controller sets busy synchronously before its first await.
-                          if (controller.busy) return;
-                          await controller.permanentlyDeleteAssignment(
-                            assignment,
-                          );
-                          if (!dialogContext.mounted) return;
-                          if (controller.errorMessage == null) {
-                            Navigator.pop(dialogContext, true);
-                          }
-                        }
-                      : null,
-                  child: controller.busy
-                      ? const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: ProgressRing(strokeWidth: 2),
-                            ),
-                            SizedBox(width: AppSpacing.sm),
-                            Flexible(child: Text('Deleting...')),
-                          ],
-                        )
-                      : const Text('Delete permanently'),
-                ),
-              ],
             ),
           ),
         ),

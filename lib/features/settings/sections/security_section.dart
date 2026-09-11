@@ -1,5 +1,6 @@
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -836,6 +837,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
   ];
 
   final _phraseController = TextEditingController();
+  bool _copiedPhrase = false;
 
   String get _requiredPhrase =>
       accountDeletionConfirmationPhraseFor(widget.email);
@@ -967,16 +969,38 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
-                SelectableText(
-                  _requiredPhrase,
-                  key: const ValueKey('delete-required-phrase'),
-                  style: AppTheme.body.copyWith(
-                    color: context.elixTextPrimary,
-                    fontFamily: 'Consolas',
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.15,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SelectableText(
+                        _requiredPhrase,
+                        key: const ValueKey('delete-required-phrase'),
+                        style: AppTheme.body.copyWith(
+                          color: context.elixTextPrimary,
+                          fontFamily: 'Consolas',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.15,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Tooltip(
+                      message: 'Copy confirmation phrase',
+                      child: Button(
+                        key: const ValueKey('delete-phrase-copy'),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: _requiredPhrase),
+                          );
+                          if (mounted) {
+                            setState(() => _copiedPhrase = true);
+                          }
+                        },
+                        child: Text(_copiedPhrase ? 'Copied' : 'Copy'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
@@ -16,6 +15,7 @@ import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -289,6 +289,27 @@ void main() {
       find.textContaining('Practice sessions and feedback'),
       findsOneWidget,
     );
+    String? copiedPhrase;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedPhrase =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('delete-phrase-copy')));
+    await tester.pump();
+    expect(copiedPhrase, 'delete user@example.com');
+    expect(find.text('Copied'), findsOneWidget);
 
     final continueAction = find.widgetWithText(FilledButton, 'Continue');
     expect(tester.widget<FilledButton>(continueAction).onPressed, isNull);
