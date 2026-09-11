@@ -27,6 +27,96 @@ import 'teacher_movements_controller.dart';
 String _officialVariantKey(String movementName, TrainingProp prop) =>
     '${movementName}_${prop.protocolValue}';
 
+/// Presentation-only order for the Official ELIXR library.
+///
+/// Keep the shared movement catalog order unchanged: it drives practice
+/// progression, while this contract keeps the teacher library pedagogically
+/// ordered within each difficulty section.
+const _teacherOfficialMovementDisplayOrder = <String, List<String>>{
+  'Easy': [
+    'Body Grip',
+    'Normal Grip',
+    "Bartender's Grip",
+    'Reverse Grip',
+    'Claw Grip',
+  ],
+  'Medium': [
+    'Hand Stall',
+    'Forearm Stall',
+    'Elbow Stall',
+    'Wrist Stall',
+    'One Finger Stall',
+  ],
+  'Hard': [
+    'Reverse Forearm Stall',
+    'Shoulder Stall',
+    'Double Hand Stall',
+    'Double Forearm Stall',
+    'Bottle in a tin',
+  ],
+};
+
+const _teacherOfficialDifficulties = ['Easy', 'Medium', 'Hard'];
+
+int _teacherOfficialDifficultyOrder(String difficulty) {
+  final index = _teacherOfficialDifficulties.indexOf(difficulty);
+  return index < 0 ? _teacherOfficialDifficulties.length : index;
+}
+
+int _teacherOfficialPropOrder(TrainingProp prop) => switch (prop) {
+  TrainingProp.bottle => 0,
+  TrainingProp.shaker => 1,
+  TrainingProp.bottleAndShaker => 2,
+};
+
+/// Returns a presentation-ordered copy of the Official ELIXR activity steps.
+///
+/// This deliberately does not reorder [enabledPracticeSteps], which remains
+/// the source of truth for shared trainee practice progression.
+List<PracticeCatalogStep> sortTeacherOfficialActivities(
+  Iterable<PracticeCatalogStep> activities,
+) {
+  final steps = activities.toList();
+  final indexedSteps = [
+    for (var index = 0; index < steps.length; index++)
+      (step: steps[index], index: index),
+  ];
+
+  indexedSteps.sort((a, b) {
+    final difficultyOrder = _teacherOfficialDifficultyOrder(
+      a.step.movement.difficulty,
+    ).compareTo(_teacherOfficialDifficultyOrder(b.step.movement.difficulty));
+    if (difficultyOrder != 0) return difficultyOrder;
+
+    final aOrder =
+        _teacherOfficialMovementDisplayOrder[a.step.movement.difficulty];
+    final bOrder =
+        _teacherOfficialMovementDisplayOrder[b.step.movement.difficulty];
+    final aMovementIndex = aOrder?.indexOf(a.step.movement.name) ?? -1;
+    final bMovementIndex = bOrder?.indexOf(b.step.movement.name) ?? -1;
+    final aKnown = aMovementIndex >= 0;
+    final bKnown = bMovementIndex >= 0;
+
+    if (aKnown != bKnown) return aKnown ? -1 : 1;
+    if (aKnown && aMovementIndex != bMovementIndex) {
+      return aMovementIndex.compareTo(bMovementIndex);
+    }
+
+    if (a.step.movement.name == b.step.movement.name) {
+      final propOrder = _teacherOfficialPropOrder(
+        a.step.prop,
+      ).compareTo(_teacherOfficialPropOrder(b.step.prop));
+      if (propOrder != 0) return propOrder;
+    }
+
+    // Keep future/unrecognized entries visible after known entries and retain
+    // their input order for a stable, non-alphabetical fallback.
+    return a.index.compareTo(b.index);
+  });
+
+  return [for (final item in indexedSteps) item.step];
+}
+
 class TeacherMovementsScreen extends StatefulWidget {
   const TeacherMovementsScreen({super.key, this.controller});
 
@@ -221,7 +311,6 @@ class _OfficialList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const difficulties = ['Easy', 'Medium', 'Hard'];
     final activities = controller.officialActivities;
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -239,14 +328,15 @@ class _OfficialList extends StatelessWidget {
             child: CustomScrollView(
               clipBehavior: Clip.hardEdge,
               slivers: [
-                for (final difficulty in difficulties) ...[
+                for (final difficulty in _teacherOfficialDifficulties) ...[
                   ..._officialDifficultySlivers(
                     context,
                     difficulty: difficulty,
-                    activities: [
-                      for (final step in activities)
-                        if (step.movement.difficulty == difficulty) step,
-                    ],
+                    activities: sortTeacherOfficialActivities(
+                      activities.where(
+                        (step) => step.movement.difficulty == difficulty,
+                      ),
+                    ),
                     availableWidth: constraints.maxWidth,
                   ),
                 ],
@@ -483,6 +573,7 @@ class _OfficialMovementCard extends StatelessWidget {
                     movementName: movement.name,
                     accent: accent,
                     propLabel: prop.displayLabel,
+                    prop: prop,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   Expanded(child: details),
@@ -500,6 +591,7 @@ class _OfficialMovementCard extends StatelessWidget {
                     movementName: movement.name,
                     accent: accent,
                     propLabel: prop.displayLabel,
+                    prop: prop,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -790,11 +882,13 @@ class _MovementCardVisual extends StatelessWidget {
     required this.movementName,
     required this.accent,
     this.propLabel,
+    this.prop,
   });
 
   final String movementName;
   final Color accent;
   final String? propLabel;
+  final TrainingProp? prop;
 
   @override
   Widget build(BuildContext context) {
@@ -811,7 +905,13 @@ class _MovementCardVisual extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          Center(child: MovementImage(movementName: movementName, size: 118)),
+          Center(
+            child: MovementImage(
+              movementName: movementName,
+              size: 118,
+              prop: prop,
+            ),
+          ),
           if (propLabel != null)
             Positioned(
               left: 0,
@@ -1200,6 +1300,7 @@ class _GuideOverview extends StatelessWidget {
             movementName: movement.name,
             accent: accent,
             propLabel: prop.displayLabel,
+            prop: prop,
           ),
           const SizedBox(height: AppSpacing.md),
           Wrap(

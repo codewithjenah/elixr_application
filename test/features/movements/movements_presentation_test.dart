@@ -292,6 +292,53 @@ void main() {
       expect(MovementVisuals.assetPaths, hasLength(movementCatalog.length));
     });
 
+    test('resolves prop-specific shaker artwork with a generic fallback', () {
+      expect(
+        MovementVisuals.assetPathFor('Hand Stall', prop: TrainingProp.bottle),
+        'assets/movements_icon/hand_stall.png',
+      );
+      expect(
+        MovementVisuals.assetPathFor('Hand Stall', prop: TrainingProp.shaker),
+        'assets/movements_icon/shaker_hand_stall.png',
+      );
+      expect(
+        MovementVisuals.assetPathFor(
+          'One Finger Stall',
+          prop: TrainingProp.shaker,
+        ),
+        'assets/movements_icon/shaker_one_finger_stall.png',
+      );
+      expect(
+        MovementVisuals.assetPathFor(
+          'Forearm Stall',
+          prop: TrainingProp.shaker,
+        ),
+        'assets/movements_icon/shaker_forearm_stall.png',
+      );
+      expect(
+        MovementVisuals.assetPathFor('Elbow Stall', prop: TrainingProp.shaker),
+        'assets/movements_icon/shaker_elbow_stall.png',
+      );
+      expect(
+        MovementVisuals.assetPathFor('Wrist Stall', prop: TrainingProp.shaker),
+        'assets/movements_icon/shaker_wrist_stall.png',
+      );
+      expect(
+        MovementVisuals.assetPathFor(
+          'Shoulder Stall',
+          prop: TrainingProp.shaker,
+        ),
+        'assets/movements_icon/shoulder_stall.png',
+      );
+      expect(
+        MovementVisuals.assetPathFor(
+          'Bottle in a tin',
+          prop: TrainingProp.bottleAndShaker,
+        ),
+        'assets/movements_icon/bottle_in_a_tin.png',
+      );
+    });
+
     testWidgets('loads an image for every catalog movement', (tester) async {
       await tester.pumpWidget(
         Directionality(

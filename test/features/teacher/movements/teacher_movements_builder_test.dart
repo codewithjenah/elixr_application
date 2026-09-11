@@ -9,6 +9,7 @@ import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
+import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/teacher_movement_revision_spec.dart';
@@ -567,6 +568,57 @@ void main() {
     );
   });
 
+  test('Official ELIXR display order is pedagogical and prop-aware', () {
+    final catalogSteps = enabledPracticeSteps();
+    final input = catalogSteps.reversed.toList();
+    final ordered = sortTeacherOfficialActivities(input);
+
+    expect(
+      ordered
+          .map((step) => '${step.movement.name} · ${step.prop.protocolValue}')
+          .toList(),
+      [
+        'Body Grip · bottle',
+        'Normal Grip · bottle',
+        "Bartender's Grip · bottle",
+        'Reverse Grip · bottle',
+        'Claw Grip · bottle',
+        'Hand Stall · bottle',
+        'Hand Stall · shaker',
+        'Forearm Stall · bottle',
+        'Forearm Stall · shaker',
+        'Elbow Stall · bottle',
+        'Elbow Stall · shaker',
+        'Wrist Stall · bottle',
+        'Wrist Stall · shaker',
+        'One Finger Stall · bottle',
+        'One Finger Stall · shaker',
+        'Reverse Forearm Stall · bottle',
+        'Shoulder Stall · bottle',
+        'Double Hand Stall · bottle',
+        'Double Forearm Stall · bottle',
+        'Bottle in a tin · bottle_and_shaker',
+      ],
+    );
+    expect(input, catalogSteps.reversed.toList());
+
+    const futureMovement = Movement(
+      name: 'Future Medium Stall',
+      difficulty: 'Medium',
+      description: 'A future official movement.',
+      requiresHandsDetection: true,
+      enabled: true,
+    );
+    final withFutureMovement = sortTeacherOfficialActivities([
+      const PracticeCatalogStep(
+        movement: futureMovement,
+        prop: TrainingProp.bottle,
+      ),
+      ...catalogSteps.where((step) => step.movement.difficulty == 'Medium'),
+    ]);
+    expect(withFutureMovement.last.movement.name, 'Future Medium Stall');
+  });
+
   testWidgets(
     'Teacher Activities library exposes its two curriculum sections',
     (tester) async {
@@ -631,12 +683,12 @@ void main() {
     final grid = tester.widget<SliverGrid>(find.byType(SliverGrid).first);
     final delegate = grid.gridDelegate as BalancedSliverGridDelegate;
     expect(delegate.crossAxisCount, 5);
-    final firstY = tester.getTopLeft(find.text('Normal Grip')).dy;
+    final firstY = tester.getTopLeft(find.text('Body Grip')).dy;
     for (final name in [
+      'Normal Grip',
       "Bartender's Grip",
       'Reverse Grip',
       'Claw Grip',
-      'Body Grip',
     ]) {
       expect(tester.getTopLeft(find.text(name)).dy, closeTo(firstY, 1));
     }
@@ -1019,6 +1071,24 @@ void main() {
       expect(
         find.descendant(of: shakerCard, matching: find.text('Bottle')),
         findsNothing,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MovementImage &&
+              widget.movementName == 'Hand Stall' &&
+              widget.prop == TrainingProp.bottle,
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MovementImage &&
+              widget.movementName == 'Hand Stall' &&
+              widget.prop == TrainingProp.shaker,
+        ),
+        findsOneWidget,
       );
 
       expect(

@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../data/models/training_prop.dart';
 import '../constants/movement_visuals.dart';
 
 /// A consistently sized visual for a catalog movement.
@@ -12,16 +13,18 @@ class MovementImage extends StatelessWidget {
     required this.size,
     this.paddingFactor = 0.08,
     this.alignment = Alignment.center,
+    this.prop,
   });
 
   final String movementName;
   final double size;
   final double paddingFactor;
   final Alignment alignment;
+  final TrainingProp? prop;
 
   @override
   Widget build(BuildContext context) {
-    final assetPath = MovementVisuals.assetPathFor(movementName);
+    final assetPath = MovementVisuals.assetPathFor(movementName, prop: prop);
     final imageSize =
         (size * (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1)).round();
 

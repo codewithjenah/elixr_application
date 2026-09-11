@@ -1,3 +1,5 @@
+import '../../data/models/training_prop.dart';
+
 /// Shared movement-name → image asset mapping for movement UI.
 ///
 /// Historical movement names without an entry intentionally use the generic
@@ -21,5 +23,28 @@ abstract final class MovementVisuals {
     'Double Forearm Stall': 'assets/movements_icon/double_forearm_stall.png',
   };
 
-  static String? assetPathFor(String movementName) => assetPaths[movementName];
+  static const Map<String, Map<TrainingProp, String>> _propAssetPaths = {
+    'Hand Stall': {
+      TrainingProp.shaker: 'assets/movements_icon/shaker_hand_stall.png',
+    },
+    'Forearm Stall': {
+      TrainingProp.shaker: 'assets/movements_icon/shaker_forearm_stall.png',
+    },
+    'Elbow Stall': {
+      TrainingProp.shaker: 'assets/movements_icon/shaker_elbow_stall.png',
+    },
+    'Wrist Stall': {
+      TrainingProp.shaker: 'assets/movements_icon/shaker_wrist_stall.png',
+    },
+    'One Finger Stall': {
+      TrainingProp.shaker: 'assets/movements_icon/shaker_one_finger_stall.png',
+    },
+  };
+
+  static String? assetPathFor(String movementName, {TrainingProp? prop}) {
+    if (prop != null) {
+      return _propAssetPaths[movementName]?[prop] ?? assetPaths[movementName];
+    }
+    return assetPaths[movementName];
+  }
 }
