@@ -248,7 +248,14 @@ void main() {
     expect(find.byKey(const ValueKey('builder-demo-record')), findsOneWidget);
     expect(find.text('Template scored'), findsNothing);
     expect(find.text('Live Test'), findsNothing);
-    expect(find.text('Create'), findsOneWidget);
+    expect(find.text('Create Teacher Activity'), findsOneWidget);
+    expect(
+      find.text(
+        'Build a reusable teacher-reviewed activity that you can assign to classes later.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Save activity'), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const ValueKey('builder-title')),
@@ -258,7 +265,7 @@ void main() {
       find.byKey(const ValueKey('builder-instructions')),
       'Balance the tin upright.',
     );
-    await tester.tap(find.text('Create'));
+    await tester.tap(find.text('Save activity'));
     await tester.pumpAndSettle();
 
     expect(movements.createCalls, 1);

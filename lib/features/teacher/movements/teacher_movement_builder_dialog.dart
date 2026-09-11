@@ -498,7 +498,7 @@ class _TeacherMovementBuilderDialogState
         ? 'Review the preserved details for this historical movement.'
         : _isEditing
         ? 'Publish a new teacher-reviewed Activity revision for future assignments.'
-        : 'Define a focused Activity for trainees to record and submit.';
+        : 'Build a reusable teacher-reviewed activity that you can assign to classes later.';
 
     return FocusTraversalGroup(
       child: ElixScaffoldPage(
@@ -1071,7 +1071,7 @@ class _TeacherMovementBuilderDialogState
                       ? 'Save assignment changes'
                       : _isEditing
                       ? 'Save revision'
-                      : 'Create',
+                      : 'Save activity',
                   expanded: false,
                   dense: true,
                   isLoading: _saving,
