@@ -420,34 +420,43 @@ class FirebaseClassroomAssignmentRepository
     if (_auth.currentUser?.uid != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    final decoded = await _postAuthorizedFunction('updateAssignmentConfiguration', {
-      'assignment_id': assignmentId,
-      'expected_configuration_revision': expectedConfigurationRevision,
-      'group_id': group.id,
-      'official_movement_name': officialMovementName?.trim(),
-      'allowed_prop': officialAllowedProp?.protocolValue,
-      'teacher_movement_id': teacherMovement?.id,
-      'teacher_revision_id': teacherMovementRevision?.id,
-      'display_title': displayTitle?.trim(),
-      'display_instructions': displayInstructions?.trim(),
-      'display_safety_guidance': displaySafetyGuidance?.trim(),
-      'topic': topic?.trim(),
-      'due_at': dueAt?.toUtc().toIso8601String(),
-      'audience_type': audience.type.wireValue,
-      'recipient_ids': audience.isEntireClass ? const <String>[] : audience.targetTraineeIds,
-      'attempt_policy': attemptPolicy.toMap(),
-      'activity_assessment': activityAssessment?.toMap(),
-    });
+    final decoded =
+        await _postAuthorizedFunction('updateAssignmentConfiguration', {
+          'assignment_id': assignmentId,
+          'expected_configuration_revision': expectedConfigurationRevision,
+          'group_id': group.id,
+          'official_movement_name': officialMovementName?.trim(),
+          'allowed_prop': officialAllowedProp?.protocolValue,
+          'teacher_movement_id': teacherMovement?.id,
+          'teacher_revision_id': teacherMovementRevision?.id,
+          'display_title': displayTitle?.trim(),
+          'display_instructions': displayInstructions?.trim(),
+          'display_safety_guidance': displaySafetyGuidance?.trim(),
+          'topic': topic?.trim(),
+          'due_at': dueAt?.toUtc().toIso8601String(),
+          'audience_type': audience.type.wireValue,
+          'recipient_ids': audience.isEntireClass
+              ? const <String>[]
+              : audience.targetTraineeIds,
+          'attempt_policy': attemptPolicy.toMap(),
+          'activity_assessment': activityAssessment?.toMap(),
+        });
     final raw = decoded['assignment'];
     if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);
     final map = Map<String, dynamic>.from(raw);
     final id = map.remove('id');
     if (id is! String) throw const ClassroomException(ClassroomError.malformed);
     final parsed = GroupAssignment.tryFromMap(map, id: id);
-    if (parsed == null) throw const ClassroomException(ClassroomError.malformed);
+    if (parsed == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
     final recipients = decoded['recipient_ids'];
     if (recipients is List && !parsed.audience.isEntireClass) {
-      return parsed.copyWith(audience: parsed.audience.withRecipientIds(recipients.whereType<String>()));
+      return parsed.copyWith(
+        audience: parsed.audience.withRecipientIds(
+          recipients.whereType<String>(),
+        ),
+      );
     }
     return parsed;
   }
@@ -1836,6 +1845,8 @@ ClassroomException classroomFunctionFailure({
     'conflict' => ClassroomError.conflict,
     'attempt_limit_conflict' => ClassroomError.attemptLimitConflict,
     'invalid_recipient' => ClassroomError.invalidRecipient,
+    'trainee_work_exists' => ClassroomError.invalidState,
+    'invalid_publication' => ClassroomError.invalidState,
     'invalid_movement' => ClassroomError.identityMismatch,
     'movement_not_found' || 'revision_not_found' => ClassroomError.notFound,
     'movement_archived' => ClassroomError.archived,
@@ -1867,6 +1878,10 @@ ClassroomException classroomFunctionFailure({
       'You no longer have permission to create an assignment for this classroom.',
     'invalid_recipient' =>
       'One or more selected trainees are no longer approved members of this classroom.',
+    'trainee_work_exists' =>
+      'This assignment already has trainee work, so movement, audience, attempts, and scoring can no longer be changed.',
+    'invalid_publication' =>
+      'The due date must be later than the scheduled publication time.',
     'invalid_movement' =>
       'This movement changed or is no longer available. Refresh it and try again.',
     'movement_not_found' =>

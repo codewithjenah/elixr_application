@@ -913,7 +913,11 @@ function updateAssessment({maximum = 50} = {}) {
   return value;
 }
 
-function fakeActivityUpdateDatabase({consumedCounts = []} = {}) {
+function fakeActivityUpdateDatabase({
+  consumedCounts = [],
+  hasAttempts = false,
+  assignmentOverrides = {},
+} = {}) {
   const writes = [];
   let assignment = {
     teacher_id: 'teacher',
@@ -933,6 +937,7 @@ function fakeActivityUpdateDatabase({consumedCounts = []} = {}) {
     attempt_policy: {type: 'finite', maximum_attempts: 3},
     activity_assessment: updateAssessment(),
     configuration_revision: 1,
+    ...assignmentOverrides,
   };
   const assignmentRef = {
     id: 'assignment-1',
@@ -958,6 +963,14 @@ function fakeActivityUpdateDatabase({consumedCounts = []} = {}) {
           },
         };
       }
+      if (name === 'assignment_attempts') {
+        return {
+          where(field, operator, value) {
+            assert.deepEqual([field, operator, value], ['assignment_id', '==', assignmentRef.id]);
+            return {kind: 'attempts'};
+          },
+        };
+      }
       if (name === 'group_memberships') {
         return {doc(id) { return {id, kind: 'membership'}; }};
       }
@@ -971,6 +984,9 @@ function fakeActivityUpdateDatabase({consumedCounts = []} = {}) {
           }
           if (target.kind === 'attempt_states') {
             return {docs: consumedCounts.map((count) => ({get: () => count}))};
+          }
+          if (target.kind === 'attempts') {
+            return {empty: !hasAttempts, docs: hasAttempts ? [{}] : []};
           }
           if (target.kind === 'membership') return {exists: false};
           throw new Error('Unexpected transaction read');
@@ -1012,6 +1028,8 @@ function fakeConfigurationDatabase({
   hasAttempts = false,
   assignmentOverrides = {},
   currentRevisionId = 'revision-fixed',
+  movementStatus = 'active',
+  revisionId = 'revision-fixed',
 } = {}) {
   let assignment = {
     teacher_id: 'teacher', group_id: 'g1', movement_id: 'movement-fixed',
@@ -1067,9 +1085,9 @@ function fakeConfigurationDatabase({
         async get(ref) {
           if (ref === assignmentRef) return snapshot(assignment);
           if (ref === groupRef) return snapshot({teacher_id: 'teacher', status: 'active', name: 'BSHM 4A'});
-          if (ref === movementRef) return snapshot({teacher_id: 'teacher', status: 'active', current_revision_id: currentRevisionId});
+          if (ref === movementRef) return snapshot({teacher_id: 'teacher', status: movementStatus, current_revision_id: currentRevisionId});
           if (ref.kind === 'revision') return snapshot({
-            teacher_id: 'teacher', movement_id: 'movement-fixed',
+            teacher_id: 'teacher', movement_id: 'movement-fixed', id: revisionId,
             assessment_mode: 'teacher_reviewed',
             spec: {capability: 'teacher_review_only', required_prop: 'bottle'},
           });
@@ -1126,6 +1144,60 @@ test('configuration update preserves a matching Teacher Activity and rejects act
   assert.deepEqual(blockedResponse.body, {error: 'trainee_work_exists'});
 });
 
+test('configuration update treats an already-published scheduled assignment as active', async () => {
+  const response = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {
+      method: 'POST',
+      body: {
+        ...activityUpdateBody({
+          attempt_policy: {type: 'finite', maximum_attempts: 3},
+        }),
+        group_id: 'g1',
+        teacher_movement_id: 'movement-fixed',
+        teacher_revision_id: 'revision-fixed',
+      },
+    },
+    response,
+    {
+      authenticate: async () => 'teacher',
+      databaseFactory: () => fakeConfigurationDatabase({
+        hasAttempts: true,
+        assignmentOverrides: {
+          status: 'scheduled',
+          publish_at: Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z')),
+        },
+      }),
+    },
+  );
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.body, {error: 'trainee_work_exists'});
+});
+
+test('configuration update rejects retired template-scored assignments', async () => {
+  const response = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {
+      method: 'POST',
+      body: {
+        ...activityUpdateBody(),
+        group_id: 'g1',
+        teacher_movement_id: 'movement-fixed',
+        teacher_revision_id: 'revision-fixed',
+      },
+    },
+    response,
+    {
+      authenticate: async () => 'teacher',
+      databaseFactory: () => fakeConfigurationDatabase({
+        assignmentOverrides: {assessment_mode: 'template_scored'},
+      }),
+    },
+  );
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(response.body, {error: 'conflict'});
+});
+
 test('safe configuration edits preserve grading locks and pinned Teacher Activity revisions', async () => {
   const lockedAt = Timestamp.fromDate(new Date('2026-09-01T00:00:00.000Z'));
   const body = {
@@ -1167,6 +1239,40 @@ test('safe configuration edits preserve grading locks and pinned Teacher Activit
   );
   assert.equal(historicalResponse.statusCode, 200, JSON.stringify(historicalResponse.body));
   assert.equal(historical.assignment.revision_id, 'revision-fixed');
+
+  const archived = fakeConfigurationDatabase({
+    movementStatus: 'archived',
+    currentRevisionId: 'revision-current',
+  });
+  const archivedResponse = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {method: 'POST', body: {...body, topic: 'Archived safe edit'}},
+    archivedResponse,
+    {authenticate: async () => 'teacher', databaseFactory: () => archived},
+  );
+  assert.equal(archivedResponse.statusCode, 200, JSON.stringify(archivedResponse.body));
+  assert.equal(archived.assignment.revision_id, 'revision-fixed');
+  assert.equal(archived.assignment.topic, 'Archived safe edit');
+
+  const archivedReplacement = fakeConfigurationDatabase({
+    movementStatus: 'archived',
+    currentRevisionId: 'revision-current',
+    revisionId: 'revision-current',
+  });
+  const archivedReplacementResponse = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {
+      method: 'POST',
+      body: {...body, teacher_revision_id: 'revision-current'},
+    },
+    archivedReplacementResponse,
+    {
+      authenticate: async () => 'teacher',
+      databaseFactory: () => archivedReplacement,
+    },
+  );
+  assert.equal(archivedReplacementResponse.statusCode, 409);
+  assert.deepEqual(archivedReplacementResponse.body, {error: 'invalid_movement'});
 
   const injected = fakeResponse();
   await updateAssignmentConfigurationHandler(
@@ -1252,6 +1358,34 @@ test('Teacher Activity assignment updates round-trip twice and reject stale edit
   assert.equal(staleResponse.statusCode, 409);
   assert.deepEqual(staleResponse.body, {error: 'conflict'});
   assert.equal(database.assignment.display_title, 'Edited Again');
+});
+
+test('Teacher Activity assignment updates preserve trainee-work and grading locks', async () => {
+  const workResponse = fakeResponse();
+  await updateTeacherActivityAssignmentHandler(
+    {method: 'POST', body: activityUpdateBody()},
+    workResponse,
+    {
+      authenticate: async () => 'teacher',
+      databaseFactory: () => fakeActivityUpdateDatabase({hasAttempts: true}),
+    },
+  );
+  assert.equal(workResponse.statusCode, 409);
+  assert.deepEqual(workResponse.body, {error: 'trainee_work_exists'});
+
+  const lockedResponse = fakeResponse();
+  await updateTeacherActivityAssignmentHandler(
+    {method: 'POST', body: activityUpdateBody()},
+    lockedResponse,
+    {
+      authenticate: async () => 'teacher',
+      databaseFactory: () => fakeActivityUpdateDatabase({
+        assignmentOverrides: {grading_locked: true},
+      }),
+    },
+  );
+  assert.equal(lockedResponse.statusCode, 409);
+  assert.deepEqual(lockedResponse.body, {error: 'trainee_work_exists'});
 });
 
 test('Teacher Activity assignment update returns actionable validation conflicts', async () => {

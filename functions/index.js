@@ -1460,7 +1460,8 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
       const assignmentSnapshot = await transaction.get(assignmentRef);
       if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
       const assignment = assignmentSnapshot.data();
-      if (assignment.teacher_id !== uid || assignment.origin !== 'teacher_created' ||
+      if (assignment.teacher_id !== uid || assignment.assessment_mode === 'template_scored' ||
+          assignment.origin !== 'teacher_created' ||
           assignment.assessment_mode !== 'teacher_reviewed' ||
           !['draft', 'scheduled', 'active'].includes(assignment.status) ||
           assignment.deletion_state === 'deleting' ||
@@ -1477,6 +1478,26 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
             consumed > body.attempt_policy.maximum_attempts) {
           const error = new Error('attempt_limit_conflict'); error.code = 'attempt_limit_conflict'; throw error;
         }
+      }
+      const attempts = await transaction.get(
+        firestore.collection('assignment_attempts')
+          .where('assignment_id', '==', body.assignment_id),
+      );
+      const activityConfigurationChanged =
+        assignment.allowed_prop !== requiredProp ||
+        !structurallyEqual(assignment.activity_assessment ?? null, body.activity_assessment) ||
+        assignment.max_score !== maximum;
+      const audienceChanged =
+        assignment.audience_type !== audienceType ||
+        !sameStringSet(recipientSnapshot.docs.map((recipient) => recipient.id), recipientIds);
+      const attemptPolicyChanged =
+        !structurallyEqual(assignment.attempt_policy ?? null, body.attempt_policy);
+      if (assignmentIsPublished(assignment) && !attempts.empty &&
+          (activityConfigurationChanged || audienceChanged || attemptPolicyChanged)) {
+        const error = new Error('trainee_work_exists'); error.code = 'trainee_work_exists'; throw error;
+      }
+      if (assignment.grading_locked === true && activityConfigurationChanged) {
+        const error = new Error('trainee_work_exists'); error.code = 'trainee_work_exists'; throw error;
       }
       for (const traineeId of recipientIds) {
         const membership = await transaction.get(
@@ -1531,7 +1552,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
       recipient_ids: recipientIds,
     });
   } catch (error) {
-    const known = ['not_found', 'conflict', 'attempt_limit_conflict', 'invalid_recipient'];
+    const known = ['not_found', 'conflict', 'attempt_limit_conflict', 'invalid_recipient', 'trainee_work_exists'];
     if (known.includes(error.code)) return response.status(409).json({error: error.code});
     console.error('Teacher Activity Assignment update failed', error);
     return response.status(503).json({error: 'unavailable'});
@@ -1587,7 +1608,8 @@ async function updateAssignmentConfigurationHandler(request, response, {
       const groupSnapshot = await transaction.get(firestore.collection('groups').doc(body.group_id));
       if (!assignmentSnapshot.exists) { const error = new Error('not_found'); error.code = 'not_found'; throw error; }
       const assignment = assignmentSnapshot.data();
-      if (assignment.teacher_id !== uid || !['draft', 'scheduled', 'active'].includes(assignment.status) ||
+      if (assignment.teacher_id !== uid || assignment.assessment_mode === 'template_scored' ||
+          !['draft', 'scheduled', 'active'].includes(assignment.status) ||
           assignment.deletion_state === 'deleting' || (assignment.configuration_revision || 1) !== body.expected_configuration_revision ||
           !groupSnapshot.exists || groupSnapshot.get('teacher_id') !== uid || groupSnapshot.get('status') !== 'active') {
         const error = new Error('conflict'); error.code = 'conflict'; throw error;
@@ -1610,8 +1632,10 @@ async function updateAssignmentConfigurationHandler(request, response, {
         const preservesPinnedTeacherRevision = assignment.origin === 'teacher_created' &&
           assignment.movement_id === body.teacher_movement_id &&
           assignment.revision_id === body.teacher_revision_id;
-        if (!movement.exists || !revision.exists || movement.get('teacher_id') !== uid || movement.get('status') !== 'active' ||
-            (!preservesPinnedTeacherRevision && movement.get('current_revision_id') !== body.teacher_revision_id) || revision.get('teacher_id') !== uid ||
+        if (!movement.exists || !revision.exists || movement.get('teacher_id') !== uid ||
+            (!preservesPinnedTeacherRevision && movement.get('status') !== 'active') ||
+            (!preservesPinnedTeacherRevision && movement.get('current_revision_id') !== body.teacher_revision_id) ||
+            revision.get('teacher_id') !== uid ||
             revision.get('movement_id') !== body.teacher_movement_id || revision.get('assessment_mode') !== 'teacher_reviewed' ||
             !spec || spec.capability !== 'teacher_review_only' || !['bottle', 'shaker', 'bottle_and_shaker'].includes(spec.required_prop)) {
           const error = new Error('invalid_movement'); error.code = 'invalid_movement'; throw error;
@@ -1639,7 +1663,7 @@ async function updateAssignmentConfigurationHandler(request, response, {
       };
       const semanticChanged = semanticKeys.some((key) => !structurallyEqual(assignment[key] ?? null, proposed[key] ?? null)) ||
         !sameStringSet(recipients.docs.map((recipient) => recipient.id), recipientIds);
-      if (assignment.status === 'active' && !attempts.empty && semanticChanged) {
+      if (assignmentIsPublished(assignment) && !attempts.empty && semanticChanged) {
         const error = new Error('trainee_work_exists'); error.code = 'trainee_work_exists'; throw error;
       }
       const activityIdentityKeys = ['movement_id', 'revision_id', 'origin', 'assessment_mode', 'official_movement_name', 'allowed_prop', 'activity_assessment', 'max_score'];

@@ -473,6 +473,9 @@ class InMemoryClassroomAssignmentRepository
         existing.configurationRevision != expectedConfigurationRevision) {
       throw const ClassroomException(ClassroomError.conflict);
     }
+    if (existing.isRetiredTemplate) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
     final official = officialMovementName?.trim();
     final isOfficial = official != null && official.isNotEmpty;
     final preservesPinnedTeacherRevision =
@@ -490,7 +493,8 @@ class InMemoryClassroomAssignmentRepository
                 ))) ||
         (!isOfficial &&
             (teacherMovementRevision == null ||
-                !teacherMovement!.isActive ||
+                (!teacherMovement!.isActive &&
+                    !preservesPinnedTeacherRevision) ||
                 teacherMovement.teacherId != teacherId ||
                 (!preservesPinnedTeacherRevision &&
                     teacherMovement.currentRevisionId !=
@@ -662,6 +666,9 @@ class InMemoryClassroomAssignmentRepository
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (existing.isRetiredTemplate) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
     if (!existing.isTeacherCreated ||
         existing.assessmentMode != AssessmentMode.teacherReviewed ||
         (!existing.isActive && !existing.isDraft && !existing.isScheduled) ||
@@ -702,6 +709,34 @@ class InMemoryClassroomAssignmentRepository
     if (maximum != null &&
         consumedByTrainee.values.any((count) => count > maximum)) {
       throw const ClassroomException(ClassroomError.attemptLimitConflict);
+    }
+    final activityConfigurationChanged =
+        existing.allowedProp != requiredProp ||
+        !_sameActivityAssessment(
+          existing.activityAssessment,
+          activityAssessment,
+        ) ||
+        existing.maxScore != activityAssessment.rubric.maximumScore;
+    final audienceChanged =
+        existing.audience.type != audience.type ||
+        !_sameStringSet(
+          existing.audience.targetTraineeIds,
+          audience.targetTraineeIds,
+        );
+    final attemptPolicyChanged = !_sameAttemptPolicy(
+      existing.attemptPolicy,
+      attemptPolicy,
+    );
+    final hasWork = await hasTraineeWork(assignmentId: assignmentId);
+    if (existing.isActive &&
+        hasWork &&
+        (activityConfigurationChanged ||
+            audienceChanged ||
+            attemptPolicyChanged)) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (existing.gradingLocked && activityConfigurationChanged) {
+      throw const ClassroomException(ClassroomError.invalidState);
     }
     final updated = GroupAssignment(
       id: existing.id,

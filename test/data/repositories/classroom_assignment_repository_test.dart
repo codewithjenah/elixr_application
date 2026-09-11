@@ -769,6 +769,126 @@ void main() {
   });
 
   test(
+    'existing assignment preserves its exact pinned revision after movement archival',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Pinned activity',
+        instructions: 'Use the saved activity configuration.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final pinnedRevision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: pinnedRevision,
+        status: GroupAssignmentStatus.draft,
+      );
+
+      await movements.archiveMovement(
+        teacherId: 'teacher-1',
+        movementId: movement.id,
+      );
+      final archivedMovement = (await movements.getMovement(
+        movementId: movement.id,
+      ))!;
+
+      final saved = await assignments.updateAssignmentConfiguration(
+        teacherId: 'teacher-1',
+        assignmentId: assignment.id,
+        expectedConfigurationRevision: assignment.configurationRevision,
+        group: _group(),
+        teacherMovement: archivedMovement,
+        teacherMovementRevision: pinnedRevision,
+        displayTitle: assignment.displayTitle,
+        displayInstructions: assignment.displayInstructions,
+        displaySafetyGuidance: assignment.displaySafetyGuidance,
+        topic: 'Safe archived edit',
+        dueAt: assignment.dueAt,
+        audience: assignment.audience,
+        attemptPolicy: assignment.attemptPolicy,
+        activityAssessment: assignment.activityAssessment,
+      );
+
+      expect(saved.movementId, movement.id);
+      expect(saved.revisionId, pinnedRevision.id);
+      expect(saved.topic, 'Safe archived edit');
+    },
+  );
+
+  test(
+    'archived movement cannot be selected with a different current revision',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Pinned activity',
+        instructions: 'Use the saved activity configuration.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final pinnedRevision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: pinnedRevision,
+      );
+      final advanced = await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: movement.id,
+        title: movement.title,
+        instructions: 'The reusable activity has advanced.',
+        requiredProp: TrainingProp.bottle,
+      );
+      await movements.archiveMovement(
+        teacherId: 'teacher-1',
+        movementId: movement.id,
+      );
+      final archivedMovement = (await movements.getMovement(
+        movementId: movement.id,
+      ))!;
+      final currentRevision = (await movements.getRevision(
+        movementId: advanced.id,
+        revisionId: advanced.currentRevisionId,
+      ))!;
+
+      await expectLater(
+        assignments.updateAssignmentConfiguration(
+          teacherId: 'teacher-1',
+          assignmentId: assignment.id,
+          expectedConfigurationRevision: assignment.configurationRevision,
+          group: _group(),
+          teacherMovement: archivedMovement,
+          teacherMovementRevision: currentRevision,
+          displayTitle: assignment.displayTitle,
+          displayInstructions: assignment.displayInstructions,
+          displaySafetyGuidance: assignment.displaySafetyGuidance,
+          topic: assignment.topic,
+          dueAt: assignment.dueAt,
+          audience: assignment.audience,
+          attemptPolicy: assignment.attemptPolicy,
+          activityAssessment: assignment.activityAssessment,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.malformed,
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
     'Teacher-created attempt never awards XP or points at a session',
     () async {
       final movement = await movements.createMovement(

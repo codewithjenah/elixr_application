@@ -421,6 +421,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   bool _publicationSchedulingEnabled = false;
   _EditSafetyState _editSafetyState = _EditSafetyState.unknown;
   TeacherMovementRevision? _persistedTeacherRevision;
+  bool _preservePersistedTeacherRevision = false;
   bool _submitting = false;
   bool _creatingTeacherMovement = false;
   bool _loadingTeacherMovements = false;
@@ -503,12 +504,16 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _origin == _AssignmentOriginSelection.teacherCreated;
 
   TeacherReviewedMovementSpec? get _selectedActivitySpec {
-    final movement = _selectedTeacherCreatedMovement;
-    final revision = movement == null
-        ? null
-        : _teacherMovementRevisions[movement.id];
+    final revision = _selectedTeacherRevision;
     final spec = revision?.spec;
     return spec is TeacherReviewedMovementSpec ? spec : null;
+  }
+
+  TeacherMovementRevision? get _selectedTeacherRevision {
+    final movement = _selectedTeacherCreatedMovement;
+    if (movement == null) return null;
+    if (_isUsingPersistedTeacherActivity) return _persistedTeacherRevision;
+    return _teacherMovementRevisions[movement.id];
   }
 
   bool get _hasValidMaxScore {
@@ -587,8 +592,28 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     final existing = _editingAssignment;
     return existing != null &&
         existing.isTeacherCreated &&
+        _preservePersistedTeacherRevision &&
         _selectedTeacherCreatedMovement?.id == existing.movementId &&
         _persistedTeacherRevision?.id == existing.revisionId;
+  }
+
+  bool get _canOfferLatestTeacherRevision {
+    final existing = _editingAssignment;
+    final movement = _selectedTeacherCreatedMovement;
+    final current = movement == null
+        ? null
+        : _teacherMovementRevisions[movement.id];
+    return existing != null &&
+        existing.isTeacherCreated &&
+        !existing.gradingLocked &&
+        _canEditIdentity &&
+        _isUsingPersistedTeacherActivity &&
+        movement != null &&
+        movement.isActive &&
+        current != null &&
+        current.id == movement.currentRevisionId &&
+        _isAssignableTeacherRevision(current) &&
+        current.id != existing.revisionId;
   }
 
   TeacherActivityAssessmentConfig? get _pendingActivityAssessment {
@@ -631,9 +656,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   bool get _hasValidTeacherMovement {
     final movement = _selectedTeacherCreatedMovement;
-    if (movement == null || !movement.isActive) return false;
-    final revision = _teacherMovementRevisions[movement.id];
-    return revision != null && _isAssignableTeacherRevision(revision);
+    final revision = _selectedTeacherRevision;
+    if (movement == null || revision == null) return false;
+    final isPinnedArchivedMovement =
+        _isUsingPersistedTeacherActivity && !movement.isActive;
+    if (!movement.isActive && !isPinnedArchivedMovement) return false;
+    return revision.movementId == movement.id &&
+        revision.teacherId == widget.teacherId &&
+        _isAssignableTeacherRevision(revision);
   }
 
   bool get _hasValidAudience => switch (_audienceType) {
@@ -716,6 +746,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             widget.teacherCreatedMovement != null)
         ? _AssignmentOriginSelection.teacherCreated
         : _AssignmentOriginSelection.official;
+    _preservePersistedTeacherRevision = existing?.isTeacherCreated == true;
     if (existing != null) {
       _dueAt = existing.dueAt;
       _attemptPolicy = existing.attemptPolicy;
@@ -907,14 +938,28 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     final repository = widget.movementRepository;
     if (repository == null) return;
     final token = ++_movementLoadToken;
-    final candidates = movements
+    final existing = _editingAssignment;
+    final activeCandidates = movements
         .where(
           (movement) =>
               movement.teacherId == widget.teacherId && movement.isActive,
         )
         .toList(growable: false);
+    final persistedMovement = existing != null && existing.isTeacherCreated
+        ? movements
+              .where(
+                (movement) =>
+                    movement.teacherId == widget.teacherId &&
+                    movement.id == existing.movementId,
+              )
+              .firstOrNull
+        : null;
+    final candidates = [
+      ...activeCandidates,
+      if (persistedMovement != null && !persistedMovement.isActive)
+        persistedMovement,
+    ];
     final revisions = <String, TeacherMovementRevision>{};
-    final existing = _editingAssignment;
     TeacherMovementRevision? persistedRevision;
     try {
       for (final movement in candidates) {
@@ -927,9 +972,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         }
       }
       if (existing != null && existing.isTeacherCreated) {
-        final persistedMovement = candidates
-            .where((movement) => movement.id == existing.movementId)
-            .firstOrNull;
         if (persistedMovement == null) {
           throw StateError('The saved Teacher Activity is unavailable.');
         }
@@ -939,12 +981,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         );
         if (persistedRevision == null ||
             !_isAssignableTeacherRevision(persistedRevision) ||
+            persistedRevision.movementId != persistedMovement.id ||
+            persistedRevision.teacherId != widget.teacherId ||
             persistedRevision.id != existing.revisionId) {
           throw StateError(
             'The saved Teacher Activity revision is unavailable.',
           );
         }
-        revisions[persistedMovement.id] = persistedRevision;
       }
     } catch (_) {
       if (!mounted || token != _movementLoadToken) return;
@@ -957,7 +1000,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (!mounted || token != _movementLoadToken) return;
     final assignable = [
       for (final movement in candidates)
-        if (revisions.containsKey(movement.id)) movement,
+        if (revisions.containsKey(movement.id) ||
+            (persistedMovement?.id == movement.id && persistedRevision != null))
+          movement,
     ];
     setState(() {
       _teacherMovements = assignable;
@@ -1305,6 +1350,24 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             description: _activityInheritanceSummary,
           ),
           const SizedBox(height: AppSpacing.md),
+          if (_canOfferLatestTeacherRevision) ...[
+            InfoBar(
+              key: const Key('teacher_assignment_older_revision'),
+              severity: InfoBarSeverity.info,
+              title: const Text(
+                'This assignment uses an older saved version of this Activity.',
+              ),
+              content: const Text(
+                'Keep the saved version unless you want to use the latest Activity details.',
+              ),
+              action: Button(
+                key: const Key('teacher_assignment_use_latest_revision'),
+                onPressed: () => unawaited(_useLatestTeacherRevision()),
+                child: const Text('Use latest version'),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           if (!_isEditing || _canEditAssessment)
             ToggleSwitch(
               key: const Key('teacher_assignment_customize_activity'),
@@ -2268,7 +2331,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 description: _teacherMovementDescription(movement),
                 movementName: movement.title,
                 selected: _selectedTeacherCreatedMovement?.id == movement.id,
-                enabled: !_submitting && _canEditIdentity,
+                enabled: !_submitting && _canEditIdentity && movement.isActive,
                 isTeacherCreated: true,
                 onPressed: () => _onTeacherMovementChanged(movement.id),
                 selectionKey: Key('teacher_assignment_select_${movement.id}'),
@@ -2303,7 +2366,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   String _teacherMovementMetadata(TeacherMovement movement) {
-    final spec = _teacherMovementRevisions[movement.id]?.spec;
+    if (!movement.isActive) {
+      return 'Archived Activity · Historical assignment only';
+    }
+    final spec = _teacherMovementRevisionForDisplay(movement)?.spec;
     if (spec is TeacherReviewedMovementSpec) {
       return 'Teacher reviewed · ${spec.requiredProp.displayLabel}';
     }
@@ -2311,20 +2377,29 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   String _teacherMovementDescription(TeacherMovement movement) {
-    final spec = _teacherMovementRevisions[movement.id]?.spec;
+    final spec = _teacherMovementRevisionForDisplay(movement)?.spec;
     if (spec is TeacherReviewedMovementSpec) return spec.instructions;
     return 'Trainees submit a recording for your review.';
   }
 
+  TeacherMovementRevision? _teacherMovementRevisionForDisplay(
+    TeacherMovement movement,
+  ) {
+    if (!movement.isActive &&
+        _isUsingPersistedTeacherActivity &&
+        movement.id == _editingAssignment?.movementId) {
+      return _persistedTeacherRevision;
+    }
+    return _teacherMovementRevisions[movement.id];
+  }
+
   Future<void> _showTeacherMovementDetails(TeacherMovement movement) async {
-    final cached = _teacherMovementRevisions[movement.id];
+    final cached = _teacherMovementRevisionForDisplay(movement);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => _TeacherActivityDetailsDialog(
         movement: movement,
-        initialRevision: cached?.id == movement.currentRevisionId
-            ? cached
-            : null,
+        initialRevision: cached,
         isInitiallySelected: _selectedTeacherCreatedMovement?.id == movement.id,
         loadCurrentRevision: () =>
             _loadCurrentTeacherMovementRevision(movement),
@@ -2377,9 +2452,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             movement.currentRevisionId) {
       return false;
     }
-    if (_selectedTeacherCreatedMovement?.id != movement.id) {
-      _onTeacherMovementChanged(movement.id);
-    }
+    _onTeacherMovementChanged(movement.id);
     return true;
   }
 
@@ -2465,6 +2538,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   void _onOriginChanged(_AssignmentOriginSelection? value) {
     if (value == null || !_canEditIdentity) return;
+    if (_isEditing &&
+        _editingAssignment!.isTeacherCreated &&
+        value != _origin) {
+      _preservePersistedTeacherRevision = false;
+    }
     setState(() {
       _origin = value;
       _validationError = null;
@@ -2667,6 +2745,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     for (final movement in _teacherMovements) {
       if (movement.id == value) {
         setState(() {
+          if (_editingAssignment?.isTeacherCreated == true) {
+            _preservePersistedTeacherRevision = false;
+          }
           _selectedTeacherCreatedMovement = movement;
           _customizeActivity = false;
           _validationError = null;
@@ -2675,6 +2756,53 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         return;
       }
     }
+  }
+
+  Future<void> _useLatestTeacherRevision() async {
+    if (!_canOfferLatestTeacherRevision) return;
+    final movement = _selectedTeacherCreatedMovement;
+    final repository = widget.movementRepository;
+    if (movement == null || repository == null) return;
+    TeacherMovementRevision? revision;
+    try {
+      revision = await repository.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _validationError =
+              'The latest Activity details could not be loaded. Try again.',
+        );
+      }
+      return;
+    }
+    if (!mounted ||
+        _selectedTeacherCreatedMovement?.id != movement.id ||
+        revision == null ||
+        revision.id != movement.currentRevisionId ||
+        revision.movementId != movement.id ||
+        revision.teacherId != widget.teacherId ||
+        !_isAssignableTeacherRevision(revision)) {
+      if (mounted) {
+        setState(
+          () => _validationError =
+              'The latest Activity details are no longer available. Refresh and try again.',
+        );
+      }
+      return;
+    }
+    setState(() {
+      _teacherMovementRevisions = {
+        ..._teacherMovementRevisions,
+        movement.id: revision!,
+      };
+      _preservePersistedTeacherRevision = false;
+      _customizeActivity = false;
+      _validationError = null;
+    });
+    await _prefillActivityDefaultsForSelectedMovement();
   }
 
   Future<void> _showCreateTeacherMovement() async {
@@ -2812,6 +2940,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _origin = _AssignmentOriginSelection.teacherCreated;
       _selectedOfficialMovement = null;
       _selectedTeacherCreatedMovement = movement;
+      _preservePersistedTeacherRevision = false;
       _customizeActivity = false;
       _movementLoadError = null;
       _validationError = null;
@@ -3098,13 +3227,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       if (_savedEditAssignment == null) {
         final group = _selectedGroup;
         final selectedTeacherMovement = _selectedTeacherCreatedMovement;
-        final teacherRevision =
-            selectedTeacherMovement?.id == assignment.movementId
-            ? _persistedTeacherRevision ??
-                  _teacherMovementRevisions[selectedTeacherMovement!.id]
-            : selectedTeacherMovement == null
-            ? null
-            : _teacherMovementRevisions[selectedTeacherMovement.id];
+        final teacherRevision = _selectedTeacherRevision;
         _savedEditAssignment = await widget.creationService.assignmentRepository
             .updateAssignmentConfiguration(
               teacherId: widget.teacherId,

@@ -134,6 +134,13 @@ class _SafetyFailureAssignments extends _TrackingAssignments {
   }
 }
 
+class _TraineeWorkAssignments extends _TrackingAssignments {
+  _TraineeWorkAssignments({required super.groupRepository});
+
+  @override
+  Future<bool> hasTraineeWork({required String assignmentId}) async => true;
+}
+
 class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
   bool failRevisionReads = false;
 
@@ -1578,6 +1585,297 @@ void main() {
       expect(saved?.revisionId, second.currentRevisionId);
       expect(saved?.activityAssessment?.rubric.maximumScore, 30);
       expect(saved?.activityAssessment?.recordingDurationSeconds, 60);
+    },
+  );
+
+  testWidgets(
+    'editing preserves a pinned revision after the reusable Activity advances',
+    (tester) async {
+      final activity = await createTeacherMovement();
+      final assignment = await service().create(
+        group: group,
+        teacherCreatedMovement: activity,
+      );
+      final pinnedRevisionId = assignment.revisionId;
+      await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: activity.id,
+        title: activity.title,
+        instructions: 'The reusable Activity is now v2.',
+        requiredProp: TrainingProp.bottle,
+      );
+
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: _MaterialRepository(),
+      );
+
+      expect(
+        find.text(
+          'This assignment uses an older saved version of this Activity.',
+        ),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await assignments.getAssignment(
+        assignmentId: assignment.id,
+      );
+      expect(saved?.id, assignment.id);
+      expect(saved?.revisionId, pinnedRevisionId);
+    },
+  );
+
+  testWidgets(
+    'Use latest version updates the summary and persists the current revision',
+    (tester) async {
+      final activity = await createTeacherMovement();
+      final assignment = await service().create(
+        group: group,
+        teacherCreatedMovement: activity,
+      );
+      final newerAssessment = TeacherActivityAssessmentConfig(
+        readiness: const TeacherActivityReadinessSpec(
+          hands: ActivityHandRequirement.oneHand,
+          body: ActivityBodyRequirement.upperBody,
+        ),
+        rubric: TeacherActivityRubric.builtIn(
+          TeacherActivityRubricTemplate.controlConsistency,
+          30,
+        ),
+        recordingDurationSeconds: 60,
+      );
+      final advanced = await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: activity.id,
+        title: activity.title,
+        instructions: 'The reusable Activity is now v2.',
+        requiredProp: TrainingProp.shaker,
+        assessment: newerAssessment,
+      );
+
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: _MaterialRepository(),
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_use_latest_revision')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_use_latest_revision')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Cocktail Shaker · One hand visible · Upper body visible · '
+          'Control & Consistency, 30 points · 60s · no demonstration',
+        ),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await assignments.getAssignment(
+        assignmentId: assignment.id,
+      );
+      expect(saved?.movementId, activity.id);
+      expect(saved?.revisionId, advanced.currentRevisionId);
+      expect(saved?.activityAssessment?.rubric.maximumScore, 30);
+      expect(saved?.activityAssessment?.recordingDurationSeconds, 60);
+    },
+  );
+
+  testWidgets(
+    'reselecting the original Activity deliberately uses its current revision',
+    (tester) async {
+      final first = await createTeacherMovement();
+      final assignment = await service().create(
+        group: group,
+        teacherCreatedMovement: first,
+      );
+      final advanced = await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: first.id,
+        title: first.title,
+        instructions: 'The original Activity is now v2.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final second = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Replacement activity',
+        instructions: 'Use the replacement activity.',
+        requiredProp: TrainingProp.shaker,
+      );
+
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: _MaterialRepository(),
+      );
+      await tester.ensureVisible(
+        find.byKey(Key('teacher_assignment_select_${second.id}')),
+      );
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_select_${second.id}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(Key('teacher_assignment_select_${first.id}')),
+      );
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_select_${first.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await assignments.getAssignment(
+        assignmentId: assignment.id,
+      );
+      expect(saved?.movementId, first.id);
+      expect(saved?.revisionId, advanced.currentRevisionId);
+    },
+  );
+
+  testWidgets(
+    'an active assignment with trainee work cannot use the latest Activity version',
+    (tester) async {
+      assignments = _TraineeWorkAssignments(groupRepository: groups);
+      final activity = await createTeacherMovement();
+      final assignment = await service().create(
+        group: group,
+        teacherCreatedMovement: activity,
+      );
+      await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: activity.id,
+        title: activity.title,
+        instructions: 'The reusable Activity is now v2.',
+        requiredProp: TrainingProp.bottle,
+      );
+
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: _MaterialRepository(),
+      );
+
+      expect(
+        find.byKey(const Key('teacher_assignment_use_latest_revision')),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('trainee work already exists'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'an archived pinned Activity remains editable without becoming a new choice',
+    (tester) async {
+      final activity = await createTeacherMovement();
+      final assignment = await service().create(
+        group: group,
+        teacherCreatedMovement: activity,
+      );
+      await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: activity.id,
+        title: activity.title,
+        instructions: 'The archived Activity is now on a newer revision.',
+        requiredProp: TrainingProp.bottle,
+      );
+      await movements.archiveMovement(
+        teacherId: 'teacher-1',
+        movementId: activity.id,
+      );
+
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: _MaterialRepository(),
+      );
+
+      expect(
+        find.byKey(Key('teacher_assignment_custom_${activity.id}')),
+        findsOneWidget,
+      );
+      expect(find.text('Balance the tin upright.'), findsWidgets);
+      expect(
+        find.text('The archived Activity is now on a newer revision.'),
+        findsNothing,
+      );
+      await tester.enterText(
+        find.byKey(const Key('teacher_assignment_topic')),
+        'Archived activity safe edit',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await assignments.getAssignment(
+        assignmentId: assignment.id,
+      );
+      expect(saved?.movementId, activity.id);
+      expect(saved?.revisionId, assignment.revisionId);
+      expect(saved?.topic, 'Archived activity safe edit');
+    },
+  );
+
+  testWidgets(
+    'an archived Activity is not listed when creating a new assignment',
+    (tester) async {
+      final activity = await createTeacherMovement();
+      await movements.archiveMovement(
+        teacherId: 'teacher-1',
+        movementId: activity.id,
+      );
+
+      await pumpComposer(tester, creationService: service());
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_source_mine')),
+      );
+      await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(Key('teacher_assignment_custom_${activity.id}')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_empty_movement_state')),
+        findsOneWidget,
+      );
     },
   );
 

@@ -71,6 +71,26 @@ void main() {
       ).code,
       ClassroomError.attemptLimitConflict,
     );
+
+    final traineeWork = classroomFunctionFailure(
+      statusCode: 409,
+      responseBody: {'error': 'trainee_work_exists'},
+    );
+    expect(traineeWork.code, ClassroomError.invalidState);
+    expect(
+      traineeWork.message,
+      'This assignment already has trainee work, so movement, audience, attempts, and scoring can no longer be changed.',
+    );
+
+    final invalidPublication = classroomFunctionFailure(
+      statusCode: 409,
+      responseBody: {'error': 'invalid_publication'},
+    );
+    expect(invalidPublication.code, ClassroomError.invalidState);
+    expect(
+      invalidPublication.message,
+      'The due date must be later than the scheduled publication time.',
+    );
   });
 
   test('unknown non-success Function responses fail closed', () {
