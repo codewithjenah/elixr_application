@@ -36,6 +36,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   String? lastDisplayTitle;
   String? lastDisplayInstructions;
   String? lastDisplaySafetyGuidance;
+  DateTime? lastPublishAt;
 
   @override
   Future<GroupAssignment> createOfficialAssignment({
@@ -55,6 +56,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     officialCalls++;
     lastAudience = audience;
     lastAllowedProp = allowedProp;
+    lastPublishAt = publishAt;
     final gate = createGate;
     if (gate != null) await gate.future;
     return super.createOfficialAssignment(
@@ -94,6 +96,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     teacherCreatedCalls++;
     lastAudience = audience;
     lastActivityAssessment = activityAssessment;
+    lastPublishAt = publishAt;
     lastDisplayTitle = displayTitle;
     lastDisplayInstructions = displayInstructions;
     lastDisplaySafetyGuidance = displaySafetyGuidance;
@@ -541,6 +544,105 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  Future<DateTime> scheduleAt(
+    WidgetTester tester, {
+    required int hour,
+    required int minute,
+    required String period,
+  }) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    final date = tester
+        .widget<DatePicker>(
+          find.byKey(const Key('teacher_assignment_publish_date')),
+        )
+        .selected!;
+    final hourBox = tester.widget<ComboBox<int>>(
+      find.byKey(const Key('teacher_assignment_publish_hour')),
+    );
+    expect(
+      hourBox.items!.map((item) => item.value),
+      orderedEquals(List<int>.generate(12, (index) => index + 1)),
+    );
+    expect(find.textContaining('Manila'), findsNothing);
+    hourBox.onChanged!(hour);
+    await tester.pump();
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_assignment_publish_period')),
+        )
+        .onChanged!(period);
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('teacher_assignment_publish_minute')),
+        )
+        .onChanged!(minute);
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_schedule')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_schedule')));
+    await tester.pumpAndSettle();
+
+    final publishAt = assignments.lastPublishAt;
+    expect(publishAt, isNotNull);
+    final displayedCivilTime = publishAt!.toUtc().add(
+      const Duration(hours: 8),
+    );
+    final expectedHour = switch (period) {
+      'AM' => hour == 12 ? 0 : hour,
+      _ => hour == 12 ? 12 : hour + 12,
+    };
+    expect(displayedCivilTime.year, date.year);
+    expect(displayedCivilTime.month, date.month);
+    expect(displayedCivilTime.day, date.day);
+    expect(displayedCivilTime.hour, expectedHour);
+    expect(displayedCivilTime.minute, minute);
+    return publishAt;
+  }
+
+  testWidgets('scheduled publication converts 12:00 AM to hour zero', (
+    tester,
+  ) async {
+    final midnight = await scheduleAt(
+      tester,
+      hour: 12,
+      minute: 0,
+      period: 'AM',
+    );
+    expect(midnight.toUtc().add(const Duration(hours: 8)).hour, 0);
+  });
+
+  testWidgets('scheduled publication converts 12:00 PM to hour twelve', (
+    tester,
+  ) async {
+    final noon = await scheduleAt(
+      tester,
+      hour: 12,
+      minute: 0,
+      period: 'PM',
+    );
+    expect(noon.toUtc().add(const Duration(hours: 8)).hour, 12);
+  });
+
+  testWidgets('scheduled publication converts 1:30 PM to hour thirteen', (
+    tester,
+  ) async {
+    final afternoon = await scheduleAt(
+      tester,
+      hour: 1,
+      minute: 30,
+      period: 'PM',
+    );
+    final afternoonCivil = afternoon.toUtc().add(const Duration(hours: 8));
+    expect(afternoonCivil.hour, 13);
+    expect(afternoonCivil.minute, 30);
+  });
 
   testWidgets('invalid maximum score disables the create action', (
     tester,

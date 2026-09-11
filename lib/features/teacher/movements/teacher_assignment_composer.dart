@@ -410,6 +410,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   DateTime _publicationDate = _manilaCivilDateNow().add(
     const Duration(days: 1),
   );
+  // The persisted publication instant is built from this local civil hour.
+  // The schedule controls convert to and from this 24-hour value.
   int _publicationHour = 9;
   int _publicationMinute = 0;
   bool _submitting = false;
@@ -1352,21 +1354,31 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             eyebrow: 'PUBLICATION',
             title: 'Choose how trainees receive it',
             description:
-                'Save a private draft, publish now, or set a Manila date and time.',
+                'Save a private draft, publish now, or choose when it should go live.',
           ),
           if (!_isEditing) const SizedBox(height: AppSpacing.lg),
           if (!_isEditing)
             _PublicationScheduleField(
               date: _publicationDate,
-              hour: _publicationHour,
+              hour24: _publicationHour,
               minute: _publicationMinute,
               enabled: !_submitting,
               onDateChanged: (value) =>
                   setState(() => _publicationDate = value),
-              onHourChanged: (value) =>
-                  setState(() => _publicationHour = value),
+              onHourChanged: (value) => setState(
+                () => _publicationHour = _hour24From12(
+                  value,
+                  _periodForHour24(_publicationHour),
+                ),
+              ),
               onMinuteChanged: (value) =>
                   setState(() => _publicationMinute = value),
+              onPeriodChanged: (value) => setState(
+                () => _publicationHour = _hour24From12(
+                  _hour12From24(_publicationHour),
+                  value,
+                ),
+              ),
             ),
         ],
         if (_movementLoadError != null && _classroomScoped) ...[
@@ -2652,7 +2664,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (action == _PublicationAction.schedule) {
       final publishAt = _scheduledPublishAt;
       if (!publishAt.isAfter(DateTime.now().toUtc())) {
-        return 'Choose a future Manila publication date and time.';
+        return 'Choose a future publication date and time.';
       }
       if (_dueAt != null && !_dueAt!.toUtc().isAfter(publishAt)) {
         return 'The due date must be later than the scheduled publication time.';
@@ -4479,85 +4491,128 @@ class _AssignmentActionFooter extends StatelessWidget {
 class _PublicationScheduleField extends StatelessWidget {
   const _PublicationScheduleField({
     required this.date,
-    required this.hour,
+    required this.hour24,
     required this.minute,
     required this.enabled,
     required this.onDateChanged,
     required this.onHourChanged,
     required this.onMinuteChanged,
+    required this.onPeriodChanged,
   });
 
   final DateTime date;
-  final int hour;
+  final int hour24;
   final int minute;
   final bool enabled;
   final ValueChanged<DateTime> onDateChanged;
   final ValueChanged<int> onHourChanged;
   final ValueChanged<int> onMinuteChanged;
+  final ValueChanged<String> onPeriodChanged;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('Schedule time (Manila)', style: AppTheme.body),
-      const SizedBox(height: AppSpacing.sm),
-      ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: DatePicker(
-          key: const Key('teacher_assignment_publish_date'),
-          selected: date,
-          onChanged: enabled ? onDateChanged : null,
+  Widget build(BuildContext context) {
+    final hour12 = _hour12From24(hour24);
+    final period = _periodForHour24(hour24);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Schedule time', style: AppTheme.body),
+        const SizedBox(height: AppSpacing.sm),
+        Text('Date', style: AppTheme.bodySecondary),
+        const SizedBox(height: AppSpacing.xs),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: DatePicker(
+            key: const Key('teacher_assignment_publish_date'),
+            selected: date,
+            onChanged: enabled ? onDateChanged : null,
+          ),
         ),
-      ),
-      const SizedBox(height: AppSpacing.sm),
-      Row(
-        children: [
-          SizedBox(
-            width: 130,
-            child: ComboBox<int>(
-              key: const Key('teacher_assignment_publish_hour'),
-              value: hour,
-              isExpanded: true,
-              placeholder: const Text('Hour'),
-              items: [
-                for (var value = 0; value < 24; value++)
-                  ComboBoxItem(
-                    value: value,
-                    child: Text(value.toString().padLeft(2, '0')),
-                  ),
-              ],
-              onChanged: enabled
-                  ? (value) {
-                      if (value != null) onHourChanged(value);
-                    }
-                  : null,
+        const SizedBox(height: AppSpacing.sm),
+        Text('Time', style: AppTheme.bodySecondary),
+        const SizedBox(height: AppSpacing.xs),
+        Row(
+          children: [
+            Expanded(
+              child: _scheduleTimePart(
+                label: 'Hour',
+                child: ComboBox<int>(
+                  key: const Key('teacher_assignment_publish_hour'),
+                  value: hour12,
+                  isExpanded: true,
+                  placeholder: const Text('Hour'),
+                  items: [
+                    for (var value = 1; value <= 12; value++)
+                      ComboBoxItem(value: value, child: Text(value.toString())),
+                  ],
+                  onChanged: enabled
+                      ? (value) {
+                          if (value != null) onHourChanged(value);
+                        }
+                      : null,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          SizedBox(
-            width: 130,
-            child: ComboBox<int>(
-              key: const Key('teacher_assignment_publish_minute'),
-              value: minute,
-              isExpanded: true,
-              placeholder: const Text('Minute'),
-              items: const [
-                ComboBoxItem(value: 0, child: Text('00')),
-                ComboBoxItem(value: 15, child: Text('15')),
-                ComboBoxItem(value: 30, child: Text('30')),
-                ComboBoxItem(value: 45, child: Text('45')),
-              ],
-              onChanged: enabled
-                  ? (value) {
-                      if (value != null) onMinuteChanged(value);
-                    }
-                  : null,
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: _scheduleTimePart(
+                label: 'Minute',
+                child: ComboBox<int>(
+                  key: const Key('teacher_assignment_publish_minute'),
+                  value: minute,
+                  isExpanded: true,
+                  placeholder: const Text('Minute'),
+                  items: const [
+                    ComboBoxItem(value: 0, child: Text('00')),
+                    ComboBoxItem(value: 15, child: Text('15')),
+                    ComboBoxItem(value: 30, child: Text('30')),
+                    ComboBoxItem(value: 45, child: Text('45')),
+                  ],
+                  onChanged: enabled
+                      ? (value) {
+                          if (value != null) onMinuteChanged(value);
+                        }
+                      : null,
+                ),
+              ),
             ),
-          ),
-        ],
-      ),
-    ],
-  );
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: _scheduleTimePart(
+                label: 'AM / PM',
+                child: ComboBox<String>(
+                  key: const Key('teacher_assignment_publish_period'),
+                  value: period,
+                  isExpanded: true,
+                  items: const [
+                    ComboBoxItem(value: 'AM', child: Text('AM')),
+                    ComboBoxItem(value: 'PM', child: Text('PM')),
+                  ],
+                  onChanged: enabled
+                      ? (value) {
+                          if (value != null) onPeriodChanged(value);
+                        }
+                      : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _scheduleTimePart({required String label, required Widget child}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTheme.caption),
+        const SizedBox(height: AppSpacing.xs),
+        child,
+      ],
+    );
+  }
 }
 
 class _SummaryItem extends StatelessWidget {
@@ -4612,6 +4667,24 @@ class _SummaryItem extends StatelessWidget {
     );
   }
 }
+
+int _hour24From12(int hour12, String period) {
+  final normalizedHour = hour12 < 1
+      ? 1
+      : hour12 > 12
+      ? 12
+      : hour12;
+  return (normalizedHour == 12 ? 0 : normalizedHour) +
+      (period == 'PM' ? 12 : 0);
+}
+
+int _hour12From24(int hour24) {
+  final normalizedHour = hour24 % 24;
+  if (normalizedHour == 0) return 12;
+  return normalizedHour > 12 ? normalizedHour - 12 : normalizedHour;
+}
+
+String _periodForHour24(int hour24) => hour24 % 24 >= 12 ? 'PM' : 'AM';
 
 DateTime _manilaCivilDateNow() {
   final manila = DateTime.now().toUtc().add(const Duration(hours: 8));
