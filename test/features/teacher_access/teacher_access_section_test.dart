@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:elixr_application/core/constants/app_spacing.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
@@ -502,6 +503,122 @@ void main() {
     await tester.tap(find.byKey(Key('teacher_access_group_${groupA.id}')));
     await tester.pump();
     expect(openedGroupId, groupA.id);
+  });
+
+  testWidgets('approved cards keep teacher grid slots and classroom metadata', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final active = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final withMetadata = await groupRepository.createGroupWithDetails(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT 3A',
+      section: 'Section B',
+      schedule: 'MWF 2:30–4:00 PM',
+    );
+    for (final group in [active, withMetadata]) {
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      final membership = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+    }
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+
+    final expectedWideCardWidth = (1280 - AppSpacing.md * 2) / 3;
+    expect(
+      tester
+          .getSize(find.byKey(Key('teacher_access_group_${active.id}')))
+          .width,
+      closeTo(expectedWideCardWidth, 0.1),
+    );
+    expect(
+      tester
+          .getSize(find.byKey(Key('teacher_access_group_${withMetadata.id}')))
+          .width,
+      closeTo(expectedWideCardWidth, 0.1),
+    );
+    expect(find.text('Active'), findsOneWidget);
+    expect(find.text('Section B · MWF 2:30–4:00 PM'), findsOneWidget);
+  });
+
+  testWidgets('approved card grid follows the teacher 3/2/1 breakpoints', (
+    tester,
+  ) async {
+    final groups = <ElixrGroup>[];
+    for (var index = 1; index <= 3; index++) {
+      groups.add(
+        await groupRepository.createGroup(
+          teacherId: 'teacher-1',
+          teacherDisplayName: 'Grace Hopper',
+          name: 'Class $index',
+        ),
+      );
+    }
+    for (final group in groups) {
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      final membership = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+    }
+
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+
+    Finder card(String id) => find.byKey(Key('teacher_access_group_$id'));
+    expect(tester.getSize(card(groups.first.id)).width, closeTo(416, 0.1));
+
+    tester.view.physicalSize = const Size(900, 900);
+    await tester.pump();
+    expect(tester.getSize(card(groups.first.id)).width, closeTo(442, 0.1));
+    expect(
+      tester.getRect(card(groups[2].id)).top,
+      greaterThan(tester.getRect(card(groups.first.id)).top),
+    );
+
+    tester.view.physicalSize = const Size(700, 900);
+    await tester.pump();
+    expect(tester.getSize(card(groups.first.id)).width, closeTo(700, 0.1));
+    expect(tester.getSize(card(groups[1].id)).width, closeTo(700, 0.1));
   });
 
   testWidgets('approved class card displays the teacher profile picture', (

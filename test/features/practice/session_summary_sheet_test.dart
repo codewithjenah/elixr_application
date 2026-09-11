@@ -774,7 +774,14 @@ void main() {
       expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(_primaryButton, findsOneWidget);
       expect(find.text('What Went Well'), findsOneWidget);
-      expect(find.text('Focus Next'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              (widget.data == 'Focus Next' || widget.data == 'Keep It Going'),
+        ),
+        findsOneWidget,
+      );
       if (expectRecommendation) {
         expect(find.text('Recommended Next Session'), findsOneWidget);
       }
@@ -1398,7 +1405,8 @@ void main() {
         findsOneWidget,
       );
       expect(result, isNull);
-      expect(find.text("Next: Bartender's Grip"), findsOneWidget);
+      expect(find.text('Retry Save'), findsOneWidget);
+      expect(find.text("Next: Bartender's Grip"), findsNothing);
 
       final primaryAfterFailure = tester.widget<GameActionButton>(
         _primaryButton,
@@ -1406,7 +1414,7 @@ void main() {
       expect(primaryAfterFailure.isLoading, isFalse);
       expect(primaryAfterFailure.onPressed, isNotNull);
 
-      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
+      await tester.tap(_primaryButtonLabeled('Retry Save'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       tester.takeException();

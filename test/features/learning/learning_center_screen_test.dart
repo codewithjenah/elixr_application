@@ -170,7 +170,7 @@ void main() {
       await tester.pumpWidget(
         _wrapLearning(
           FluentApp(theme: AppTheme.dark, home: const LearningCenterScreen()),
-          level: 5,
+          level: 6,
         ),
       );
       await tester.pumpAndSettle();
@@ -178,7 +178,7 @@ void main() {
       expect(find.text('Hand Stall'), findsOneWidget);
       expect(find.text('Locked Movement'), findsWidgets);
       expect(find.text('Learn'), findsWidgets);
-      expect(find.text('Cocktail Shaker · Locked · Level 6'), findsOneWidget);
+      expect(find.text('Cocktail Shaker · Locked · Level 7'), findsOneWidget);
       expect(find.text('One Finger Stall'), findsNothing);
     },
   );

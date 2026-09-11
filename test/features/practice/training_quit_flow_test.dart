@@ -22,6 +22,7 @@ import 'package:elixr_application/services/websocket_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -267,6 +268,25 @@ void main() {
     expect(find.text('movements-destination'), findsOneWidget);
     expect(ws.stopCalls, 0);
   });
+
+  testWidgets(
+    'keyboard Back on idle Movement Practice leaves without confirmation or save',
+    (tester) async {
+      await pumpPractice(tester);
+      final backIcon = find.descendant(
+        of: _backButton(),
+        matching: find.byIcon(FluentIcons.chrome_back),
+      );
+      expect(backIcon, findsOneWidget);
+      Focus.of(tester.element(backIcon)).requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.text('movements-destination'), findsOneWidget);
+      expect(find.text('Quit training?'), findsNothing);
+      expect(ws.stopCalls, 0);
+    },
+  );
 
   testWidgets(
     'started Movement Practice Back confirms, keep leaves session intact',

@@ -387,11 +387,13 @@ class _HeroActionButton extends StatefulWidget {
 
 class _HeroActionButtonState extends State<_HeroActionButton> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     final colors = context.elixColors;
+    final showFocusRing = _focused;
     final decoration = BoxDecoration(
       borderRadius: BorderRadius.circular(11),
       gradient: widget.primary && !highContrast
@@ -406,7 +408,14 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
           : (highContrast
                 ? colors.surfaceRaised
                 : Colors.white.withValues(alpha: _hovered ? 0.14 : 0.07)),
-      border: widget.primary && !highContrast
+      border: showFocusRing
+          ? Border.all(
+              color: colors.focusRing,
+              width: highContrast
+                  ? ElixFocus.ringWidthHighContrast
+                  : ElixFocus.ringWidth,
+            )
+          : widget.primary && !highContrast
           ? null
           : Border.all(
               color: highContrast
@@ -476,11 +485,27 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
             child: button,
           );
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(onTap: widget.onPressed, child: child),
+    return Semantics(
+      button: true,
+      label: widget.label,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        onShowHoverHighlight: (hovered) {
+          setState(() => _hovered = hovered);
+        },
+        onShowFocusHighlight: (focused) {
+          setState(() => _focused = focused);
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onPressed();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(onTap: widget.onPressed, child: child),
+      ),
     );
   }
 }

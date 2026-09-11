@@ -622,6 +622,7 @@ class _GameActionButtonState extends State<GameActionButton> {
 
   bool _hovering = false;
   bool _pressed = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
@@ -640,97 +641,101 @@ class _GameActionButtonState extends State<GameActionButton> {
       button: true,
       enabled: enabled,
       label: widget.label,
-      child: Focus(
-        child: Builder(
-          builder: (context) {
-            final focused = Focus.of(context).hasFocus;
-            return MouseRegion(
-              cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-              onEnter: (_) => setState(() => _hovering = true),
-              onExit: (_) => setState(() {
-                _hovering = false;
-                _pressed = false;
-              }),
-              child: GestureDetector(
-                onTapDown: (_) => setState(() => _pressed = true),
-                onTapUp: (_) => setState(() => _pressed = false),
-                onTapCancel: () => setState(() => _pressed = false),
-                onTap: enabled ? widget.onPressed : null,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  height: 54,
-                  transform: Matrix4.translationValues(
-                    0,
-                    _hovering && enabled && !_pressed ? -1.5 : 0,
-                    0,
-                  ),
-                  decoration: _buildDecoration(
-                    enabled: enabled,
-                    focused: focused,
-                    isDark: isDark,
-                  ),
-                  child: widget.isLoading
-                      ? Center(
-                          child: SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: ProgressRing(
-                              strokeWidth: 3,
-                              activeColor: widget.danger
-                                  ? AppColors.error
-                                  : Colors.white,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              if (!enabled) return null;
+              widget.onPressed?.call();
+              return null;
+            },
+          ),
+        },
+        child: MouseRegion(
+          cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+          onEnter: (_) => setState(() => _hovering = true),
+          onExit: (_) => setState(() {
+            _hovering = false;
+            _pressed = false;
+          }),
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTap: enabled ? widget.onPressed : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              height: 54,
+              transform: Matrix4.translationValues(
+                0,
+                _hovering && enabled && !_pressed ? -1.5 : 0,
+                0,
+              ),
+              decoration: _buildDecoration(
+                enabled: enabled,
+                focused: _focused,
+                isDark: isDark,
+              ),
+              child: widget.isLoading
+                  ? Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: ProgressRing(
+                          strokeWidth: 3,
+                          activeColor: widget.danger
+                              ? AppColors.error
+                              : Colors.white,
+                        ),
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        SizedBox(
+                          width: _kIconLaneWidth,
+                          child: Center(
+                            child: AnimatedSlide(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutCubic,
+                              offset: Offset(
+                                _hovering &&
+                                        enabled &&
+                                        !_pressed &&
+                                        !MediaQuery.disableAnimationsOf(context)
+                                    ? 0.14
+                                    : 0,
+                                0,
+                              ),
+                              child: Icon(
+                                widget.icon,
+                                size: _kIconSize,
+                                color: iconColor,
+                              ),
                             ),
                           ),
-                        )
-                      : Row(
-                          children: [
-                            SizedBox(
-                              width: _kIconLaneWidth,
-                              child: Center(
-                                child: AnimatedSlide(
-                                  duration: const Duration(milliseconds: 180),
-                                  curve: Curves.easeOutCubic,
-                                  offset: Offset(
-                                    _hovering &&
-                                            enabled &&
-                                            !_pressed &&
-                                            !MediaQuery.disableAnimationsOf(
-                                              context,
-                                            )
-                                        ? 0.14
-                                        : 0,
-                                    0,
-                                  ),
-                                  child: Icon(
-                                    widget.icon,
-                                    size: _kIconSize,
-                                    color: iconColor,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                widget.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                softWrap: false,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: labelColor,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: _kIconLaneWidth),
-                          ],
                         ),
-                ),
-              ),
-            );
-          },
+                        Expanded(
+                          child: Text(
+                            widget.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: labelColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: _kIconLaneWidth),
+                      ],
+                    ),
+            ),
+          ),
         ),
       ),
     );

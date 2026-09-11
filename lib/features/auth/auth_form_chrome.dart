@@ -425,26 +425,82 @@ class _AuthLegalConsentState extends State<AuthLegalConsent> {
                       child: Text('I agree to the ', style: plainStyle),
                     ),
                   ),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: () => context.push(AppRoutePaths.privacyPolicy),
-                      child: Text('Privacy Policy', style: linkStyle),
-                    ),
+                  _AuthLegalTextLink(
+                    label: 'Privacy Policy',
+                    style: linkStyle,
+                    route: AppRoutePaths.privacyPolicy,
                   ),
                   Text(' and ', style: plainStyle),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: () => context.push(AppRoutePaths.termsOfService),
-                      child: Text('Terms of Service', style: linkStyle),
-                    ),
+                  _AuthLegalTextLink(
+                    label: 'Terms of Service',
+                    style: linkStyle,
+                    route: AppRoutePaths.termsOfService,
                   ),
                   Text('.', style: plainStyle),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthLegalTextLink extends StatefulWidget {
+  const _AuthLegalTextLink({
+    required this.label,
+    required this.style,
+    required this.route,
+  });
+
+  final String label;
+  final TextStyle style;
+  final String route;
+
+  @override
+  State<_AuthLegalTextLink> createState() => _AuthLegalTextLinkState();
+}
+
+class _AuthLegalTextLinkState extends State<_AuthLegalTextLink> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    final highContrast = context.isHighContrast;
+    return Semantics(
+      button: true,
+      label: widget.label,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        onShowFocusHighlight: (focused) {
+          setState(() => _focused = focused);
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              context.push(widget.route);
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          onTap: () => context.push(widget.route),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: _focused ? colors.focusRing : const Color(0x00000000),
+                width: _focused
+                    ? (highContrast
+                          ? ElixFocus.ringWidthHighContrast
+                          : ElixFocus.ringWidth)
+                    : 1,
+              ),
+            ),
+            child: Text(widget.label, style: widget.style),
+          ),
         ),
       ),
     );

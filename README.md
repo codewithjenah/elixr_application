@@ -925,6 +925,27 @@ Generated code is not considered complete merely because it compiles or looks pl
 - Windows pilot packaging is provided by `scripts/build_pilot.ps1`.
 - Custom model retraining is outside the application runtime.
 
+## Thesis / controlled-pilot readiness vs commercial production
+
+This repository is intended for thesis defense and a supervised classroom pilot. It is **not** a commercially hardened production system.
+
+**What the current mainline can claim when verification is green**
+
+- Critical trainee and teacher desktop workflows have automated coverage for protocol correlation, duplicate commands, stale-session frames, and Firestore/Storage authorization denials.
+- Every currently enabled catalog movement is listed in [`docs/session_coaching_phase_c_validation.md`](docs/session_coaching_phase_c_validation.md). Physical camera/movement rows stay unchecked until a human with a webcam marks them. CI must never be treated as a passing camera result.
+- Teacher access to trainee progress, evidence, assignments, and classroom data is enforced in `firestore.rules` / `storage.rules` using current authorized relationships (`isTeacherClaim`, approved membership, progress/evidence grants). UI hiding is not the security boundary.
+- Daily quest XP is awarded only by the trusted `claimDailyQuest` Function. Session XP uses an idempotent processed-session marker.
+
+**Honest limitations that remain in-scope for a capstone, not a hostile-client product**
+
+- Authenticated clients still create Assessment V2 session documents. Personal session creates now also require catalog `prop_type` (`officialMovementSupportsProp`), `Easy`/`Medium`/`Hard`, and `duration_seconds` in `0..86400`. Assignment and class-challenge session creates keep the cheaper duration/difficulty/prop-enum bounds because those writes already evaluate a larger rules graph (Firestore's 1000-expression limit). Rules still cannot attest that a webcam produced the rubric values. A modified client can fabricate a structurally valid official session and thereby gain session XP and quest evidence. This is **not** solved by adding Firebase App Check: FlutterFire App Check does not support Windows desktop, and App Check would not make client-written assessment values server-authoritative.
+- Leaderboard aggregates remain client-written transactions appropriate for a controlled lab, not a trusted ranking service.
+- Achievement completion is client-evaluated; rewards are cosmetic borders with no XP.
+- MediaPipe Hands uses a synthetic `+= 33` VIDEO timestamp only to keep landmarker timestamps strictly increasing. Hold duration, rubric timing, and the on-screen elapsed timer use `time.monotonic()` in the vision session, not that helper.
+- The standalone Android `teacher_app` was removed after Windows Teacher-shell parity (Phase 8). Do not restore it. Teacher workflows live in this Windows client.
+
+Manual camera characterization, Firebase production deployment, and Windows installer signing remain **Not verified** unless a human has actually performed those checks.
+
 ## License
 
 No license file is currently present. Add an explicit license before treating the repository as reusable open-source software.

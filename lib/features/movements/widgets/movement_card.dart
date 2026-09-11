@@ -794,7 +794,24 @@ class _MovementCardState extends State<MovementCard>
 
     if (chips.isEmpty) return null;
 
-    return Wrap(spacing: 6, runSpacing: 4, children: chips);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxChipWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : double.infinity;
+        return Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            for (final chip in chips)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxChipWidth),
+                child: chip,
+              ),
+          ],
+        );
+      },
+    );
   }
 
   String _emojiForProp(TrainingProp prop) {
@@ -921,12 +938,16 @@ class _MetaChip extends StatelessWidget {
         children: [
           Icon(icon, size: 10, color: color),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: color,
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],

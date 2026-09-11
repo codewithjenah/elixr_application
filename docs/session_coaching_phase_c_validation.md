@@ -20,14 +20,22 @@ For each enabled movement, complete one scored-practice session and check every 
 | Bartender's Grip | Easy | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Reverse Grip | Easy | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Claw Grip | Easy | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Body Grip | Easy | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Hand Stall | Medium | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Hand Stall | Medium | Cocktail Shaker | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | One Finger Stall | Medium | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| One Finger Stall | Medium | Cocktail Shaker | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Forearm Stall | Medium | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Forearm Stall | Medium | Cocktail Shaker | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Elbow Stall | Medium | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Elbow Stall | Medium | Cocktail Shaker | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Wrist Stall | Medium | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Wrist Stall | Medium | Cocktail Shaker | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Reverse Forearm Stall | Hard | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Shoulder Stall | Hard | Bottle | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Double Hand Stall | Hard | Two bottles | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Bottle in a tin | Hard | Bottle + Cocktail Shaker | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Double Forearm Stall | Hard | Two bottles | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 
 **How to interpret columns**
 
@@ -46,13 +54,14 @@ For each enabled movement, complete one scored-practice session and check every 
 
 | Scenario | Movement / setup | Pass |
 | --- | --- | --- |
-| One Easy movement (deeper) | e.g. Normal Grip — mixed technique warnings + confirmed hold | [ ] |
-| One Medium movement (deeper) | e.g. Hand Stall — form + hold progression | [ ] |
-| One Hard movement (deeper) | e.g. Shoulder Stall or Bottle in a tin | [ ] |
+| One Easy movement (deeper) | e.g. Normal Grip or Body Grip — mixed technique warnings + confirmed hold | [ ] |
+| One Medium movement (deeper) | e.g. Hand Stall or Wrist Stall — form + hold progression | [ ] |
+| One Hard movement (deeper) | e.g. Shoulder Stall, Bottle in a tin, or Double Forearm Stall | [ ] |
 | Bottle-only movement | Normal Grip (or Claw / Reverse) | [ ] |
 | Bottle + Cocktail Shaker movement | Bottle in a tin | [ ] |
 | Hand Stall with Cocktail Shaker | Hand Stall prop = Cocktail Shaker; wording uses shaker, codes stay prop-neutral | [ ] |
-| Double Hand Stall | Two bottles, both palms | [ ] |
+| Wrist Stall with Cocktail Shaker | Wrist Stall prop = Cocktail Shaker; wording uses shaker, codes stay prop-neutral | [ ] |
+| Double Forearm Stall | Two bottles, one per forearm | [ ] |
 | Confirmed session | Any enabled movement with sticky hold confirmation | [ ] |
 | Unconfirmed session | Stop before confirmation; partial progress/duration wording if eligible | [ ] |
 | Prop leaving the frame | Environment/visibility feedback; excluded from technique coaching | [ ] |

@@ -326,7 +326,7 @@ void main() {
         ),
       );
       expect(find.text('Hand Stall'), findsNothing);
-      expect(find.text('Unlocks at Level 5'), findsOneWidget);
+      expect(find.text('Unlocks at Level 6'), findsOneWidget);
 
       await tester.pumpWidget(
         wrapWithProgression(
@@ -338,13 +338,13 @@ void main() {
               averageRubricTotal: null,
             ),
           ),
-          level: 5,
+          level: 6,
         ),
       );
       await tester.pump();
       expect(find.text('Hand Stall'), findsOneWidget);
       expect(find.text('Learn first'), findsOneWidget);
-      expect(find.text('Locked · Level 6'), findsOneWidget);
+      expect(find.text('Locked · Level 7'), findsOneWidget);
     });
 
     testWidgets('loading progression does not mystery-hide a movement', (
@@ -955,7 +955,7 @@ void main() {
 
   group('MovementDifficultySection', () {
     testWidgets(
-      'balances four cards into two centered rows when three would orphan one',
+      'four cards share one compact catalog row when four columns fit',
       (tester) async {
         await setSurface(tester, const Size(1280, 1200));
         await tester.pumpWidget(
@@ -1014,20 +1014,11 @@ void main() {
         ];
 
         expect(positions[0].dy, closeTo(positions[1].dy, 1));
-        expect(positions[0].dx, lessThan(positions[1].dx));
+        expect(positions[1].dy, closeTo(positions[2].dy, 1));
         expect(positions[2].dy, closeTo(positions[3].dy, 1));
-        expect(positions[2].dy, greaterThan(positions[0].dy));
-        expect(
-          (tester.getRect(third).center.dx + tester.getRect(fourth).center.dx) /
-              2,
-          closeTo(
-            tester
-                .getRect(find.byKey(const ValueKey('movement-grid')))
-                .center
-                .dx,
-            1,
-          ),
-        );
+        expect(positions[0].dx, lessThan(positions[1].dx));
+        expect(positions[1].dx, lessThan(positions[2].dx));
+        expect(positions[2].dx, lessThan(positions[3].dx));
         expect(
           positions[0].dy - tester.getRect(banner).bottom,
           greaterThanOrEqualTo(30),
@@ -1043,10 +1034,7 @@ void main() {
         for (final height in cardHeights.skip(1)) {
           expect(height, closeTo(cardHeights.first, 1));
         }
-        expect(
-          positions[2].dy - (positions[0].dy + cardHeights.first),
-          closeTo(32, 1),
-        );
+        await expectNoOverflow(tester);
       },
     );
 

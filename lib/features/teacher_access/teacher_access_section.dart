@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
-import '../../core/layout/balanced_card_grid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/date_time_format.dart';
@@ -27,7 +26,6 @@ const double _accessControlsBreakpoint = 900;
 const double _overviewStackBreakpoint = 560;
 const int _classroomSearchThreshold = 4;
 const double _workspaceMinHeight = 176;
-const double _singleClassroomCardMaxWidth = 460;
 
 /// Reusable Teacher Access body hosted by the trainee shell destination.
 class TeacherAccessSection extends StatefulWidget {
@@ -1139,7 +1137,6 @@ class _YourClassroomsSectionState extends State<_YourClassroomsSection> {
         const SizedBox(height: AppSpacing.md),
         _ApprovedClassesGrid(
           controller: widget.controller,
-          compact: widget.compact,
           memberships: _visibleMemberships,
           query: _query,
           onOpenClass: widget.onOpenClass,
@@ -1203,14 +1200,12 @@ class _ClassesHeading extends StatelessWidget {
 class _ApprovedClassesGrid extends StatelessWidget {
   const _ApprovedClassesGrid({
     required this.controller,
-    required this.compact,
     required this.memberships,
     required this.query,
     this.onOpenClass,
   });
 
   final TeacherAccessController controller;
-  final bool compact;
   final List<GroupMembership> memberships;
   final String query;
   final ValueChanged<String>? onOpenClass;
@@ -1233,22 +1228,15 @@ class _ApprovedClassesGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
+        final columns = width >= _accessWideBreakpoint
+            ? 3
+            : width >= _accessCompactBreakpoint
+            ? 2
+            : 1;
         final gap = AppSpacing.md;
-        final columns = compact
-            ? 1
-            : BalancedCardGrid.columnsFor(
-                availableWidth: width,
-                itemCount: memberships.length,
-                minCardWidth: 300,
-                maxColumns: width >= _accessWideBreakpoint ? 3 : 2,
-                spacing: gap,
-              );
-        final rawWidth = columns == 1
+        final cardWidth = columns == 1
             ? width
             : (width - gap * (columns - 1)) / columns;
-        final cardWidth = columns == 1
-            ? rawWidth.clamp(0.0, _singleClassroomCardMaxWidth)
-            : rawWidth;
         return Wrap(
           spacing: gap,
           runSpacing: gap,
@@ -1273,10 +1261,11 @@ class _ApprovedClassesGrid extends StatelessWidget {
                       sectionLabel: () {
                         final group =
                             controller.groupNamesById[membership.groupId];
-                        return [group?.section, group?.schedule]
+                        final classMetadata = [group?.section, group?.schedule]
                             .whereType<String>()
                             .where((value) => value.isNotEmpty)
                             .join(' · ');
+                        return classMetadata.isEmpty ? 'Active' : classMetadata;
                       }(),
                       assignmentCount: assignments
                           .where((assignment) => assignment.isActive)

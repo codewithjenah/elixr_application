@@ -345,6 +345,14 @@ service cloud.firestore {
           'performance_level'
         ])
         && !data.keys().hasAny(['score'])
+        && data.difficulty in ['Easy', 'Medium', 'Hard']
+        && isNonNegInt(data.duration_seconds)
+        && data.duration_seconds <= 86400
+        && data.prop_type in ['bottle', 'shaker', 'bottle_and_shaker']
+        && (
+          data.keys().hasAny(['assignment_context', 'challenge_context'])
+          || officialMovementSupportsProp(data.movement_name, data.prop_type)
+        )
         && validRubricMap(data.rubric)
         && isRubricTotal(data.rubric_total)
         && data.rubric_total

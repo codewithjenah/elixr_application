@@ -25,7 +25,7 @@ class GamificationRepository {
     HttpClient Function()? httpClientFactory,
     this.requestTimeout = const Duration(seconds: 12),
   }) : _injectedFirestore = firestore,
-       _auth = auth ?? FirebaseAuth.instance,
+       _injectedAuth = auth,
        apiBaseUri = apiBaseUri ?? Uri.parse(_configuredApiBaseUrl),
        _httpClientFactory = httpClientFactory ?? HttpClient.new;
 
@@ -35,13 +35,17 @@ class GamificationRepository {
   );
 
   final FirebaseFirestore? _injectedFirestore;
-  final FirebaseAuth _auth;
+  final FirebaseAuth? _injectedAuth;
   final Uri apiBaseUri;
   final HttpClient Function() _httpClientFactory;
   final Duration requestTimeout;
 
   FirebaseFirestore get _firestore =>
       _injectedFirestore ?? FirebaseFirestore.instance;
+
+  /// Lazily resolved so unit tests can subclass this repository without
+  /// constructing a Firebase app. Claim calls still require a real auth user.
+  FirebaseAuth get _auth => _injectedAuth ?? FirebaseAuth.instance;
 
   DocumentReference<Map<String, dynamic>> _boardRef(String boardId) =>
       _firestore.collection(FirestoreCollections.dailyQuestBoards).doc(boardId);

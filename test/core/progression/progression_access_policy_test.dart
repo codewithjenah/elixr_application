@@ -54,7 +54,7 @@ void main() {
     expect(
       evaluatePersonal(
         variant: handStallShaker,
-        currentLevel: 6,
+        currentLevel: 7,
         tutorialCompleted: false,
       ),
       ProgressionAccessResult.personalLearn,
@@ -62,7 +62,7 @@ void main() {
     expect(
       evaluatePersonal(
         variant: handStallShaker,
-        currentLevel: 6,
+        currentLevel: 7,
         tutorialCompleted: true,
       ),
       ProgressionAccessResult.personalReady,
@@ -163,10 +163,18 @@ void main() {
     expect(
       ready.any(
         (variant) =>
-            variant.movementName == 'Hand Stall' &&
+            variant.movementName == 'Body Grip' &&
             variant.trainingProp == TrainingProp.bottle,
       ),
       isTrue,
+    );
+    expect(
+      ready.any(
+        (variant) =>
+            variant.movementName == 'Hand Stall' &&
+            variant.trainingProp == TrainingProp.bottle,
+      ),
+      isFalse,
     );
     expect(
       ready.any(

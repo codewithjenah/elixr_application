@@ -20,6 +20,7 @@ import 'package:elixr_application/features/assigned_movements/assigned_movements
 import 'package:elixr_application/features/assigned_movements/assignment_detail_controller.dart';
 import 'package:elixr_application/features/assigned_movements/assignment_detail_screen.dart';
 import 'package:elixr_application/features/calendar/widgets/calendar_header.dart';
+import 'package:elixr_application/features/calendar/widgets/calendar_metric_tile.dart';
 import 'package:elixr_application/features/calendar/widgets/calendar_summary_cards.dart';
 import 'package:elixr_application/features/history/widgets/history_summary_section.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_podium.dart';
@@ -465,12 +466,13 @@ void main() {
       );
 
       expect(find.text('August 2026'), findsOneWidget);
-      expect(find.byType(ElixSummaryStatCard), findsNWidgets(9));
+      expect(find.byType(CalendarMetricTile), findsNWidgets(5));
+      expect(find.byType(ElixSummaryStatCard), findsNWidgets(4));
 
       final planned = tester.widget<Text>(find.text('2'));
-      expect(planned.style!.fontSize, 20);
+      expect(planned.style!.fontSize, 18);
       final streak = tester.widget<Text>(find.text('7'));
-      expect(streak.style!.fontSize, 20);
+      expect(streak.style!.fontSize, 18);
       expect(streak.style!.color, ElixSemanticColors.dark.textPrimary);
 
       final streakIcon = tester.widget<Icon>(
@@ -498,7 +500,7 @@ void main() {
     final chrome = tester.widget<AnimatedContainer>(
       find
           .descendant(
-            of: find.byType(ElixSummaryStatCard).first,
+            of: find.byType(CalendarMetricTile).first,
             matching: find.byType(AnimatedContainer),
           )
           .first,

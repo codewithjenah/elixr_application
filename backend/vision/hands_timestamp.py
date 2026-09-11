@@ -6,6 +6,11 @@ seconds). Integer milliseconds can collide when frames are closer than 1 ms
 or when the same captured frame is presented twice, so every strategy must
 return strictly increasing timestamps on one landmarker instance.
 
+These values exist only to satisfy MediaPipe's monotonically increasing
+VIDEO timestamp contract. Hold duration, rubric timing, and user-visible
+elapsed time must use ``time.monotonic()`` in ``VisionSession`` /
+``HoldValidator`` — never this clock.
+
 Reset only when the HandLandmarker is recreated. Do not reset on readiness
 → active reuse of the same detector.
 """

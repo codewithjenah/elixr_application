@@ -1026,6 +1026,69 @@ describe('official ELIXR movement XP gate', () => {
     );
   });
 
+  test('catalog prop, difficulty, and duration are required on session create', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'sessions', 'shaker-ok'),
+        { ...v2SessionDoc('Hand Stall'), prop_type: 'shaker' },
+      ),
+    );
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'sessions', 'combo-ok'),
+        {
+          ...v2SessionDoc('Bottle in a tin'),
+          difficulty: 'Hard',
+          prop_type: 'bottle_and_shaker',
+        },
+      ),
+    );
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'sessions', 'duration-cap-ok'),
+        { ...v2SessionDoc('Hand Stall'), duration_seconds: 86400 },
+      ),
+    );
+
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'grip-shaker'),
+        { ...v2SessionDoc('Normal Grip'), difficulty: 'Easy', prop_type: 'shaker' },
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'stall-combo'),
+        { ...v2SessionDoc('Hand Stall'), prop_type: 'bottle_and_shaker' },
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'tin-bottle'),
+        { ...v2SessionDoc('Bottle in a tin'), difficulty: 'Hard', prop_type: 'bottle' },
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'lowercase-difficulty'),
+        { ...v2SessionDoc('Hand Stall'), difficulty: 'easy' },
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'overlong'),
+        { ...v2SessionDoc('Hand Stall'), duration_seconds: 86401 },
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'negative-duration'),
+        { ...v2SessionDoc('Hand Stall'), duration_seconds: -1 },
+      ),
+    );
+  });
+
   test('Arm Stall create fails', async () => {
     const db = aliceDb();
     await assertFails(

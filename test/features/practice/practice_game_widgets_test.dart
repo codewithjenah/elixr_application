@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _panelButtonWidth = 338.0;
@@ -269,6 +270,63 @@ void main() {
       final buttonCenter = _buttonCenter(tester, const Key('ellipsis'));
       final labelCenter = _labelCenter(tester, 'Start Free Practice');
       _expectCentered(labelCenter.dx, buttonCenter.dx);
+    });
+  });
+
+  group('GameActionButton keyboard', () {
+    testWidgets('Enter and Space activate an enabled button', (tester) async {
+      var activations = 0;
+      await pumpButton(
+        tester,
+        width: _panelButtonWidth,
+        button: _button(
+          key: const Key('keyboard-start'),
+          label: 'Start Practice',
+          icon: FluentIcons.play_solid,
+          onPressed: () => activations++,
+        ),
+      );
+
+      Focus.of(tester.element(find.text('Start Practice'))).requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+
+      expect(activations, 2);
+    });
+
+    testWidgets('loading and disabled buttons ignore keyboard', (tester) async {
+      var loadingActivations = 0;
+      await pumpButton(
+        tester,
+        width: _panelButtonWidth,
+        button: _button(
+          key: const Key('keyboard-loading'),
+          label: 'Start Practice',
+          icon: FluentIcons.play_solid,
+          isLoading: true,
+          onPressed: () => loadingActivations++,
+        ),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      expect(loadingActivations, 0);
+
+      var disabledActivations = 0;
+      await pumpButton(
+        tester,
+        width: _panelButtonWidth,
+        button: const GameActionButton(
+          key: Key('keyboard-disabled'),
+          label: 'Start Practice',
+          icon: FluentIcons.play_solid,
+        ),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      expect(disabledActivations, 0);
     });
   });
 }

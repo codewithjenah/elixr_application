@@ -117,7 +117,7 @@ void main() {
   testWidgets('movement identity becomes visible at the required level', (
     tester,
   ) async {
-    await _pumpSection(tester, masteries: masteries, traineeLevel: 5);
+    await _pumpSection(tester, masteries: masteries, traineeLevel: 6);
 
     expect(find.text('Hand Stall'), findsOneWidget);
     expect(find.bySemanticsLabel('Movement image: Hand Stall'), findsOneWidget);

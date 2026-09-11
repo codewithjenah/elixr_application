@@ -140,6 +140,7 @@ class _HeaderBackButton extends StatefulWidget {
 class _HeaderBackButtonState extends State<_HeaderBackButton> {
   bool _hovering = false;
   bool _pressed = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
@@ -156,67 +157,70 @@ class _HeaderBackButtonState extends State<_HeaderBackButton> {
       label: 'Back',
       child: Tooltip(
         message: 'Back',
-        child: Focus(
-          child: Builder(
-            builder: (context) {
-              final focused = Focus.of(context).hasFocus;
-              return MouseRegion(
-                cursor: SystemMouseCursors.click,
-                onEnter: (_) => setState(() => _hovering = true),
-                onExit: (_) => setState(() {
-                  _hovering = false;
-                  _pressed = false;
-                }),
-                child: GestureDetector(
-                  onTapDown: (_) => setState(() => _pressed = true),
-                  onTapUp: (_) => setState(() => _pressed = false),
-                  onTapCancel: () => setState(() => _pressed = false),
-                  onTap: widget.onPressed,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: _pressed
-                          ? surface.withValues(alpha: 0.9)
-                          : _hovering
-                          ? surface.withValues(alpha: 0.85)
-                          : surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: focused
-                            ? AppColors.primary.withValues(alpha: 0.65)
-                            : context.elixBorder.withValues(
-                                alpha: isDark ? 0.5 : 0.35,
-                              ),
-                        width: focused ? 1.5 : 1,
-                      ),
-                      boxShadow: highContrast || !(_hovering && !_pressed)
-                          ? null
-                          : [
-                              BoxShadow(
-                                color: AppColors.primary.withValues(
-                                  alpha: 0.12,
-                                ),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                    ),
-                    child: Icon(
-                      FluentIcons.chrome_back,
-                      size: 16,
-                      color: _hovering || focused
-                          ? AppColors.primary
-                          // Match the header copy: this control is displayed
-                          // over the saturated practice backdrop even in light
-                          // mode, where the theme-default dark icon is lost.
-                          : AppColors.textPrimary,
-                    ),
-                  ),
+        child: FocusableActionDetector(
+          mouseCursor: SystemMouseCursors.click,
+          onShowHoverHighlight: (hovered) {
+            setState(() {
+              _hovering = hovered;
+              if (!hovered) _pressed = false;
+            });
+          },
+          onShowFocusHighlight: (focused) {
+            setState(() => _focused = focused);
+          },
+          actions: <Type, Action<Intent>>{
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                widget.onPressed();
+                return null;
+              },
+            ),
+          },
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTap: widget.onPressed,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _pressed
+                    ? surface.withValues(alpha: 0.9)
+                    : _hovering
+                    ? surface.withValues(alpha: 0.85)
+                    : surface,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _focused
+                      ? AppColors.primary.withValues(alpha: 0.65)
+                      : context.elixBorder.withValues(
+                          alpha: isDark ? 0.5 : 0.35,
+                        ),
+                  width: _focused ? 1.5 : 1,
                 ),
-              );
-            },
+                boxShadow: highContrast || !(_hovering && !_pressed)
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.12),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+              ),
+              child: Icon(
+                FluentIcons.chrome_back,
+                size: 16,
+                color: _hovering || _focused
+                    ? AppColors.primary
+                    // Match the header copy: this control is displayed
+                    // over the saturated practice backdrop even in light
+                    // mode, where the theme-default dark icon is lost.
+                    : AppColors.textPrimary,
+              ),
+            ),
           ),
         ),
       ),

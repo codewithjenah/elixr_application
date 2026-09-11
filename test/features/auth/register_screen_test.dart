@@ -1,13 +1,16 @@
 import 'package:elixr_application/core/constants/app_constants.dart';
+import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_application/features/auth/auth_form_chrome.dart';
 import 'package:elixr_application/features/auth/register_screen.dart';
 import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -475,5 +478,43 @@ void main() {
         'Lovelace',
       );
     });
+  });
+
+  testWidgets('Privacy Policy link activates from keyboard', (tester) async {
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => ScaffoldPage(
+            content: AuthLegalConsent(
+              agreed: false,
+              onChanged: (_) {},
+              checkboxKey: const Key('legal-consent'),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: AppRoutePaths.privacyPolicy,
+          builder: (_, _) => const Text('privacy-destination'),
+        ),
+        GoRoute(
+          path: AppRoutePaths.termsOfService,
+          builder: (_, _) => const Text('terms-destination'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+    );
+    await tester.pump();
+
+    Focus.of(tester.element(find.text('Privacy Policy'))).requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('privacy-destination'), findsOneWidget);
   });
 }

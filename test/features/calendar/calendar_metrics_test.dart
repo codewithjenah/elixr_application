@@ -77,10 +77,10 @@ void main() {
 
     test('normalizes timestamps with time components to date-only', () {
       final morning = parseSessionLocalDate(
-        _session(createdAt: '2026-08-02T01:00:00.000'),
+        _session(createdAt: '2026-08-02T01:00:00.000+08:00'),
       );
       final evening = parseSessionLocalDate(
-        _session(createdAt: '2026-08-02T23:59:59.000'),
+        _session(createdAt: '2026-08-02T23:59:59.000+08:00'),
       );
       expect(morning, DateTime(2026, 8, 2));
       expect(evening, DateTime(2026, 8, 2));
@@ -102,8 +102,8 @@ void main() {
   group('groupSessionsByDate', () {
     test('groups multiple sessions on the same local date', () {
       final sessions = [
-        _session(createdAt: '2026-08-02T09:00:00.000', rubricTotal: 7),
-        _session(createdAt: '2026-08-02T18:00:00.000', rubricTotal: 9),
+        _session(createdAt: '2026-08-02T09:00:00.000+08:00', rubricTotal: 7),
+        _session(createdAt: '2026-08-02T18:00:00.000+08:00', rubricTotal: 9),
       ];
       final grouped = groupSessionsByDate(sessions);
       expect(grouped.keys, [DateTime(2026, 8, 2)]);

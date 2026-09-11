@@ -30,6 +30,7 @@ import 'package:elixr_core/repositories/in_memory_classroom_announcement_reposit
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -301,10 +302,66 @@ void main() {
       );
       expect((heroSlogan.image as AssetImage).assetName, 'assets/slogan_2.png');
       expect(heroSlogan.fit, BoxFit.contain);
-      expect(find.text('Continue Practice'), findsOneWidget);
+      expect(find.text('Practice Normal Grip'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('trainee hero primary CTA activates from keyboard', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(850, 800));
+    final recommendation = buildTrainingRecommendation(
+      sessions: const [],
+      movements: movementCatalog,
+      readyPracticeVariantFor: (movement) => movement.name == 'Normal Grip'
+          ? const PracticeVariant(
+              movementName: 'Normal Grip',
+              trainingProp: TrainingProp.bottle,
+            )
+          : null,
+    );
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => MediaQuery(
+            data: const MediaQueryData(size: Size(850, 800)),
+            child: ScaffoldPage(
+              content: SizedBox(
+                width: 850,
+                child: DashboardHero(
+                  firstName: 'Ada',
+                  greeting: 'Good Morning',
+                  sessionCount: 3,
+                  recommendation: recommendation,
+                ),
+              ),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/practice',
+          builder: (_, _) => const Text('practice-destination'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+    );
+    await tester.pump();
+
+    final primaryLabel = find.text('Practice Normal Grip');
+    expect(primaryLabel, findsOneWidget);
+    Focus.of(tester.element(primaryLabel)).requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('practice-destination'), findsOneWidget);
+  });
 
   testWidgets(
     'trainee hero keeps fallback CTAs overflow-free at expanded-sidebar width',
@@ -330,7 +387,7 @@ void main() {
         find.byKey(const ValueKey('dashboard-hero-slogan')),
         findsOneWidget,
       );
-      expect(find.text('Continue Practice'), findsOneWidget);
+      expect(find.text('Start Recommended Practice'), findsOneWidget);
       expect(find.text('Explore Movements'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -359,7 +416,7 @@ void main() {
     expect(find.byType(Image), findsNothing);
     expect(find.text('Master'), findsOneWidget);
     expect(find.text('Normal Grip'), findsOneWidget);
-    expect(find.text('Start Your First Practice'), findsOneWidget);
+    expect(find.text('Start Recommended Practice'), findsOneWidget);
   });
 
   testWidgets('dashboard header separates welcome copy from quick actions', (
@@ -651,7 +708,7 @@ void main() {
     expect(find.text("COACH'S FOCUS"), findsOneWidget);
     expect(find.byType(ElixEyebrow), findsOneWidget);
     expect(find.byKey(ElixEyebrow.ruleKey), findsOneWidget);
-    expect(find.text('Practice this'), findsNothing);
+    expect(find.text('Practice this'), findsOneWidget);
   });
 
   testWidgets('personal record uses metric type and milestone gold', (
