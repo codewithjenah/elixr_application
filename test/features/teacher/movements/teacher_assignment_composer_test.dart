@@ -603,9 +603,7 @@ void main() {
 
     final publishAt = assignments.lastPublishAt;
     expect(publishAt, isNotNull);
-    final displayedCivilTime = publishAt!.toUtc().add(
-      const Duration(hours: 8),
-    );
+    final displayedCivilTime = publishAt!.toUtc().add(const Duration(hours: 8));
     final expectedHour = switch (period) {
       'AM' => hour == 12 ? 0 : hour,
       _ => hour == 12 ? 12 : hour + 12,
@@ -633,12 +631,7 @@ void main() {
   testWidgets('scheduled publication converts 12:00 PM to hour twelve', (
     tester,
   ) async {
-    final noon = await scheduleAt(
-      tester,
-      hour: 12,
-      minute: 0,
-      period: 'PM',
-    );
+    final noon = await scheduleAt(tester, hour: 12, minute: 0, period: 'PM');
     expect(noon.toUtc().add(const Duration(hours: 8)).hour, 12);
   });
 
@@ -1288,6 +1281,147 @@ void main() {
     expect(find.text('Teacher Activities'), findsOneWidget);
   });
 
+  testWidgets(
+    'Teacher Activity details are read-only until Use this activity is pressed',
+    (tester) async {
+      final selected = await createTeacherMovement();
+      final detailed = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Advanced Pour',
+        instructions: 'Keep the bottle vertical, then pour with control.',
+        requiredProp: TrainingProp.bottle,
+        safetyGuidance: 'Keep clear space around your practice area.',
+        assessment: TeacherActivityAssessmentConfig(
+          readiness: const TeacherActivityReadinessSpec(
+            hands: ActivityHandRequirement.twoHands,
+            body: ActivityBodyRequirement.upperBody,
+          ),
+          rubric: const TeacherActivityRubric(
+            template: TeacherActivityRubricTemplate.custom,
+            maximumScore: 30,
+            criteria: [
+              TeacherActivityRubricCriterion(
+                id: 'setup',
+                label: 'Safe setup',
+                description: 'Starts with a stable, clear practice space.',
+                maximumPoints: 10,
+              ),
+              TeacherActivityRubricCriterion(
+                id: 'control',
+                label: 'Bottle control',
+                description: 'Maintains steady control through the pour.',
+                maximumPoints: 10,
+              ),
+              TeacherActivityRubricCriterion(
+                id: 'finish',
+                label: 'Clean finish',
+                description: 'Finishes deliberately and safely.',
+                maximumPoints: 10,
+              ),
+            ],
+          ),
+          recordingDurationSeconds: 45,
+          demonstrationVideo: TeacherActivityVideoMetadata(
+            storagePath: 'teacher-1/demos/advanced-pour.mp4',
+            contentType: 'video/mp4',
+            sizeBytes: 2048,
+            durationMs: 12000,
+            source: TeacherActivityDemoSource.recorded,
+          ),
+        ),
+      );
+      await pumpComposer(tester, creationService: service());
+
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_source_mine')),
+      );
+      await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(Key('teacher_assignment_view_details_${detailed.id}')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_select_${selected.id}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_view_details_${detailed.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Advanced Pour'), findsWidgets);
+      expect(find.text('Required training prop: Bottle'), findsOneWidget);
+      expect(
+        find.text('Keep the bottle vertical, then pour with control.'),
+        findsWidgets,
+      );
+      expect(find.text('Safety'), findsOneWidget);
+      expect(find.text('Hands: Two hands visible'), findsOneWidget);
+      expect(find.text('Body: Upper body visible'), findsOneWidget);
+      expect(find.text('Template: Custom'), findsOneWidget);
+      expect(find.text('Maximum score: 30'), findsOneWidget);
+      expect(find.text('Safe setup · 10 points'), findsOneWidget);
+      expect(find.text('Recording duration: 45 seconds'), findsOneWidget);
+      expect(
+        find.text('Demonstration video: Available · recorded'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const Key('teacher_assignment_activity_details_use')),
+            )
+            .onPressed,
+        isNotNull,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_activity_details_close')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Advanced Pour'), findsWidgets);
+
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_view_details_${detailed.id}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_activity_details_use')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('teacher_assignment_activity_details_use')),
+        findsNothing,
+      );
+      expect(selected.id, isNot(detailed.id));
+    },
+  );
+
+  testWidgets('Teacher Activity details omit absent safety guidance', (
+    tester,
+  ) async {
+    final activity = await createTeacherMovement();
+    await pumpComposer(tester, creationService: service());
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_mine')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(Key('teacher_assignment_view_details_${activity.id}')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Safety'), findsNothing);
+    expect(find.text('Recording duration: 30 seconds'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_activity_details_close')),
+    );
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('movement management stays out of Assignment Studio', (
     tester,
   ) async {
@@ -1334,7 +1468,7 @@ void main() {
       find.byKey(const ValueKey('builder-instructions')),
       'Balance the tin upright.',
     );
-    await tester.tap(find.text('Create').last);
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
     await tester.pumpAndSettle();
 
     expect(movements.movements, hasLength(1));
@@ -1399,7 +1533,7 @@ void main() {
       find.byKey(const ValueKey('builder-instructions')),
       'Balance the tin upright.',
     );
-    await tester.tap(find.text('Create').last);
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('teacher_assignment_error')), findsOneWidget);

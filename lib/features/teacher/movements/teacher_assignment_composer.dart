@@ -2108,6 +2108,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 enabled: !_submitting,
                 isTeacherCreated: true,
                 onPressed: () => _onTeacherMovementChanged(movement.id),
+                selectionKey: Key('teacher_assignment_select_${movement.id}'),
+                onViewDetails: () => _showTeacherMovementDetails(movement),
+                viewDetailsKey: Key(
+                  'teacher_assignment_view_details_${movement.id}',
+                ),
               ),
           ],
         ),
@@ -2145,6 +2150,73 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     final spec = _teacherMovementRevisions[movement.id]?.spec;
     if (spec is TeacherReviewedMovementSpec) return spec.instructions;
     return 'Trainees submit a recording for your review.';
+  }
+
+  Future<void> _showTeacherMovementDetails(TeacherMovement movement) async {
+    final cached = _teacherMovementRevisions[movement.id];
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _TeacherActivityDetailsDialog(
+        movement: movement,
+        initialRevision: cached?.id == movement.currentRevisionId
+            ? cached
+            : null,
+        isInitiallySelected: _selectedTeacherCreatedMovement?.id == movement.id,
+        loadCurrentRevision: () =>
+            _loadCurrentTeacherMovementRevision(movement),
+        onUse: () => _useTeacherMovementFromDetails(movement),
+      ),
+    );
+  }
+
+  Future<TeacherMovementRevision?> _loadCurrentTeacherMovementRevision(
+    TeacherMovement movement,
+  ) async {
+    final cached = _teacherMovementRevisions[movement.id];
+    if (cached?.id == movement.currentRevisionId &&
+        _isAssignableTeacherRevision(cached!)) {
+      return cached;
+    }
+    final repository = widget.movementRepository;
+    if (repository == null) return null;
+    final revision = await repository.getRevision(
+      movementId: movement.id,
+      revisionId: movement.currentRevisionId,
+    );
+    if (!mounted ||
+        revision == null ||
+        revision.id != movement.currentRevisionId ||
+        !_isAssignableTeacherRevision(revision)) {
+      return null;
+    }
+    final current = _teacherMovements.where((item) => item.id == movement.id);
+    if (current.isEmpty ||
+        !current.first.isActive ||
+        current.first.currentRevisionId != movement.currentRevisionId) {
+      return null;
+    }
+    setState(() {
+      _teacherMovementRevisions = {
+        ..._teacherMovementRevisions,
+        movement.id: revision,
+      };
+    });
+    return revision;
+  }
+
+  Future<bool> _useTeacherMovementFromDetails(TeacherMovement movement) async {
+    final current = _teacherMovements.where((item) => item.id == movement.id);
+    if (current.isEmpty ||
+        !current.first.isActive ||
+        current.first.currentRevisionId != movement.currentRevisionId ||
+        _teacherMovementRevisions[movement.id]?.id !=
+            movement.currentRevisionId) {
+      return false;
+    }
+    if (_selectedTeacherCreatedMovement?.id != movement.id) {
+      _onTeacherMovementChanged(movement.id);
+    }
+    return true;
   }
 
   Widget _teacherMovementLoadingState(BuildContext context) {
@@ -3782,6 +3854,246 @@ class _MovementChoiceList extends StatelessWidget {
   }
 }
 
+class _TeacherActivityDetailsDialog extends StatefulWidget {
+  const _TeacherActivityDetailsDialog({
+    required this.movement,
+    required this.initialRevision,
+    required this.isInitiallySelected,
+    required this.loadCurrentRevision,
+    required this.onUse,
+  });
+
+  final TeacherMovement movement;
+  final TeacherMovementRevision? initialRevision;
+  final bool isInitiallySelected;
+  final Future<TeacherMovementRevision?> Function() loadCurrentRevision;
+  final Future<bool> Function() onUse;
+
+  @override
+  State<_TeacherActivityDetailsDialog> createState() =>
+      _TeacherActivityDetailsDialogState();
+}
+
+class _TeacherActivityDetailsDialogState
+    extends State<_TeacherActivityDetailsDialog> {
+  late TeacherMovementRevision? _revision = widget.initialRevision;
+  late bool _loading = _revision == null;
+  bool _using = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_loading) unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final revision = await widget.loadCurrentRevision();
+      if (!mounted) return;
+      setState(() {
+        _revision = revision;
+        _loading = false;
+        _error = revision == null
+            ? 'This Activity is no longer available to assign.'
+            : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Could not load this Activity’s current details.';
+      });
+    }
+  }
+
+  Future<void> _use() async {
+    setState(() => _using = true);
+    final available = await widget.onUse();
+    if (!mounted) return;
+    if (available) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _using = false;
+      _error =
+          'This Activity changed or is no longer available. Close this dialog and choose an available Activity.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screen = MediaQuery.sizeOf(context);
+    final width = (screen.width - 48).clamp(320.0, 800.0).toDouble();
+    final revision = _revision;
+    final spec = revision?.spec;
+    final activity = spec is TeacherReviewedMovementSpec ? spec : null;
+    return ContentDialog(
+      constraints: BoxConstraints(maxWidth: width),
+      title: Row(
+        children: [
+          Expanded(child: Text(widget.movement.title)),
+          if (widget.isInitiallySelected)
+            const Padding(
+              padding: EdgeInsets.only(left: AppSpacing.sm),
+              child: Text('Selected'),
+            ),
+        ],
+      ),
+      content: SizedBox(
+        width: width,
+        height: (screen.height * 0.64).clamp(260.0, 680.0).toDouble(),
+        child: _loading
+            ? const Center(child: ProgressRing())
+            : _error != null && activity == null
+            ? Center(child: Text(_error!))
+            : SingleChildScrollView(
+                key: const Key('teacher_assignment_activity_details_scroll'),
+                child: _TeacherActivityDetailsContent(
+                  movement: widget.movement,
+                  spec: activity!,
+                ),
+              ),
+      ),
+      actions: [
+        Button(
+          key: const Key('teacher_assignment_activity_details_close'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        FilledButton(
+          key: const Key('teacher_assignment_activity_details_use'),
+          onPressed: activity == null || _using ? null : _use,
+          child: const Text('Use this activity'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TeacherActivityDetailsContent extends StatelessWidget {
+  const _TeacherActivityDetailsContent({
+    required this.movement,
+    required this.spec,
+  });
+
+  final TeacherMovement movement;
+  final TeacherReviewedMovementSpec spec;
+
+  @override
+  Widget build(BuildContext context) {
+    final assessment = spec.effectiveAssessment;
+    final video = assessment.demonstrationVideo;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Teacher reviewed · No automatic ELIXR scoring',
+          style: AppTheme.body.copyWith(
+            color: context.elixColors.brandSecondary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _ActivityDetailsSection(
+          title: 'Activity setup',
+          child: Text(
+            'Required training prop: ${spec.requiredProp.displayLabel}',
+          ),
+        ),
+        _ActivityDetailsSection(
+          title: 'Instructions',
+          child: Text(spec.instructions),
+        ),
+        if (spec.safetyGuidance?.trim().isNotEmpty == true)
+          _ActivityDetailsSection(
+            title: 'Safety',
+            child: Text(spec.safetyGuidance!),
+          ),
+        _ActivityDetailsSection(
+          title: 'Readiness',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Hands: ${assessment.readiness.hands.displayLabel}'),
+              const SizedBox(height: AppSpacing.xs),
+              Text('Body: ${assessment.readiness.body.displayLabel}'),
+            ],
+          ),
+        ),
+        _ActivityDetailsSection(
+          title: 'Assessment / rubric',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Template: ${assessment.rubric.template.displayLabel}'),
+              const SizedBox(height: AppSpacing.xs),
+              Text('Maximum score: ${assessment.rubric.maximumScore}'),
+              const SizedBox(height: AppSpacing.sm),
+              for (final criterion in assessment.rubric.criteria) ...[
+                Text(
+                  '${criterion.label} · ${criterion.maximumPoints} points',
+                  style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  criterion.description,
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
+            ],
+          ),
+        ),
+        _ActivityDetailsSection(
+          title: 'Recording & demonstration',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Recording duration: ${assessment.recordingDurationSeconds} seconds',
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                video == null
+                    ? 'Demonstration video: Not available'
+                    : 'Demonstration video: Available · ${video.source.wireValue}',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivityDetailsSection extends StatelessWidget {
+  const _ActivityDetailsSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: AppSpacing.md),
+    padding: const EdgeInsets.all(AppSpacing.md),
+    decoration: BoxDecoration(
+      color: context.elixCardSurface,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: context.elixBorder),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppTheme.label(color: context.elixTextPrimary)),
+        const SizedBox(height: AppSpacing.xs),
+        child,
+      ],
+    ),
+  );
+}
+
 class _MovementChoiceCard extends StatelessWidget {
   const _MovementChoiceCard({
     super.key,
@@ -3793,6 +4105,9 @@ class _MovementChoiceCard extends StatelessWidget {
     required this.enabled,
     required this.onPressed,
     this.isTeacherCreated = false,
+    this.selectionKey,
+    this.onViewDetails,
+    this.viewDetailsKey,
   });
 
   final String title;
@@ -3803,6 +4118,9 @@ class _MovementChoiceCard extends StatelessWidget {
   final bool enabled;
   final VoidCallback onPressed;
   final bool isTeacherCreated;
+  final Key? selectionKey;
+  final VoidCallback? onViewDetails;
+  final Key? viewDetailsKey;
 
   @override
   Widget build(BuildContext context) {
@@ -3810,76 +4128,104 @@ class _MovementChoiceCard extends StatelessWidget {
         ? context.elixColors.brandSecondary
         : context.elixColors.brandPrimary;
     final highContrast = context.isHighContrast;
-    return Semantics(
-      selected: selected,
-      button: true,
-      label: '$title, $metadata',
-      child: Button(
-        onPressed: enabled ? onPressed : null,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          decoration: BoxDecoration(
-            color: selected && !highContrast
-                ? accent.withValues(alpha: 0.12)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected ? accent : context.elixColors.borderSubtle,
-              width: selected || highContrast ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(9),
-                child: MovementImage(movementName: movementName, size: 56),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: selected && !highContrast
+            ? accent.withValues(alpha: 0.12)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: selected ? accent : context.elixColors.borderSubtle,
+          width: selected || highContrast ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            selected: selected,
+            button: true,
+            label: '$title, $metadata',
+            child: Button(
+              key: selectionKey,
+              onPressed: enabled ? onPressed : null,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.body.copyWith(
-                        color: context.elixTextPrimary,
-                        fontWeight: FontWeight.w700,
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(9),
+                      child: MovementImage(
+                        movementName: movementName,
+                        size: 56,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      metadata,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.caption.copyWith(color: accent),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      description,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.body.copyWith(
+                              color: context.elixTextPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            metadata,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(color: accent),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            description,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
+                        ],
                       ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Icon(
+                      selected
+                          ? FluentIcons.completed_solid
+                          : FluentIcons.circle_ring,
+                      size: 18,
+                      color: selected ? accent : context.elixTextSecondary,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Icon(
-                selected
-                    ? FluentIcons.completed_solid
-                    : FluentIcons.circle_ring,
-                size: 18,
-                color: selected ? accent : context.elixTextSecondary,
-              ),
-            ],
+            ),
           ),
-        ),
+          if (onViewDetails != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.sm,
+                0,
+                AppSpacing.sm,
+                AppSpacing.sm,
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Button(
+                  key: viewDetailsKey,
+                  onPressed: enabled ? onViewDetails : null,
+                  child: const Text('View details'),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
