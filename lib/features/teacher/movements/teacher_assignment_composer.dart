@@ -413,6 +413,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   // The schedule controls convert to and from this 24-hour value.
   int _publicationHour = 9;
   int _publicationMinute = 0;
+  bool _publicationSchedulingEnabled = false;
   bool _submitting = false;
   bool _creatingTeacherMovement = false;
   bool _loadingTeacherMovements = false;
@@ -998,7 +999,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 ? _submitEdit(context)
                 : _submit(context, _PublicationAction.publish)
           : null,
-      onSchedule: _canSubmit && !_isEditing
+      onSchedule: _canSubmit && !_isEditing && _publicationSchedulingEnabled
           ? () => _submit(context, _PublicationAction.schedule)
           : null,
     );
@@ -1338,11 +1339,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               setState(() {
                 _validationError = null;
                 _dueAt = checked == true
-                    ? _manilaCivilDateTimeUtc(
-                        _manilaCivilDateNow().add(const Duration(days: 7)),
-                        23,
-                        59,
-                      )
+                    ? _manilaCivilDateTimeUtc(_manilaCivilDateNow(), 23, 59)
                     : null;
               });
             },
@@ -1391,30 +1388,48 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             description:
                 'Save a private draft, publish now, or choose when it should go live.',
           ),
-          if (!_isEditing) const SizedBox(height: AppSpacing.lg),
-          if (!_isEditing)
+          if (!_isEditing) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _PublicationScheduleToggle(
+              enabled: _publicationSchedulingEnabled,
+              interactive: !_submitting,
+              onChanged: (enabled) => setState(() {
+                _publicationSchedulingEnabled = enabled == true;
+                _validationError = null;
+              }),
+            ),
+          ],
+          if (!_isEditing && _publicationSchedulingEnabled) ...[
+            const SizedBox(height: AppSpacing.md),
             _PublicationScheduleField(
               date: _publicationDate,
               hour24: _publicationHour,
               minute: _publicationMinute,
               enabled: !_submitting,
-              onDateChanged: (value) =>
-                  setState(() => _publicationDate = value),
-              onHourChanged: (value) => setState(
-                () => _publicationHour = _hour24From12(
+              onDateChanged: (value) => setState(() {
+                _publicationDate = value;
+                _validationError = null;
+              }),
+              onHourChanged: (value) => setState(() {
+                _publicationHour = _hour24From12(
                   value,
                   _periodForHour24(_publicationHour),
-                ),
-              ),
-              onMinuteChanged: (value) =>
-                  setState(() => _publicationMinute = value),
-              onPeriodChanged: (value) => setState(
-                () => _publicationHour = _hour24From12(
+                );
+                _validationError = null;
+              }),
+              onMinuteChanged: (value) => setState(() {
+                _publicationMinute = value;
+                _validationError = null;
+              }),
+              onPeriodChanged: (value) => setState(() {
+                _publicationHour = _hour24From12(
                   _hour12From24(_publicationHour),
                   value,
-                ),
-              ),
+                );
+                _validationError = null;
+              }),
             ),
+          ],
         ],
         if (_movementLoadError != null && _classroomScoped) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -2769,6 +2784,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       return 'Select one trainee.';
     }
     if (action == _PublicationAction.schedule) {
+      if (!_publicationSchedulingEnabled) {
+        return 'Enable publication scheduling to choose when this assignment goes live.';
+      }
       final publishAt = _scheduledPublishAt;
       if (!publishAt.isAfter(DateTime.now().toUtc())) {
         return 'Choose a future publication date and time.';
@@ -4536,7 +4554,7 @@ class _DueDateField extends StatelessWidget {
               children: [
                 Text('Add a due date (optional)'),
                 SizedBox(height: 2),
-                Text('Default is one week from today at 11:59 PM.'),
+                Text('Default is today at 11:59 PM.'),
               ],
             ),
             onChanged: enabled ? onToggle : null,
@@ -4944,6 +4962,52 @@ class _AssignmentActionFooter extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _PublicationScheduleToggle extends StatelessWidget {
+  const _PublicationScheduleToggle({
+    required this.enabled,
+    required this.interactive,
+    required this.onChanged,
+  });
+
+  final bool enabled;
+  final bool interactive;
+  final ValueChanged<bool?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: highContrast
+            ? context.elixCardSurface
+            : context.elixColors.interactiveHover,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: context.elixColors.borderSubtle,
+          width: highContrast ? 2 : 1,
+        ),
+      ),
+      child: Checkbox(
+        key: const Key('teacher_assignment_schedule_toggle'),
+        checked: enabled,
+        content: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Schedule publication (optional)'),
+            SizedBox(height: 2),
+            Text('Set a future go-live time.'),
+          ],
+        ),
+        onChanged: interactive ? onChanged : null,
       ),
     );
   }

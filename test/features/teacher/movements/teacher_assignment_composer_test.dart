@@ -229,6 +229,14 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   }) => throw UnimplementedError();
 }
 
+Future<void> _enablePublicationScheduling(WidgetTester tester) async {
+  await tester.ensureVisible(
+    find.byKey(const Key('teacher_assignment_schedule_toggle')),
+  );
+  await tester.tap(find.byKey(const Key('teacher_assignment_schedule_toggle')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -559,6 +567,7 @@ void main() {
       creationService: service(),
       officialMovement: movementCatalog.first,
     );
+    await _enablePublicationScheduling(tester);
     final date = tester
         .widget<DatePicker>(
           find.byKey(const Key('teacher_assignment_publish_date')),
@@ -616,6 +625,10 @@ void main() {
     expect(displayedCivilTime.day, date.day);
     expect(displayedCivilTime.hour, expectedHour);
     expect(displayedCivilTime.minute, minute);
+    expect(
+      assignments.assignments.values.single.status,
+      GroupAssignmentStatus.scheduled,
+    );
     return publishAt;
   }
 
@@ -667,8 +680,9 @@ void main() {
       manilaNow.year,
       manilaNow.month,
       manilaNow.day,
-    ).add(const Duration(days: 7));
+    );
     expect(date.selected, expectedDate);
+    expect(find.text('Default is today at 11:59 PM.'), findsOneWidget);
     expect(
       tester
           .widget<ComboBox<int>>(
@@ -921,6 +935,109 @@ void main() {
     expect(assignments.lastDueAt, isNull);
   });
 
+  testWidgets(
+    'publication scheduling is optional and reveals controls only when enabled',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+      );
+
+      expect(
+        find.byKey(const Key('teacher_assignment_schedule_toggle')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_date')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_hour')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_minute')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_period')),
+        findsNothing,
+      );
+      expect(
+        tester
+            .widget<Button>(
+              find.byKey(const Key('teacher_assignment_schedule')),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      await _enablePublicationScheduling(tester);
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_date')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_hour')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_minute')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_period')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_schedule_toggle')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('teacher_assignment_publish_date')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets('Save Draft omits publishAt when scheduling is off', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    await saveDraft(tester);
+    expect(assignments.lastPublishAt, isNull);
+    expect(
+      assignments.assignments.values.single.status,
+      GroupAssignmentStatus.draft,
+    );
+  });
+
+  testWidgets('Publish Now omits publishAt when scheduling is off', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    final publish = find.byKey(const Key('teacher_assignment_publish_now'));
+    await tester.ensureVisible(publish);
+    await tester.tap(publish);
+    await tester.pumpAndSettle();
+
+    expect(assignments.lastPublishAt, isNull);
+    expect(
+      assignments.assignments.values.single.status,
+      GroupAssignmentStatus.active,
+    );
+  });
+
   testWidgets('scheduled publication requires an exact later deadline', (
     tester,
   ) async {
@@ -929,6 +1046,7 @@ void main() {
       creationService: service(),
       officialMovement: movementCatalog.first,
     );
+    await _enablePublicationScheduling(tester);
     final publishDate = tester
         .widget<DatePicker>(
           find.byKey(const Key('teacher_assignment_publish_date')),
@@ -1030,6 +1148,7 @@ void main() {
       creationService: service(),
       teacherCreatedMovement: customMovement,
     );
+    await _enablePublicationScheduling(tester);
 
     final minuteBox = tester.widget<ComboBox<int>>(
       find.byKey(const Key('teacher_assignment_publish_minute')),
@@ -1049,6 +1168,7 @@ void main() {
       creationService: service(),
       teacherCreatedMovement: customMovement,
     );
+    await _enablePublicationScheduling(tester);
     final date = tester
         .widget<DatePicker>(
           find.byKey(const Key('teacher_assignment_publish_date')),
