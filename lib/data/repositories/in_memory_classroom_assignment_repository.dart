@@ -475,6 +475,11 @@ class InMemoryClassroomAssignmentRepository
     }
     final official = officialMovementName?.trim();
     final isOfficial = official != null && official.isNotEmpty;
+    final preservesPinnedTeacherRevision =
+        !isOfficial &&
+        existing.isTeacherCreated &&
+        teacherMovement?.id == existing.movementId &&
+        teacherMovementRevision?.id == existing.revisionId;
     if (isOfficial == (teacherMovement != null) ||
         (isOfficial &&
             (officialAllowedProp == null ||
@@ -487,8 +492,9 @@ class InMemoryClassroomAssignmentRepository
             (teacherMovementRevision == null ||
                 !teacherMovement!.isActive ||
                 teacherMovement.teacherId != teacherId ||
-                teacherMovement.currentRevisionId !=
-                    teacherMovementRevision.id ||
+                (!preservesPinnedTeacherRevision &&
+                    teacherMovement.currentRevisionId !=
+                        teacherMovementRevision.id) ||
                 teacherMovementRevision.movementId != teacherMovement.id ||
                 teacherMovementRevision.teacherId != teacherId ||
                 teacherMovementRevision.assessmentMode !=
@@ -529,8 +535,7 @@ class InMemoryClassroomAssignmentRepository
         ? officialAllowedProp
         : (selectedTeacherRevision!.spec as TeacherReviewedMovementSpec)
               .requiredProp;
-    final identityChanged =
-        existing.groupId != group.id ||
+    final activityIdentityChanged =
         existing.isOfficial != isOfficial ||
         existing.movementId !=
             (isOfficial
@@ -541,25 +546,23 @@ class InMemoryClassroomAssignmentRepository
                 ? officialIdentity!.revisionId
                 : selectedTeacherRevision!.id) ||
         existing.allowedProp != requiredProp ||
+        !_sameActivityAssessment(
+          existing.activityAssessment,
+          isOfficial ? null : activityAssessment,
+        );
+    final identityChanged =
+        existing.groupId != group.id ||
+        activityIdentityChanged ||
         existing.audience.type != audience.type ||
         !_sameStringSet(
           existing.audience.targetTraineeIds,
           audience.targetTraineeIds,
         ) ||
-        !_sameAttemptPolicy(existing.attemptPolicy, attemptPolicy) ||
-        !_sameActivityAssessment(
-          existing.activityAssessment,
-          isOfficial ? null : activityAssessment,
-        );
+        !_sameAttemptPolicy(existing.attemptPolicy, attemptPolicy);
     if (existing.isActive && hasWork && identityChanged) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
-    if (existing.gradingLocked &&
-        !isOfficial &&
-        !_sameActivityAssessment(
-          existing.activityAssessment,
-          activityAssessment,
-        )) {
+    if (existing.gradingLocked && activityIdentityChanged) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
     final title = isOfficial ? officialName : displayTitle?.trim();
@@ -620,8 +623,12 @@ class InMemoryClassroomAssignmentRepository
       attemptPolicy: attemptPolicy,
       configurationRevision: existing.configurationRevision + 1,
       activityAssessment: assessment,
-      gradingLocked: existing.gradingLocked,
-      gradingLockedAt: existing.gradingLockedAt,
+      gradingLocked: activityIdentityChanged && !hasWork
+          ? false
+          : existing.gradingLocked,
+      gradingLockedAt: activityIdentityChanged && !hasWork
+          ? null
+          : existing.gradingLockedAt,
       dueAt: dueAt,
       publishAt: existing.publishAt,
       createdAt: existing.createdAt,

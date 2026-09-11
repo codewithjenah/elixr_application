@@ -583,6 +583,23 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return config.isValid ? config : null;
   }
 
+  bool get _isUsingPersistedTeacherActivity {
+    final existing = _editingAssignment;
+    return existing != null &&
+        existing.isTeacherCreated &&
+        _selectedTeacherCreatedMovement?.id == existing.movementId &&
+        _persistedTeacherRevision?.id == existing.revisionId;
+  }
+
+  TeacherActivityAssessmentConfig? get _pendingActivityAssessment {
+    if (!_isTeacherCreated) return null;
+    if (_customizeActivity) return _activityAssessment;
+    if (_isUsingPersistedTeacherActivity) {
+      return _editingAssignment?.activityAssessment;
+    }
+    return _selectedActivitySpec?.effectiveAssessment;
+  }
+
   bool get _hasValidActivityAssessment =>
       !_isTeacherCreated ||
       (_isEditing && !_customizeActivity) ||
@@ -913,9 +930,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         final persistedMovement = candidates
             .where((movement) => movement.id == existing.movementId)
             .firstOrNull;
-        if (persistedMovement == null ||
-            persistedMovement.currentRevisionId != existing.revisionId) {
-          throw StateError('The saved Teacher Activity is no longer current.');
+        if (persistedMovement == null) {
+          throw StateError('The saved Teacher Activity is unavailable.');
         }
         persistedRevision = await repository.getRevision(
           movementId: persistedMovement.id,
@@ -923,7 +939,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         );
         if (persistedRevision == null ||
             !_isAssignableTeacherRevision(persistedRevision) ||
-            persistedRevision.id != persistedMovement.currentRevisionId) {
+            persistedRevision.id != existing.revisionId) {
           throw StateError(
             'The saved Teacher Activity revision is unavailable.',
           );
@@ -2096,21 +2112,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   String get _activityInheritanceSummary {
-    final existingAssessment = _editingAssignment?.activityAssessment;
-    if (existingAssessment != null) {
-      return '${existingAssessment.readiness.hands.displayLabel} · '
-          '${existingAssessment.readiness.body.displayLabel} · '
-          '${existingAssessment.rubric.template.displayLabel}, '
-          '${existingAssessment.rubric.maximumScore} points · '
-          '${existingAssessment.recordingDurationSeconds}s';
-    }
     final spec = _selectedActivitySpec;
-    final assessment = spec?.effectiveAssessment;
-    if (spec == null || assessment == null) return 'Loading Activity settings…';
+    final assessment = _pendingActivityAssessment;
+    if (assessment == null) return 'Loading Activity settings…';
     final demo = assessment.demonstrationVideo == null
         ? 'no demonstration'
         : 'demonstration attached';
-    return '${spec.requiredProp.displayLabel} · '
+    return '${spec?.requiredProp.displayLabel ?? 'Teacher Activity'} · '
         '${assessment.readiness.hands.displayLabel} · '
         '${assessment.readiness.body.displayLabel} · '
         '${assessment.rubric.template.displayLabel}, '

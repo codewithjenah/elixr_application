@@ -1008,7 +1008,11 @@ function activityUpdateBody(overrides = {}) {
   };
 }
 
-function fakeConfigurationDatabase({hasAttempts = false} = {}) {
+function fakeConfigurationDatabase({
+  hasAttempts = false,
+  assignmentOverrides = {},
+  currentRevisionId = 'revision-fixed',
+} = {}) {
   let assignment = {
     teacher_id: 'teacher', group_id: 'g1', movement_id: 'movement-fixed',
     revision_id: 'revision-fixed', origin: 'teacher_created',
@@ -1021,6 +1025,7 @@ function fakeConfigurationDatabase({hasAttempts = false} = {}) {
     audience_type: 'entire_class', allowed_prop: 'bottle', max_score: 50,
     attempt_policy: {type: 'finite', maximum_attempts: 2},
     activity_assessment: updateAssessment(), configuration_revision: 1,
+    ...assignmentOverrides,
   };
   const snapshot = (data) => ({
     exists: true,
@@ -1062,7 +1067,7 @@ function fakeConfigurationDatabase({hasAttempts = false} = {}) {
         async get(ref) {
           if (ref === assignmentRef) return snapshot(assignment);
           if (ref === groupRef) return snapshot({teacher_id: 'teacher', status: 'active', name: 'BSHM 4A'});
-          if (ref === movementRef) return snapshot({teacher_id: 'teacher', status: 'active', current_revision_id: 'revision-fixed'});
+          if (ref === movementRef) return snapshot({teacher_id: 'teacher', status: 'active', current_revision_id: currentRevisionId});
           if (ref.kind === 'revision') return snapshot({
             teacher_id: 'teacher', movement_id: 'movement-fixed',
             assessment_mode: 'teacher_reviewed',
@@ -1119,6 +1124,87 @@ test('configuration update preserves a matching Teacher Activity and rejects act
   );
   assert.equal(blockedResponse.statusCode, 409);
   assert.deepEqual(blockedResponse.body, {error: 'trainee_work_exists'});
+});
+
+test('safe configuration edits preserve grading locks and pinned Teacher Activity revisions', async () => {
+  const lockedAt = Timestamp.fromDate(new Date('2026-09-01T00:00:00.000Z'));
+  const body = {
+    ...activityUpdateBody(),
+    group_id: 'g1',
+    teacher_movement_id: 'movement-fixed',
+    teacher_revision_id: 'revision-fixed',
+  };
+  for (const update of [
+    {topic: 'Updated topic'},
+    {due_at: '2026-09-16T00:00:00.000Z'},
+  ]) {
+    const database = fakeConfigurationDatabase({
+      hasAttempts: true,
+      assignmentOverrides: {grading_locked: true, grading_locked_at: lockedAt},
+    });
+    const response = fakeResponse();
+    await updateAssignmentConfigurationHandler(
+      {method: 'POST', body: {...body, ...update}},
+      response,
+      {authenticate: async () => 'teacher', databaseFactory: () => database},
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(database.assignment.grading_locked, true);
+    assert.equal(database.assignment.grading_locked_at, lockedAt);
+    assert.equal(database.assignment.movement_id, 'movement-fixed');
+    assert.equal(database.assignment.revision_id, 'revision-fixed');
+    assert.deepEqual(database.assignment.activity_assessment, updateAssessment());
+  }
+
+  const historical = fakeConfigurationDatabase({
+    currentRevisionId: 'revision-current',
+  });
+  const historicalResponse = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {method: 'POST', body: {...body, topic: 'Historical snapshot'}},
+    historicalResponse,
+    {authenticate: async () => 'teacher', databaseFactory: () => historical},
+  );
+  assert.equal(historicalResponse.statusCode, 200, JSON.stringify(historicalResponse.body));
+  assert.equal(historical.assignment.revision_id, 'revision-fixed');
+
+  const injected = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {method: 'POST', body: {...body, teacher_revision_id: 'revision-stale'}},
+    injected,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeConfigurationDatabase({currentRevisionId: 'revision-current'})},
+  );
+  assert.equal(injected.statusCode, 409);
+  assert.deepEqual(injected.body, {error: 'invalid_movement'});
+
+  const conflict = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {method: 'POST', body},
+    conflict,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeConfigurationDatabase({assignmentOverrides: {configuration_revision: 2}})},
+  );
+  assert.equal(conflict.statusCode, 409);
+  assert.deepEqual(conflict.body, {error: 'conflict'});
+});
+
+test('official configuration edits omit deleted Teacher Activity fields from the response', async () => {
+  const response = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {method: 'POST', body: {
+      ...activityUpdateBody(),
+      group_id: 'g1',
+      official_movement_name: 'Hand Stall',
+      allowed_prop: 'bottle',
+      topic: 'Official safe edit',
+    }},
+    response,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeConfigurationDatabase()},
+  );
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  assert.equal(response.body.assignment.display_instructions, undefined);
+  assert.equal(response.body.assignment.display_safety_guidance, undefined);
+  assert.equal(response.body.assignment.activity_assessment, undefined);
+  assert.equal(response.body.assignment.max_score, undefined);
 });
 
 test('Teacher Activity assignment updates round-trip twice and reject stale edits', async () => {

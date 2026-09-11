@@ -267,7 +267,10 @@ void main() {
   late _TrackingAssignments assignments;
 
   setUp(() {
-    movements = InMemoryTeacherMovementRepository();
+    var movementId = 0;
+    movements = InMemoryTeacherMovementRepository(
+      generateId: () => 'movement-${++movementId}',
+    );
     groups = InMemoryGroupRepository();
     groups.seedGroup(group);
     groups.seedGroup(otherGroup);
@@ -1481,6 +1484,100 @@ void main() {
         assignment.audience.targetTraineeIds,
       );
       expect(saved?.attemptPolicy.toMap(), assignment.attemptPolicy.toMap());
+    },
+  );
+
+  testWidgets(
+    'edit preserves a historical activity revision and shows a newly selected activity configuration',
+    (tester) async {
+      final first = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Pinned activity',
+        instructions: 'Keep the bottle centered.',
+        requiredProp: TrainingProp.bottle,
+        assessment: TeacherActivityAssessmentConfig(
+          readiness: const TeacherActivityReadinessSpec(
+            hands: ActivityHandRequirement.twoHands,
+            body: ActivityBodyRequirement.upperBody,
+          ),
+          rubric: TeacherActivityRubric.builtIn(
+            TeacherActivityRubricTemplate.standardTechnique,
+            40,
+          ),
+          recordingDurationSeconds: 45,
+        ),
+      );
+      final assignment = await service().create(
+        group: group,
+        teacherCreatedMovement: first,
+      );
+      final advanced = await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: first.id,
+        title: first.title,
+        instructions: 'The reusable activity has advanced.',
+        requiredProp: TrainingProp.bottle,
+      );
+      expect(advanced.currentRevisionId, isNot(assignment.revisionId));
+      final second = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Replacement activity',
+        instructions: 'Use the shaker with a controlled finish.',
+        requiredProp: TrainingProp.shaker,
+        assessment: TeacherActivityAssessmentConfig(
+          readiness: const TeacherActivityReadinessSpec(
+            hands: ActivityHandRequirement.oneHand,
+            body: ActivityBodyRequirement.upperBody,
+          ),
+          rubric: TeacherActivityRubric.builtIn(
+            TeacherActivityRubricTemplate.controlConsistency,
+            30,
+          ),
+          recordingDurationSeconds: 60,
+        ),
+      );
+
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: _MaterialRepository(),
+      );
+
+      expect(
+        find.byKey(Key('teacher_assignment_custom_${first.id}')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(Key('teacher_assignment_select_${second.id}')),
+      );
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_select_${second.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Cocktail Shaker · One hand visible · Upper body visible · '
+          'Control & Consistency, 30 points · 60s · no demonstration',
+        ),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await assignments.getAssignment(
+        assignmentId: assignment.id,
+      );
+      expect(saved?.movementId, second.id);
+      expect(saved?.revisionId, second.currentRevisionId);
+      expect(saved?.activityAssessment?.rubric.maximumScore, 30);
+      expect(saved?.activityAssessment?.recordingDurationSeconds, 60);
     },
   );
 

@@ -586,6 +586,114 @@ void main() {
   );
 
   test(
+    'safe configuration edits preserve a locked historical Teacher Activity snapshot',
+    () async {
+      final group = _group();
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Pinned activity',
+        instructions: 'Use the saved configuration.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final pinnedRevision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final original = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: group,
+        movement: movement,
+        revision: pinnedRevision,
+      );
+      final lockedAt = DateTime.utc(2026, 8, 21);
+      final locked = original.copyWith(
+        gradingLocked: true,
+        gradingLockedAt: lockedAt,
+      );
+      assignments.seedAssignment(locked);
+      final updatedMovement = await movements.editMovement(
+        teacherId: 'teacher-1',
+        movementId: movement.id,
+        title: movement.title,
+        instructions: 'The reusable activity is now newer.',
+        requiredProp: TrainingProp.bottle,
+      );
+      expect(updatedMovement.currentRevisionId, isNot(pinnedRevision.id));
+
+      final topicEdit = await assignments.updateAssignmentConfiguration(
+        teacherId: 'teacher-1',
+        assignmentId: locked.id,
+        expectedConfigurationRevision: locked.configurationRevision,
+        group: group,
+        teacherMovement: updatedMovement,
+        teacherMovementRevision: pinnedRevision,
+        displayTitle: locked.displayTitle,
+        displayInstructions: locked.displayInstructions,
+        displaySafetyGuidance: locked.displaySafetyGuidance,
+        topic: 'Safe topic edit',
+        dueAt: locked.dueAt,
+        audience: locked.audience,
+        attemptPolicy: locked.attemptPolicy,
+        activityAssessment: locked.activityAssessment,
+      );
+      expect(topicEdit.revisionId, pinnedRevision.id);
+      expect(topicEdit.gradingLocked, isTrue);
+      expect(topicEdit.gradingLockedAt, lockedAt);
+
+      final deadlineEdit = await assignments.updateAssignmentConfiguration(
+        teacherId: 'teacher-1',
+        assignmentId: locked.id,
+        expectedConfigurationRevision: topicEdit.configurationRevision,
+        group: group,
+        teacherMovement: updatedMovement,
+        teacherMovementRevision: pinnedRevision,
+        displayTitle: topicEdit.displayTitle,
+        displayInstructions: topicEdit.displayInstructions,
+        displaySafetyGuidance: topicEdit.displaySafetyGuidance,
+        topic: topicEdit.topic,
+        dueAt: DateTime.utc(2026, 9, 15),
+        audience: topicEdit.audience,
+        attemptPolicy: topicEdit.attemptPolicy,
+        activityAssessment: topicEdit.activityAssessment,
+      );
+      expect(deadlineEdit.revisionId, pinnedRevision.id);
+      expect(deadlineEdit.gradingLocked, isTrue);
+      expect(deadlineEdit.gradingLockedAt, lockedAt);
+
+      final currentRevision = (await movements.getRevision(
+        movementId: updatedMovement.id,
+        revisionId: updatedMovement.currentRevisionId,
+      ))!;
+      await expectLater(
+        assignments.updateAssignmentConfiguration(
+          teacherId: 'teacher-1',
+          assignmentId: locked.id,
+          expectedConfigurationRevision: deadlineEdit.configurationRevision,
+          group: group,
+          teacherMovement: updatedMovement,
+          teacherMovementRevision: currentRevision,
+          displayTitle: updatedMovement.title,
+          displayInstructions: deadlineEdit.displayInstructions,
+          displaySafetyGuidance: deadlineEdit.displaySafetyGuidance,
+          topic: deadlineEdit.topic,
+          dueAt: deadlineEdit.dueAt,
+          audience: deadlineEdit.audience,
+          attemptPolicy: deadlineEdit.attemptPolicy,
+          activityAssessment: deadlineEdit.activityAssessment,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.invalidState,
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
     'Teacher Activity rubric review preserves saved criterion scores',
     () async {
       final assessment = _activityAssessment();

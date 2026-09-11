@@ -1598,14 +1598,20 @@ async function updateAssignmentConfigurationHandler(request, response, {
         next = {movement_id: ids[0], revision_id: ids[1], origin: 'official_elixr', assessment_mode: 'official_guided',
           official_movement_name: official, display_title: official, allowed_prop: body.allowed_prop,
           display_instructions: FieldValue.delete(), display_safety_guidance: FieldValue.delete(),
-          activity_assessment: FieldValue.delete(), max_score: FieldValue.delete(), grading_locked: FieldValue.delete(), grading_locked_at: FieldValue.delete()};
+          activity_assessment: FieldValue.delete(), max_score: FieldValue.delete()};
       } else {
         const movementRef = firestore.collection('teacher_movements').doc(body.teacher_movement_id);
         const revisionRef = movementRef.collection('revisions').doc(body.teacher_revision_id);
         const [movement, revision] = await Promise.all([transaction.get(movementRef), transaction.get(revisionRef)]);
         const spec = revision.exists ? revision.get('spec') : null;
+        // A saved assignment is a revision-pinned snapshot.  It may retain its
+        // own historical revision, but a client cannot use that exception to
+        // inject an arbitrary stale revision for another assignment.
+        const preservesPinnedTeacherRevision = assignment.origin === 'teacher_created' &&
+          assignment.movement_id === body.teacher_movement_id &&
+          assignment.revision_id === body.teacher_revision_id;
         if (!movement.exists || !revision.exists || movement.get('teacher_id') !== uid || movement.get('status') !== 'active' ||
-            movement.get('current_revision_id') !== body.teacher_revision_id || revision.get('teacher_id') !== uid ||
+            (!preservesPinnedTeacherRevision && movement.get('current_revision_id') !== body.teacher_revision_id) || revision.get('teacher_id') !== uid ||
             revision.get('movement_id') !== body.teacher_movement_id || revision.get('assessment_mode') !== 'teacher_reviewed' ||
             !spec || spec.capability !== 'teacher_review_only' || !['bottle', 'shaker', 'bottle_and_shaker'].includes(spec.required_prop)) {
           const error = new Error('invalid_movement'); error.code = 'invalid_movement'; throw error;
@@ -1613,8 +1619,7 @@ async function updateAssignmentConfigurationHandler(request, response, {
         next = {movement_id: body.teacher_movement_id, revision_id: body.teacher_revision_id, origin: 'teacher_created',
           assessment_mode: 'teacher_reviewed', official_movement_name: FieldValue.delete(), display_title: title,
           display_instructions: instructions, display_safety_guidance: safety || FieldValue.delete(), allowed_prop: spec.required_prop,
-          activity_assessment: body.activity_assessment, max_score: body.activity_assessment.rubric.maximum_score,
-          grading_locked: false, grading_locked_at: FieldValue.delete()};
+          activity_assessment: body.activity_assessment, max_score: body.activity_assessment.rubric.maximum_score};
       }
       const attempts = await transaction.get(firestore.collection('assignment_attempts').where('assignment_id', '==', body.assignment_id));
       const recipients = await transaction.get(assignmentRef.collection('assignment_recipients'));
@@ -1636,6 +1641,23 @@ async function updateAssignmentConfigurationHandler(request, response, {
         !sameStringSet(recipients.docs.map((recipient) => recipient.id), recipientIds);
       if (assignment.status === 'active' && !attempts.empty && semanticChanged) {
         const error = new Error('trainee_work_exists'); error.code = 'trainee_work_exists'; throw error;
+      }
+      const activityIdentityKeys = ['movement_id', 'revision_id', 'origin', 'assessment_mode', 'official_movement_name', 'allowed_prop', 'activity_assessment', 'max_score'];
+      const activityIdentityChanged = activityIdentityKeys.some((key) =>
+        !structurallyEqual(assignment[key] ?? null, proposed[key] ?? null));
+      // A reviewed assignment must never be unlocked by a safe edit.  A real
+      // replacement is initialized explicitly, and only where no trainee work
+      // exists (active assignments with work were rejected above).
+      if (assignment.grading_locked === true && activityIdentityChanged) {
+        const error = new Error('trainee_work_exists'); error.code = 'trainee_work_exists'; throw error;
+      }
+      const resetsGrading = activityIdentityChanged && attempts.empty;
+      if (resetsGrading) {
+        if (isOfficial) {
+          next = {...next, grading_locked: FieldValue.delete(), grading_locked_at: FieldValue.delete()};
+        } else {
+          next = {...next, grading_locked: false, grading_locked_at: FieldValue.delete()};
+        }
       }
       if (dueAt && assignment.status === 'scheduled' && assignment.publish_at && dueAt.toDate() <= assignment.publish_at.toDate()) {
         const error = new Error('invalid_publication'); error.code = 'invalid_publication'; throw error;
@@ -1665,6 +1687,17 @@ async function updateAssignmentConfigurationHandler(request, response, {
         {assignment_id: body.assignment_id, group_id: body.group_id, teacher_id: uid, trainee_id: traineeId, audience_type: audienceType, schema_version: 1, created_at: now});
       const responseAssignment = {...assignment, ...proposed, group_name: groupSnapshot.get('name'), ...(topic ? {topic} : {}), ...(dueAt ? {due_at: dueAt} : {}),
         configuration_revision: body.expected_configuration_revision + 1, updated_at: now};
+      if (resetsGrading) {
+        if (isOfficial) delete responseAssignment.grading_locked;
+        else responseAssignment.grading_locked = false;
+        delete responseAssignment.grading_locked_at;
+      }
+      if (isOfficial) {
+        delete responseAssignment.display_instructions;
+        delete responseAssignment.display_safety_guidance;
+        delete responseAssignment.activity_assessment;
+        delete responseAssignment.max_score;
+      }
       if (!topic) delete responseAssignment.topic;
       if (!dueAt) delete responseAssignment.due_at;
       return responseAssignment;
