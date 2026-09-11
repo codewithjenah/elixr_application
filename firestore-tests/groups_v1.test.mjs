@@ -643,7 +643,7 @@ describe('group memberships', () => {
 describe('Trainee-scoped membership lookup (repository preflight)', () => {
   // requestGroupJoin() must discover existing rows with this trainee_id query.
   // Exact GET of a missing deterministic ID is denied because
-  // isMembershipParticipant() requires resource.data.
+  // isLinkParticipant() requires resource.data.
   function ownMembershipLookup(db, traineeId) {
     return getDocs(query(
       collection(db, 'group_memberships'),

@@ -39,8 +39,6 @@ service cloud.firestore {
 
     function markerPath(sessionId) { return /databases/$(database)/documents/leaderboard_processed_sessions/$(sessionId); }
 
-    function boardPath(boardId) { return /databases/$(database)/documents/daily_quest_boards/$(boardId); }
-
     // Canonical board id shape used by create + account-erasure enumeration:
     // <authUid>_<yyyyMMdd>. Used to authorize idempotent deletes of missing
     // deterministic board IDs without opening arbitrary missing-doc deletes.
@@ -57,8 +55,6 @@ service cloud.firestore {
     }
 
     function claimPath(claimId) { return /databases/$(database)/documents/daily_quest_claims/$(claimId); }
-
-    function leaderboardPath(userId) { return /databases/$(database)/documents/leaderboard/$(userId); }
 
     function dailyLeaderboardKeys() {
       return [
@@ -242,8 +238,6 @@ service cloud.firestore {
     function markerKeysV2() { return ['session_id', 'user_id', 'rubric_total', 'xp_awarded', 'processed_at']; }
 
     function boardKeys() { return ['user_id', 'day_key', 'day_start', 'quest_ids', 'created_at', 'updated_at']; }
-
-    function claimKeys() { return ['user_id', 'board_id', 'day_key', 'day_start', 'quest_id', 'xp_awarded', 'claimed_at']; }
 
     function isNonNegInt(value) { return value is int && value >= 0; }
 
@@ -980,22 +974,9 @@ service cloud.firestore {
     }
 
     // Quest claim -> leaderboard update is replay-proof: last_claim_id must
-    // point at a claim created in this same commit (!exists && existsAfter),
-    // and the claim create rule requires the leaderboard-after pointer back.
+    // point at a claim created in this same commit (!exists && existsAfter).
+    // Client claim creates are closed; Firebase Admin is the sole writer.
     function claimAfter(claimId) { return getAfter(claimPath(claimId)).data; }
-
-    function leaderboardAfter(userId) { return getAfter(leaderboardPath(userId)).data; }
-
-    // Single get() of the referenced board, reused for every board-derived
-    // check below instead of calling get() repeatedly (stays comfortably
-    // under the per-request get()/getAfter() budget).
-    function claimReferencesOwnCurrentBoard(data) {
-      let board = get(boardPath(data.board_id)).data;
-      return board.user_id == request.auth.uid
-        && board.day_key == data.day_key
-        && board.day_start == data.day_start
-        && data.quest_id in board.quest_ids;
-    }
 
     function claimMatchesLeaderboardUpdate() {
       let claimId = request.resource.data.last_claim_id;
@@ -2163,8 +2144,7 @@ service cloud.firestore {
     }
 
     function isVerifiedTeacher() {
-      return hasVerifiedEmail()
-        && request.auth.token.get('role', '') == 'Teacher';
+      return hasVerifiedEmail() && isTeacherClaim();
     }
 
     // Trainees may observe only the lifecycle status of classrooms where they
@@ -2191,8 +2171,6 @@ service cloud.firestore {
         && exists(groupPath(groupId))
         && get(groupPath(groupId)).data.teacher_id == request.auth.uid;
     }
-
-    function isAnnouncementOwner(groupId) { return isGroupTeacher(groupId); }
 
     function isAccountDeletionInProgress() {
       return isSignedIn()
@@ -2349,7 +2327,7 @@ service cloud.firestore {
         );
     }
 
-    function groupInviteKeys() { return ['group_id', 'teacher_id', 'teacher_display_name', 'created_at']; }
+    function groupInviteKeys() { return ['group_id'].concat(inviteKeys()); }
 
     function liveGroupInviteMatchesOwner(data) {
       return isNormalizedCoachCode(data.invite_id)
@@ -2398,8 +2376,6 @@ service cloud.firestore {
         && data.teacher_id != data.trainee_id
         && membershipId == data.group_id + '_' + data.trainee_id;
     }
-
-    function isMembershipParticipant() { return isLinkParticipant(); }
 
     // Approved classmates may list other approved members in the same group.
     // Pending, rejected, cancelled, and removed rows stay hidden from peers.
@@ -2452,8 +2428,6 @@ service cloud.firestore {
 
     function membershipParticipantsUnchanged() { return keysUnchanged(['group_id', 'teacher_id', 'trainee_id', 'created_at']); }
 
-    function membershipIdentitySnapshotsUnchanged() { return linkIdentitySnapshotsUnchanged(); }
-
     function classroomAccessContextAfterMembership(data) {
       let contextRef = classroomTeacherAccessPath(
         data.teacher_id,
@@ -2480,10 +2454,10 @@ service cloud.firestore {
         && (
           (resource.data.status == 'pending'
             && request.resource.data.status == 'cancelled'
-            && membershipIdentitySnapshotsUnchanged())
+            && linkIdentitySnapshotsUnchanged())
           || (resource.data.status == 'approved'
             && request.resource.data.status == 'removed'
-            && membershipIdentitySnapshotsUnchanged())
+            && linkIdentitySnapshotsUnchanged())
           || (resource.data.status != 'approved'
             && (resource.data.status != 'pending'
               || resource.data.get('request_version', 0) != 1)
@@ -2506,7 +2480,7 @@ service cloud.firestore {
         && resource.data.get('request_version', 0) == 1
         && request.resource.data.status in ['approved', 'rejected']
         && membershipParticipantsUnchanged()
-        && membershipIdentitySnapshotsUnchanged()
+        && linkIdentitySnapshotsUnchanged()
         && (
           request.resource.data.status == 'rejected'
           || classroomAccessContextAfterMembership(request.resource.data)
@@ -2519,7 +2493,7 @@ service cloud.firestore {
         && resource.data.status == 'approved'
         && request.resource.data.status == 'removed'
         && membershipParticipantsUnchanged()
-        && membershipIdentitySnapshotsUnchanged();
+        && linkIdentitySnapshotsUnchanged();
     }
 
     match /groups/{groupId} {
@@ -2568,7 +2542,7 @@ service cloud.firestore {
     }
 
     function validAnnouncementCreate(data, groupId) {
-      return isAnnouncementOwner(groupId)
+      return isGroupTeacher(groupId)
         && get(groupPath(groupId)).data.status == 'active'
         && data.keys().hasOnly(announcementKeys())
         && data.group_id == groupId
@@ -2588,7 +2562,7 @@ service cloud.firestore {
     function validAnnouncementUpdate(groupId) {
       let before = resource.data;
       let after = request.resource.data;
-      return isAnnouncementOwner(groupId)
+      return isGroupTeacher(groupId)
         && get(groupPath(groupId)).data.status == 'active'
         && after.keys().hasOnly(announcementKeys())
         && after.diff(before).affectedKeys().hasOnly([
@@ -2627,7 +2601,7 @@ service cloud.firestore {
     match /groups/{groupId}/announcements/{announcementId} {
       allow get, list: if isSignedIn()
         && (
-          isAnnouncementOwner(groupId)
+          isGroupTeacher(groupId)
           || (isApprovedAnnouncementMember(groupId)
             && resource.data.get('trainee_visible', false) == true)
         );
@@ -2635,7 +2609,7 @@ service cloud.firestore {
       allow update: if validAnnouncementUpdate(groupId);
       // A Teacher can moderate history after archiving a class. This is also
       // needed by account erasure before the Teacher profile is removed.
-      allow delete: if isAnnouncementOwner(groupId);
+      allow delete: if isGroupTeacher(groupId);
     }
 
     match /group_invites/{inviteId} {
@@ -2651,7 +2625,7 @@ service cloud.firestore {
     }
 
     match /group_memberships/{membershipId} {
-      allow get: if isMembershipParticipant();
+      allow get: if isLinkParticipant();
       allow list: if isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
@@ -2668,7 +2642,7 @@ service cloud.firestore {
         );
 
       allow delete: if isSignedIn()
-        && (resource == null || isMembershipParticipant());
+        && (resource == null || isLinkParticipant());
     }
 
     // ---- Phase 5 classroom movements, assignments, attempts ----------------
@@ -3044,14 +3018,6 @@ service cloud.firestore {
         'assessment_mode', 'status', 'display_title', 'teacher_display_name',
         'group_name', 'created_at', 'updated_at'];
     }
-    function groupAssignmentAllowedKeys() {
-      return groupAssignmentRequiredKeys().concat([
-        'official_movement_name', 'display_instructions',
-        'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
-        'grading_locked', 'grading_locked_at', 'audience_type', 'topic',
-        'configuration_revision', 'activity_assessment', 'attempt_policy', 'deletion_state', 'publish_at'
-      ]);
-    }
     function teacherCreatedAssignmentAllowedKeys() {
       return groupAssignmentRequiredKeys().concat([
         'display_instructions', 'display_safety_guidance', 'allowed_prop',
@@ -3060,17 +3026,25 @@ service cloud.firestore {
         'deletion_state', 'publish_at'
       ]);
     }
+    function groupAssignmentAllowedKeys() {
+      return teacherCreatedAssignmentAllowedKeys().concat([
+        'official_movement_name', 'grading_locked_at'
+      ]);
+    }
     function isLegacyEntireClassAssignment(data) { return !data.keys().hasAny(['audience_type', 'target_trainee_ids']); }
     function validAssignmentAudienceShape(data) {
       let keys = data.keys();
       return !keys.hasAny(['target_trainee_ids'])
         && data.audience_type in ['entire_class', 'selected_students', 'individual_student'];
     }
+    function assignmentRecipientKeys() {
+      return [
+        'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
+        'audience_type', 'schema_version', 'created_at'
+      ];
+    }
     function validAssignmentRecipient(data, assignmentId, traineeId) {
-      return data.keys().hasOnly([
-          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
-          'audience_type', 'schema_version', 'created_at'
-        ])
+      return data.keys().hasOnly(assignmentRecipientKeys())
         && data.assignment_id == assignmentId
         && data.trainee_id == traineeId
         && isClassroomDocId(assignmentId)
@@ -3088,10 +3062,7 @@ service cloud.firestore {
       // expression budget; direct recipient reads still use the full shape
       // validator above.
       let recipient = get(assignmentRecipientPath(assignmentId, traineeId)).data;
-      return recipient.keys().hasOnly([
-          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
-          'audience_type', 'schema_version', 'created_at'
-        ])
+      return recipient.keys().hasOnly(assignmentRecipientKeys())
         && isClassroomDocId(assignmentId)
         && isClassroomDocId(traineeId)
         && isClassroomDocId(recipient.group_id)
@@ -3609,7 +3580,6 @@ service cloud.firestore {
         'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
       ]);
     }
-    function teacherDraftAllowedKeys() { return assignmentAttemptIdentityKeys(); }
     function teacherReviewSubmissionCreateKeys() {
       return assignmentAttemptIdentityKeys().concat([
         'supersedes_attempt_id', 'attempt_number', 'reservation_request_id',
@@ -3761,7 +3731,7 @@ service cloud.firestore {
         && data.status in ['draft', 'in_progress']
         && data.origin == 'teacher_created'
         && data.assessment_mode == 'teacher_reviewed'
-        && data.keys().hasOnly(teacherDraftAllowedKeys())
+        && data.keys().hasOnly(assignmentAttemptIdentityKeys())
         && data.status != 'approved'
         && data.status != 'needs_retry';
     }
@@ -3877,7 +3847,7 @@ service cloud.firestore {
         && resource.data.origin == 'teacher_created'
         && assignmentSubmissionIsOpen(resource.data)
         && assignmentAttemptIdentityUnchanged()
-        && request.resource.data.keys().hasOnly(teacherDraftAllowedKeys())
+        && request.resource.data.keys().hasOnly(assignmentAttemptIdentityKeys())
         && resource.data.status == 'draft'
         && request.resource.data.status == 'in_progress'
         && !request.resource.data.keys().hasAny(['review_verdict',
