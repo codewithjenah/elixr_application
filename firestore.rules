@@ -455,10 +455,6 @@ service cloud.firestore {
 
     function scoreThresholdIds() { return ['score_70', 'score_85', 'score_95']; }
 
-    function isKnownQuestId(id) { return id in questCatalogIds(); }
-
-    function questXpFor(id) { return id in easyIds() ? 10 : (id in mediumIds() ? 15 : (id in hardIds() ? 20 : -1)); }
-
     function countInSet(ids, allowed) {
       return (ids[0] in allowed ? 1 : 0) + (ids[1] in allowed ? 1 : 0) + (ids[2] in allowed ? 1 : 0)
            + (ids[3] in allowed ? 1 : 0) + (ids[4] in allowed ? 1 : 0);
