@@ -23,6 +23,7 @@ const {
   isSearchRateLimited,
   listTraineeAssignmentsHandler,
   updateTeacherActivityAssignmentHandler,
+  updateAssignmentConfigurationHandler,
   validActivityAssessment,
   ACTIVITY_MATERIAL_LIMITS,
   detectActivityMaterialContent,
@@ -1006,6 +1007,119 @@ function activityUpdateBody(overrides = {}) {
     ...overrides,
   };
 }
+
+function fakeConfigurationDatabase({hasAttempts = false} = {}) {
+  let assignment = {
+    teacher_id: 'teacher', group_id: 'g1', movement_id: 'movement-fixed',
+    revision_id: 'revision-fixed', origin: 'teacher_created',
+    assessment_mode: 'teacher_reviewed', status: 'active',
+    display_title: 'Edited Activity',
+    display_instructions: 'Record the complete movement.',
+    display_safety_guidance: 'Keep the floor dry.',
+    topic: 'Bottle control',
+    due_at: Timestamp.fromDate(new Date('2026-09-15T00:00:00.000Z')),
+    audience_type: 'entire_class', allowed_prop: 'bottle', max_score: 50,
+    attempt_policy: {type: 'finite', maximum_attempts: 2},
+    activity_assessment: updateAssessment(), configuration_revision: 1,
+  };
+  const snapshot = (data) => ({
+    exists: true,
+    data: () => data,
+    get: (key) => data[key],
+  });
+  const recipientsRef = {kind: 'recipients', docs: []};
+  const assignmentRef = {
+    kind: 'assignment', id: 'assignment-1',
+    collection(name) {
+      assert.equal(name, 'assignment_recipients');
+      return {
+        kind: 'recipients', docs: recipientsRef.docs,
+        doc: (id) => ({id, kind: 'recipient'}),
+      };
+    },
+  };
+  const groupRef = {kind: 'group'};
+  const movementRef = {
+    kind: 'movement',
+    collection(name) {
+      assert.equal(name, 'revisions');
+      return {doc: () => ({kind: 'revision'})};
+    },
+  };
+  const database = {
+    collection(name) {
+      if (name === 'group_assignments') return {doc: () => assignmentRef};
+      if (name === 'groups') return {doc: () => groupRef};
+      if (name === 'teacher_movements') return {doc: () => movementRef};
+      if (name === 'assignment_attempts') return {
+        where: () => ({kind: 'attempts'}),
+      };
+      if (name === 'group_memberships') return {doc: () => ({kind: 'membership'})};
+      throw new Error(`Unexpected collection ${name}`);
+    },
+    async runTransaction(callback) {
+      return callback({
+        async get(ref) {
+          if (ref === assignmentRef) return snapshot(assignment);
+          if (ref === groupRef) return snapshot({teacher_id: 'teacher', status: 'active', name: 'BSHM 4A'});
+          if (ref === movementRef) return snapshot({teacher_id: 'teacher', status: 'active', current_revision_id: 'revision-fixed'});
+          if (ref.kind === 'revision') return snapshot({
+            teacher_id: 'teacher', movement_id: 'movement-fixed',
+            assessment_mode: 'teacher_reviewed',
+            spec: {capability: 'teacher_review_only', required_prop: 'bottle'},
+          });
+          if (ref.kind === 'attempts') return {empty: !hasAttempts, docs: []};
+          if (ref.kind === 'recipients') return {docs: recipientsRef.docs};
+          if (ref.kind === 'membership') return {exists: false};
+          throw new Error('Unexpected transaction read');
+        },
+        update(ref, data) {
+          assert.equal(ref, assignmentRef);
+          assignment = {...assignment, ...data};
+        },
+        set() {}, delete() {},
+      });
+    },
+    get assignment() { return assignment; },
+  };
+  return database;
+}
+
+test('configuration update preserves a matching Teacher Activity and rejects active semantic changes with attempts', async () => {
+  const options = {
+    authenticate: async () => 'teacher',
+    databaseFactory: () => fakeConfigurationDatabase(),
+  };
+  const body = {
+    ...activityUpdateBody(),
+    group_id: 'g1',
+    teacher_movement_id: 'movement-fixed',
+    teacher_revision_id: 'revision-fixed',
+  };
+  const response = fakeResponse();
+  await updateAssignmentConfigurationHandler({method: 'POST', body}, response, options);
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  assert.equal(response.body.assignment.movement_id, 'movement-fixed');
+  assert.equal(response.body.assignment.revision_id, 'revision-fixed');
+  assert.equal(response.body.assignment.configuration_revision, 1);
+
+  const safeResponse = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {method: 'POST', body: {...body, topic: 'Updated topic'}},
+    safeResponse,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeConfigurationDatabase({hasAttempts: true})},
+  );
+  assert.equal(safeResponse.statusCode, 200);
+
+  const blockedResponse = fakeResponse();
+  await updateAssignmentConfigurationHandler(
+    {method: 'POST', body: {...body, attempt_policy: {type: 'finite', maximum_attempts: 3}}},
+    blockedResponse,
+    {authenticate: async () => 'teacher', databaseFactory: () => fakeConfigurationDatabase({hasAttempts: true})},
+  );
+  assert.equal(blockedResponse.statusCode, 409);
+  assert.deepEqual(blockedResponse.body, {error: 'trainee_work_exists'});
+});
 
 test('Teacher Activity assignment updates round-trip twice and reject stale edits', async () => {
   const database = fakeActivityUpdateDatabase();

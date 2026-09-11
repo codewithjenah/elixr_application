@@ -20,6 +20,48 @@ import '../models/training_prop.dart';
 import '../../core/constants/movements.dart';
 import 'classroom_assignment_repository.dart';
 
+bool _sameStringSet(Iterable<String> left, Iterable<String> right) {
+  final leftSet = left.toSet();
+  final rightSet = right.toSet();
+  return leftSet.length == rightSet.length && leftSet.containsAll(rightSet);
+}
+
+bool _sameAttemptPolicy(
+  AssignmentAttemptPolicy left,
+  AssignmentAttemptPolicy right,
+) =>
+    left.isUnlimited == right.isUnlimited &&
+    left.maximumAttempts == right.maximumAttempts;
+
+bool _sameActivityAssessment(
+  TeacherActivityAssessmentConfig? left,
+  TeacherActivityAssessmentConfig? right,
+) => _deepEquals(left?.toMap(), right?.toMap());
+
+bool _deepEquals(Object? left, Object? right) {
+  if (identical(left, right) || left == right) return true;
+  if (left is Map && right is Map) {
+    if (left.length != right.length) return false;
+    for (final entry in left.entries) {
+      if (!right.containsKey(entry.key) ||
+          !_deepEquals(entry.value, right[entry.key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (left is Iterable && right is Iterable) {
+    final leftValues = left.toList(growable: false);
+    final rightValues = right.toList(growable: false);
+    if (leftValues.length != rightValues.length) return false;
+    for (var index = 0; index < leftValues.length; index++) {
+      if (!_deepEquals(leftValues[index], rightValues[index])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 class InMemoryClassroomAssignmentRepository
     implements ClassroomAssignmentRepository {
   InMemoryClassroomAssignmentRepository({
@@ -396,9 +438,8 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
-  Future<bool> hasTraineeWork({required String assignmentId}) async => attempts
-      .values
-      .any((attempt) => attempt.assignmentId == assignmentId);
+  Future<bool> hasTraineeWork({required String assignmentId}) async =>
+      attempts.values.any((attempt) => attempt.assignmentId == assignmentId);
 
   @override
   Future<GroupAssignment> updateAssignmentConfiguration({
@@ -420,33 +461,56 @@ class InMemoryClassroomAssignmentRepository
     TeacherActivityAssessmentConfig? activityAssessment,
   }) async {
     final existing = assignments[assignmentId];
-    if (existing == null) throw const ClassroomException(ClassroomError.notFound);
-    if (existing.teacherId != teacherId || !group.isActive || group.teacherId != teacherId ||
-        !existing.status.name.contains('draft') && !existing.isScheduled && !existing.isActive ||
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId ||
+        !group.isActive ||
+        group.teacherId != teacherId ||
+        !existing.status.name.contains('draft') &&
+            !existing.isScheduled &&
+            !existing.isActive ||
         existing.configurationRevision != expectedConfigurationRevision) {
       throw const ClassroomException(ClassroomError.conflict);
     }
     final official = officialMovementName?.trim();
     final isOfficial = official != null && official.isNotEmpty;
     if (isOfficial == (teacherMovement != null) ||
-        (isOfficial && (officialAllowedProp == null || !movementCatalog.any((movement) =>
-            movement.name == official && movement.supportedProps.contains(officialAllowedProp)))) ||
-        (!isOfficial && (teacherMovementRevision == null || !teacherMovement!.isActive ||
-            teacherMovement.teacherId != teacherId ||
-            teacherMovementRevision.movementId != teacherMovement.id ||
-            teacherMovementRevision.teacherId != teacherId ||
-            teacherMovementRevision.assessmentMode != AssessmentMode.teacherReviewed ||
-            teacherMovementRevision.spec is! TeacherReviewedMovementSpec ||
-            activityAssessment == null || !activityAssessment.isValid))) {
+        (isOfficial &&
+            (officialAllowedProp == null ||
+                !movementCatalog.any(
+                  (movement) =>
+                      movement.name == official &&
+                      movement.supportedProps.contains(officialAllowedProp),
+                ))) ||
+        (!isOfficial &&
+            (teacherMovementRevision == null ||
+                !teacherMovement!.isActive ||
+                teacherMovement.teacherId != teacherId ||
+                teacherMovement.currentRevisionId !=
+                    teacherMovementRevision.id ||
+                teacherMovementRevision.movementId != teacherMovement.id ||
+                teacherMovementRevision.teacherId != teacherId ||
+                teacherMovementRevision.assessmentMode !=
+                    AssessmentMode.teacherReviewed ||
+                teacherMovementRevision.spec is! TeacherReviewedMovementSpec ||
+                activityAssessment == null ||
+                !activityAssessment.isValid))) {
       throw const ClassroomException(ClassroomError.malformed);
     }
-    if (dueAt != null && existing.isScheduled && existing.publishAt != null &&
+    if (dueAt != null &&
+        existing.isScheduled &&
+        existing.publishAt != null &&
         !dueAt.toUtc().isAfter(existing.publishAt!.toUtc())) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
     if (!audience.isEntireClass) {
       try {
-        await _ensureAudienceTargetsAreApprovedMembers(teacherId: teacherId, group: group, audience: audience);
+        await _ensureAudienceTargetsAreApprovedMembers(
+          teacherId: teacherId,
+          group: group,
+          audience: audience,
+        );
       } on ClassroomException {
         throw const ClassroomException(ClassroomError.invalidRecipient);
       }
@@ -463,41 +527,106 @@ class InMemoryClassroomAssignmentRepository
     final hasWork = await hasTraineeWork(assignmentId: assignmentId);
     final requiredProp = isOfficial
         ? officialAllowedProp
-        : (selectedTeacherRevision!.spec as TeacherReviewedMovementSpec).requiredProp;
-    final identityChanged = existing.groupId != group.id || existing.isOfficial != isOfficial ||
-        existing.movementId != (isOfficial ? officialIdentity!.movementId : selectedTeacherMovement!.id) ||
-        existing.revisionId != (isOfficial ? officialIdentity!.revisionId : selectedTeacherRevision!.id) ||
-        existing.allowedProp != requiredProp || existing.audience.type != audience.type ||
-        existing.audience.targetTraineeIds.toSet().toString() != audience.targetTraineeIds.toSet().toString() ||
-        existing.attemptPolicy.toMap().toString() != attemptPolicy.toMap().toString() ||
-        (isOfficial ? existing.activityAssessment != null : existing.activityAssessment != activityAssessment);
+        : (selectedTeacherRevision!.spec as TeacherReviewedMovementSpec)
+              .requiredProp;
+    final identityChanged =
+        existing.groupId != group.id ||
+        existing.isOfficial != isOfficial ||
+        existing.movementId !=
+            (isOfficial
+                ? officialIdentity!.movementId
+                : selectedTeacherMovement!.id) ||
+        existing.revisionId !=
+            (isOfficial
+                ? officialIdentity!.revisionId
+                : selectedTeacherRevision!.id) ||
+        existing.allowedProp != requiredProp ||
+        existing.audience.type != audience.type ||
+        !_sameStringSet(
+          existing.audience.targetTraineeIds,
+          audience.targetTraineeIds,
+        ) ||
+        !_sameAttemptPolicy(existing.attemptPolicy, attemptPolicy) ||
+        !_sameActivityAssessment(
+          existing.activityAssessment,
+          isOfficial ? null : activityAssessment,
+        );
     if (existing.isActive && hasWork && identityChanged) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
-    if (existing.gradingLocked && !isOfficial && existing.activityAssessment != activityAssessment) {
+    if (existing.gradingLocked &&
+        !isOfficial &&
+        !_sameActivityAssessment(
+          existing.activityAssessment,
+          activityAssessment,
+        )) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
     final title = isOfficial ? officialName : displayTitle?.trim();
-    final instructions = isOfficial ? existing.displayInstructions : displayInstructions?.trim();
-    if ((!isOfficial && (title == null || title.isEmpty || instructions == null || instructions.isEmpty))) {
+    final instructions = isOfficial
+        ? existing.displayInstructions
+        : displayInstructions?.trim();
+    if ((!isOfficial &&
+        (title == null ||
+            title.isEmpty ||
+            instructions == null ||
+            instructions.isEmpty))) {
       throw const ClassroomException(ClassroomError.malformed);
     }
     final assessment = isOfficial ? null : activityAssessment;
+    final configurationChanged =
+        identityChanged ||
+        (!isOfficial &&
+            (existing.displayTitle != title ||
+                existing.displayInstructions != instructions ||
+                existing.displaySafetyGuidance !=
+                    (displaySafetyGuidance?.trim().isEmpty == true
+                        ? null
+                        : displaySafetyGuidance?.trim()))) ||
+        existing.topic !=
+            (topic?.trim().isEmpty == true ? null : topic?.trim()) ||
+        existing.dueAt?.toUtc() != dueAt?.toUtc();
+    if (!configurationChanged) return existing;
     final updated = GroupAssignment(
-      id: existing.id, teacherId: existing.teacherId, groupId: group.id,
-      movementId: isOfficial ? officialIdentity!.movementId : selectedTeacherMovement!.id,
-      revisionId: isOfficial ? officialIdentity!.revisionId : selectedTeacherRevision!.id,
-      origin: isOfficial ? MovementOrigin.officialElixr : MovementOrigin.teacherCreated,
-      assessmentMode: isOfficial ? AssessmentMode.officialGuided : AssessmentMode.teacherReviewed,
-      status: existing.status, displayTitle: title ?? existing.displayTitle, teacherDisplayName: existing.teacherDisplayName,
-      groupName: group.name, topic: topic?.trim().isEmpty == true ? null : topic?.trim(),
-      officialMovementName: isOfficial ? officialName : null, displayInstructions: instructions,
-      displaySafetyGuidance: isOfficial ? null : (displaySafetyGuidance?.trim().isEmpty == true ? null : displaySafetyGuidance?.trim()),
-      allowedProp: requiredProp, maxScore: assessment?.rubric.maximumScore,
-      attemptPolicy: attemptPolicy, configurationRevision: existing.configurationRevision + 1,
-      activityAssessment: assessment, gradingLocked: existing.gradingLocked,
-      gradingLockedAt: existing.gradingLockedAt, dueAt: dueAt, publishAt: existing.publishAt,
-      createdAt: existing.createdAt, updatedAt: now, audience: audience,
+      id: existing.id,
+      teacherId: existing.teacherId,
+      groupId: group.id,
+      movementId: isOfficial
+          ? officialIdentity!.movementId
+          : selectedTeacherMovement!.id,
+      revisionId: isOfficial
+          ? officialIdentity!.revisionId
+          : selectedTeacherRevision!.id,
+      origin: isOfficial
+          ? MovementOrigin.officialElixr
+          : MovementOrigin.teacherCreated,
+      assessmentMode: isOfficial
+          ? AssessmentMode.officialGuided
+          : AssessmentMode.teacherReviewed,
+      status: existing.status,
+      displayTitle: title ?? existing.displayTitle,
+      teacherDisplayName: existing.teacherDisplayName,
+      groupName: group.name,
+      topic: topic?.trim().isEmpty == true ? null : topic?.trim(),
+      officialMovementName: isOfficial ? officialName : null,
+      displayInstructions: instructions,
+      displaySafetyGuidance: isOfficial
+          ? null
+          : (displaySafetyGuidance?.trim().isEmpty == true
+                ? null
+                : displaySafetyGuidance?.trim()),
+      allowedProp: requiredProp,
+      maxScore: assessment?.rubric.maximumScore,
+      attemptPolicy: attemptPolicy,
+      configurationRevision: existing.configurationRevision + 1,
+      activityAssessment: assessment,
+      gradingLocked: existing.gradingLocked,
+      gradingLockedAt: existing.gradingLockedAt,
+      dueAt: dueAt,
+      publishAt: existing.publishAt,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+      audience: audience,
     );
     assignments[assignmentId] = updated;
     _emitTeacher(teacherId);

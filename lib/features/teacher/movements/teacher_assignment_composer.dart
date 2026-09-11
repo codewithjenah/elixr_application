@@ -384,6 +384,11 @@ enum _AssignmentOriginSelection { official, teacherCreated }
 
 enum _PublicationAction { draft, publish, schedule }
 
+/// Semantic assignment changes are only safe after the server-side attempt
+/// check has completed successfully.  In particular, an unavailable check must
+/// never be treated like a negative result.
+enum _EditSafetyState { unknown, loading, safe, hasTraineeWork, error }
+
 extension on AssignmentAudienceType {
   bool get isTargeted => this != AssignmentAudienceType.entireClass;
 }
@@ -414,8 +419,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   int _publicationHour = 9;
   int _publicationMinute = 0;
   bool _publicationSchedulingEnabled = false;
-  bool _loadingEditSafety = false;
-  bool _hasTraineeWork = false;
+  _EditSafetyState _editSafetyState = _EditSafetyState.unknown;
   TeacherMovementRevision? _persistedTeacherRevision;
   bool _submitting = false;
   bool _creatingTeacherMovement = false;
@@ -455,22 +459,29 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   bool get _isEditing => widget.existingAssignment != null;
   bool get _isEditingDraft => _editingAssignment?.isDraft == true;
   GroupAssignment? get _editingAssignment => widget.existingAssignment;
-  bool get _canEditIdentity =>
-      !_isEditing ||
-      (!_loadingEditSafety && (!_editingAssignment!.isActive || !_hasTraineeWork));
+  bool get _isEditSafetyKnownSafe => _editSafetyState == _EditSafetyState.safe;
+  bool get _canEditIdentity => !_isEditing || _isEditSafetyKnownSafe;
   bool get _canEditAudience => _canEditIdentity;
   bool get _canEditAssessment =>
       _canEditIdentity && (!_isEditing || !_editingAssignment!.gradingLocked);
   bool get _canEditPublication =>
-      _isEditing && (_editingAssignment!.isDraft || _editingAssignment!.isScheduled);
+      _isEditing &&
+      (_editingAssignment!.isDraft || _editingAssignment!.isScheduled);
   String? get _editLockExplanation => _isEditing && !_canEditIdentity
-      ? 'Movement, classroom, audience, attempts, prop, and scoring are locked because trainee work already exists.'
+      ? _editSafetyState == _EditSafetyState.error
+            ? 'Assignment configuration is locked until trainee work can be checked.'
+            : _editSafetyState == _EditSafetyState.unknown ||
+                  _editSafetyState == _EditSafetyState.loading
+            ? 'Checking whether trainees have started this assignment. Configuration is locked until that check completes.'
+            : 'Movement, classroom, audience, attempts, prop, and scoring are locked because trainee work already exists.'
       : _isEditing && _editingAssignment!.gradingLocked
       ? 'Scoring settings are locked because a trainee submission has already been reviewed.'
       : null;
   bool get _hasMovementOverride =>
-      widget.officialMovement != null ||
-      widget.teacherCreatedMovement != null;
+      widget.officialMovement != null || widget.teacherCreatedMovement != null;
+  bool get _isClassroomSelectionLocked => !_isEditing && _classroomScoped;
+  bool get _showsMovementPicker =>
+      _isEditing ? _canEditIdentity : _classroomScoped;
 
   List<ElixrGroup> get _activeGroups {
     final groups = [
@@ -486,9 +497,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return groups;
   }
 
-  bool get _isTeacherCreated => _isEditing
-      ? _editingAssignment!.isTeacherCreated
-      : _origin == _AssignmentOriginSelection.teacherCreated;
+  /// The selected origin is the source of truth for the editor.  The original
+  /// assignment origin is used only when hydrating its initial state.
+  bool get _isTeacherCreated =>
+      _origin == _AssignmentOriginSelection.teacherCreated;
 
   TeacherReviewedMovementSpec? get _selectedActivitySpec {
     final movement = _selectedTeacherCreatedMovement;
@@ -601,10 +613,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   bool get _hasValidTeacherMovement {
-    if (_isEditing && _isTeacherCreated) return true;
     final movement = _selectedTeacherCreatedMovement;
     if (movement == null || !movement.isActive) return false;
-    if (!_classroomScoped) return true;
     final revision = _teacherMovementRevisions[movement.id];
     return revision != null && _isAssignableTeacherRevision(revision);
   }
@@ -636,7 +646,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _selectedGroup?.isActive == true &&
       (_selectedOfficialMovement != null || _hasValidTeacherMovement) &&
       _hasValidOfficialProp &&
-      (!_classroomScoped || !_isTeacherCreated || !_loadingTeacherMovements) &&
+      (!_isTeacherCreated || !_loadingTeacherMovements) &&
       _hasValidMaxScore &&
       _hasValidActivityAssessment &&
       _activityDetailsValidation == null &&
@@ -647,11 +657,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   @override
   void initState() {
     super.initState();
-    _classroomScoped = !_hasMovementOverride;
+    final existing = _editingAssignment;
+    // A class-scoped entry point fixes the classroom only while creating. An
+    // existing assignment must use lifecycle safety, not navigation origin, to
+    // decide whether its identity can be changed.
+    _classroomScoped = existing == null && !_hasMovementOverride;
     _maxScoreController = TextEditingController(
       text: '${TeacherActivityAssessmentContract.defaultMaximumScore}',
     );
-    final existing = _editingAssignment;
     _assignmentTitleController = TextEditingController(
       text:
           existing?.displayTitle ?? widget.teacherCreatedMovement?.title ?? '',
@@ -702,7 +715,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       }
       _loadEditSafety();
       _startWatchingTeacherMovements();
-      if (existing.isTeacherCreated) _loadPersistedTeacherRevision(existing);
       if (_audienceType.isTargeted) unawaited(_watchRosterForSelectedGroup());
       unawaited(_loadPersistedMaterials());
       return;
@@ -719,31 +731,21 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   Future<void> _loadEditSafety() async {
     final assignment = _editingAssignment;
     if (assignment == null) return;
-    setState(() => _loadingEditSafety = true);
+    setState(() => _editSafetyState = _EditSafetyState.loading);
     try {
       final hasWork = await widget.creationService.assignmentRepository
           .hasTraineeWork(assignmentId: assignment.id);
       if (!mounted) return;
       setState(() {
-        _hasTraineeWork = hasWork;
-        _loadingEditSafety = false;
+        _editSafetyState = hasWork
+            ? _EditSafetyState.hasTraineeWork
+            : _EditSafetyState.safe;
         if (hasWork) _customizeActivity = false;
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadingEditSafety = false);
+      setState(() => _editSafetyState = _EditSafetyState.error);
     }
-  }
-
-  Future<void> _loadPersistedTeacherRevision(GroupAssignment assignment) async {
-    final repository = widget.movementRepository;
-    if (repository == null) return;
-    final revision = await repository.getRevision(
-      movementId: assignment.movementId,
-      revisionId: assignment.revisionId,
-    );
-    if (!mounted) return;
-    setState(() => _persistedTeacherRevision = revision);
   }
 
   ElixrGroup? _groupFor(GroupAssignment assignment) {
@@ -895,6 +897,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         )
         .toList(growable: false);
     final revisions = <String, TeacherMovementRevision>{};
+    final existing = _editingAssignment;
+    TeacherMovementRevision? persistedRevision;
     try {
       for (final movement in candidates) {
         final revision = await repository.getRevision(
@@ -904,6 +908,27 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         if (revision != null && _isAssignableTeacherRevision(revision)) {
           revisions[movement.id] = revision;
         }
+      }
+      if (existing != null && existing.isTeacherCreated) {
+        final persistedMovement = candidates
+            .where((movement) => movement.id == existing.movementId)
+            .firstOrNull;
+        if (persistedMovement == null ||
+            persistedMovement.currentRevisionId != existing.revisionId) {
+          throw StateError('The saved Teacher Activity is no longer current.');
+        }
+        persistedRevision = await repository.getRevision(
+          movementId: persistedMovement.id,
+          revisionId: existing.revisionId,
+        );
+        if (persistedRevision == null ||
+            !_isAssignableTeacherRevision(persistedRevision) ||
+            persistedRevision.id != persistedMovement.currentRevisionId) {
+          throw StateError(
+            'The saved Teacher Activity revision is unavailable.',
+          );
+        }
+        revisions[persistedMovement.id] = persistedRevision;
       }
     } catch (_) {
       if (!mounted || token != _movementLoadToken) return;
@@ -923,12 +948,21 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _teacherMovementRevisions = revisions;
       _loadingTeacherMovements = false;
       _movementLoadError = null;
-      final selected = _selectedTeacherCreatedMovement;
-      if (selected != null &&
-          !assignable.any((movement) => movement.id == selected.id)) {
-        _selectedTeacherCreatedMovement = assignable.firstOrNull;
-      } else if (_isTeacherCreated && selected == null) {
-        _selectedTeacherCreatedMovement = assignable.firstOrNull;
+      if (existing != null && existing.isTeacherCreated) {
+        // An edit must keep the stored identity.  Choosing the first available
+        // activity here would mutate an untouched assignment on Save.
+        _selectedTeacherCreatedMovement = assignable
+            .where((movement) => movement.id == existing.movementId)
+            .firstOrNull;
+        _persistedTeacherRevision = persistedRevision;
+      } else {
+        final selected = _selectedTeacherCreatedMovement;
+        if (selected != null &&
+            !assignable.any((movement) => movement.id == selected.id)) {
+          _selectedTeacherCreatedMovement = assignable.firstOrNull;
+        } else if (_isTeacherCreated && selected == null) {
+          _selectedTeacherCreatedMovement = assignable.firstOrNull;
+        }
       }
     });
   }
@@ -1045,21 +1079,30 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       isSubmitting: _submitting,
       isEditing: _isEditing,
       isEditingDraft: _isEditingDraft,
-      onSaveDraft: _canSubmit && (!_isEditing || _isEditingDraft || _editingAssignment!.isScheduled)
+      onSaveDraft:
+          _canSubmit &&
+              (!_isEditing ||
+                  _isEditingDraft ||
+                  _editingAssignment!.isScheduled)
           ? () => _isEditing
                 ? _submitEdit(context)
                 : _submit(context, _PublicationAction.draft)
           : null,
       onPublish: _canSubmit
           ? () => _isEditing
-                ? _submitEdit(context, publish: _isEditingDraft || _editingAssignment!.isScheduled)
+                ? _submitEdit(
+                    context,
+                    publish: _isEditingDraft || _editingAssignment!.isScheduled,
+                  )
                 : _submit(context, _PublicationAction.publish)
           : null,
-      onSchedule: _canSubmit && _publicationSchedulingEnabled &&
+      onSchedule:
+          _canSubmit &&
+              _publicationSchedulingEnabled &&
               (!_isEditing || _canEditPublication)
           ? () => _isEditing
-              ? _submitEdit(context, schedule: true)
-              : _submit(context, _PublicationAction.schedule)
+                ? _submitEdit(context, schedule: true)
+                : _submit(context, _PublicationAction.schedule)
           : null,
     );
     final summary = _AssignmentSummaryCard(
@@ -1127,12 +1170,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           icon: FluentIcons.people,
           eyebrow: 'CLASSROOM',
           title: 'Where should it go?',
-          description: _classroomScoped
+          description: _isClassroomSelectionLocked
               ? 'This assignment will be shared with one class.'
               : 'Choose the class that should receive this movement.',
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (_classroomScoped)
+        if (_isClassroomSelectionLocked)
           _ComposerReadOnlyField(
             key: const Key('teacher_assignment_locked_group'),
             label: 'Classroom',
@@ -1159,23 +1202,24 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 for (final group in _activeGroups)
                   Text(group.name, overflow: TextOverflow.ellipsis),
               ],
-              onChanged: _submitting || !_canEditIdentity ? null : _onGroupChanged,
+              onChanged: _submitting || !_canEditIdentity
+                  ? null
+                  : _onGroupChanged,
             ),
           ),
         const SizedBox(height: AppSpacing.xl),
         _ComposerSectionHeading(
-            icon: FluentIcons.contact,
-            eyebrow: 'AUDIENCE',
-            title: 'Who should receive it?',
-            description:
-                'Choose the whole class, a small group, or one trainee.',
-          ),
+          icon: FluentIcons.contact,
+          eyebrow: 'AUDIENCE',
+          title: 'Who should receive it?',
+          description: 'Choose the whole class, a small group, or one trainee.',
+        ),
         const SizedBox(height: AppSpacing.lg),
         _AssignmentAudienceSelector(
-            selected: _audienceType,
-            enabled: !_submitting && _canEditAudience,
-            onChanged: _onAudienceTypeChanged,
-          ),
+          selected: _audienceType,
+          enabled: !_submitting && _canEditAudience,
+          onChanged: _onAudienceTypeChanged,
+        ),
         if (_audienceType.isTargeted) ...[
           const SizedBox(height: AppSpacing.md),
           _buildRosterPicker(context),
@@ -1185,12 +1229,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           icon: FluentIcons.learning_tools,
           eyebrow: 'PRACTICE SETUP',
           title: 'What should they practice?',
-          description: _classroomScoped
+          description: _showsMovementPicker
               ? 'Pick an official movement or one of your reviewed movements.'
               : 'This movement is selected. Review the assignment settings below.',
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (_classroomScoped) ...[
+        if (_showsMovementPicker) ...[
           _MovementSourceSelector(
             selected: _origin,
             enabled: !_submitting && _canEditIdentity,
@@ -1219,7 +1263,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             ),
           ],
         ],
-        if (_classroomScoped && !_isTeacherCreated) ...[
+        if (_showsMovementPicker && !_isTeacherCreated) ...[
           const SizedBox(height: AppSpacing.md),
           const _AutomaticScoringCard(),
         ],
@@ -1356,12 +1400,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ),
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
-              icon: FluentIcons.tag,
-              eyebrow: 'ORGANIZATION',
-              title: 'Add a topic',
-              description:
-                  'Optional. Topics organize Classwork for this class.',
-            ),
+            icon: FluentIcons.tag,
+            eyebrow: 'ORGANIZATION',
+            title: 'Add a topic',
+            description: 'Optional. Topics organize Classwork for this class.',
+          ),
           const SizedBox(height: AppSpacing.lg),
           _ComposerField(
             label: 'Topic',
@@ -1490,8 +1533,19 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             title: const Text('Some settings are locked'),
             content: Text(_editLockExplanation!),
           ),
+          if (_editSafetyState == _EditSafetyState.error) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Button(
+                key: const Key('teacher_assignment_retry_edit_safety'),
+                onPressed: _submitting ? null : _loadEditSafety,
+                child: const Text('Retry'),
+              ),
+            ),
+          ],
         ],
-        if (_movementLoadError != null && _classroomScoped) ...[
+        if (_movementLoadError != null && _isTeacherCreated) ...[
           const SizedBox(height: AppSpacing.lg),
           Text(
             _movementLoadError!,
@@ -2108,20 +2162,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   String get _movementModeLabel {
-    if (_isEditing && _editingAssignment!.isOfficial) {
-      return _officialModeLabel(
-        _selectedOfficialProp ?? _editingAssignment!.allowedProp,
-      );
-    }
-    if (_isEditing && _editingAssignment!.isTeacherCreated) {
-      return 'Teacher reviewed · No automatic ELIXR score';
-    }
-    final custom = _selectedTeacherCreatedMovement;
-    if (_selectedOfficialMovement != null) {
+    if (_origin == _AssignmentOriginSelection.official) {
       return _officialModeLabel(_selectedOfficialProp);
     }
-    if (custom != null) return 'Teacher reviewed · No automatic ELIXR score';
-    return 'Choose an assignable movement.';
+    return _selectedTeacherCreatedMovement == null
+        ? 'Choose an assignable movement.'
+        : 'Teacher reviewed · No automatic ELIXR score';
   }
 
   String _officialModeLabel(TrainingProp? prop) {
@@ -2230,7 +2276,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           alignment: Alignment.centerLeft,
           child: Button(
             key: const Key('teacher_assignment_create_movement'),
-            onPressed: _submitting || _creatingTeacherMovement || !_canEditIdentity
+            onPressed:
+                _submitting || _creatingTeacherMovement || !_canEditIdentity
                 ? null
                 : _showCreateTeacherMovement,
             child: const Row(
@@ -2409,7 +2456,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   void _onOriginChanged(_AssignmentOriginSelection? value) {
-    if (value == null) return;
+    if (value == null || !_canEditIdentity) return;
     setState(() {
       _origin = value;
       _validationError = null;
@@ -2425,6 +2472,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         }
       } else {
         _selectedOfficialMovement = null;
+        _selectedOfficialProp = null;
         _selectedTeacherCreatedMovement ??= _teacherMovements.firstOrNull;
       }
     });
@@ -2434,7 +2482,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   void _onGroupChanged(String? value) {
-    if (value == null) return;
+    if (value == null || !_canEditIdentity) return;
     for (final group in _activeGroups) {
       if (group.id == value) {
         setState(() {
@@ -2515,7 +2563,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               child: TextBox(
                 key: const Key('teacher_assignment_roster_search'),
                 controller: _rosterSearchController,
-                enabled: !_submitting,
+                enabled: !_submitting && _canEditIdentity,
                 placeholder: 'Search trainees',
                 prefix: const Padding(
                   padding: EdgeInsets.only(left: 10),
@@ -2568,7 +2616,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                       multiple:
                           _audienceType ==
                           AssignmentAudienceType.selectedStudents,
-                      enabled: !_submitting,
+                      enabled: !_submitting && _canEditAudience,
                       onPressed: () => _toggleTrainee(member.traineeId),
                     );
                   },
@@ -2579,7 +2627,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   void _toggleTrainee(String traineeId) {
-    if (_submitting) return;
+    if (_submitting || !_canEditAudience) return;
     setState(() {
       if (_audienceType == AssignmentAudienceType.individualStudent) {
         _targetTraineeIds = {traineeId};
@@ -2593,7 +2641,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   void _onOfficialMovementChanged(String? value) {
-    if (value == null) return;
+    if (value == null || !_canEditIdentity) return;
     for (final movement in _enabledOfficialMovements) {
       if (movement.name == value) {
         setState(() {
@@ -2607,7 +2655,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   void _onTeacherMovementChanged(String? value) {
-    if (value == null) return;
+    if (value == null || !_canEditIdentity) return;
     for (final movement in _teacherMovements) {
       if (movement.id == value) {
         setState(() {
@@ -2789,6 +2837,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         ..._teacherMovementRevisions,
         movement.id: revision!,
       };
+      final spec = revision.spec as TeacherReviewedMovementSpec;
+      // A source switch must produce a complete Teacher Activity payload even
+      // when the assignment previously used an Official ELIXR movement.
+      _assignmentTitleController.text = movement.title;
+      _instructionsController.text = spec.instructions;
+      _safetyGuidanceController.text = spec.safetyGuidance ?? '';
       _customizeActivity = false;
       _attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault;
       _validationError = null;
@@ -3036,7 +3090,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       if (_savedEditAssignment == null) {
         final group = _selectedGroup;
         final selectedTeacherMovement = _selectedTeacherCreatedMovement;
-        final teacherRevision = selectedTeacherMovement?.id == assignment.movementId
+        final teacherRevision =
+            selectedTeacherMovement?.id == assignment.movementId
             ? _persistedTeacherRevision ??
                   _teacherMovementRevisions[selectedTeacherMovement!.id]
             : selectedTeacherMovement == null
@@ -3048,13 +3103,16 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               assignmentId: assignment.id,
               expectedConfigurationRevision: assignment.configurationRevision,
               group: group!,
-              officialMovementName: _origin == _AssignmentOriginSelection.official
+              officialMovementName:
+                  _origin == _AssignmentOriginSelection.official
                   ? _selectedOfficialMovement?.name
                   : null,
-              officialAllowedProp: _origin == _AssignmentOriginSelection.official
+              officialAllowedProp:
+                  _origin == _AssignmentOriginSelection.official
                   ? _selectedOfficialProp
                   : null,
-              teacherMovement: _origin == _AssignmentOriginSelection.teacherCreated
+              teacherMovement:
+                  _origin == _AssignmentOriginSelection.teacherCreated
                   ? selectedTeacherMovement
                   : null,
               teacherMovementRevision:

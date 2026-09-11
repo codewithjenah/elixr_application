@@ -1617,9 +1617,23 @@ async function updateAssignmentConfigurationHandler(request, response, {
           grading_locked: false, grading_locked_at: FieldValue.delete()};
       }
       const attempts = await transaction.get(firestore.collection('assignment_attempts').where('assignment_id', '==', body.assignment_id));
+      const recipients = await transaction.get(assignmentRef.collection('assignment_recipients'));
       const semanticKeys = ['group_id', 'movement_id', 'revision_id', 'origin', 'assessment_mode', 'official_movement_name', 'allowed_prop', 'audience_type', 'attempt_policy', 'activity_assessment', 'max_score'];
-      const proposed = {...assignment, ...next, group_id: body.group_id, audience_type: audienceType, attempt_policy: body.attempt_policy};
-      const semanticChanged = semanticKeys.some((key) => JSON.stringify(assignment[key] ?? null) !== JSON.stringify(proposed[key] ?? null));
+      // Compare semantic values, not Firestore delete sentinels.  Sentinels are
+      // write instructions and would otherwise make an unchanged Teacher
+      // Activity look different from its stored null/absent Official fields.
+      const proposed = {
+        ...assignment,
+        ...next,
+        group_id: body.group_id,
+        audience_type: audienceType,
+        attempt_policy: body.attempt_policy,
+        official_movement_name: isOfficial ? official : null,
+        activity_assessment: isOfficial ? null : body.activity_assessment,
+        max_score: isOfficial ? null : body.activity_assessment.rubric.maximum_score,
+      };
+      const semanticChanged = semanticKeys.some((key) => !structurallyEqual(assignment[key] ?? null, proposed[key] ?? null)) ||
+        !sameStringSet(recipients.docs.map((recipient) => recipient.id), recipientIds);
       if (assignment.status === 'active' && !attempts.empty && semanticChanged) {
         const error = new Error('trainee_work_exists'); error.code = 'trainee_work_exists'; throw error;
       }
@@ -1632,7 +1646,15 @@ async function updateAssignmentConfigurationHandler(request, response, {
           const error = new Error('invalid_recipient'); error.code = 'invalid_recipient'; throw error;
         }
       }
-      const recipients = await transaction.get(assignmentRef.collection('assignment_recipients'));
+      const configurationChanged = semanticChanged ||
+        (!isOfficial && (
+          assignment.display_title !== title ||
+          assignment.display_instructions !== instructions ||
+          (assignment.display_safety_guidance ?? null) !== (safety ?? null)
+        )) ||
+        (assignment.topic ?? null) !== (topic ?? null) ||
+        !sameInstant(assignment.due_at, dueAt);
+      if (!configurationChanged) return assignment;
       const now = Timestamp.now();
       transaction.update(assignmentRef, {...next, group_id: body.group_id, group_name: groupSnapshot.get('name'), audience_type: audienceType,
         attempt_policy: body.attempt_policy, ...(topic ? {topic} : {topic: FieldValue.delete()}), ...(dueAt ? {due_at: dueAt} : {due_at: FieldValue.delete()}),
@@ -1654,6 +1676,35 @@ async function updateAssignmentConfigurationHandler(request, response, {
     console.error('Assignment configuration update failed', error);
     return response.status(503).json({error: 'unavailable'});
   }
+}
+
+function structurallyEqual(left, right) {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((value, index) => structurallyEqual(value, right[index]));
+  }
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length ||
+      leftKeys.some((key, index) => key !== rightKeys[index])) return false;
+  return leftKeys.every((key) => structurallyEqual(left[key], right[key]));
+}
+
+function sameStringSet(left, right) {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === rightSet.size && [...leftSet].every((value) => rightSet.has(value));
+}
+
+function sameInstant(left, right) {
+  if (left == null || right == null) return left == null && right == null;
+  const leftDate = typeof left.toDate === 'function' ? left.toDate() : new Date(left);
+  const rightDate = typeof right.toDate === 'function' ? right.toDate() : new Date(right);
+  return leftDate.getTime() === rightDate.getTime();
 }
 
 async function gradeTeacherActivityAttemptHandler(request, response, {
@@ -3106,7 +3157,6 @@ exports.completeClassChallengeAttempt = onRequest(
 exports.updateTeacherActivityAssignment = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 60},
   updateTeacherActivityAssignmentHandler,
-  updateAssignmentConfigurationHandler,
 );
 
 exports.updateAssignmentConfiguration = onRequest(
@@ -3703,6 +3753,7 @@ exports._test = {
   challengeParticipantId,
   isCompletedClassChallengeRetry,
   updateTeacherActivityAssignmentHandler,
+  updateAssignmentConfigurationHandler,
   gradeTeacherActivityAttemptHandler,
   attemptStateId,
   sanitizedAssignment,

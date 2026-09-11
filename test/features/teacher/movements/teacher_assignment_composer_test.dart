@@ -125,6 +125,15 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   }
 }
 
+class _SafetyFailureAssignments extends _TrackingAssignments {
+  _SafetyFailureAssignments({required super.groupRepository});
+
+  @override
+  Future<bool> hasTraineeWork({required String assignmentId}) {
+    throw StateError('temporary safety lookup failure');
+  }
+}
+
 class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
   bool failRevisionReads = false;
 
@@ -1419,6 +1428,190 @@ void main() {
     expect(saved?.activityAssessment?.recordingDurationSeconds, 60);
     expect(saved?.configurationRevision, assignment.configurationRevision + 1);
   });
+
+  testWidgets(
+    'Teacher Activity edit hydrates its stored movement and no-change Save preserves its identity',
+    (tester) async {
+      await createTeacherMovement();
+      final persistedMovement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Stored activity',
+        instructions: 'Keep the bottle centered throughout the recording.',
+        requiredProp: TrainingProp.shaker,
+      );
+      final assignment = await service().create(
+        group: group,
+        teacherCreatedMovement: persistedMovement,
+        displayTitle: 'Stored activity assignment',
+        displayInstructions:
+            'Keep the bottle centered throughout the recording.',
+      );
+
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: _MaterialRepository(),
+      );
+
+      expect(
+        find.byKey(Key('teacher_assignment_custom_${persistedMovement.id}')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_save_changes')),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await assignments.getAssignment(
+        assignmentId: assignment.id,
+      );
+      expect(saved?.movementId, assignment.movementId);
+      expect(saved?.revisionId, assignment.revisionId);
+      expect(saved?.origin, assignment.origin);
+      expect(
+        saved?.activityAssessment?.toMap(),
+        assignment.activityAssessment?.toMap(),
+      );
+      expect(
+        saved?.audience.targetTraineeIds,
+        assignment.audience.targetTraineeIds,
+      );
+      expect(saved?.attemptPolicy.toMap(), assignment.attemptPolicy.toMap());
+    },
+  );
+
+  testWidgets('Official draft edit switches to a Teacher Activity', (
+    tester,
+  ) async {
+    final activity = await createTeacherMovement();
+    final officialDraft = await service().create(
+      group: group,
+      officialMovement: movementCatalog.first,
+      status: GroupAssignmentStatus.draft,
+    );
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: officialDraft,
+      materialRepository: _MaterialRepository(),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(Key('teacher_assignment_custom_${activity.id}')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_save_draft')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_draft')));
+    await tester.pumpAndSettle();
+    final teacherActivity = await assignments.getAssignment(
+      assignmentId: officialDraft.id,
+    );
+    expect(teacherActivity?.isTeacherCreated, isTrue);
+    expect(teacherActivity?.movementId, activity.id);
+    expect(teacherActivity?.activityAssessment, isNotNull);
+  });
+
+  testWidgets('Teacher Activity draft edit switches to an Official movement', (
+    tester,
+  ) async {
+    final activity = await createTeacherMovement();
+    final draft = await service().create(
+      group: group,
+      teacherCreatedMovement: activity,
+      status: GroupAssignmentStatus.draft,
+    );
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: draft,
+      materialRepository: _MaterialRepository(),
+    );
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_source_official')),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_save_draft')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_draft')));
+    await tester.pumpAndSettle();
+    final saved = await assignments.getAssignment(assignmentId: draft.id);
+    expect(saved?.isOfficial, isTrue);
+    expect(saved?.activityAssessment, isNull);
+    expect(saved?.allowedProp, isNotNull);
+  });
+
+  testWidgets(
+    'draft edit can change classroom and clears old targeted trainees',
+    (tester) async {
+      final draft = await service().create(
+        group: group,
+        officialMovement: movementCatalog.first,
+        status: GroupAssignmentStatus.draft,
+        audience: AssignmentAudience.individualStudent(['trainee-1']),
+      );
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: draft,
+        availableGroups: const [group, otherGroup],
+        lockedGroup: group,
+        materialRepository: _MaterialRepository(),
+      );
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const Key('teacher_assignment_class')),
+          )
+          .onChanged!('group-2');
+      await tester.pumpAndSettle();
+      expect(find.text('Select one trainee.'), findsNothing);
+      expect(
+        tester
+            .widget<Button>(
+              find.byKey(const Key('teacher_assignment_save_draft')),
+            )
+            .onPressed,
+        isNull,
+      );
+    },
+  );
+
+  testWidgets(
+    'failed trainee-work lookup locks semantic editing and offers Retry',
+    (tester) async {
+      assignments = _SafetyFailureAssignments(groupRepository: groups);
+      final existing = await service().create(
+        group: group,
+        officialMovement: movementCatalog.first,
+        status: GroupAssignmentStatus.draft,
+      );
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: existing,
+        materialRepository: _MaterialRepository(),
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_retry_edit_safety')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<ComboBox<String>>(
+              find.byKey(const Key('teacher_assignment_class')),
+            )
+            .onChanged,
+        isNull,
+      );
+    },
+  );
 
   testWidgets('edit removes an existing material only when changes are saved', (
     tester,

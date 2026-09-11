@@ -522,6 +522,70 @@ void main() {
   );
 
   test(
+    'configuration update preserves a Teacher Activity identity on no-op edit',
+    () async {
+      final groups = InMemoryGroupRepository();
+      final group = _group();
+      groups.seedGroup(group);
+      assignments.dispose();
+      assignments = InMemoryClassroomAssignmentRepository(
+        groupRepository: groups,
+        now: () => DateTime.utc(2026, 8, 20),
+      );
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Stored activity',
+        instructions: 'Keep the prop stable throughout the recording.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final original = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: group,
+        movement: movement,
+        revision: revision,
+      );
+
+      final saved = await assignments.updateAssignmentConfiguration(
+        teacherId: 'teacher-1',
+        assignmentId: original.id,
+        expectedConfigurationRevision: original.configurationRevision,
+        group: group,
+        teacherMovement: movement,
+        teacherMovementRevision: revision,
+        displayTitle: original.displayTitle,
+        displayInstructions: original.displayInstructions,
+        displaySafetyGuidance: original.displaySafetyGuidance,
+        topic: original.topic,
+        dueAt: original.dueAt,
+        audience: original.audience,
+        attemptPolicy: original.attemptPolicy,
+        activityAssessment: original.activityAssessment,
+      );
+
+      expect(saved.id, original.id);
+      expect(saved.movementId, original.movementId);
+      expect(saved.revisionId, original.revisionId);
+      expect(saved.origin, original.origin);
+      expect(
+        saved.activityAssessment?.toMap(),
+        original.activityAssessment?.toMap(),
+      );
+      expect(
+        saved.audience.targetTraineeIds,
+        original.audience.targetTraineeIds,
+      );
+      expect(saved.attemptPolicy.toMap(), original.attemptPolicy.toMap());
+      expect(saved.configurationRevision, original.configurationRevision);
+      groups.dispose();
+    },
+  );
+
+  test(
     'Teacher Activity rubric review preserves saved criterion scores',
     () async {
       final assessment = _activityAssessment();
