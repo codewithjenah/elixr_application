@@ -355,19 +355,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: AppSpacing.md),
           Container(
-            height: 1.5,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(2),
-              gradient: LinearGradient(
-                colors: [
-                  accent.withValues(alpha: context.isHighContrast ? 1 : 0.85),
-                  context.elixColors.brandSecondary.withValues(
-                    alpha: context.isHighContrast ? 1 : 0.35,
-                  ),
-                  Colors.transparent,
-                ],
-              ),
-            ),
+            height: 1,
+            color: context.isHighContrast
+                ? context.elixBorder
+                : accent.withValues(alpha: 0.38),
           ),
         ],
       ),
@@ -378,22 +369,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final highContrast = context.isHighContrast;
     final base = context.elixPanelSurface;
     return BoxDecoration(
-      color: highContrast ? base : null,
-      gradient: highContrast
-          ? null
-          : LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color.alphaBlend(accent.withValues(alpha: 0.1), base),
-                base,
-                Color.alphaBlend(
-                  context.elixColors.brandSecondary.withValues(alpha: 0.07),
-                  base,
-                ),
-              ],
-              stops: const [0, 0.48, 1],
-            ),
+      color: highContrast
+          ? base
+          : Color.alphaBlend(accent.withValues(alpha: 0.035), base),
       border: Border(
         right: BorderSide(
           color: highContrast
@@ -480,16 +458,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             isWide ? AppSpacing.xl : AppSpacing.lg,
           ),
           decoration: BoxDecoration(
-            gradient: context.isHighContrast
-                ? null
-                : LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      accent.withValues(alpha: 0.08),
-                      Colors.transparent,
-                    ],
-                  ),
+            color: context.isHighContrast
+                ? context.elixCardSurface
+                : accent.withValues(alpha: 0.035),
             border: Border(
               bottom: BorderSide(
                 color: context.isHighContrast
@@ -560,24 +531,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       decoration: BoxDecoration(
         color: context.elixCardSurface,
-        gradient: highContrast
-            ? null
-            : LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color.alphaBlend(
-                    accent.withValues(alpha: 0.045),
-                    context.elixCardSurface,
-                  ),
-                  context.elixCardSurface,
-                  Color.alphaBlend(
-                    context.elixColors.brandSecondary.withValues(alpha: 0.035),
-                    context.elixCardSurface,
-                  ),
-                ],
-                stops: const [0, 0.52, 1],
-              ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: highContrast
@@ -598,47 +551,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (!highContrast) ...[
-            Positioned(
-              top: -130,
-              right: -100,
-              child: _surfaceOrb(color: accent, size: 300),
-            ),
-            Positioned(
-              bottom: -170,
-              left: -130,
-              child: _surfaceOrb(
-                color: context.elixColors.brandSecondary,
-                size: 340,
-              ),
-            ),
-          ],
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _surfaceOrb({required Color color, required double size}) {
-    return IgnorePointer(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [
-              color.withValues(alpha: 0.12),
-              color.withValues(alpha: 0.025),
-              Colors.transparent,
-            ],
-            stops: const [0, 0.46, 1],
-          ),
-        ),
-      ),
+      child: child,
     );
   }
 

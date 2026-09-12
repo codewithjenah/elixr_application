@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -105,7 +106,10 @@ class SettingsRow extends StatelessWidget {
   }
 }
 
-/// [SettingsRow] specialized for a [ToggleSwitch].
+/// [SettingsRow] specialized for a boolean preference.
+///
+/// Normal ELIXR surfaces use the bridged Shad switch; Fluent remains the
+/// deliberate fallback for high-contrast and isolated legacy test surfaces.
 class SettingsToggleRow extends StatelessWidget {
   const SettingsToggleRow({
     super.key,
@@ -127,11 +131,15 @@ class SettingsToggleRow extends StatelessWidget {
     return SettingsRow(
       label: label,
       description: description,
-      trailing: ToggleSwitch(
-        key: toggleKey,
-        checked: checked,
-        onChanged: onChanged,
-      ),
+      trailing:
+          context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+          ? ToggleSwitch(key: toggleKey, checked: checked, onChanged: onChanged)
+          : shad.ShadSwitch(
+              key: toggleKey,
+              value: checked,
+              enabled: onChanged != null,
+              onChanged: onChanged,
+            ),
     );
   }
 }
@@ -183,17 +191,9 @@ class SettingsIconBadge extends StatelessWidget {
       width: 46,
       height: 46,
       decoration: BoxDecoration(
-        color: highContrast ? context.elixCardSurface : null,
-        gradient: highContrast
-            ? null
-            : LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  tone.withValues(alpha: 0.22),
-                  tone.withValues(alpha: 0.06),
-                ],
-              ),
+        color: highContrast
+            ? context.elixCardSurface
+            : tone.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: highContrast
@@ -364,20 +364,6 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                         color: context.isHighContrast || selected
                             ? context.elixCardSurface
                             : context.elixBorder.withValues(alpha: 0.18),
-                        gradient: context.isHighContrast || !selected
-                            ? null
-                            : LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  context.elixColors.brandPrimary.withValues(
-                                    alpha: 0.23,
-                                  ),
-                                  context.elixColors.brandSecondary.withValues(
-                                    alpha: 0.12,
-                                  ),
-                                ],
-                              ),
                         borderRadius: BorderRadius.circular(settingsRadiusSm),
                         border: context.isHighContrast
                             ? Border.all(color: context.elixBorder)
@@ -462,36 +448,50 @@ class SettingsFormField extends StatelessWidget {
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
         const SizedBox(height: 6),
-        Container(
-          decoration: BoxDecoration(
-            color: context.elixBackground,
-            borderRadius: BorderRadius.circular(settingsRadiusMd),
-            border: Border.all(color: context.elixBorder),
-          ),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Icon(icon, size: 18, color: context.elixTextSecondary),
-              ),
-              Expanded(
-                child: TextBox(
-                  controller: controller,
-                  placeholder: placeholder,
-                  keyboardType: keyboardType,
-                  obscureText: obscureText,
-                  enabled: enabled,
-                  onChanged: onChanged,
-                  style: AppTheme.body,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.sm + 2,
-                    horizontal: 0,
-                  ),
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+            ? Container(
+                decoration: BoxDecoration(
+                  color: context.elixBackground,
+                  borderRadius: BorderRadius.circular(settingsRadiusMd),
+                  border: Border.all(color: context.elixBorder),
                 ),
+                child: Row(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Icon(
+                        icon,
+                        size: 18,
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                    Expanded(
+                      child: TextBox(
+                        controller: controller,
+                        placeholder: placeholder,
+                        keyboardType: keyboardType,
+                        obscureText: obscureText,
+                        enabled: enabled,
+                        onChanged: onChanged,
+                        style: AppTheme.body,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.sm + 2,
+                          horizontal: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : shad.ShadInput(
+                controller: controller,
+                placeholder: placeholder == null ? null : Text(placeholder!),
+                keyboardType: keyboardType,
+                obscureText: obscureText,
+                enabled: enabled,
+                onChanged: onChanged,
+                leading: Icon(icon, size: 18, color: context.elixTextSecondary),
               ),
-            ],
-          ),
-        ),
       ],
     );
   }

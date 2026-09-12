@@ -1,10 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../data/models/public_profile.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
 import '../../leaderboard/widgets/leaderboard_identity.dart';
@@ -388,24 +390,38 @@ class _OwnerActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final previewButton = Button(
-      onPressed: onPreviewProfile,
-      child: const Text('Preview as Visitor'),
-    );
-    final privacyButton = HyperlinkButton(
-      onPressed: onPrivacy,
-      child: Text(
-        'Privacy',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: context.elixTextSecondary,
-        ),
-      ),
-    );
-    final editButton = FilledButton(
+    final useShad = !context.isHighContrast &&
+        shad.ShadTheme.maybeOf(context) != null;
+    final previewButton = useShad
+        ? shad.ShadButton.outline(
+            onPressed: onPreviewProfile,
+            child: const Text('Preview as Visitor'),
+          )
+        : Button(
+            onPressed: onPreviewProfile,
+            child: const Text('Preview as Visitor'),
+          );
+    final privacyButton = useShad
+        ? shad.ShadButton.ghost(
+            onPressed: onPrivacy,
+            child: const Text('Privacy'),
+          )
+        : HyperlinkButton(
+            onPressed: onPrivacy,
+            child: Text(
+              'Privacy',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: context.elixTextSecondary,
+              ),
+            ),
+          );
+    final editButton = ElixPrimaryButton(
+      label: 'Edit Profile',
+      expanded: false,
+      dense: true,
       onPressed: onEditProfile,
-      child: const Text('Edit Profile'),
     );
 
     if (compact) {

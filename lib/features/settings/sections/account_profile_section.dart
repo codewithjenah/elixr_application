@@ -1256,11 +1256,12 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           style: AppTheme.body.copyWith(fontSize: 14),
         ),
         const SizedBox(height: AppSpacing.lg),
-        FilledButton(
+        ElixPrimaryButton(
+          label: 'Save changes',
+          expanded: false,
+          dense: true,
+          isLoading: _savingProfile,
           onPressed: _savingProfile || !isDirty ? null : _saveProfile,
-          child: _savingProfile
-              ? const ProgressRing(strokeWidth: 2)
-              : const Text('Save changes'),
         ),
       ],
     );
