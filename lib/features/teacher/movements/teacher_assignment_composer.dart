@@ -4842,6 +4842,7 @@ class _DueDateField extends StatelessWidget {
               key: const Key('teacher_assignment_due_date'),
               selected: _manilaCivilDate(dueAt!),
               formatDate: _formatScheduleDate,
+              enabled: enabled,
               onChanged: enabled
                   ? (value) {
                       if (value != null) onDateChanged(value);
@@ -5282,6 +5283,7 @@ class _PublicationScheduleField extends StatelessWidget {
             key: const Key('teacher_assignment_publish_date'),
             selected: date,
             formatDate: _formatScheduleDate,
+            enabled: enabled,
             onChanged: enabled
                 ? (value) {
                     if (value != null) onDateChanged(value);
@@ -5327,6 +5329,7 @@ Widget _scheduleTimePicker({
       second: 0,
       period: period,
     ),
+    initialDayPeriod: period,
     minHour: 1,
     maxHour: 12,
     showHours: true,

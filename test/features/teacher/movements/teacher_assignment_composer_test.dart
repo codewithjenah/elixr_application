@@ -665,19 +665,11 @@ void main() {
     );
 
     expect(find.byKey(const Key('teacher_assignment_due_date')), findsNothing);
-    expect(find.byKey(const Key('teacher_assignment_due_hour')), findsNothing);
-    expect(
-      find.byKey(const Key('teacher_assignment_due_minute')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const Key('teacher_assignment_due_period')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('teacher_assignment_due_time')), findsNothing);
 
     await enableDueDate(tester);
 
-    final date = tester.widget<DatePicker>(
+    final date = tester.widget<shad.ShadDatePicker>(
       find.byKey(const Key('teacher_assignment_due_date')),
     );
     final manilaNow = DateTime.now().toUtc().add(const Duration(hours: 8));
@@ -688,30 +680,12 @@ void main() {
     );
     expect(date.selected, expectedDate);
     expect(find.text('Default is today at 11:59 PM.'), findsOneWidget);
-    expect(
-      tester
-          .widget<ComboBox<int>>(
-            find.byKey(const Key('teacher_assignment_due_hour')),
-          )
-          .value,
-      11,
+    final time = tester.widget<shad.ShadTimePicker>(
+      find.byKey(const Key('teacher_assignment_due_time')),
     );
-    expect(
-      tester
-          .widget<ComboBox<int>>(
-            find.byKey(const Key('teacher_assignment_due_minute')),
-          )
-          .value,
-      59,
-    );
-    expect(
-      tester
-          .widget<ComboBox<String>>(
-            find.byKey(const Key('teacher_assignment_due_period')),
-          )
-          .value,
-      'PM',
-    );
+    expect(time.initialValue?.hour, 11);
+    expect(time.initialValue?.minute, 59);
+    expect(time.initialDayPeriod, shad.ShadDayPeriod.pm);
   });
 
   testWidgets('deadline stores the selected Manila date and 12-hour time', (
@@ -756,33 +730,21 @@ void main() {
     );
     await enableDueDate(tester);
     final dueDate = find.byKey(const Key('teacher_assignment_due_date'));
-    tester.widget<DatePicker>(dueDate).onChanged!(DateTime(2026, 9, 16));
+    tester.widget<shad.ShadDatePicker>(dueDate).onChanged!(
+      DateTime(2026, 9, 16),
+    );
     tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_hour')),
+        .widget<shad.ShadTimePicker>(
+          find.byKey(const Key('teacher_assignment_due_time')),
         )
-        .onChanged!(9);
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_minute')),
-        )
-        .onChanged!(7);
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_due_period')),
-        )
-        .onChanged!('AM');
-    await tester.pump();
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_hour')),
-        )
-        .onChanged!(12);
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_due_period')),
-        )
-        .onChanged!('AM');
+        .onChanged!(
+      const shad.ShadTimeOfDay(
+        hour: 12,
+        minute: 7,
+        second: 0,
+        period: shad.ShadDayPeriod.am,
+      ),
+    );
     await tester.pump();
     await saveDraft(tester);
     expect(assignments.lastDueAt, DateTime.utc(2026, 9, 15, 16, 7));
@@ -796,25 +758,22 @@ void main() {
     );
     await enableDueDate(tester);
     tester
-        .widget<DatePicker>(
+        .widget<shad.ShadDatePicker>(
           find.byKey(const Key('teacher_assignment_due_date')),
         )
         .onChanged!(DateTime(2026, 9, 17));
     tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_hour')),
+        .widget<shad.ShadTimePicker>(
+          find.byKey(const Key('teacher_assignment_due_time')),
         )
-        .onChanged!(12);
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_minute')),
-        )
-        .onChanged!(0);
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_due_period')),
-        )
-        .onChanged!('PM');
+        .onChanged!(
+      const shad.ShadTimeOfDay(
+        hour: 12,
+        minute: 0,
+        second: 0,
+        period: shad.ShadDayPeriod.pm,
+      ),
+    );
     await tester.pump();
     await saveDraft(tester);
     expect(assignments.lastDueAt, DateTime.utc(2026, 9, 17, 4));
@@ -830,49 +789,26 @@ void main() {
       );
       await enableDueDate(tester);
       final date = find.byKey(const Key('teacher_assignment_due_date'));
-      tester.widget<DatePicker>(date).onChanged!(DateTime(2026, 9, 18));
+      tester.widget<shad.ShadDatePicker>(date).onChanged!(
+        DateTime(2026, 9, 18),
+      );
       tester
-          .widget<ComboBox<int>>(
-            find.byKey(const Key('teacher_assignment_due_hour')),
+          .widget<shad.ShadTimePicker>(
+            find.byKey(const Key('teacher_assignment_due_time')),
           )
-          .onChanged!(8);
-      tester
-          .widget<ComboBox<int>>(
-            find.byKey(const Key('teacher_assignment_due_minute')),
-          )
-          .onChanged!(30);
-      tester
-          .widget<ComboBox<String>>(
-            find.byKey(const Key('teacher_assignment_due_period')),
-          )
-          .onChanged!('PM');
+          .onChanged!(
+        const shad.ShadTimeOfDay(
+          hour: 8,
+          minute: 30,
+          second: 0,
+          period: shad.ShadDayPeriod.pm,
+        ),
+      );
       await tester.pump();
-      tester.widget<DatePicker>(date).onChanged!(DateTime(2026, 9, 19));
+      tester.widget<shad.ShadDatePicker>(date).onChanged!(
+        DateTime(2026, 9, 19),
+      );
       await tester.pump();
-      expect(
-        tester
-            .widget<ComboBox<int>>(
-              find.byKey(const Key('teacher_assignment_due_hour')),
-            )
-            .value,
-        8,
-      );
-      expect(
-        tester
-            .widget<ComboBox<int>>(
-              find.byKey(const Key('teacher_assignment_due_minute')),
-            )
-            .value,
-        30,
-      );
-      expect(
-        tester
-            .widget<ComboBox<String>>(
-              find.byKey(const Key('teacher_assignment_due_period')),
-            )
-            .value,
-        'PM',
-      );
       await saveDraft(tester);
       expect(assignments.lastDueAt, DateTime.utc(2026, 9, 19, 12, 30));
     },
@@ -892,35 +828,40 @@ void main() {
       existingAssignment: existing,
     );
 
-    final date = tester.widget<DatePicker>(
+    final date = tester.widget<shad.ShadDatePicker>(
       find.byKey(const Key('teacher_assignment_due_date')),
     );
     expect(date.selected, DateTime(2026, 9, 15));
-    expect(
-      tester
-          .widget<ComboBox<int>>(
-            find.byKey(const Key('teacher_assignment_due_hour')),
-          )
-          .value,
-      8,
+    final time = tester.widget<shad.ShadTimePicker>(
+      find.byKey(const Key('teacher_assignment_due_time')),
     );
-    expect(
-      tester
-          .widget<ComboBox<int>>(
-            find.byKey(const Key('teacher_assignment_due_minute')),
-          )
-          .value,
-      30,
-    );
-    expect(
-      tester
-          .widget<ComboBox<String>>(
-            find.byKey(const Key('teacher_assignment_due_period')),
-          )
-          .value,
-      'PM',
-    );
+    expect(time.initialValue?.hour, 8);
+    expect(time.initialValue?.minute, 30);
+    expect(time.initialDayPeriod, shad.ShadDayPeriod.pm);
   });
+
+  testWidgets(
+    'editing initializes AM deadline controls from the stored instant',
+    (tester) async {
+      final existing = await service().create(
+        group: group,
+        officialMovement: movementCatalog.first,
+        dueAt: DateTime.utc(2026, 9, 15, 0, 30),
+      );
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: existing,
+      );
+
+      final time = tester.widget<shad.ShadTimePicker>(
+        find.byKey(const Key('teacher_assignment_due_time')),
+      );
+      expect(time.initialValue?.hour, 8);
+      expect(time.initialValue?.minute, 30);
+      expect(time.initialDayPeriod, shad.ShadDayPeriod.am);
+    },
+  );
 
   testWidgets('disabling a deadline saves a null dueAt', (tester) async {
     await pumpComposer(
@@ -935,6 +876,45 @@ void main() {
     await tester.pump();
     await saveDraft(tester);
     expect(assignments.lastDueAt, isNull);
+  });
+
+  testWidgets('due and publication date pickers disable while submitting', (
+    tester,
+  ) async {
+    assignments.createGate = Completer<void>();
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+    );
+    await enableDueDate(tester);
+    await _enablePublicationScheduling(tester);
+
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_save_draft')),
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_draft')));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<shad.ShadDatePicker>(
+            find.byKey(const Key('teacher_assignment_due_date')),
+          )
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<shad.ShadDatePicker>(
+            find.byKey(const Key('teacher_assignment_publish_date')),
+          )
+          .enabled,
+      isFalse,
+    );
+
+    assignments.createGate!.complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets(
@@ -955,15 +935,7 @@ void main() {
         findsNothing,
       );
       expect(
-        find.byKey(const Key('teacher_assignment_publish_hour')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const Key('teacher_assignment_publish_minute')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const Key('teacher_assignment_publish_period')),
+        find.byKey(const Key('teacher_assignment_publish_time')),
         findsNothing,
       );
       expect(
@@ -981,15 +953,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('teacher_assignment_publish_hour')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('teacher_assignment_publish_minute')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('teacher_assignment_publish_period')),
+        find.byKey(const Key('teacher_assignment_publish_time')),
         findsOneWidget,
       );
 
@@ -1050,31 +1014,28 @@ void main() {
     );
     await _enablePublicationScheduling(tester);
     final publishDate = tester
-        .widget<DatePicker>(
+        .widget<shad.ShadDatePicker>(
           find.byKey(const Key('teacher_assignment_publish_date')),
         )
         .selected!;
     await enableDueDate(tester);
     tester
-        .widget<DatePicker>(
+        .widget<shad.ShadDatePicker>(
           find.byKey(const Key('teacher_assignment_due_date')),
         )
         .onChanged!(publishDate);
     tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_hour')),
+        .widget<shad.ShadTimePicker>(
+          find.byKey(const Key('teacher_assignment_due_time')),
         )
-        .onChanged!(9);
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_minute')),
-        )
-        .onChanged!(0);
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_due_period')),
-        )
-        .onChanged!('AM');
+        .onChanged!(
+      const shad.ShadTimeOfDay(
+        hour: 9,
+        minute: 0,
+        second: 0,
+        period: shad.ShadDayPeriod.am,
+      ),
+    );
     await tester.pump();
 
     await tester.ensureVisible(
@@ -1086,10 +1047,17 @@ void main() {
     expect(assignments.lastPublishAt, isNull);
 
     tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_minute')),
+        .widget<shad.ShadTimePicker>(
+          find.byKey(const Key('teacher_assignment_due_time')),
         )
-        .onChanged!(1);
+        .onChanged!(
+      const shad.ShadTimeOfDay(
+        hour: 9,
+        minute: 1,
+        second: 0,
+        period: shad.ShadDayPeriod.am,
+      ),
+    );
     await tester.pump();
     await tester.tap(find.byKey(const Key('teacher_assignment_schedule')));
     await tester.pumpAndSettle();
@@ -1152,13 +1120,11 @@ void main() {
     );
     await _enablePublicationScheduling(tester);
 
-    final minuteBox = tester.widget<ComboBox<int>>(
-      find.byKey(const Key('teacher_assignment_publish_minute')),
+    final timePicker = tester.widget<shad.ShadTimePicker>(
+      find.byKey(const Key('teacher_assignment_publish_time')),
     );
-    expect(
-      minuteBox.items!.map((item) => item.value),
-      orderedEquals(List<int>.generate(60, (index) => index)),
-    );
+    expect(timePicker.minMinute, 0);
+    expect(timePicker.maxMinute, 59);
   });
 
   testWidgets('Teacher Activity scheduling preserves an arbitrary minute', (
@@ -1172,26 +1138,23 @@ void main() {
     );
     await _enablePublicationScheduling(tester);
     final date = tester
-        .widget<DatePicker>(
+        .widget<shad.ShadDatePicker>(
           find.byKey(const Key('teacher_assignment_publish_date')),
         )
         .selected!;
 
     tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_publish_hour')),
+        .widget<shad.ShadTimePicker>(
+          find.byKey(const Key('teacher_assignment_publish_time')),
         )
-        .onChanged!(11);
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_publish_minute')),
-        )
-        .onChanged!(59);
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_publish_period')),
-        )
-        .onChanged!('PM');
+        .onChanged!(
+      const shad.ShadTimeOfDay(
+        hour: 11,
+        minute: 59,
+        second: 0,
+        period: shad.ShadDayPeriod.pm,
+      ),
+    );
     await tester.pump();
 
     await tester.ensureVisible(
