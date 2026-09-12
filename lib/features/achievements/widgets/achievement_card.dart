@@ -180,29 +180,15 @@ class _AchievementCardState extends State<AchievementCard> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOut,
-              transform: Matrix4.translationValues(0, active ? -2.0 : 0.0, 0),
+              transform: Matrix4.translationValues(0, active ? -1.0 : 0.0, 0),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.alphaBlend(
-                      accent.withValues(
-                        alpha: active
-                            ? (isDark ? 0.16 : 0.09)
-                            : (isDark ? 0.08 : 0.045),
-                      ),
-                      cardSurface,
-                    ),
-                    cardSurface,
-                    Color.alphaBlend(
-                      borderAccent.withValues(alpha: isDark ? 0.035 : 0.025),
-                      cardSurface,
-                    ),
-                  ],
-                  stops: const [0, 0.55, 1],
-                ),
-                borderRadius: BorderRadius.circular(18),
+                color: active
+                    ? Color.alphaBlend(
+                        accent.withValues(alpha: isDark ? 0.10 : 0.05),
+                        cardSurface,
+                      )
+                    : cardSurface,
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: cardBorderColor,
                   width: _focused ? 1.6 : 1,
@@ -214,40 +200,15 @@ class _AchievementCardState extends State<AchievementCard> {
                           ? (active ? 0.3 : 0.16)
                           : (active ? 0.1 : 0.05),
                     ),
-                    blurRadius: active ? 20 : 10,
-                    offset: Offset(0, active ? 8 : 4),
+                    blurRadius: active ? 12 : 6,
+                    offset: Offset(0, active ? 5 : 2),
                   ),
-                  if (active)
-                    BoxShadow(
-                      color: accent.withValues(alpha: isDark ? 0.12 : 0.08),
-                      blurRadius: 22,
-                      spreadRadius: -4,
-                    ),
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(14),
                 child: Stack(
                   children: [
-                    Positioned(
-                      right: -42,
-                      top: -54,
-                      child: Container(
-                        width: 150,
-                        height: 150,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              borderAccent.withValues(
-                                alpha: _locked ? 0.025 : 0.09,
-                              ),
-                              borderAccent.withValues(alpha: 0),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
                     Positioned(
                       left: 0,
                       top: 18,
@@ -265,12 +226,6 @@ class _AchievementCardState extends State<AchievementCard> {
                           borderRadius: const BorderRadius.horizontal(
                             right: Radius.circular(4),
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: accent.withValues(alpha: 0.32),
-                              blurRadius: 10,
-                            ),
-                          ],
                         ),
                       ),
                     ),
@@ -407,17 +362,8 @@ class _AchievementCardState extends State<AchievementCard> {
                                               .progress
                                               .normalizedProgress,
                                           child: Container(
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                colors: [
-                                                  accent.withValues(
-                                                    alpha: _locked ? 0.4 : 0.72,
-                                                  ),
-                                                  accent.withValues(
-                                                    alpha: _locked ? 0.58 : 1,
-                                                  ),
-                                                ],
-                                              ),
+                                            color: accent.withValues(
+                                              alpha: _locked ? 0.55 : 1,
                                             ),
                                           ),
                                         ),
