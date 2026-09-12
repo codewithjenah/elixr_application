@@ -34,6 +34,7 @@ class TeacherGradesScreen extends StatefulWidget {
 class _TeacherGradesScreenState extends State<TeacherGradesScreen> {
   TeacherGroupsController? _groups;
   TeacherClassworkController? _classwork;
+  final Set<TeacherClassworkController> _pendingClasswork = {};
   int _bindGeneration = 0;
   String? _boundGroupId;
   String? _bindingGroupId;
@@ -60,8 +61,19 @@ class _TeacherGradesScreenState extends State<TeacherGradesScreen> {
 
   @override
   void dispose() {
+    // Invalidate continuations before disposing the controller they may use.
+    _bindGeneration++;
+    _bindingInProgress = false;
+    _bindingGroupId = null;
+    _bindFuture = null;
     _groups?.removeListener(_onGroupsChanged);
     _classwork?.dispose();
+    _classwork = null;
+    for (final classwork in _pendingClasswork.toList(growable: false)) {
+      _pendingClasswork.remove(classwork);
+      classwork.dispose();
+    }
+    _pendingClasswork.clear();
     _groups?.dispose();
     super.dispose();
   }
@@ -223,6 +235,7 @@ class _TeacherGradesScreenState extends State<TeacherGradesScreen> {
     final groups = _groups;
     if (groups == null) return;
     _disposeClasswork();
+    _disposePendingClassworkControllers();
     if (mounted) setState(() {});
 
     try {
@@ -267,14 +280,25 @@ class _TeacherGradesScreenState extends State<TeacherGradesScreen> {
         approvedMembershipsListenable: groups,
         approvedMembershipsReady: () => groups.approvedMembershipsReady,
       );
-      await classwork.start();
-      if (!mounted || generation != _bindGeneration) {
-        classwork.dispose();
-        return;
+      _pendingClasswork.add(classwork);
+      var adopted = false;
+      try {
+        await classwork.start();
+        if (!mounted ||
+            generation != _bindGeneration ||
+            !_pendingClasswork.contains(classwork)) {
+          return;
+        }
+        _pendingClasswork.remove(classwork);
+        _classwork = classwork;
+        _boundGroupId = groupId;
+        adopted = true;
+        setState(() {});
+      } finally {
+        if (!adopted) {
+          _disposePendingClasswork(classwork);
+        }
       }
-      _classwork = classwork;
-      _boundGroupId = groupId;
-      setState(() {});
     } finally {
       if (generation == _bindGeneration) {
         _bindingInProgress = false;
@@ -288,6 +312,18 @@ class _TeacherGradesScreenState extends State<TeacherGradesScreen> {
     _classwork?.dispose();
     _classwork = null;
     _boundGroupId = null;
+  }
+
+  void _disposePendingClassworkControllers() {
+    for (final classwork in _pendingClasswork.toList(growable: false)) {
+      _disposePendingClasswork(classwork);
+    }
+  }
+
+  void _disposePendingClasswork(TeacherClassworkController classwork) {
+    if (_pendingClasswork.remove(classwork)) {
+      classwork.dispose();
+    }
   }
 
   T? _tryRead<T>(BuildContext context) {

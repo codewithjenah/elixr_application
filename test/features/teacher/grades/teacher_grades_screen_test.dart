@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_panel_card.dart';
@@ -18,6 +20,44 @@ class _FailingWatchGroupRepository extends InMemoryGroupRepository {
   @override
   Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId}) {
     return Stream<List<ElixrGroup>>.error(Exception('unavailable'));
+  }
+}
+
+class _DelayedGetGroupRepository extends InMemoryGroupRepository {
+  _DelayedGetGroupRepository({super.now});
+
+  final _started = <String, Completer<void>>{};
+  final _release = <String, Completer<void>>{};
+
+  Future<void> waitForGetGroup(String groupId) =>
+      (_started[groupId] ??= Completer<void>()).future;
+
+  void releaseGetGroup(String groupId) {
+    final release = _release[groupId] ??= Completer<void>();
+    if (!release.isCompleted) release.complete();
+  }
+
+  @override
+  Future<ElixrGroup?> getGroup({required String groupId}) async {
+    final started = _started[groupId] ??= Completer<void>();
+    if (!started.isCompleted) started.complete();
+    await (_release[groupId] ??= Completer<void>()).future;
+    return super.getGroup(groupId: groupId);
+  }
+}
+
+class _TrackingAssignmentRepository
+    extends InMemoryClassroomAssignmentRepository {
+  _TrackingAssignmentRepository({super.now, super.generateId});
+
+  var teacherAssignmentWatchCalls = 0;
+
+  @override
+  Stream<List<GroupAssignment>> watchTeacherAssignments({
+    required String teacherId,
+  }) {
+    teacherAssignmentWatchCalls++;
+    return super.watchTeacherAssignments(teacherId: teacherId);
   }
 }
 
@@ -372,4 +412,124 @@ void main() {
     expect(find.text('Could not load groups.'), findsOneWidget);
     expect(find.text('Ada Lovelace'), findsNothing);
   });
+
+  testWidgets(
+    'disposing during a classwork bind disposes the pending controller',
+    (tester) async {
+      final delayedGroups = _DelayedGetGroupRepository(
+        now: () => DateTime.utc(2026, 8, 26),
+      );
+      groups = delayedGroups;
+      await seedClassroom(
+        id: 'group-a',
+        name: 'Class A',
+        traineeId: 't-ada',
+        traineeName: 'Ada Lovelace',
+        movementName: 'Normal Grip',
+      );
+
+      final router = await pumpGrades(
+        tester,
+        location: AppRoutePaths.teacherGradesForGroup('group-a'),
+      );
+      await delayedGroups.waitForGetGroup('group-a');
+
+      router.go(AppRoutePaths.teacherGroups);
+      await tester.pump();
+      await tester.pump();
+
+      delayedGroups.releaseGetGroup('group-a');
+      await tester.pump();
+      await pumpGradesIdle(tester);
+
+      expect(find.text('classrooms-home'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('rapid classroom switching disposes stale pending classwork', (
+    tester,
+  ) async {
+    final delayedGroups = _DelayedGetGroupRepository(
+      now: () => DateTime.utc(2026, 8, 26),
+    );
+    final trackingAssignments = _TrackingAssignmentRepository(
+      now: () => DateTime.utc(2026, 8, 26),
+      generateId: () => 'asg-${assignmentSeq++}',
+    );
+    groups = delayedGroups;
+    assignments = trackingAssignments;
+    await seedClassroom(
+      id: 'group-a',
+      name: 'Class A',
+      traineeId: 't-ada',
+      traineeName: 'Ada Lovelace',
+      movementName: 'Normal Grip',
+      createdAt: DateTime.utc(2026, 8, 20),
+    );
+    await seedClassroom(
+      id: 'group-b',
+      name: 'Class B',
+      traineeId: 't-alan',
+      traineeName: 'Alan Turing',
+      movementName: 'Hand Stall',
+      createdAt: DateTime.utc(2026, 8, 21),
+    );
+
+    final router = await pumpGrades(
+      tester,
+      location: AppRoutePaths.teacherGradesForGroup('group-a'),
+    );
+    await delayedGroups.waitForGetGroup('group-a');
+
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const Key('teacher_grades_classroom_selector')),
+        )
+        .onChanged!('group-b');
+    await tester.pump();
+    await tester.pump();
+    await delayedGroups.waitForGetGroup('group-b');
+
+    delayedGroups.releaseGetGroup('group-b');
+    delayedGroups.releaseGetGroup('group-a');
+    await tester.pump();
+    await pumpGradesIdle(tester);
+
+    expect(find.text('Alan Turing'), findsOneWidget);
+    expect(find.text('Hand Stall'), findsOneWidget);
+    expect(find.text('Ada Lovelace'), findsNothing);
+    expect(find.text('Normal Grip'), findsNothing);
+    expect(trackingAssignments.teacherAssignmentWatchCalls, 1);
+    expect(tester.takeException(), isNull);
+
+    router.go(AppRoutePaths.teacherGroups);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'navigation away after binding tears down classwork before groups',
+    (tester) async {
+      await seedClassroom(
+        id: 'group-a',
+        name: 'Class A',
+        traineeId: 't-ada',
+        traineeName: 'Ada Lovelace',
+        movementName: 'Normal Grip',
+      );
+      final router = await pumpGrades(
+        tester,
+        location: AppRoutePaths.teacherGradesForGroup('group-a'),
+      );
+
+      router.go(AppRoutePaths.teacherGroups);
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('classrooms-home'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
