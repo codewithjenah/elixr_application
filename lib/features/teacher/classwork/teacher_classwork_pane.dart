@@ -1,5 +1,6 @@
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/app_colors.dart';
@@ -72,7 +73,8 @@ class _TeacherClassworkAssignmentListState
             for (final topic in topics)
               if (topic.$1 == _selectedTopic) topic,
           ];
-    return ElixPanelCard(
+    return ElixShadThemeBridge(
+      child: ElixPanelCard(
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,7 +99,7 @@ class _TeacherClassworkAssignmentListState
                 ],
               ),
               if (widget.onManageActivityLibrary != null)
-                Button(
+                shad.ShadButton.outline(
                   key: const Key('teacher_manage_activity_library'),
                   onPressed: widget.onManageActivityLibrary,
                   child: const Text('Manage activity library'),
@@ -124,10 +126,9 @@ class _TeacherClassworkAssignmentListState
           ],
           if (controller.errorMessage != null && !controller.unauthorized) ...[
             const SizedBox(height: AppSpacing.md),
-            InfoBar(
+            shad.ShadAlert.destructive(
               title: const Text('Classwork action not completed'),
-              content: Text(controller.errorMessage!),
-              severity: InfoBarSeverity.error,
+              description: Text(controller.errorMessage!),
             ),
           ],
           const SizedBox(height: AppSpacing.lg),
@@ -156,26 +157,26 @@ class _TeacherClassworkAssignmentListState
               children: [
                 SizedBox(
                   width: 210,
-                  child: ComboBox<String>(
+                  child: shad.ShadSelect<String>(
                     key: const Key('teacher_classwork_topic_filter'),
-                    value: _selectedTopic,
-                    isExpanded: true,
-                    items: [
-                      const ComboBoxItem(
+                    initialValue: _selectedTopic,
+                    options: [
+                      const shad.ShadOption(
                         value: 'All topics',
                         child: Text('All topics'),
                       ),
                       for (final name in topicNames)
-                        ComboBoxItem(value: name, child: Text(name)),
+                        shad.ShadOption(value: name, child: Text(name)),
                     ],
                     onChanged: (value) {
                       if (value != null) {
                         setState(() => _selectedTopic = value);
                       }
                     },
+                    selectedOptionBuilder: (context, value) => Text(value),
                   ),
                 ),
-                Button(
+                shad.ShadButton.ghost(
                   key: const Key('teacher_classwork_collapse_all'),
                   onPressed: () {
                     setState(() {
@@ -203,7 +204,7 @@ class _TeacherClassworkAssignmentListState
               topicIndex++
             ) ...[
               if (topicIndex > 0) const SizedBox(height: AppSpacing.lg),
-              Button(
+              shad.ShadButton.ghost(
                 key: Key(
                   'teacher_classwork_topic_${visibleTopics[topicIndex].$1}',
                 ),
@@ -300,6 +301,7 @@ class _TeacherClassworkAssignmentListState
             ],
           ],
         ],
+      ),
       ),
     );
   }

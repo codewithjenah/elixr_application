@@ -64,18 +64,20 @@ class ElixDialog extends StatelessWidget {
       barrierColor: context.isHighContrast
           ? Colors.black
           : const Color(0xCC000000),
-      builder: (ctx) => ElixDialog(
-        title: title,
-        subtitle: subtitle,
-        icon: icon,
-        iconColor: iconColor,
-        headerAccentColor: headerAccentColor,
-        content: content,
-        actions: actions,
-        uniformActionSize: uniformActionSize,
-        maxWidth: maxWidth,
-        maxHeight: maxHeight,
-        scrollableContent: scrollableContent,
+      builder: (ctx) => ElixShadThemeBridge(
+        child: ElixDialog(
+          title: title,
+          subtitle: subtitle,
+          icon: icon,
+          iconColor: iconColor,
+          headerAccentColor: headerAccentColor,
+          content: content,
+          actions: actions,
+          uniformActionSize: uniformActionSize,
+          maxWidth: maxWidth,
+          maxHeight: maxHeight,
+          scrollableContent: scrollableContent,
+        ),
       ),
     );
   }

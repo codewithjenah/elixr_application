@@ -1,10 +1,13 @@
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_review_state.dart';
@@ -88,7 +91,8 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
               .length,
     );
 
-    return Column(
+    return ElixShadThemeBridge(
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.showHeading) ...[
@@ -116,34 +120,43 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
             children: [
               SizedBox(
                 width: 280,
-                child: TextBox(
+                child: shad.ShadInput(
                   key: const Key('teacher_gradebook_student_search'),
                   controller: _searchController,
-                  placeholder: 'Search students',
+                  placeholder: const Text('Search students'),
                   onChanged: (_) => setState(() {}),
                 ),
               ),
-              ComboBox<TeacherGradebookScope>(
-                value: _scope,
+              shad.ShadSelect<TeacherGradebookScope>(
+                initialValue: _scope,
                 onChanged: (value) => setState(() => _scope = value ?? _scope),
-                items: const [
-                  ComboBoxItem(
+                selectedOptionBuilder: (context, value) => Text(
+                  switch (value) {
+                    TeacherGradebookScope.all => 'All classwork',
+                    TeacherGradebookScope.active => 'Active',
+                    TeacherGradebookScope.archived => 'Archived',
+                  },
+                ),
+                options: const [
+                  shad.ShadOption(
                     value: TeacherGradebookScope.all,
                     child: Text('All classwork'),
                   ),
-                  ComboBoxItem(
+                  shad.ShadOption(
                     value: TeacherGradebookScope.active,
                     child: Text('Active'),
                   ),
-                  ComboBoxItem(
+                  shad.ShadOption(
                     value: TeacherGradebookScope.archived,
                     child: Text('Archived'),
                   ),
                 ],
               ),
-              Tooltip(
-                message: 'Export the complete gradebook for this classroom',
-                child: Button(
+              shad.ShadTooltip(
+                builder: (context) => const Text(
+                  'Export the complete gradebook for this classroom',
+                ),
+                child: shad.ShadButton.outline(
                   key: const Key('teacher_gradebook_export'),
                   onPressed:
                       _exporting ||
@@ -153,7 +166,7 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
                           controller.assignments.isEmpty
                       ? null
                       : () => _chooseAndExport(controller),
-                  child: Row(
+                    child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(FluentIcons.download),
@@ -170,10 +183,9 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
         if (_exportMessage != null)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.md),
-            child: InfoBar(
-              severity: InfoBarSeverity.success,
+            child: shad.ShadAlert(
               title: const Text('Gradebook exported'),
-              content: Text(_exportMessage!),
+              description: Text(_exportMessage!),
             ),
           ),
         if (controller.approvedMemberships.isEmpty)
@@ -200,50 +212,53 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
             ),
           ),
       ],
+      ),
     );
   }
 
   Future<void> _chooseAndExport(TeacherClassworkController controller) async {
     var format = TeacherGradebookExportFormat.xlsx;
-    final selected = await showDialog<TeacherGradebookExportFormat>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => ContentDialog(
-          title: const Text('Export Gradebook'),
-          content: Column(
+    final selected = await ElixDialog.show<TeacherGradebookExportFormat>(
+      context,
+      title: 'Export gradebook',
+      subtitle: 'Choose a file format',
+      content: StatefulBuilder(
+        builder: (context, setDialogState) => Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Export the current classroom gradebook.'),
               const SizedBox(height: AppSpacing.sm),
-              RadioButton(
-                checked: format == TeacherGradebookExportFormat.xlsx,
-                onChanged: (_) => setDialogState(
-                  () => format = TeacherGradebookExportFormat.xlsx,
-                ),
-                content: const Text('Excel (.xlsx)'),
-              ),
-              RadioButton(
-                checked: format == TeacherGradebookExportFormat.csv,
-                onChanged: (_) => setDialogState(
-                  () => format = TeacherGradebookExportFormat.csv,
-                ),
-                content: const Text('CSV (.csv)'),
+              shad.ShadRadioGroup<TeacherGradebookExportFormat>(
+                initialValue: format,
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => format = value);
+                },
+                items: const [
+                  shad.ShadRadio(
+                    value: TeacherGradebookExportFormat.xlsx,
+                    label: Text('Excel (.xlsx)'),
+                  ),
+                  shad.ShadRadio(
+                    value: TeacherGradebookExportFormat.csv,
+                    label: Text('CSV (.csv)'),
+                  ),
+                ],
               ),
             ],
           ),
-          actions: [
-            Button(
-              child: const Text('Cancel'),
-              onPressed: () => Navigator.pop(context),
-            ),
-            FilledButton(
-              child: const Text('Export'),
-              onPressed: () => Navigator.pop(context, format),
-            ),
-          ],
-        ),
       ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context),
+        ),
+        ElixPrimaryButton(
+          label: 'Export',
+          expanded: false,
+          onPressed: () => Navigator.pop(context, format),
+        ),
+      ],
     );
     if (selected != null && mounted) {
       await _export(controller, controller.assignments, selected);
@@ -292,13 +307,11 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
       );
     } on Object {
       if (!mounted) return;
-      displayInfoBar(
+      await ElixDialog.alert(
         context,
-        builder: (context, close) => InfoBar(
-          severity: InfoBarSeverity.error,
-          title: const Text('Could not export gradebook'),
-          content: const Text('Choose another location and try again.'),
-        ),
+        title: 'Could not export gradebook',
+        message: 'Choose another location and try again.',
+        icon: FluentIcons.error_badge,
       );
     } finally {
       if (mounted) setState(() => _exporting = false);

@@ -4,13 +4,16 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/elix_toast.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -103,24 +106,12 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return TeacherScaffoldPage(
+        return ElixShadThemeBridge(
+          child: TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
             heading: 'Classrooms',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle: 'Organize your trainee classes and access.',
-            commandBar: CommandBar(
-              mainAxisAlignment: MainAxisAlignment.end,
-              primaryItems: [
-                CommandBarButton(
-                  key: const Key('teacher_groups_create'),
-                  icon: const Icon(FluentIcons.add),
-                  label: const Text('Create classroom'),
-                  onPressed: controller.busy
-                      ? null
-                      : () => _showCreateGroupDialog(context, controller),
-                ),
-              ],
-            ),
           ),
           content: controller.loading
               ? const Center(child: ProgressRing())
@@ -131,6 +122,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
                     setState(() => _showArchived = value);
                   },
                 ),
+          ),
         );
       },
     );
@@ -199,23 +191,38 @@ class _GroupsGrid extends StatelessWidget {
                 );
                 final filter = SizedBox(
                   width: 180,
-                  child: ComboBox<bool>(
+                  child: shad.ShadSelect<bool>(
                     key: const Key('teacher_groups_status_filter'),
-                    value: showArchived,
-                    items: const [
-                      ComboBoxItem(value: false, child: Text('Active')),
-                      ComboBoxItem(value: true, child: Text('Archived')),
+                    initialValue: showArchived,
+                    options: const [
+                      shad.ShadOption(value: false, child: Text('Active')),
+                      shad.ShadOption(value: true, child: Text('Archived')),
                     ],
                     onChanged: (value) {
                       if (value != null) onArchivedChanged(value);
                     },
+                    selectedOptionBuilder: (context, value) => Text(
+                      value == true ? 'Archived' : 'Active',
+                    ),
                   ),
+                );
+                final create = ElixPrimaryButton(
+                  key: const Key('teacher_groups_create'),
+                  label: 'Create classroom',
+                  icon: FluentIcons.add,
+                  expanded: false,
+                  dense: true,
+                  onPressed: controller.busy
+                      ? null
+                      : () => _showCreateGroupDialog(context, controller),
                 );
                 if (constraints.maxWidth >= _groupsCompactBreakpoint) {
                   return Row(
                     children: [
                       Expanded(child: heading),
                       filter,
+                      const SizedBox(width: AppSpacing.sm),
+                      create,
                     ],
                   );
                 }
@@ -223,7 +230,7 @@ class _GroupsGrid extends StatelessWidget {
                   spacing: AppSpacing.md,
                   runSpacing: AppSpacing.sm,
                   crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [heading, filter],
+                  children: [heading, filter, create],
                 );
               },
             ),
@@ -330,9 +337,9 @@ class _GroupsGrid extends StatelessWidget {
                                       group,
                                     ),
                             ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
                   ],
                 );
               },
@@ -350,45 +357,44 @@ Future<void> _showCreateGroupDialog(
   final nameController = TextEditingController();
   final sectionController = TextEditingController();
   final scheduleController = TextEditingController();
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Create classroom'),
-      content: Column(
+  final accepted = await ElixDialog.show<bool>(
+    context,
+    title: 'Create classroom',
+    subtitle: 'Set up a classroom workspace',
+    content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text('Enter a class name, such as BSHM 4A.'),
           const SizedBox(height: AppSpacing.sm),
-          TextBox(
+          shad.ShadInput(
             key: const Key('teacher_groups_create_name'),
             controller: nameController,
-            placeholder: 'BSHM 4A',
+            placeholder: const Text('BSHM 4A'),
             autofocus: true,
           ),
           const SizedBox(height: AppSpacing.sm),
-          TextBox(
+          shad.ShadInput(
             controller: sectionController,
-            placeholder: 'Section (optional)',
+            placeholder: const Text('Section (optional)'),
           ),
           const SizedBox(height: AppSpacing.sm),
-          TextBox(
+          shad.ShadInput(
             controller: scheduleController,
-            placeholder: 'Schedule (optional, e.g. MWF 2:30–4:00 PM)',
+            placeholder: const Text('Schedule (optional, e.g. MWF 2:30–4:00 PM)'),
           ),
         ],
       ),
-      actions: [
+    actions: [
         Button(
           child: const Text('Cancel'),
           onPressed: () => Navigator.pop(context, false),
         ),
-        FilledButton(
-          child: const Text('Create'),
+        ElixPrimaryButton(
+          label: 'Create', expanded: false,
           onPressed: () => Navigator.pop(context, true),
         ),
       ],
-    ),
   );
   if (accepted == true) {
     final group = await controller.createGroup(
@@ -411,34 +417,32 @@ Future<void> _showRenameGroupDialog(
   ElixrGroup group,
 ) async {
   final nameController = TextEditingController(text: group.name);
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Rename group'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text('Enter a new class name.'),
-          const SizedBox(height: AppSpacing.sm),
-          TextBox(
-            controller: nameController,
-            placeholder: 'BSHM 4A',
-            autofocus: true,
-          ),
-        ],
-      ),
-      actions: [
+  final accepted = await ElixDialog.show<bool>(
+    context,
+    title: 'Rename classroom',
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('Enter a new class name.'),
+        const SizedBox(height: AppSpacing.sm),
+        shad.ShadInput(
+          controller: nameController,
+          placeholder: const Text('BSHM 4A'),
+          autofocus: true,
+        ),
+      ],
+    ),
+    actions: [
         Button(
           child: const Text('Cancel'),
           onPressed: () => Navigator.pop(context, false),
         ),
-        FilledButton(
-          child: const Text('Rename'),
+        ElixPrimaryButton(
+          label: 'Rename', expanded: false,
           onPressed: () => Navigator.pop(context, true),
         ),
       ],
-    ),
   );
   if (accepted == true) {
     await controller.renameGroup(group, nameController.text);
@@ -451,25 +455,23 @@ Future<void> _confirmArchiveGroup(
   TeacherGroupsController controller,
   ElixrGroup group,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Archive this group?'),
-      content: const Text(
+  final accepted = await ElixDialog.show<bool>(
+    context,
+    title: 'Archive this classroom?',
+    content: const Text(
         'Students already in this class stay. New students will not be able '
         'to join with this class code.',
-      ),
-      actions: [
+    ),
+    actions: [
         Button(
           child: const Text('Cancel'),
           onPressed: () => Navigator.pop(context, false),
         ),
-        FilledButton(
-          child: const Text('Archive'),
+        ElixPrimaryButton(
+          label: 'Archive', expanded: false,
           onPressed: () => Navigator.pop(context, true),
         ),
       ],
-    ),
   );
   if (accepted == true) await controller.archiveGroup(group);
 }
@@ -479,26 +481,24 @@ Future<void> _confirmUnarchiveGroup(
   TeacherGroupsController controller,
   ElixrGroup group,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Unarchive this classroom?'),
-      content: const Text(
+  final accepted = await ElixDialog.show<bool>(
+    context,
+    title: 'Unarchive this classroom?',
+    content: const Text(
         'This classroom will return to your active classrooms. Its students, '
         'classwork, and existing class code will remain available.',
-      ),
-      actions: [
+    ),
+    actions: [
         Button(
           child: const Text('Cancel'),
           onPressed: () => Navigator.pop(context, false),
         ),
-        FilledButton(
+        ElixPrimaryButton(
           key: const Key('teacher_groups_confirm_unarchive'),
-          child: const Text('Unarchive'),
+          label: 'Unarchive', expanded: false,
           onPressed: () => Navigator.pop(context, true),
         ),
       ],
-    ),
   );
   if (accepted == true) await controller.unarchiveGroup(group);
 }
@@ -509,29 +509,15 @@ Future<void> _confirmPermanentlyDeleteGroup(
   ElixrGroup group,
 ) async {
   final confirmation = TextEditingController();
-  var phraseMatches = false;
-  await showDialog<bool>(
-    context: context,
-    dismissWithEsc: false,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) => PopScope(
-          canPop: !controller.busy,
-          child: Actions(
-            actions: {
-              DismissIntent: CallbackAction<DismissIntent>(
-                onInvoke: (_) {
-                  if (!controller.busy) Navigator.pop(dialogContext, false);
-                  return null;
-                },
-              ),
-            },
-            child: ContentDialog(
-              title: const Text('Permanently delete classroom?'),
-              content: SizedBox(
-                width: 460,
-                child: Column(
+  final phraseMatches = ValueNotifier(false);
+  await ElixDialog.show<bool>(
+    context,
+    title: 'Permanently delete classroom?',
+    barrierDismissible: false,
+    maxWidth: 460,
+    content: AnimatedBuilder(
+      animation: controller,
+      builder: (dialogContext, _) => Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -542,35 +528,39 @@ Future<void> _confirmPermanentlyDeleteGroup(
                     const SizedBox(height: AppSpacing.md),
                     const Text('Type DELETE CLASSROOM to continue.'),
                     const SizedBox(height: AppSpacing.xs),
-                    TextBox(
+                    shad.ShadInput(
                       key: const Key('teacher_groups_delete_confirmation'),
                       controller: confirmation,
                       enabled: !controller.busy,
                       autofocus: true,
-                      onChanged: (value) => setDialogState(
-                        () => phraseMatches = value == 'DELETE CLASSROOM',
-                      ),
+                      onChanged: (value) =>
+                          phraseMatches.value = value == 'DELETE CLASSROOM',
                     ),
                     if (controller.errorMessage != null) ...[
                       const SizedBox(height: AppSpacing.md),
-                      InfoBar(
-                        title: Text(controller.errorMessage!),
-                        severity: InfoBarSeverity.error,
+                      shad.ShadAlert.destructive(
+                        title: Text('Could not delete classroom'),
+                        description: Text(controller.errorMessage!),
                       ),
                     ],
                   ],
                 ),
               ),
-              actions: [
-                Button(
-                  onPressed: controller.busy
-                      ? null
-                      : () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
+    actions: [
+      AnimatedBuilder(
+        animation: controller,
+        builder: (dialogContext, _) => Button(
+          onPressed: controller.busy
+              ? null
+              : () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+      ),
+      AnimatedBuilder(
+        animation: Listenable.merge([controller, phraseMatches]),
+        builder: (dialogContext, _) => shad.ShadButton.destructive(
                   key: const Key('teacher_groups_confirm_delete'),
-                  onPressed: phraseMatches && !controller.busy
+                  onPressed: phraseMatches.value && !controller.busy
                       ? () async {
                           // The controller sets busy synchronously before its first await.
                           if (controller.busy) return;
@@ -581,6 +571,7 @@ Future<void> _confirmPermanentlyDeleteGroup(
                           }
                         }
                       : null,
+                  enabled: phraseMatches.value && !controller.busy,
                   child: controller.busy
                       ? const Row(
                           mainAxisSize: MainAxisSize.min,
@@ -596,15 +587,12 @@ Future<void> _confirmPermanentlyDeleteGroup(
                           ],
                         )
                       : const Text('Delete permanently'),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
-    ),
+    ],
   );
   confirmation.dispose();
+  phraseMatches.dispose();
 }
 
 T? _maybeRead<T>(BuildContext context) {

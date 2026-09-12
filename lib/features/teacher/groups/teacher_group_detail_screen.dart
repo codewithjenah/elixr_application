@@ -261,6 +261,12 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
       ]),
       builder: (context, _) {
         final group = controller.selectedGroup;
+        final groupMetadata = group == null
+            ? ''
+            : [group.section, group.schedule]
+                  .whereType<String>()
+                  .where((value) => value.isNotEmpty)
+                  .join(' · ');
         final assignment = classwork.selectedAssignment;
         final traineeId = classwork.selectedTraineeId;
         final backButton = traineeId != null && assignment != null
@@ -305,6 +311,11 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
             heading: group?.name ?? 'Group',
             eyebrow: 'TEACHER WORKSPACE',
             variant: ElixEditorialHeaderVariant.compact,
+            subtitle: group == null
+                ? null
+                : groupMetadata.isEmpty
+                ? (group.isActive ? 'Active classroom' : 'Archived classroom')
+                : groupMetadata,
           ),
           // The classroom overview uses the page scroll view so its desktop
           // scrollbar sits at the outer content edge. Assignment work owns a
@@ -762,20 +773,13 @@ class _GroupDetailTab extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
               color: selected
-                  ? (highContrast ? AppColors.primary : null)
+                  ? (highContrast ? AppColors.primary : AppColors.primary)
                   : Color.alphaBlend(
                       (hovered ? AppColors.primary : Colors.transparent)
                           .withValues(alpha: hovered ? 0.06 : 0),
                       context.elixCardSurface,
                     ),
-              gradient: selected && !highContrast
-                  ? const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [AppColors.primary, AppColors.accent],
-                    )
-                  : null,
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: selected
                     ? (highContrast ? context.elixBorder : Colors.transparent)
@@ -784,15 +788,7 @@ class _GroupDetailTab extends StatelessWidget {
                       ),
                 width: highContrast ? 2 : 1,
               ),
-              boxShadow: selected && !highContrast
-                  ? [
-                      BoxShadow(
-                        color: AppColors.primary.withValues(alpha: 0.28),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
-                      ),
-                    ]
-                  : const [],
+              boxShadow: const [],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,

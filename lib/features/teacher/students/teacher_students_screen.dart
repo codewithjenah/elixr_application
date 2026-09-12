@@ -3,6 +3,7 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
@@ -80,7 +81,8 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return TeacherScaffoldPage(
+        return ElixShadThemeBridge(
+          child: TeacherScaffoldPage(
           header: const ElixEditorialPageHeader(
             heading: 'Students',
             eyebrow: 'TEACHER WORKSPACE',
@@ -123,6 +125,7 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
                     ),
                   ],
                 ),
+          ),
         );
       },
     );
@@ -146,42 +149,58 @@ class _Toolbar extends StatelessWidget {
         children: [
           SizedBox(
             width: 280,
-            child: TextBox(
+            child: shad.ShadInput(
               controller: searchController,
-              placeholder: 'Search by name',
-              prefix: const Padding(
+              placeholder: const Text('Search by name'),
+              leading: const Padding(
                 padding: EdgeInsets.only(left: 8),
-                child: Icon(FluentIcons.search),
+                child: Icon(FluentIcons.search, size: 14),
               ),
               onChanged: controller.setSearchQuery,
             ),
           ),
-          ComboBox<String?>(
-            value: controller.selectedGroupId,
+          shad.ShadSelect<String?>(
+            key: const Key('teacher_students_class_filter'),
+            initialValue: controller.selectedGroupId,
             placeholder: const Text('All classes'),
-            items: [
-              const ComboBoxItem(value: null, child: Text('All classes')),
+            options: [
+              const shad.ShadOption<String?>(
+                value: null,
+                child: Text('All classes'),
+              ),
               for (final group in controller.groups.where((g) => g.isActive))
-                ComboBoxItem(value: group.id, child: Text(group.name)),
+                shad.ShadOption(value: group.id, child: Text(group.name)),
             ],
-            onChanged: controller.setGroupFilter,
+            selectedOptionBuilder: (context, value) => Text(
+              value == null
+                  ? 'All classes'
+                  : controller.groups
+                        .where((group) => group.id == value)
+                        .map((group) => group.name)
+                        .firstOrNull ??
+                    'All classes',
+            ),
+            onChanged: (value) => controller.setGroupFilter(
+              value,
+            ),
           ),
-          ComboBox<TeacherStudentStatusFilter>(
-            value: controller.statusFilter,
-            items: const [
-              ComboBoxItem(
+          shad.ShadSelect<TeacherStudentStatusFilter>(
+            key: const Key('teacher_students_status_filter'),
+            initialValue: controller.statusFilter,
+            options: const [
+              shad.ShadOption(
                 value: TeacherStudentStatusFilter.approved,
                 child: Text('Approved'),
               ),
-              ComboBoxItem(
+              shad.ShadOption(
                 value: TeacherStudentStatusFilter.all,
                 child: Text('All statuses'),
               ),
-              ComboBoxItem(
+              shad.ShadOption(
                 value: TeacherStudentStatusFilter.pending,
                 child: Text('Pending'),
               ),
-              ComboBoxItem(
+              shad.ShadOption(
                 value: TeacherStudentStatusFilter.inactive,
                 child: Text('Removed / inactive'),
               ),
@@ -189,6 +208,14 @@ class _Toolbar extends StatelessWidget {
             onChanged: (value) {
               if (value != null) controller.setStatusFilter(value);
             },
+            selectedOptionBuilder: (context, value) => Text(
+              switch (value) {
+                TeacherStudentStatusFilter.approved => 'Approved',
+                TeacherStudentStatusFilter.all => 'All statuses',
+                TeacherStudentStatusFilter.pending => 'Pending',
+                TeacherStudentStatusFilter.inactive => 'Removed / inactive',
+              },
+            ),
           ),
         ],
       ),
@@ -326,7 +353,10 @@ class _StudentRow extends StatelessWidget {
               ),
               _StatusBadge(status: membership.status),
               const SizedBox(width: AppSpacing.md),
-              Button(onPressed: onOpen, child: const Text('Open details')),
+              shad.ShadButton.outline(
+                onPressed: onOpen,
+                child: const Text('Open details'),
+              ),
             ],
           ),
         );
