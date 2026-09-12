@@ -465,7 +465,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('January 2025'), findsOneWidget);
-    await tester.tap(find.widgetWithText(Button, 'Today'));
+    await tester.tap(find.text('Today').first);
     await tester.pumpAndSettle();
     expect(find.text('August 2026'), findsOneWidget);
   });
@@ -640,7 +640,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('August 2026'), findsOneWidget);
     expect(find.text('No training planned'), findsOneWidget);
-    await tester.tap(find.widgetWithText(Button, 'Today'));
+    await tester.tap(find.text('Today').first);
     await tester.pumpAndSettle();
     expect(find.text('August 2026'), findsOneWidget);
   });

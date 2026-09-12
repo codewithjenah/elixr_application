@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/session.dart';
@@ -587,11 +588,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
           );
 
-    if (widget.embedded) return content;
+    if (widget.embedded) return ElixShadThemeBridge(child: content);
 
     return ElixScaffoldPage(
       padding: EdgeInsets.zero,
-      content: SafeArea(child: content),
+      content: SafeArea(child: ElixShadThemeBridge(child: content)),
     );
   }
 }

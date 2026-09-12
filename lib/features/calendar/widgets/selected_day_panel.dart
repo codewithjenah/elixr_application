@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -68,11 +69,16 @@ class SelectedDayPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (actionError != null) ...[
-            InfoBar(
-              title: const Text('Could not update the training plan.'),
-              content: Text(actionError!),
-              severity: InfoBarSeverity.error,
-            ),
+            context.isHighContrast
+                ? InfoBar(
+                    title: const Text('Could not update the training plan.'),
+                    content: Text(actionError!),
+                    severity: InfoBarSeverity.error,
+                  )
+                : shad.ShadAlert.destructive(
+                    title: const Text('Could not update the training plan.'),
+                    description: Text(actionError!),
+                  ),
             const SizedBox(height: AppSpacing.md),
           ],
           if (isEditing)
@@ -202,13 +208,13 @@ class _UnplannedActionable extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              FilledButton(
+              _PrimaryActionButton(
                 onPressed: isSaving ? null : onPlanPractice,
-                child: const Text('Plan Practice'),
+                label: 'Plan Practice',
               ),
-              Button(
+              _OutlineActionButton(
                 onPressed: isSaving ? null : onMarkRest,
-                child: const Text('Mark Rest Day'),
+                label: 'Mark Rest Day',
               ),
             ],
           ),
@@ -247,9 +253,9 @@ class _RestDayBody extends StatelessWidget {
         ),
         if (isActionable) ...[
           const SizedBox(height: AppSpacing.md),
-          Button(
+          _DestructiveActionButton(
             onPressed: isSaving ? null : onRemove,
-            child: const Text('Remove Plan'),
+            label: 'Remove Plan',
           ),
         ],
       ],
@@ -336,23 +342,23 @@ class _TrainingPlanBody extends StatelessWidget {
           runSpacing: 8,
           children: [
             if (showStart)
-              FilledButton(
+              _PrimaryActionButton(
                 onPressed: isSaving ? null : onStartPractice,
-                child: const Text('Start Practice'),
+                label: 'Start Practice',
               ),
             if (completed)
-              FilledButton(
+              _PrimaryActionButton(
                 onPressed: onViewHistory,
-                child: const Text('View History'),
+                label: 'View History',
               ),
             if (isActionable) ...[
-              Button(
+              _OutlineActionButton(
                 onPressed: isSaving ? null : onEdit,
-                child: const Text('Edit Plan'),
+                label: 'Edit Plan',
               ),
-              Button(
+              _DestructiveActionButton(
                 onPressed: isSaving ? null : onRemove,
-                child: const Text('Remove Plan'),
+                label: 'Remove Plan',
               ),
             ],
           ],
@@ -360,6 +366,39 @@ class _TrainingPlanBody extends StatelessWidget {
       ],
     );
   }
+}
+
+class _PrimaryActionButton extends StatelessWidget {
+  const _PrimaryActionButton({required this.onPressed, required this.label});
+  final VoidCallback? onPressed;
+  final String label;
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? FilledButton(onPressed: onPressed, child: Text(label))
+      : shad.ShadButton(onPressed: onPressed, child: Text(label));
+}
+
+class _OutlineActionButton extends StatelessWidget {
+  const _OutlineActionButton({required this.onPressed, required this.label});
+  final VoidCallback? onPressed;
+  final String label;
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(onPressed: onPressed, child: Text(label))
+      : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
+}
+
+class _DestructiveActionButton extends StatelessWidget {
+  const _DestructiveActionButton({
+    required this.onPressed,
+    required this.label,
+  });
+  final VoidCallback? onPressed;
+  final String label;
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(onPressed: onPressed, child: Text(label))
+      : shad.ShadButton.ghost(onPressed: onPressed, child: Text(label));
 }
 
 class _MetricChip extends StatelessWidget {

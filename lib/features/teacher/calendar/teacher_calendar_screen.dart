@@ -7,6 +7,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
@@ -180,111 +181,114 @@ class _TeacherCalendarScreenState extends State<TeacherCalendarScreen> {
     final filtersActive =
         _classroomId.isNotEmpty || _deadlineFilter != TeacherDeadlineFilter.all;
 
-    return TeacherScaffoldPage(
-      header: const ElixEditorialPageHeader(
-        heading: 'Calendar',
-        eyebrow: 'TEACHER WORKSPACE',
-        subtitle: 'See what is due, overdue, and coming up across classrooms.',
-      ),
-      content: _loading
-          ? const Center(child: ProgressRing())
-          : _error != null
-          ? ElixStatusPanel(
-              title: 'Calendar unavailable',
-              message: _error!,
-              isError: true,
-              actionLabel: 'Retry',
-              onAction: _start,
-            )
-          : Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: CalendarLayout.maxContentWidth,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CalendarHeader(
-                      visibleMonth: _visibleMonth,
-                      onPreviousMonth: () => setState(() {
-                        _visibleMonth = DateTime(
-                          _visibleMonth.year,
-                          _visibleMonth.month - 1,
-                        );
-                      }),
-                      onNextMonth: () => setState(() {
-                        _visibleMonth = DateTime(
-                          _visibleMonth.year,
-                          _visibleMonth.month + 1,
-                        );
-                      }),
-                      onToday: () => _selectDate(_today),
-                      trailing: _TeacherCalendarFilters(
-                        classrooms: classrooms,
-                        classroomId: _classroomId,
-                        deadlineFilter: _deadlineFilter,
-                        filtersActive: filtersActive,
-                        onClassroomChanged: (value) =>
-                            setState(() => _classroomId = value ?? ''),
-                        onDeadlineChanged: (value) => setState(
-                          () => _deadlineFilter =
-                              value ?? TeacherDeadlineFilter.all,
-                        ),
-                        onClearFilters: filtersActive ? _clearFilters : null,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    _TeacherWorkloadOverview(overview: overview),
-                    if (events.isEmpty) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      const ElixStatusPanel(
-                        key: Key('teacher_calendar_empty'),
-                        title: 'No assignment deadlines yet',
-                        message:
-                            'Assignment deadlines from your classrooms will appear here.',
-                        icon: FluentIcons.calendar,
-                      ),
-                    ] else if (visibleEvents.isEmpty) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      ElixStatusPanel(
-                        key: const Key('teacher_calendar_filter_empty'),
-                        title: 'No deadlines match these filters',
-                        message: filtersActive
-                            ? 'Try another classroom or deadline state, or clear filters to see every assignment.'
-                            : 'No assignment deadlines match the current view.',
-                        icon: FluentIcons.filter,
-                        actionLabel: filtersActive ? 'Clear filters' : null,
-                        onAction: filtersActive ? _clearFilters : null,
-                      ),
-                    ],
-                    const SizedBox(height: AppSpacing.md),
-                    CalendarWorkspaceSplit(
-                      calendar: _TeacherCalendarGrid(
+    return ElixShadThemeBridge(
+      child: TeacherScaffoldPage(
+        header: const ElixEditorialPageHeader(
+          heading: 'Calendar',
+          eyebrow: 'TEACHER WORKSPACE',
+          subtitle:
+              'See what is due, overdue, and coming up across classrooms.',
+        ),
+        content: _loading
+            ? const Center(child: ProgressRing())
+            : _error != null
+            ? ElixStatusPanel(
+                title: 'Calendar unavailable',
+                message: _error!,
+                isError: true,
+                actionLabel: 'Retry',
+                onAction: _start,
+              )
+            : Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: CalendarLayout.maxContentWidth,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CalendarHeader(
                         visibleMonth: _visibleMonth,
-                        selectedDate: _selectedDate,
-                        today: _today,
-                        events: visibleEvents,
-                        onDateSelected: _selectDate,
+                        onPreviousMonth: () => setState(() {
+                          _visibleMonth = DateTime(
+                            _visibleMonth.year,
+                            _visibleMonth.month - 1,
+                          );
+                        }),
+                        onNextMonth: () => setState(() {
+                          _visibleMonth = DateTime(
+                            _visibleMonth.year,
+                            _visibleMonth.month + 1,
+                          );
+                        }),
+                        onToday: () => _selectDate(_today),
+                        trailing: _TeacherCalendarFilters(
+                          classrooms: classrooms,
+                          classroomId: _classroomId,
+                          deadlineFilter: _deadlineFilter,
+                          filtersActive: filtersActive,
+                          onClassroomChanged: (value) =>
+                              setState(() => _classroomId = value ?? ''),
+                          onDeadlineChanged: (value) => setState(
+                            () => _deadlineFilter =
+                                value ?? TeacherDeadlineFilter.all,
+                          ),
+                          onClearFilters: filtersActive ? _clearFilters : null,
+                        ),
                       ),
-                      agenda: _SelectedDeadlinePanel(
-                        date: _selectedDate,
-                        events: selectedEvents,
-                        filtersActive: filtersActive,
-                        hasAnyDeadlines: events.isNotEmpty,
-                        onClearFilters: filtersActive ? _clearFilters : null,
-                        onOpen: (event) => context.push(
-                          AppRoutePaths.teacherGroupClasswork(
-                            event.assignment.groupId,
-                            event.assignment.id,
+                      const SizedBox(height: AppSpacing.sm),
+                      _TeacherWorkloadOverview(overview: overview),
+                      if (events.isEmpty) ...[
+                        const SizedBox(height: AppSpacing.md),
+                        const ElixStatusPanel(
+                          key: Key('teacher_calendar_empty'),
+                          title: 'No assignment deadlines yet',
+                          message:
+                              'Assignment deadlines from your classrooms will appear here.',
+                          icon: FluentIcons.calendar,
+                        ),
+                      ] else if (visibleEvents.isEmpty) ...[
+                        const SizedBox(height: AppSpacing.md),
+                        ElixStatusPanel(
+                          key: const Key('teacher_calendar_filter_empty'),
+                          title: 'No deadlines match these filters',
+                          message: filtersActive
+                              ? 'Try another classroom or deadline state, or clear filters to see every assignment.'
+                              : 'No assignment deadlines match the current view.',
+                          icon: FluentIcons.filter,
+                          actionLabel: filtersActive ? 'Clear filters' : null,
+                          onAction: filtersActive ? _clearFilters : null,
+                        ),
+                      ],
+                      const SizedBox(height: AppSpacing.md),
+                      CalendarWorkspaceSplit(
+                        calendar: _TeacherCalendarGrid(
+                          visibleMonth: _visibleMonth,
+                          selectedDate: _selectedDate,
+                          today: _today,
+                          events: visibleEvents,
+                          onDateSelected: _selectDate,
+                        ),
+                        agenda: _SelectedDeadlinePanel(
+                          date: _selectedDate,
+                          events: selectedEvents,
+                          filtersActive: filtersActive,
+                          hasAnyDeadlines: events.isNotEmpty,
+                          onClearFilters: filtersActive ? _clearFilters : null,
+                          onOpen: (event) => context.push(
+                            AppRoutePaths.teacherGroupClasswork(
+                              event.assignment.groupId,
+                              event.assignment.id,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -394,80 +398,104 @@ class _TeacherCalendarFilters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.elixColors;
     return Align(
       alignment: Alignment.centerRight,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colors.surfaceRaised,
-          borderRadius: BorderRadius.circular(CalendarLayout.controlRadius),
-          border: Border.all(
-            color: filtersActive
-                ? colors.borderInteractive
-                : colors.borderSubtle,
-            width: filtersActive && context.isHighContrast ? 2 : 1,
+      child: Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (filtersActive)
+            ElixPill(
+              text: 'Filtered',
+              color: context.elixColors.brandSecondary,
+              compact: true,
+            ),
+          _ToolbarFilter(
+            label: 'Classroom',
+            width: 168,
+            child: _TeacherFilterSelect<String>(
+              key: ValueKey('teacher_calendar_classroom_filter_$classroomId'),
+              value: classroomId,
+              options: [
+                const shad.ShadOption<String>(
+                  value: '',
+                  child: Text('All classrooms'),
+                ),
+                for (final classroom in classrooms)
+                  shad.ShadOption<String>(
+                    value: classroom.id,
+                    child: Text(classroom.name),
+                  ),
+              ],
+              onChanged: onClassroomChanged,
+            ),
           ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-          child: Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              if (filtersActive)
-                ElixPill(
-                  text: 'Filtered',
-                  color: colors.brandSecondary,
-                  compact: true,
-                ),
-              _ToolbarFilter(
-                label: 'Classroom',
-                width: 168,
-                child: ComboBox<String>(
-                  key: const Key('teacher_calendar_classroom_filter'),
-                  value: classroomId,
-                  isExpanded: true,
-                  items: [
-                    const ComboBoxItem<String>(
-                      value: '',
-                      child: Text('All classrooms'),
-                    ),
-                    for (final classroom in classrooms)
-                      ComboBoxItem<String>(
-                        value: classroom.id,
-                        child: Text(classroom.name),
-                      ),
-                  ],
-                  onChanged: onClassroomChanged,
-                ),
+          _ToolbarFilter(
+            label: 'Deadline',
+            width: 132,
+            child: _TeacherFilterSelect<TeacherDeadlineFilter>(
+              key: ValueKey(
+                'teacher_calendar_deadline_filter_${deadlineFilter.name}',
               ),
-              _ToolbarFilter(
-                label: 'Deadline',
-                width: 132,
-                child: ComboBox<TeacherDeadlineFilter>(
-                  key: const Key('teacher_calendar_deadline_filter'),
-                  value: deadlineFilter,
-                  isExpanded: true,
-                  items: [
-                    for (final filter in TeacherDeadlineFilter.values)
-                      ComboBoxItem<TeacherDeadlineFilter>(
-                        value: filter,
-                        child: Text(filter.label),
-                      ),
-                  ],
-                  onChanged: onDeadlineChanged,
-                ),
-              ),
-              if (onClearFilters != null)
-                Button(
-                  onPressed: onClearFilters,
-                  child: const Text('Clear filters'),
-                ),
-            ],
+              value: deadlineFilter,
+              options: [
+                for (final filter in TeacherDeadlineFilter.values)
+                  shad.ShadOption<TeacherDeadlineFilter>(
+                    value: filter,
+                    child: Text(filter.label),
+                  ),
+              ],
+              onChanged: onDeadlineChanged,
+            ),
           ),
-        ),
+          if (onClearFilters != null)
+            context.isHighContrast
+                ? Button(
+                    onPressed: onClearFilters,
+                    child: const Text('Clear filters'),
+                  )
+                : shad.ShadButton.ghost(
+                    onPressed: onClearFilters,
+                    child: const Text('Clear filters'),
+                  ),
+        ],
       ),
+    );
+  }
+}
+
+class _TeacherFilterSelect<T> extends StatelessWidget {
+  const _TeacherFilterSelect({
+    super.key,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final T value;
+  final List<shad.ShadOption<T>> options;
+  final ValueChanged<T?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast) {
+      return ComboBox<T>(
+        isExpanded: true,
+        value: value,
+        items: [
+          for (final option in options)
+            ComboBoxItem<T>(value: option.value, child: option.child),
+        ],
+        onChanged: onChanged,
+      );
+    }
+    return shad.ShadSelect<T>(
+      initialValue: value,
+      options: options,
+      selectedOptionBuilder: (context, selected) =>
+          options.firstWhere((option) => option.value == selected).child,
+      onChanged: onChanged,
     );
   }
 }

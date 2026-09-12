@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
@@ -154,9 +155,9 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
             style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.lg),
-          Button(
+          _EditorOutlineButton(
             onPressed: widget.isSaving ? null : widget.onCancel,
-            child: const Text('Cancel'),
+            label: 'Cancel',
           ),
         ],
       );
@@ -174,22 +175,23 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        InfoLabel(
+        _EditorField(
           label: 'Movement',
-          child: ComboBox<String>(
-            isExpanded: true,
+          child: _EditorSelect<String>(
+            key: ValueKey('training_plan_movement_${movement.name}'),
             value: movement.name,
-            items: [
+            enabled: !widget.isSaving,
+            options: [
               for (final item in ready)
-                ComboBoxItem<String>(value: item.name, child: Text(item.name)),
+                shad.ShadOption<String>(
+                  value: item.name,
+                  child: Text(item.name),
+                ),
             ],
-            onChanged: widget.isSaving
-                ? null
-                : (name) {
-                    if (name == null) return;
-                    final next = ready.firstWhere((item) => item.name == name);
-                    _onMovementChanged(next);
-                  },
+            onChanged: (name) {
+              if (name == null) return;
+              _onMovementChanged(ready.firstWhere((item) => item.name == name));
+            },
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -199,58 +201,136 @@ class _TrainingPlanEditorState extends State<TrainingPlanEditor> {
         ),
         if (props.length > 1) ...[
           const SizedBox(height: AppSpacing.md),
-          InfoLabel(
+          _EditorField(
             label: 'Training prop',
-            child: ComboBox<TrainingProp>(
-              isExpanded: true,
+            child: _EditorSelect<TrainingProp>(
+              key: ValueKey('training_plan_prop_${prop.name}'),
               value: prop,
-              items: [
+              enabled: !widget.isSaving,
+              options: [
                 for (final item in props)
-                  ComboBoxItem<TrainingProp>(
+                  shad.ShadOption<TrainingProp>(
                     value: item,
                     child: Text(item.displayLabel),
                   ),
               ],
-              onChanged: widget.isSaving
-                  ? null
-                  : (value) {
-                      if (value != null) setState(() => _prop = value);
-                    },
+              onChanged: (value) {
+                if (value != null) setState(() => _prop = value);
+              },
             ),
           ),
         ],
         const SizedBox(height: AppSpacing.md),
-        InfoLabel(
+        _EditorField(
           label: 'Target duration',
-          child: ComboBox<int>(
-            isExpanded: true,
+          child: _EditorSelect<int>(
+            key: ValueKey('training_plan_duration_$_duration'),
             value: _duration,
-            items: [
+            enabled: !widget.isSaving,
+            options: [
               for (final minutes in TrainingPlan.allowedTargetDurations)
-                ComboBoxItem<int>(value: minutes, child: Text('$minutes min')),
+                shad.ShadOption<int>(
+                  value: minutes,
+                  child: Text('$minutes min'),
+                ),
             ],
-            onChanged: widget.isSaving
-                ? null
-                : (value) {
-                    if (value != null) setState(() => _duration = value);
-                  },
+            onChanged: (value) {
+              if (value != null) setState(() => _duration = value);
+            },
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
         Row(
           children: [
-            FilledButton(
+            _EditorPrimaryButton(
               onPressed: widget.isSaving ? null : _submit,
-              child: Text(widget.isSaving ? 'Saving…' : 'Save Plan'),
+              label: widget.isSaving ? 'Saving…' : 'Save Plan',
             ),
             const SizedBox(width: AppSpacing.sm),
-            Button(
+            _EditorOutlineButton(
               onPressed: widget.isSaving ? null : widget.onCancel,
-              child: const Text('Cancel'),
+              label: 'Cancel',
             ),
           ],
         ),
       ],
     );
   }
+}
+
+class _EditorField extends StatelessWidget {
+  const _EditorField({required this.label, required this.child});
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
+      ),
+      const SizedBox(height: 4),
+      child,
+    ],
+  );
+}
+
+class _EditorSelect<T> extends StatelessWidget {
+  const _EditorSelect({
+    super.key,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+    required this.enabled,
+  });
+
+  final T value;
+  final List<shad.ShadOption<T>> options;
+  final ValueChanged<T?> onChanged;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast) {
+      return ComboBox<T>(
+        isExpanded: true,
+        value: value,
+        items: [
+          for (final option in options)
+            ComboBoxItem<T>(value: option.value, child: option.child),
+        ],
+        onChanged: enabled ? onChanged : null,
+      );
+    }
+    return shad.ShadSelect<T>(
+      initialValue: value,
+      enabled: enabled,
+      options: options,
+      selectedOptionBuilder: (context, selected) =>
+          options.firstWhere((option) => option.value == selected).child,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _EditorPrimaryButton extends StatelessWidget {
+  const _EditorPrimaryButton({required this.onPressed, required this.label});
+  final VoidCallback? onPressed;
+  final String label;
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? FilledButton(onPressed: onPressed, child: Text(label))
+      : shad.ShadButton(onPressed: onPressed, child: Text(label));
+}
+
+class _EditorOutlineButton extends StatelessWidget {
+  const _EditorOutlineButton({required this.onPressed, required this.label});
+  final VoidCallback? onPressed;
+  final String label;
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(onPressed: onPressed, child: Text(label))
+      : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
 }

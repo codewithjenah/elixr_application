@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -132,78 +133,82 @@ class _MonthNavGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isHighContrast) {
+      return _HighContrastMonthNavGroup(
+        onPreviousMonth: onPreviousMonth,
+        onNextMonth: onNextMonth,
+        onToday: onToday,
+      );
+    }
+
     final colors = context.elixColors;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surfaceRaised,
-        borderRadius: BorderRadius.circular(CalendarLayout.controlRadius),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Tooltip(
-            message: 'Previous month',
-            child: IconButton(
-              icon: Icon(
-                FluentIcons.chevron_left,
-                size: 12,
-                color: context.elixTextPrimary,
-              ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        shad.ShadTooltip(
+          builder: (context) => const Text('Previous month'),
+          child: Semantics(
+            button: true,
+            label: 'Previous month',
+            child: shad.ShadIconButton.ghost(
+              icon: Icon(FluentIcons.chevron_left, color: colors.textPrimary),
               onPressed: onPreviousMonth,
             ),
           ),
-          Container(width: 1, height: 22, color: colors.borderSubtle),
-          Tooltip(
-            message: 'Next month',
-            child: IconButton(
-              icon: Icon(
-                FluentIcons.chevron_right,
-                size: 12,
-                color: context.elixTextPrimary,
-              ),
+        ),
+        const SizedBox(width: 4),
+        shad.ShadTooltip(
+          builder: (context) => const Text('Next month'),
+          child: Semantics(
+            button: true,
+            label: 'Next month',
+            child: shad.ShadIconButton.ghost(
+              icon: Icon(FluentIcons.chevron_right, color: colors.textPrimary),
               onPressed: onNextMonth,
             ),
           ),
-          Container(width: 1, height: 22, color: colors.borderSubtle),
-          Button(
-            onPressed: onToday,
-            style: ButtonStyle(
-              padding: WidgetStateProperty.all(
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              backgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.isDisabled) return colors.disabledSurface;
-                if (states.isPressed) return colors.interactivePressed;
-                if (states.isHovered) return colors.interactiveHover;
-                return Colors.transparent;
-              }),
-              foregroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.isDisabled) return colors.disabledText;
-                return context.elixTextPrimary;
-              }),
-              shape: WidgetStateProperty.resolveWith((states) {
-                final focused = states.isFocused;
-                return RoundedRectangleBorder(
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(CalendarLayout.controlRadius),
-                    bottomRight: Radius.circular(CalendarLayout.controlRadius),
-                  ),
-                  side: BorderSide(
-                    color: focused ? colors.focusRing : Colors.transparent,
-                    width: focused
-                        ? (context.isHighContrast
-                              ? ElixFocus.ringWidthHighContrast
-                              : ElixFocus.ringWidth)
-                        : 0,
-                  ),
-                );
-              }),
-            ),
-            child: const Text('Today'),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        shad.ShadButton.outline(
+          onPressed: onToday,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: const Text('Today'),
+        ),
+      ],
     );
   }
+}
+
+class _HighContrastMonthNavGroup extends StatelessWidget {
+  const _HighContrastMonthNavGroup({
+    required this.onPreviousMonth,
+    required this.onNextMonth,
+    required this.onToday,
+  });
+
+  final VoidCallback onPreviousMonth;
+  final VoidCallback onNextMonth;
+  final VoidCallback onToday;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Tooltip(
+        message: 'Previous month',
+        child: IconButton(
+          icon: const Icon(FluentIcons.chevron_left, size: 12),
+          onPressed: onPreviousMonth,
+        ),
+      ),
+      Tooltip(
+        message: 'Next month',
+        child: IconButton(
+          icon: const Icon(FluentIcons.chevron_right, size: 12),
+          onPressed: onNextMonth,
+        ),
+      ),
+      Button(onPressed: onToday, child: const Text('Today')),
+    ],
+  );
 }

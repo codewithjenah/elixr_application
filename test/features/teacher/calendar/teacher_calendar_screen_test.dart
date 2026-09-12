@@ -17,6 +17,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../teacher_phase3_test_support.dart';
 
@@ -262,8 +263,8 @@ void main() {
     expect(find.text('Class B drill'), findsOneWidget);
 
     tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_calendar_classroom_filter')),
+        .widget<shad.ShadSelect<String>>(
+          find.byWidgetPredicate((widget) => widget is shad.ShadSelect<String>),
         )
         .onChanged!('group-2');
     await tester.pumpAndSettle();
@@ -305,8 +306,10 @@ void main() {
     await tester.pumpAndSettle();
 
     tester
-        .widget<ComboBox<TeacherDeadlineFilter>>(
-          find.byKey(const Key('teacher_calendar_deadline_filter')),
+        .widget<shad.ShadSelect<TeacherDeadlineFilter>>(
+          find.byWidgetPredicate(
+            (widget) => widget is shad.ShadSelect<TeacherDeadlineFilter>,
+          ),
         )
         .onChanged!(TeacherDeadlineFilter.upcoming);
     await tester.pumpAndSettle();
@@ -315,8 +318,10 @@ void main() {
     expect(find.text('No matching deadlines'), findsOneWidget);
 
     tester
-        .widget<ComboBox<TeacherDeadlineFilter>>(
-          find.byKey(const Key('teacher_calendar_deadline_filter')),
+        .widget<shad.ShadSelect<TeacherDeadlineFilter>>(
+          find.byWidgetPredicate(
+            (widget) => widget is shad.ShadSelect<TeacherDeadlineFilter>,
+          ),
         )
         .onChanged!(TeacherDeadlineFilter.dueToday);
     await tester.pumpAndSettle();
@@ -344,8 +349,8 @@ void main() {
     await tester.pumpAndSettle();
 
     tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_calendar_classroom_filter')),
+        .widget<shad.ShadSelect<String>>(
+          find.byWidgetPredicate((widget) => widget is shad.ShadSelect<String>),
         )
         .onChanged!('group-2');
     await tester.pumpAndSettle();
@@ -398,7 +403,7 @@ void main() {
     expect(find.text('Bottle balance'), findsOneWidget);
     expect(find.text('Open classwork'), findsOneWidget);
     expect(
-      find.byKey(const Key('teacher_calendar_classroom_filter')),
+      find.byWidgetPredicate((widget) => widget is shad.ShadSelect<String>),
       findsOneWidget,
     );
   });
@@ -424,8 +429,10 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Due today'), findsWidgets);
     tester
-        .widget<ComboBox<TeacherDeadlineFilter>>(
-          find.byKey(const Key('teacher_calendar_deadline_filter')),
+        .widget<shad.ShadSelect<TeacherDeadlineFilter>>(
+          find.byWidgetPredicate(
+            (widget) => widget is shad.ShadSelect<TeacherDeadlineFilter>,
+          ),
         )
         .onChanged!(TeacherDeadlineFilter.upcoming);
     await tester.pumpAndSettle();
