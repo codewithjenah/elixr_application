@@ -66,37 +66,55 @@ class ProfileHeader extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final compactActions = constraints.maxWidth < 820;
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _AvatarBlock(
-                displayName: displayName,
-                profilePictureUrl: profilePictureUrl,
-                equippedBorderId: equippedBorderId,
-                editable: showOwnerActions && onEditAvatar != null,
-                onEditAvatar: onEditAvatar,
-              ),
-              const SizedBox(width: AppSpacing.lg),
-              Expanded(
-                child: _IdentityBlock(
-                  displayName: displayName,
-                  level: level,
-                  totalXp: totalXp,
-                  rank: rank,
-                  showUnrankedLabel: showUnrankedLabel,
-                  visibility: showOwnerActions ? visibility : null,
-                  isTeacher: isTeacher,
-                ),
-              ),
-              if (showOwnerActions) ...[
-                const SizedBox(width: AppSpacing.md),
-                _OwnerActions(
-                  compact: compactActions,
+          final avatar = _AvatarBlock(
+            displayName: displayName,
+            profilePictureUrl: profilePictureUrl,
+            equippedBorderId: equippedBorderId,
+            editable: showOwnerActions && onEditAvatar != null,
+            onEditAvatar: onEditAvatar,
+          );
+          final identity = _IdentityBlock(
+            displayName: displayName,
+            level: level,
+            totalXp: totalXp,
+            rank: rank,
+            showUnrankedLabel: showUnrankedLabel,
+            visibility: showOwnerActions ? visibility : null,
+            isTeacher: isTeacher,
+          );
+          final actions = showOwnerActions
+              ? _OwnerActions(
+                  compact: constraints.maxWidth < 820,
                   onEditProfile: onEditProfile,
                   onPreviewProfile: onPreviewProfile,
                   onPrivacy: onPrivacy,
-                ),
+                )
+              : null;
+
+          if (constraints.maxWidth < 680) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                avatar,
+                const SizedBox(height: AppSpacing.md),
+                identity,
+                if (actions != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  actions,
+                ],
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              avatar,
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(child: identity),
+              if (actions != null) ...[
+                const SizedBox(width: AppSpacing.md),
+                actions,
               ],
             ],
           );
@@ -390,8 +408,8 @@ class _OwnerActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final useShad = !context.isHighContrast &&
-        shad.ShadTheme.maybeOf(context) != null;
+    final useShad =
+        !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
     final previewButton = useShad
         ? shad.ShadButton.outline(
             onPressed: onPreviewProfile,

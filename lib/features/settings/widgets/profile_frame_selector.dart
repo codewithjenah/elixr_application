@@ -454,18 +454,9 @@ Widget _tileShell({
             ? (hovered || selected ? ElixFocus.ringWidthHighContrast : 2)
             : (selected ? 1.8 : (hovered ? 1.5 : 1)),
       ),
-      boxShadow: highContrast
-          ? const []
-          : [
-              if (selected)
-                BoxShadow(
-                  color: context.elixColors.brandPrimary.withValues(
-                    alpha: 0.22,
-                  ),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-            ],
+      // Selection is communicated by the checkmark, surface, and border.
+      // Avoid a glow around every equipped frame in dark mode.
+      boxShadow: const [],
     ),
     child: Stack(
       children: [

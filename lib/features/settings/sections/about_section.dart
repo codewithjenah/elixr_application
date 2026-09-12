@@ -111,15 +111,9 @@ class _BrandMark extends StatelessWidget {
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        color: context.isHighContrast ? context.elixCardSurface : null,
-        gradient: context.isHighContrast
-            ? null
-            : LinearGradient(
-                colors: [
-                  context.elixColors.brandPrimary.withValues(alpha: 0.28),
-                  context.elixColors.brandSecondary.withValues(alpha: 0.16),
-                ],
-              ),
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixColors.brandPrimary.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: context.isHighContrast
@@ -173,15 +167,7 @@ class _TeamMemberCardState extends State<_TeamMemberCard> {
                 : accent.withValues(alpha: _hovered ? 0.52 : 0.24),
             width: context.isHighContrast ? 2 : 1,
           ),
-          boxShadow: _hovered && !context.isHighContrast
-              ? [
-                  BoxShadow(
-                    color: context.elixColors.shadow.withValues(alpha: 0.3),
-                    blurRadius: 16,
-                    offset: const Offset(0, 5),
-                  ),
-                ]
-              : const [],
+          boxShadow: const [],
         ),
         child: ElixPanelCard(
           accent: accent,

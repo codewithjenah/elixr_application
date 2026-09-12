@@ -25,21 +25,32 @@ const double settingsRadiusLg = 16;
 
 /// Card-like panel used to group related Settings controls.
 class SettingsGroup extends StatelessWidget {
-  const SettingsGroup({super.key, required this.child, this.padding});
+  const SettingsGroup({
+    super.key,
+    required this.child,
+    this.padding,
+    this.showAccentBar = false,
+  });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
 
+  /// Reserve the brand rail for an important, single section—not every card.
+  /// This keeps dense desktop settings surfaces calm and easy to scan.
+  final bool showAccentBar;
+
   @override
   Widget build(BuildContext context) {
+    final card = ElixPanelCard(
+      padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
+      child: child,
+    );
+    if (!showAccentBar || context.isHighContrast) return card;
     return ClipRRect(
       borderRadius: BorderRadius.circular(settingsRadiusLg),
       child: Stack(
         children: [
-          ElixPanelCard(
-            padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
-            child: child,
-          ),
+          card,
           Positioned(
             top: 1,
             bottom: 1,
@@ -65,43 +76,68 @@ class SettingsRow extends StatelessWidget {
     required this.label,
     this.description,
     required this.trailing,
+    this.leading,
   });
 
   final String label;
   final String? description;
   final Widget trailing;
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final details = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: AppTheme.body.copyWith(
-                  fontSize: 14,
-                  color: context.elixTextPrimary,
-                ),
-              ),
-              if (description != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  description!,
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
-            ],
+        Text(
+          label,
+          style: AppTheme.body.copyWith(
+            fontSize: 14,
+            color: context.elixTextPrimary,
           ),
         ),
-        const SizedBox(width: AppSpacing.lg),
-        trailing,
+        if (description != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            description!,
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
       ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 440;
+        final content = leading == null
+            ? details
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  leading!,
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(child: details),
+                ],
+              );
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              content,
+              const SizedBox(height: AppSpacing.sm),
+              Align(alignment: Alignment.centerRight, child: trailing),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: content),
+            const SizedBox(width: AppSpacing.lg),
+            trailing,
+          ],
+        );
+      },
     );
   }
 }
