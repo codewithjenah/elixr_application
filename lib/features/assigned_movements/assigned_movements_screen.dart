@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/router/navigation_helpers.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -111,8 +110,8 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
                       ? 'Assigned Movements'
                       : 'Your work',
                   subtitle: !isClassroomScoped
-                      ? 'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.'
-                      : 'Assignments for this classroom. Select an item to continue or review your work.',
+                      ? 'Classroom work from your approved groups, split into Official ELIXR and Teacher-created.'
+                      : 'Assignments for this classroom. Scan each status, then choose your next action.',
                 ),
               ),
               if (isClassroomScoped)
@@ -154,26 +153,41 @@ class _Body extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.loading) {
-      return const Center(child: ProgressRing());
+      return const Center(
+        child: ElixStatusPanel(
+          isLoading: true,
+          icon: FluentIcons.education,
+          title: 'Loading classwork',
+          message: 'Loading your assignments.',
+        ),
+      );
     }
     if (controller.errorMessage != null && controller.items.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(controller.errorMessage!),
-            const SizedBox(height: AppSpacing.md),
-            Button(onPressed: controller.retry, child: const Text('Retry')),
-          ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: ElixStatusPanel(
+            message: controller.errorMessage!,
+            isError: true,
+            icon: FluentIcons.error_badge,
+            title: 'Could not load classwork',
+            actionLabel: 'Retry',
+            onAction: controller.retry,
+          ),
         ),
       );
     }
     if (controller.items.isEmpty) {
       return Center(
-        child: Text(
-          'No assigned movements yet. When a teacher assigns work to one of your classes, it will appear here.',
-          textAlign: TextAlign.center,
-          style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: const ElixStatusPanel(
+            icon: FluentIcons.education,
+            title: 'No classwork yet',
+            message:
+                'When a teacher assigns work to one of your classes, it will '
+                'appear here.',
+          ),
         ),
       );
     }

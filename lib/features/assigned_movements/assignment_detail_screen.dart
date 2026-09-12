@@ -21,6 +21,7 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/elixr_video_player.dart';
+import '../../core/widgets/movement_image.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/repositories/activity_learning_material_repository.dart';
@@ -153,7 +154,14 @@ class _Body extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.loading) {
-      return const Center(child: ProgressRing());
+      return const Center(
+        child: ElixStatusPanel(
+          isLoading: true,
+          icon: FluentIcons.assign,
+          title: 'Loading assignment',
+          message: 'Loading assignment details and your work.',
+        ),
+      );
     }
     if (!controller.authorized) {
       return _Message(
@@ -180,6 +188,7 @@ class _Body extends StatelessWidget {
         final header = _AssignmentHeader(
           assignment: assignment,
           attempts: controller.attempts,
+          currentAttempt: selected,
           teacherProfilePictureUrl:
               controller.teacherProfile?.profilePictureUrl,
           teacherDisplayName:
@@ -283,6 +292,7 @@ class _AssignmentHeader extends StatelessWidget {
   const _AssignmentHeader({
     required this.assignment,
     required this.attempts,
+    required this.currentAttempt,
     this.movementRepository,
     this.materialRepository,
     this.teacherProfilePictureUrl,
@@ -291,6 +301,7 @@ class _AssignmentHeader extends StatelessWidget {
 
   final GroupAssignment assignment;
   final List<AssignmentAttempt> attempts;
+  final AssignmentAttempt? currentAttempt;
   final TeacherMovementRepository? movementRepository;
   final ActivityLearningMaterialRepository? materialRepository;
   final String? teacherProfilePictureUrl;
@@ -299,180 +310,268 @@ class _AssignmentHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activityAssessment = assignment.activityAssessment;
-    return ElixPanelCard(
-      variant: activityAssessment == null
-          ? ElixPanelVariant.normal
-          : ElixPanelVariant.hero,
-      accent: AppColors.primary,
-      showAccentBar: activityAssessment != null,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (activityAssessment != null) ...[
-            Text(
-              'TEACHER ACTIVITY',
-              style: AppTheme.eyebrow(color: AppColors.accent),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-          ],
-          Row(
+    final statusLabel = assignedMovementStatusLabel(
+      assignment,
+      currentAttempt,
+      assignment.isTeacherCreated ? currentAttempt : null,
+    );
+    final statusColor = assignedMovementStatusColor(
+      assignment,
+      currentAttempt,
+      assignment.isTeacherCreated ? currentAttempt : null,
+    );
+    final instructions = assignment.displayInstructions?.trim();
+    final safetyGuidance = assignment.displaySafetyGuidance?.trim();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ElixPanelCard(
+          accent: AppColors.primary,
+          showAccentBar: true,
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (activityAssessment != null) ...[
-                _AccentIcon(icon: FluentIcons.task_list),
-                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  'TEACHER ACTIVITY',
+                  style: AppTheme.eyebrow(color: AppColors.accent),
+                ),
+                const SizedBox(height: AppSpacing.xs),
               ],
-              Expanded(
-                child: ElixEditorialHeader(
-                  heading: assignment.displayTitle,
-                  variant: ElixEditorialHeaderVariant.compact,
-                  subtitle: activityAssessment == null
-                      ? null
-                      : 'A guided recording for your Teacher to review',
-                ),
+              ElixEditorialHeader(
+                heading: assignment.displayTitle,
+                variant: ElixEditorialHeaderVariant.compact,
+                subtitle: activityAssessment == null
+                    ? 'Assignment details and next steps'
+                    : 'A guided recording for your Teacher to review',
+                leading: activityAssessment == null
+                    ? null
+                    : const _AccentIcon(icon: FluentIcons.task_list),
               ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Semantics(
-            label: 'Teacher $teacherDisplayName, class ${assignment.groupName}',
-            child: Row(
-              children: [
-                ExcludeSemantics(
-                  child: ProfileAvatarWidget(
-                    key: const Key('assignment_detail_teacher_avatar'),
-                    radius: 20,
-                    showBorder: false,
-                    networkImageUrl: teacherProfilePictureUrl,
-                    initials: userInitials(teacherDisplayName),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        teacherDisplayName,
-                        style: AppTheme.body.copyWith(
-                          color: context.elixTextPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+              const SizedBox(height: AppSpacing.md),
+              Semantics(
+                label:
+                    'Teacher $teacherDisplayName, class ${assignment.groupName}',
+                child: Row(
+                  children: [
+                    ExcludeSemantics(
+                      child: ProfileAvatarWidget(
+                        key: const Key('assignment_detail_teacher_avatar'),
+                        radius: 20,
+                        showBorder: false,
+                        networkImageUrl: teacherProfilePictureUrl,
+                        initials: userInitials(teacherDisplayName),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        assignment.groupName,
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            teacherDisplayName,
+                            style: AppTheme.body.copyWith(
+                              color: context.elixTextPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            assignment.groupName,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              ElixPill(
-                text: assignment.origin.displayLabel,
-                color: context.elixTextSecondary,
-                compact: true,
               ),
-              ElixPill(
-                text: assignedMovementDueLabel(assignment),
-                color: assignment.isOverdue
-                    ? AppColors.error
-                    : context.elixTextSecondary,
-                compact: true,
-              ),
-              if (!assignment.isActive)
-                ElixPill(
-                  text: 'Archived',
-                  color: context.elixTextSecondary,
-                  compact: true,
-                ),
-            ],
-          ),
-          if (assignment.isOfficial) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Builder(
-              builder: (context) {
-                final name = assignment.officialMovementName;
-                if (name == null) return const SizedBox.shrink();
-                final prop = resolvedAllowedPropForOfficialAssignment(
-                  officialMovementName: name,
-                  storedAllowedProp: assignment.allowedProp,
-                );
-                if (prop == null) return const SizedBox.shrink();
-                final level = requiredLevelFor(
-                  PracticeVariant(movementName: name, trainingProp: prop),
-                );
-                if (level == null) return const SizedBox.shrink();
-                return Text(
-                  'Assignment Access · Normally unlocks at Level $level',
-                  style: AppTheme.caption.copyWith(
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  ElixPill(
+                    text: assignment.origin.displayLabel,
                     color: context.elixTextSecondary,
+                    compact: true,
                   ),
-                );
-              },
-            ),
-          ],
-          if (activityAssessment != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            if (assignment.displayInstructions != null &&
-                assignment.displayInstructions!.trim().isNotEmpty) ...[
-              _NarrativeCard(
-                icon: FluentIcons.info,
-                title: 'Instructions',
-                text: assignment.displayInstructions!,
+                  AssignedMovementStatusBadge(
+                    icon: assignedMovementStatusIcon(
+                      assignment,
+                      currentAttempt,
+                      assignment.isTeacherCreated ? currentAttempt : null,
+                    ),
+                    label: 'Status · $statusLabel',
+                    color: statusColor,
+                  ),
+                  ElixPill(
+                    text: assignedMovementDueLabel(assignment),
+                    color: assignment.isOverdue
+                        ? AppColors.error
+                        : context.elixTextSecondary,
+                    compact: true,
+                  ),
+                  if (!assignment.isActive)
+                    ElixPill(
+                      text: 'Archived',
+                      color: context.elixTextSecondary,
+                      compact: true,
+                    ),
+                ],
               ),
-              const SizedBox(height: AppSpacing.md),
+              if (assignment.isOfficial) ...[
+                const SizedBox(height: AppSpacing.sm),
+                _OfficialAccessNote(assignment: assignment),
+              ],
             ],
-            if (activityAssessment.demonstrationVideo != null) ...[
-              _ActivityDemoCard(
-                metadata: activityAssessment.demonstrationVideo!,
-                repository: movementRepository,
+          ),
+        ),
+        if (assignment.officialMovementName != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          _MovementSummaryCard(assignment: assignment),
+        ],
+        if (instructions != null && instructions.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          _NarrativeCard(
+            icon: FluentIcons.info,
+            title: 'Instructions',
+            text: instructions,
+          ),
+        ],
+        if (activityAssessment?.demonstrationVideo != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          _ActivityDemoCard(
+            metadata: activityAssessment!.demonstrationVideo!,
+            repository: movementRepository,
+          ),
+        ],
+        if (activityAssessment != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          _TeacherActivityOverview(
+            assignment: assignment,
+            assessment: activityAssessment,
+            attempts: attempts,
+          ),
+        ],
+        if (safetyGuidance != null && safetyGuidance.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          _NarrativeCard(
+            icon: FluentIcons.warning,
+            title: 'Safety',
+            text: safetyGuidance,
+          ),
+        ],
+        if (materialRepository != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          ActivityLearningMaterialsTraineeSection(
+            assignmentId: assignment.id,
+            repository: materialRepository!,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _OfficialAccessNote extends StatelessWidget {
+  const _OfficialAccessNote({required this.assignment});
+
+  final GroupAssignment assignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = assignment.officialMovementName;
+    if (name == null) return const SizedBox.shrink();
+    final prop = resolvedAllowedPropForOfficialAssignment(
+      officialMovementName: name,
+      storedAllowedProp: assignment.allowedProp,
+    );
+    if (prop == null) return const SizedBox.shrink();
+    final level = requiredLevelFor(
+      PracticeVariant(movementName: name, trainingProp: prop),
+    );
+    if (level == null) return const SizedBox.shrink();
+    return Text(
+      'Assignment Access · Normally unlocks at Level $level',
+      style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+    );
+  }
+}
+
+class _MovementSummaryCard extends StatelessWidget {
+  const _MovementSummaryCard({required this.assignment});
+
+  final GroupAssignment assignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = assignment.officialMovementName;
+    if (name == null || name.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final prop = resolvedAllowedPropForOfficialAssignment(
+      officialMovementName: name,
+      storedAllowedProp: assignment.allowedProp,
+    );
+    return ElixPanelCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: context.isHighContrast
+                  ? context.elixCardSurface
+                  : context.elixColors.surfaceInteractive,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: context.isHighContrast
+                    ? context.elixBorder
+                    : context.elixColors.borderSubtle,
+                width: context.isHighContrast ? 2 : 1,
               ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-            _TeacherActivityOverview(
-              assignment: assignment,
-              assessment: activityAssessment,
-              attempts: attempts,
             ),
-          ],
-          if (activityAssessment == null &&
-              assignment.displayInstructions != null &&
-              assignment.displayInstructions!.trim().isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.md),
-            _NarrativeCard(
-              icon: FluentIcons.info,
-              title: 'Instructions',
-              text: assignment.displayInstructions!,
+            child: MovementImage(movementName: name, size: 48),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Movement',
+                  style: AppTheme.label(color: context.elixTextSecondary),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.cardTitle(color: context.elixTextPrimary),
+                ),
+                if (prop != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    'Required prop · ${prop.displayLabel}',
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-          if (assignment.displaySafetyGuidance != null &&
-              assignment.displaySafetyGuidance!.trim().isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.md),
-            _NarrativeCard(
-              icon: FluentIcons.warning,
-              title: 'Safety',
-              text: assignment.displaySafetyGuidance!,
-            ),
-          ],
-          if (materialRepository != null)
-            ActivityLearningMaterialsTraineeSection(
-              assignmentId: assignment.id,
-              repository: materialRepository!,
-            ),
+          ),
         ],
       ),
     );
@@ -1081,10 +1180,10 @@ class _YourWork extends StatelessWidget {
         current?.activityAssessmentSnapshot ?? assignment.activityAssessment;
     return ElixPanelCard(
       key: const Key('assignment_detail_your_work'),
-      variant: ElixPanelVariant.hero,
+      variant: ElixPanelVariant.normal,
       accent: AppColors.primary,
       showAccentBar: true,
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1535,7 +1634,14 @@ class _Message extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(message, textAlign: TextAlign.center, style: AppTheme.body),
+            ElixStatusPanel(
+              message: message,
+              isError: true,
+              icon: FluentIcons.warning,
+              title: 'Assignment unavailable',
+              actionLabel: onRetry == null ? null : 'Retry',
+              onAction: onRetry,
+            ),
             const SizedBox(height: AppSpacing.md),
             ElixBackButton(
               key: const Key('assignment_detail_message_back'),
@@ -1544,10 +1650,6 @@ class _Message extends StatelessWidget {
               semanticLabel: 'Back to assigned movements',
               onPressed: onBack,
             ),
-            if (onRetry != null) ...[
-              const SizedBox(height: AppSpacing.sm),
-              Button(onPressed: onRetry, child: const Text('Retry')),
-            ],
           ],
         ),
       ),

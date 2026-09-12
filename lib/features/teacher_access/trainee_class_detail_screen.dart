@@ -12,6 +12,7 @@ import '../../core/router/navigation_helpers.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_back_button.dart';
+import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/profile_avatar.dart';
@@ -24,7 +25,6 @@ import '../assigned_movements/assigned_movement_list.dart';
 import '../classroom_announcements/classroom_announcements_controller.dart';
 import '../classroom_announcements/classroom_announcements_pane.dart';
 import '../class_challenges/class_challenges_pane.dart';
-import 'trainee_class_card.dart';
 import 'trainee_class_detail_controller.dart';
 
 class TraineeClassDetailScreen extends StatefulWidget {
@@ -188,7 +188,12 @@ class _ClassDetailBody extends StatelessWidget {
 
   Widget _buildPageContent(BuildContext context) {
     if (controller.loading) {
-      return const Center(child: ProgressRing());
+      return const ElixStatusPanel(
+        isLoading: true,
+        icon: FluentIcons.people,
+        title: 'Loading classroom',
+        message: 'Loading classroom details and classwork.',
+      );
     }
     if (controller.unauthorized) {
       return const ElixStatusPanel(
@@ -205,28 +210,11 @@ class _ClassDetailBody extends StatelessWidget {
       return ElixStatusPanel(message: controller.errorMessage!, isError: true);
     }
 
-    final showStreamContext =
-        controller.tab == TraineeClassDetailTab.announcements;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (showStreamContext) ...[
-          TraineeClassHeroBanner(
-            groupId: controller.groupId,
-            title: controller.className,
-            subtitle:
-                [
-                      controller.teacherDisplayName,
-                      controller.group?.section,
-                      controller.group?.schedule,
-                    ]
-                    .whereType<String>()
-                    .where((value) => value.isNotEmpty)
-                    .join(' · '),
-            height: 128,
-          ),
-          const SizedBox(height: AppSpacing.md),
-        ],
+        _ClassroomSummaryCard(controller: controller),
+        const SizedBox(height: AppSpacing.md),
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
@@ -266,7 +254,13 @@ class _ClassDetailBody extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.md),
         if (controller.errorMessage != null) ...[
-          ElixStatusPanel(message: controller.errorMessage!, isError: true),
+          ElixStatusPanel(
+            message: controller.errorMessage!,
+            isError: true,
+            icon: FluentIcons.error_badge,
+            actionLabel: 'Retry',
+            onAction: controller.start,
+          ),
           const SizedBox(height: AppSpacing.md),
         ],
         if (controller.tab == TraineeClassDetailTab.classwork)
@@ -325,6 +319,187 @@ class _ClassDetailBody extends StatelessWidget {
   }
 }
 
+class _ClassroomSummaryCard extends StatelessWidget {
+  const _ClassroomSummaryCard({required this.controller});
+
+  final TraineeClassDetailController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final group = controller.group;
+    final metadata = [
+      if (group?.section?.trim().isNotEmpty == true) group!.section!.trim(),
+      if (group?.schedule?.trim().isNotEmpty == true) group!.schedule!.trim(),
+    ];
+    final assignmentCount = controller.assignments?.items.length;
+    final status = group?.isActive == true ? 'Active' : 'Unavailable';
+
+    return ElixPanelCard(
+      accent: AppColors.primary,
+      showAccentBar: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 560;
+              final identity = Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ProfileAvatarWidget(
+                    key: Key(
+                      'teacher_access_class_teacher_avatar_summary_'
+                      '${controller.groupId}',
+                    ),
+                    radius: 24,
+                    showBorder: false,
+                    initials: userInitials(controller.teacherDisplayName),
+                    networkImageUrl: controller.profilePictureUrlFor(
+                      controller.membership?.teacherId ?? '',
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Teacher',
+                          style: AppTheme.label(
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          controller.teacherDisplayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.cardTitle(
+                            color: context.elixTextPrimary,
+                          ),
+                        ),
+                        if (metadata.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            metadata.join(' · '),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              );
+              final statusChip = ElixPill(
+                text: status,
+                color: status == 'Active'
+                    ? context.elixColors.success
+                    : context.elixColors.warning,
+                compact: true,
+              );
+              if (narrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    identity,
+                    const SizedBox(height: AppSpacing.sm),
+                    statusChip,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: identity),
+                  const SizedBox(width: AppSpacing.md),
+                  statusChip,
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Divider(
+            style: DividerThemeData(
+              decoration: BoxDecoration(color: context.elixBorder),
+              horizontalMargin: EdgeInsets.zero,
+              verticalMargin: EdgeInsets.zero,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.lg,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _ClassroomMeta(
+                icon: FluentIcons.assign,
+                label: 'Classwork',
+                value: assignmentCount == null
+                    ? 'Loading'
+                    : '$assignmentCount '
+                          '${assignmentCount == 1 ? 'assignment' : 'assignments'}',
+              ),
+              _ClassroomMeta(
+                icon: FluentIcons.people,
+                label: 'People',
+                value:
+                    '${controller.classmates.length} '
+                    '${controller.classmates.length == 1 ? 'member' : 'members'}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClassroomMeta extends StatelessWidget {
+  const _ClassroomMeta({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: context.elixTextSecondary),
+        const SizedBox(width: AppSpacing.sm),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: AppTheme.label(color: context.elixTextSecondary),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.body.copyWith(
+                color: context.elixTextPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _ClassworkPane extends StatelessWidget {
   const _ClassworkPane({required this.controller});
 
@@ -334,15 +509,21 @@ class _ClassworkPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final assignments = controller.assignments;
     if (assignments == null || assignments.loading) {
-      return const Center(child: ProgressRing());
+      return const ElixStatusPanel(
+        isLoading: true,
+        icon: FluentIcons.education,
+        title: 'Loading classwork',
+        message: 'Loading assignments for this classroom.',
+      );
     }
     if (assignments.errorMessage != null && assignments.items.isEmpty) {
-      return Align(
-        alignment: Alignment.topCenter,
-        child: ElixStatusPanel(
-          message: assignments.errorMessage!,
-          isError: true,
-        ),
+      return ElixStatusPanel(
+        message: assignments.errorMessage!,
+        isError: true,
+        icon: FluentIcons.error_badge,
+        title: 'Could not load classwork',
+        actionLabel: 'Retry',
+        onAction: assignments.retry,
       );
     }
     if (assignments.items.isEmpty) {
@@ -387,27 +568,8 @@ class _ClassworkToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    return Container(
-      width: double.infinity,
+    return ElixPanelCard(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: highContrast
-            ? context.elixCardSurface
-            : Color.alphaBlend(
-                AppColors.accent.withValues(
-                  alpha: context.isDarkTheme ? 0.08 : 0.05,
-                ),
-                context.elixCardSurface,
-              ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: highContrast
-              ? context.elixBorder
-              : context.elixBorder.withValues(alpha: 0.9),
-          width: highContrast ? 2 : 1,
-        ),
-      ),
       child: Row(
         children: [
           Icon(
@@ -611,49 +773,34 @@ class _ClassDetailTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
+    final colors = context.elixColors;
     return HoverButton(
       onPressed: onPressed,
       cursor: SystemMouseCursors.click,
       builder: (context, states) {
         final hovered = states.isHovered;
-        final foreground = selected ? Colors.white : context.elixTextPrimary;
+        final foreground = selected
+            ? (highContrast ? colors.textPrimary : colors.brandPrimary)
+            : colors.textPrimary;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             color: selected
-                ? (highContrast ? AppColors.primary : null)
-                : Color.alphaBlend(
-                    (hovered ? AppColors.primary : Colors.transparent)
-                        .withValues(alpha: hovered ? 0.06 : 0),
-                    context.elixCardSurface,
-                  ),
-            gradient: selected && !highContrast
-                ? const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.primary, AppColors.accent],
-                  )
-                : null,
-            borderRadius: BorderRadius.circular(22),
+                ? colors.surfaceSelected
+                : hovered
+                ? colors.interactiveHover
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: selected
-                  ? (highContrast ? context.elixBorder : Colors.transparent)
-                  : context.elixBorder.withValues(
-                      alpha: highContrast ? 1 : 0.9,
-                    ),
-              width: highContrast ? 2 : 1,
+                  ? colors.brandPrimary
+                  : highContrast
+                  ? colors.borderStrong
+                  : colors.borderSubtle,
+              width: highContrast || selected ? 2 : 1,
             ),
-            boxShadow: selected && !highContrast
-                ? [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.28),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ]
-                : const [],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

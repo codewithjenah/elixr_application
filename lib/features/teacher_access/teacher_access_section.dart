@@ -158,6 +158,8 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                       isError: true,
                       icon: FluentIcons.error_badge,
                       title: 'Could not load classrooms',
+                      actionLabel: 'Retry',
+                      onAction: controller.start,
                     ),
                     const SizedBox(height: AppSpacing.md),
                   ],
