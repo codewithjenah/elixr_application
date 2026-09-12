@@ -15,6 +15,7 @@ import 'package:elixr_application/features/history/widgets/history_summary_secti
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 const _userId = 'history-user';
 
@@ -71,9 +72,11 @@ final Uint8List _onePixelPng = Uint8List.fromList(
 Widget _wrap(Widget child, {double width = 900}) {
   return FluentApp(
     theme: AppTheme.dark,
-    home: ScaffoldPage(
-      content: SingleChildScrollView(
-        child: SizedBox(width: width, child: child),
+    home: ElixShadThemeBridge(
+      child: ScaffoldPage(
+        content: SingleChildScrollView(
+          child: SizedBox(width: width, child: child),
+        ),
       ),
     ),
   );
@@ -173,7 +176,7 @@ void main() {
 
       await tester.tap(
         find.byWidgetPredicate(
-          (widget) => widget.runtimeType.toString().startsWith('ComboBox<'),
+          (widget) => widget is shad.ShadSelect<HistorySortMode>,
         ),
       );
       await tester.pumpAndSettle();

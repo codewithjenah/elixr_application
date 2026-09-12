@@ -126,7 +126,12 @@ class ElixPanelCard extends StatelessWidget {
     );
     // High contrast retains the explicit Fluent treatment. In normal themes,
     // ShadCard is the surface; only the optional ELIXR accent rail remains.
-    if (highContrast) return legacyPanel;
+    // Some isolated widget hosts (notably embedders and lightweight test
+    // harnesses) provide FluentTheme without the application Shad bridge.
+    // Keep the card usable there while normal application screens use Shad.
+    if (highContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return legacyPanel;
+    }
     return shad.ShadCard(
       key: const ValueKey('elix-panel-shad-card'),
       width: expand ? double.infinity : null,
@@ -172,7 +177,7 @@ class ElixPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
-    if (!highContrast) {
+    if (!highContrast && shad.ShadTheme.maybeOf(context) != null) {
       return shad.ShadBadge.outline(
         key: const ValueKey('elix-shad-badge'),
         backgroundColor: color.withValues(alpha: 0.12),

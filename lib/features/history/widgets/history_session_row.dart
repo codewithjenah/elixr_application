@@ -185,17 +185,9 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
             color: fill,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: borderColor, width: borderWidth),
-            boxShadow: highContrast || !active
-                ? const []
-                : [
-                    BoxShadow(
-                      color: AppColors.accent.withValues(
-                        alpha: context.isDarkTheme ? 0.12 : 0.08,
-                      ),
-                      blurRadius: 14,
-                      spreadRadius: -6,
-                    ),
-                  ],
+            // Borders and the selected state provide enough hierarchy here;
+            // a glow on every hovered row made dense history feel noisy.
+            boxShadow: const [],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(11),

@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -89,9 +90,10 @@ class HistoryFilterBar extends StatelessWidget {
             _SortControl(sortMode: sortMode, onSortChanged: onSortChanged),
             if (hasActiveFilters) ...[
               const SizedBox(width: AppSpacing.sm),
-              HyperlinkButton(
+              shad.ShadButton.ghost(
+                size: shad.ShadButtonSize.sm,
                 onPressed: onClearFilters,
-                child: const Text('Clear Filters'),
+                child: const Text('Clear filters'),
               ),
             ],
             if (onRefresh != null) ...[
@@ -133,21 +135,17 @@ class _SortControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ComboBox<HistorySortMode>(
-      value: sortMode,
-      items: [
+    return shad.ShadSelect<HistorySortMode>(
+      initialValue: sortMode,
+      minWidth: 164,
+      options: [
         for (final mode in HistorySortMode.values)
-          ComboBoxItem<HistorySortMode>(
+          shad.ShadOption<HistorySortMode>(
             value: mode,
             child: _SortModeOptionRow(mode: mode),
           ),
       ],
-      selectedItemBuilder: (context) {
-        return [
-          for (final mode in HistorySortMode.values)
-            _SortModeOptionRow(mode: mode),
-        ];
-      },
+      selectedOptionBuilder: (context, mode) => _SortModeOptionRow(mode: mode),
       onChanged: (mode) {
         if (mode != null) onSortChanged(mode);
       },
@@ -214,16 +212,13 @@ class _SyncedSearchFieldState extends State<_SyncedSearchField> {
 
   @override
   Widget build(BuildContext context) {
-    return TextBox(
+    return shad.ShadInput(
       controller: _controller,
-      placeholder: 'Search movements',
-      prefix: Padding(
-        padding: const EdgeInsets.only(left: 8),
-        child: Icon(
-          FluentIcons.search,
-          size: 14,
-          color: context.elixTextSecondary,
-        ),
+      placeholder: const Text('Search movements'),
+      leading: Icon(
+        FluentIcons.search,
+        size: 14,
+        color: context.elixTextSecondary,
       ),
       onChanged: widget.onChanged,
     );

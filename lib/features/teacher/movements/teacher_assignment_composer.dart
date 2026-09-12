@@ -3904,32 +3904,7 @@ class _ComposerSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    final isDark = context.isDarkTheme;
-    return Container(
-      width: double.infinity,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: context.elixPanelSurface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: context.elixColors.borderSubtle,
-          width: highContrast ? 2 : 1,
-        ),
-        boxShadow: highContrast
-            ? const []
-            : [
-                BoxShadow(
-                  color: const Color(
-                    0xFF000000,
-                  ).withValues(alpha: isDark ? 0.22 : 0.06),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-      ),
-      child: child,
-    );
+    return ElixPanelCard(padding: padding, child: child);
   }
 }
 
@@ -3952,37 +3927,11 @@ class _ComposerHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     final isDark = context.isDarkTheme;
-    final base = context.elixCardSurface;
-    final secondary = context.elixColors.brandSecondary;
-    return Container(
-      width: double.infinity,
+    return ElixPanelCard(
+      accent: accent,
+      showAccentBar: true,
+      variant: ElixPanelVariant.hero,
       padding: const EdgeInsets.all(AppSpacing.xl),
-      decoration: BoxDecoration(
-        color: highContrast ? base : null,
-        gradient: highContrast
-            ? null
-            : LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color.alphaBlend(
-                    accent.withValues(alpha: isDark ? 0.2 : 0.1),
-                    base,
-                  ),
-                  Color.alphaBlend(
-                    secondary.withValues(alpha: isDark ? 0.1 : 0.05),
-                    base,
-                  ),
-                ],
-              ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: highContrast
-              ? context.elixBorder
-              : accent.withValues(alpha: isDark ? 0.34 : 0.22),
-          width: highContrast ? 2 : 1,
-        ),
-      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

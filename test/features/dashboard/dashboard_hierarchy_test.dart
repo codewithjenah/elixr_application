@@ -189,9 +189,11 @@ Widget _app(
 }) {
   return FluentApp(
     theme: theme ?? AppTheme.dark,
-    home: MediaQuery(
-      data: MediaQueryData(size: size),
-      child: ScaffoldPage(content: child),
+    home: ElixShadThemeBridge(
+      child: MediaQuery(
+        data: MediaQueryData(size: size),
+        child: ScaffoldPage(content: child),
+      ),
     ),
   );
 }
@@ -1049,15 +1051,17 @@ void main() {
       await tester.pumpWidget(
         FluentApp(
           theme: AppTheme.dark,
-          home: MultiProvider(
-            providers: [
-              ChangeNotifierProvider<AuthService>.value(value: auth),
-              Provider<GroupRepository>.value(value: groups),
-              ChangeNotifierProvider<TeacherActivityController>.value(
-                value: activity,
-              ),
-            ],
-            child: const TeacherDashboardScreen(),
+          home: ElixShadThemeBridge(
+            child: MultiProvider(
+              providers: [
+                ChangeNotifierProvider<AuthService>.value(value: auth),
+                Provider<GroupRepository>.value(value: groups),
+                ChangeNotifierProvider<TeacherActivityController>.value(
+                  value: activity,
+                ),
+              ],
+              child: const TeacherDashboardScreen(),
+            ),
           ),
         ),
       );

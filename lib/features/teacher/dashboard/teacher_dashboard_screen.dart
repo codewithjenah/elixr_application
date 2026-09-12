@@ -7,6 +7,7 @@ import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
@@ -16,6 +17,7 @@ import '../../../core/utils/date_time_format.dart';
 import '../../../core/utils/user_name.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/message_unread_badge.dart';
 import '../../../core/widgets/profile_avatar.dart';
@@ -239,15 +241,15 @@ class _TeacherCommandHeader extends StatelessWidget {
             runSpacing: AppSpacing.sm,
             children: [
               const _TeacherNotificationButton(),
-              FilledButton(
+              ElixPrimaryButton(
                 key: const Key('teacher_dashboard_to_review'),
                 onPressed: () => context.go(AppRoutePaths.teacherToReview),
-                child: const Text('Review Work'),
+                label: 'Review work',
+                expanded: false,
+                dense: true,
               ),
-              Button(
-                key: const Key('teacher_dashboard_open_classrooms'),
+              _TeacherClassroomsButton(
                 onPressed: () => context.go(AppRoutePaths.teacherGroups),
-                child: const Text('Classrooms'),
               ),
             ],
           );
@@ -269,6 +271,29 @@ class _TeacherCommandHeader extends StatelessWidget {
                 );
         },
       ),
+    );
+  }
+}
+
+class _TeacherClassroomsButton extends StatelessWidget {
+  const _TeacherClassroomsButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    const key = Key('teacher_dashboard_open_classrooms');
+    if (shad.ShadTheme.maybeOf(context) == null) {
+      return Button(
+        key: key,
+        onPressed: onPressed,
+        child: const Text('Classrooms'),
+      );
+    }
+    return shad.ShadButton.outline(
+      key: key,
+      onPressed: onPressed,
+      child: const Text('Classrooms'),
     );
   }
 }

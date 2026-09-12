@@ -49,7 +49,7 @@ class ElixPrimaryButton extends StatelessWidget {
           vertical: dense ? AppSpacing.sm : AppSpacing.md,
         );
     Widget button;
-    if (context.isHighContrast) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
       button = FilledButton(
         onPressed: disabled ? null : onPressed,
         style: ButtonStyle(padding: WidgetStatePropertyAll(effectivePadding)),

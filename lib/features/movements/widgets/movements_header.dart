@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../movements_presentation.dart';
 
 class MovementsHeader extends StatelessWidget {
@@ -97,13 +98,10 @@ class _TrainingOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final percent = (progress * 100).round();
-    return Container(
+    return ElixPanelCard(
+      accent: AppColors.primary,
+      showAccentBar: true,
       padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: AppTheme.panelDecoration(
-        context,
-        glow: AppColors.primary,
-        highlighted: true,
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -153,13 +151,7 @@ class _TrainingOverview extends StatelessWidget {
                   FractionallySizedBox(
                     alignment: Alignment.centerLeft,
                     widthFactor: progress.clamp(0.0, 1.0),
-                    child: const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [AppColors.accent, AppColors.primary],
-                        ),
-                      ),
-                    ),
+                    child: const ColoredBox(color: AppColors.primary),
                   ),
                 ],
               ),
@@ -235,21 +227,10 @@ class _SummaryStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    return ElixPanelCard(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
         vertical: 14,
-      ),
-      decoration: BoxDecoration(
-        color: context.isHighContrast
-            ? context.elixCardSurface
-            : context.elixCardSurface.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: context.elixBorder,
-          width: context.isHighContrast ? 2 : 1,
-        ),
       ),
       child: Row(
         children: [

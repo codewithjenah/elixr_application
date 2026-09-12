@@ -2354,7 +2354,10 @@ void main() {
     await pumpComposer(tester, creationService: service());
 
     expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
-    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_assignment_editor_scroll')),
+      findsOneWidget,
+    );
 
     await tester.ensureVisible(
       find.byKey(const Key('teacher_assignment_source_mine')),
@@ -2680,7 +2683,10 @@ void main() {
       find.byKey(const Key('teacher_assignment_due_date')),
       findsOneWidget,
     );
-    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_assignment_editor_scroll')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -2708,7 +2714,10 @@ void main() {
         find.byKey(const Key('teacher_assignment_schedule')).hitTestable(),
         findsOneWidget,
       );
-      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      expect(
+        find.byKey(const Key('teacher_assignment_editor_scroll')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -2786,7 +2795,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('teacher_assignment_error')), findsOneWidget);
-    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_assignment_editor_scroll')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
