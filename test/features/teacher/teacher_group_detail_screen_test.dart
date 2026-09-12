@@ -799,6 +799,138 @@ void main() {
     );
   });
 
+  testWidgets(
+    'Edit Assignment exposes active teacher-owned classrooms from Group Detail',
+    (tester) async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        groupRepository: repository,
+      );
+      addTearDown(assignments.dispose);
+      final groupA = await repository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSIT-4A',
+      );
+      final groupB = await repository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSIT-4B',
+      );
+      const inactiveGroup = ElixrGroup(
+        id: 'inactive-group',
+        teacherId: 'teacher-1',
+        name: 'BSIT-4C',
+        status: ElixrGroupStatus.archived,
+      );
+      repository.seedGroup(inactiveGroup);
+      repository.seedGroup(
+        const ElixrGroup(
+          id: 'foreign-group',
+          teacherId: 'teacher-2',
+          name: 'Other Teacher Class',
+          status: ElixrGroupStatus.active,
+        ),
+      );
+
+      final groupAInvite = await repository.getActiveGroupInvite(
+        groupId: groupA.id,
+      );
+      final groupAMembership = await repository.requestGroupJoin(
+        traineeId: 'trainee-a',
+        traineeDisplayName: 'Ada Lovelace',
+        code: groupAInvite!.normalizedCode,
+      );
+      await repository.approveMembership(
+        membershipId: groupAMembership.id,
+        teacherId: 'teacher-1',
+      );
+      final groupBInvite = await repository.getActiveGroupInvite(
+        groupId: groupB.id,
+      );
+      final groupBMembership = await repository.requestGroupJoin(
+        traineeId: 'trainee-b',
+        traineeDisplayName: 'Alan Turing',
+        code: groupBInvite!.normalizedCode,
+      );
+      await repository.approveMembership(
+        membershipId: groupBMembership.id,
+        teacherId: 'teacher-1',
+      );
+      final assignment = await assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: groupA,
+        officialMovementName: 'Normal Grip',
+        allowedProp: TrainingProp.bottle,
+        audience: AssignmentAudience.individualStudent(['trainee-a']),
+      );
+      final controller = await controllerFor(
+        'teacher-1',
+        assignmentRepository: assignments,
+      );
+      addTearDown(controller.dispose);
+      await controller.startForGroup(groupA.id);
+
+      await pumpDetail(tester, controller: controller, groupId: groupA.id);
+      final edit = find.byKey(
+        Key('teacher_group_edit_assignment_${assignment.id}'),
+      );
+      await tester.ensureVisible(edit);
+      await tester.tap(edit);
+      await tester.pumpAndSettle();
+
+      final classroom = find.byKey(const Key('teacher_assignment_class'));
+      final classroomBox = tester.widget<ComboBox<String>>(classroom);
+      expect(classroomBox.value, groupA.id);
+      expect(
+        classroomBox.items!.map((item) => item.value),
+        containsAll(<String>[groupA.id, groupB.id]),
+      );
+      expect(
+        classroomBox.items!.map((item) => item.value),
+        isNot(contains(inactiveGroup.id)),
+      );
+      expect(
+        classroomBox.items!.map((item) => item.value),
+        isNot(contains('foreign-group')),
+      );
+
+      classroomBox.onChanged!(groupB.id);
+      await tester.pump();
+      expect(tester.widget<ComboBox<String>>(classroom).value, groupB.id);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+      final roster = find.byKey(const Key('teacher_assignment_roster'));
+      expect(
+        find.descendant(of: roster, matching: find.text('Ada Lovelace')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: roster, matching: find.text('Alan Turing')),
+        findsOneWidget,
+      );
+
+      final traineeB = find.byKey(
+        const Key('teacher_assignment_trainee_trainee-b'),
+      );
+      await tester.ensureVisible(traineeB);
+      await tester.tap(traineeB);
+      await tester.pump();
+      final save = find.byKey(const Key('teacher_assignment_save_changes'));
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      final saved = await assignments.getAssignment(
+        assignmentId: assignment.id,
+      );
+      expect(saved?.groupId, groupB.id);
+      expect(saved?.audience.targetTraineeIds, ['trainee-b']);
+    },
+  );
+
   testWidgets('Teacher Activity edits persist and can be edited again', (
     tester,
   ) async {

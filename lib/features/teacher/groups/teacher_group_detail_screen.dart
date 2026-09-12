@@ -1273,14 +1273,26 @@ Future<void> _showGroupAssignmentEditor(
   if (!context.mounted) return;
   assignment = currentAssignment;
   final group = groupsController.selectedGroup;
-  if (group == null || group.id != assignment.groupId || !group.isActive) {
+  if (group == null ||
+      group.id != assignment.groupId ||
+      !group.isActive ||
+      group.teacherId != groupsController.teacherId) {
     return;
+  }
+  final availableGroups = <ElixrGroup>[
+    for (final candidate in groupsController.groups)
+      if (candidate.teacherId == groupsController.teacherId &&
+          candidate.isActive)
+        candidate,
+  ];
+  if (!availableGroups.any((candidate) => candidate.id == group.id)) {
+    availableGroups.insert(0, group);
   }
   await showTeacherAssignmentComposer(
     context,
     teacherId: controller.teacherId,
     teacherDisplayName: controller.teacherDisplayName,
-    groups: [group],
+    groups: availableGroups,
     movementRepository: _tryReadTeacherMovementRepository(context),
     assignmentRepository: controller.assignmentRepository,
     groupRepository: groupsController.repository,
