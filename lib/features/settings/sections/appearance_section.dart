@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -66,6 +67,7 @@ class _AppearanceSectionState extends State<AppearanceSection> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SettingsGroup(
+            showAccentBar: true,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -91,20 +93,45 @@ class _AppearanceSectionState extends State<AppearanceSection> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                for (final option in _textScaleOptions) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                    child: RadioButton(
-                      checked: settings.textScale == option.$1,
-                      onChanged: _writing
-                          ? null
-                          : (checked) {
-                              if (checked) _onTextScaleChanged(option.$1);
-                            },
-                      content: Text(option.$2),
-                    ),
+                // Keep Fluent's native radio fallback in high contrast. In the
+                // normal settings surface Shad owns the control treatment.
+                if (context.isHighContrast ||
+                    shad.ShadTheme.maybeOf(context) == null)
+                  for (final option in _textScaleOptions)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                      child: RadioButton(
+                        checked: settings.textScale == option.$1,
+                        onChanged: _writing
+                            ? null
+                            : (checked) {
+                                if (checked) _onTextScaleChanged(option.$1);
+                              },
+                        content: Text(option.$2),
+                      ),
+                    )
+                else
+                  shad.ShadRadioGroup<double>(
+                    key: ValueKey(settings.textScale),
+                    initialValue: settings.textScale,
+                    enabled: !_writing,
+                    spacing: AppSpacing.sm,
+                    onChanged: (value) {
+                      if (value != null) _onTextScaleChanged(value);
+                    },
+                    items: [
+                      for (final option in _textScaleOptions)
+                        shad.ShadRadio<double>(
+                          value: option.$1,
+                          label: Text(option.$2),
+                          sublabel: Text(
+                            option.$1 == 1.0
+                                ? 'Use ELIXR’s standard text size.'
+                                : 'Make text easier to read across ELIXR.',
+                          ),
+                        ),
+                    ],
                   ),
-                ],
                 const SizedBox(height: AppSpacing.md),
                 SettingsToggleRow(
                   label: 'High contrast',

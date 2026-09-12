@@ -351,74 +351,103 @@ class PrivacySectionState extends State<PrivacySection> {
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: settingsMaxBodyWidth),
-      child: SettingsGroup(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SettingsToggleRow(
-              toggleKey: const Key('privacy_profile_lock_toggle'),
-              label: 'Lock profile',
-              description:
-                  'When locked, other signed-in Trainees and Teachers cannot see '
-                  'your detailed stats, claimed achievements, completed movements, '
-                  'or practice history. Approved classroom Teachers can still view '
-                  'classroom-authorized learning progress while your membership is '
-                  'approved. Your basic leaderboard identity remains visible either '
-                  'way. Profile owners can see recent profile visitors.',
-              checked: _visibility == ProfileVisibility.private,
-              onChanged: _saving || _reconciling ? null : _setLocked,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            SettingsToggleRow(
-              toggleKey: const Key('privacy_evidence_toggle'),
-              label: 'Save confirmed movement images',
-              description:
-                  'Controls saved movement images separately from classroom '
-                  'learning progress. While this is on, Teachers with approved '
-                  'classroom membership can view available saved movement images.',
-              checked: _evidenceEnabled ?? false,
-              onChanged:
-                  !_evidenceStatusLoaded ||
-                      _saving ||
-                      _reconciling ||
-                      _updatingEvidence
-                  ? null
-                  : _changeEvidenceSetting,
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.xs),
-              child: Text(
-                !_evidenceStatusLoaded
-                    ? 'Status unavailable - Teacher saved-image access could '
-                          'not be confirmed.'
-                    : _evidenceEnabled == true
-                    ? 'On - Teachers with approved classroom membership can view '
-                          'available saved practice images.'
-                    : 'Off - Teachers cannot view saved practice images.',
-                key: const Key('privacy_evidence_status'),
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SettingsGroup(
+            showAccentBar: true,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Profile visibility',
+                  style: AppTheme.body.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: context.elixTextPrimary,
+                  ),
                 ),
-              ),
+                const SizedBox(height: AppSpacing.sm),
+                SettingsToggleRow(
+                  toggleKey: const Key('privacy_profile_lock_toggle'),
+                  label: 'Lock profile',
+                  description:
+                      'When locked, other signed-in Trainees and Teachers cannot see '
+                      'your detailed stats, claimed achievements, completed movements, '
+                      'or practice history. Approved classroom Teachers can still view '
+                      'classroom-authorized learning progress while your membership is '
+                      'approved. Your basic leaderboard identity remains visible either '
+                      'way. Profile owners can see recent profile visitors.',
+                  checked: _visibility == ProfileVisibility.private,
+                  onChanged: _saving || _reconciling ? null : _setLocked,
+                ),
+              ],
             ),
-            if (_updatingEvidence)
-              const Padding(
-                padding: EdgeInsets.only(top: AppSpacing.sm),
-                child: Text('Updating private session images...'),
-              ),
-            if (_saving)
-              const Padding(
-                padding: EdgeInsets.only(top: AppSpacing.sm),
-                child: Text('Saving...'),
-              ),
-            if (_reconciling)
-              const Padding(
-                padding: EdgeInsets.only(top: AppSpacing.sm),
-                child: Text('Checking saved setting...'),
-              ),
-            if (_error != null) SettingsStatusBanner(message: _error!),
-          ],
-        ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsGroup(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Saved practice images',
+                  style: AppTheme.body.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                SettingsToggleRow(
+                  toggleKey: const Key('privacy_evidence_toggle'),
+                  label: 'Save confirmed movement images',
+                  description:
+                      'Controls saved movement images separately from classroom '
+                      'learning progress. While this is on, Teachers with approved '
+                      'classroom membership can view available saved movement images.',
+                  checked: _evidenceEnabled ?? false,
+                  onChanged:
+                      !_evidenceStatusLoaded ||
+                          _saving ||
+                          _reconciling ||
+                          _updatingEvidence
+                      ? null
+                      : _changeEvidenceSetting,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+                  child: Text(
+                    !_evidenceStatusLoaded
+                        ? 'Status unavailable - Teacher saved-image access could '
+                              'not be confirmed.'
+                        : _evidenceEnabled == true
+                        ? 'On - Teachers with approved classroom membership can view '
+                              'available saved practice images.'
+                        : 'Off - Teachers cannot view saved practice images.',
+                    key: const Key('privacy_evidence_status'),
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ),
+                if (_updatingEvidence)
+                  const Padding(
+                    padding: EdgeInsets.only(top: AppSpacing.sm),
+                    child: Text('Updating private session images...'),
+                  ),
+                if (_saving)
+                  const Padding(
+                    padding: EdgeInsets.only(top: AppSpacing.sm),
+                    child: Text('Saving...'),
+                  ),
+                if (_reconciling)
+                  const Padding(
+                    padding: EdgeInsets.only(top: AppSpacing.sm),
+                    child: Text('Checking saved setting...'),
+                  ),
+                if (_error != null) SettingsStatusBanner(message: _error!),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

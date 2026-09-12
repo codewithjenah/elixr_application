@@ -1,9 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../services/camera_device_service.dart';
 import '../../../services/settings_service.dart';
 import '../widgets/practice_preferences_controller.dart';
@@ -246,13 +248,14 @@ class _PracticeSectionState extends State<PracticeSection> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        FilledButton(
+                        ElixPrimaryButton(
+                          label: 'Save practice preferences',
+                          dense: true,
+                          expanded: false,
+                          isLoading: _savingDraft,
                           onPressed: dirty && canSave && !_savingDraft
                               ? _saveDraft
                               : null,
-                          child: _savingDraft
-                              ? const ProgressRing(strokeWidth: 2)
-                              : const Text('Save practice preferences'),
                         ),
                         if (_draftSaveError != null)
                           SettingsStatusBanner(message: _draftSaveError!),
@@ -343,16 +346,10 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
     final cameras = widget.cameras;
     final selectedId = settings.selectedCameraDeviceId;
     final labels = cameras.distinguishableLabels;
-    final items = <ComboBoxItem<String>>[
-      const ComboBoxItem<String>(
-        value: _autoValue,
-        child: Text('Auto-select (Recommended)'),
-      ),
+    final options = <(String, String)>[
+      (_autoValue, 'Auto-select (Recommended)'),
       for (var i = 0; i < cameras.cameras.length; i++)
-        ComboBoxItem<String>(
-          value: cameras.cameras[i].deviceId,
-          child: Text(labels[i]),
-        ),
+        (cameras.cameras[i].deviceId, labels[i]),
     ];
 
     final discoveryComplete =
@@ -366,7 +363,7 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
       final cachedName =
           settings.selectedCameraDisplayName ?? 'Selected camera';
       final label = selectedMissing ? '$cachedName — unavailable' : cachedName;
-      items.add(ComboBoxItem<String>(value: selectedId, child: Text(label)));
+      options.add((selectedId, label));
     }
 
     final comboValue = selectedId ?? _autoValue;
@@ -401,12 +398,38 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
         Row(
           children: [
             Expanded(
-              child: ComboBox<String>(
-                value: comboValue,
-                items: items,
-                isExpanded: true,
-                onChanged: selectionLocked ? null : _onSelectionChanged,
-              ),
+              child:
+                  context.isHighContrast ||
+                      shad.ShadTheme.maybeOf(context) == null
+                  ? ComboBox<String>(
+                      value: comboValue,
+                      items: [
+                        for (final option in options)
+                          ComboBoxItem<String>(
+                            value: option.$1,
+                            child: Text(option.$2),
+                          ),
+                      ],
+                      isExpanded: true,
+                      onChanged: selectionLocked ? null : _onSelectionChanged,
+                    )
+                  : shad.ShadSelect<String>(
+                      key: ValueKey(comboValue),
+                      initialValue: comboValue,
+                      enabled: !selectionLocked,
+                      minWidth: 260,
+                      selectedOptionBuilder: (_, value) => Text(
+                        options.firstWhere((option) => option.$1 == value).$2,
+                      ),
+                      onChanged: _onSelectionChanged,
+                      options: [
+                        for (final option in options)
+                          shad.ShadOption<String>(
+                            value: option.$1,
+                            child: Text(option.$2),
+                          ),
+                      ],
+                    ),
             ),
             const SizedBox(width: AppSpacing.sm),
             IconButton(

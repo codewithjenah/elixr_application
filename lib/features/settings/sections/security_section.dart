@@ -541,7 +541,7 @@ class _SecurityIntroBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Password protection',
+                  'Account security',
                   style: AppTheme.body.copyWith(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,

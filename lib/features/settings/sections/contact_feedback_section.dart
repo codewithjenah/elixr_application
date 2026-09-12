@@ -4,7 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../widgets/settings_components.dart';
 
@@ -104,16 +103,8 @@ class _ContactFeedbackSectionState extends State<ContactFeedbackSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'CONTACT & FEEDBACK',
-            style: AppTheme.eyebrow(color: context.elixColors.brandPrimary),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          ElixPanelCard(
-            accent: context.elixColors.brandPrimary,
+          SettingsGroup(
             showAccentBar: true,
-            variant: ElixPanelVariant.hero,
-            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
