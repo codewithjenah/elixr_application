@@ -109,6 +109,7 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
                   heading: !isClassroomScoped
                       ? 'Assigned Movements'
                       : 'Your work',
+                  variant: ElixEditorialHeaderVariant.compact,
                   subtitle: !isClassroomScoped
                       ? 'Classroom work from your approved groups, split into Official ELIXR and Teacher-created.'
                       : 'Assignments for this classroom. Scan each status, then choose your next action.',

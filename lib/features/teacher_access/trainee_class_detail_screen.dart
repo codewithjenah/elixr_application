@@ -4,6 +4,7 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -215,42 +216,46 @@ class _ClassDetailBody extends StatelessWidget {
       children: [
         _ClassroomSummaryCard(controller: controller),
         const SizedBox(height: AppSpacing.md),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: [
-            _ClassDetailTab(
-              key: const Key('teacher_access_class_tab_announcements'),
-              label: 'Stream',
-              icon: FluentIcons.megaphone,
-              selected: controller.tab == TraineeClassDetailTab.announcements,
-              onPressed: () =>
-                  controller.setTab(TraineeClassDetailTab.announcements),
-            ),
-            _ClassDetailTab(
-              key: const Key('teacher_access_class_tab_classwork'),
-              label: 'Classwork',
-              icon: FluentIcons.education,
-              selected: controller.tab == TraineeClassDetailTab.classwork,
-              onPressed: () =>
-                  controller.setTab(TraineeClassDetailTab.classwork),
-            ),
-            _ClassDetailTab(
-              key: const Key('teacher_access_class_tab_challenges'),
-              label: 'Challenges',
-              icon: FluentIcons.trophy,
-              selected: controller.tab == TraineeClassDetailTab.challenges,
-              onPressed: () =>
-                  controller.setTab(TraineeClassDetailTab.challenges),
-            ),
-            _ClassDetailTab(
-              key: const Key('teacher_access_class_tab_people'),
-              label: 'People',
-              icon: FluentIcons.people,
-              selected: controller.tab == TraineeClassDetailTab.people,
-              onPressed: () => controller.setTab(TraineeClassDetailTab.people),
-            ),
-          ],
+        ElixPanelCard(
+          padding: const EdgeInsets.all(6),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _ClassDetailTab(
+                key: const Key('teacher_access_class_tab_announcements'),
+                label: 'Stream',
+                icon: FluentIcons.megaphone,
+                selected: controller.tab == TraineeClassDetailTab.announcements,
+                onPressed: () =>
+                    controller.setTab(TraineeClassDetailTab.announcements),
+              ),
+              _ClassDetailTab(
+                key: const Key('teacher_access_class_tab_classwork'),
+                label: 'Classwork',
+                icon: FluentIcons.education,
+                selected: controller.tab == TraineeClassDetailTab.classwork,
+                onPressed: () =>
+                    controller.setTab(TraineeClassDetailTab.classwork),
+              ),
+              _ClassDetailTab(
+                key: const Key('teacher_access_class_tab_challenges'),
+                label: 'Challenges',
+                icon: FluentIcons.trophy,
+                selected: controller.tab == TraineeClassDetailTab.challenges,
+                onPressed: () =>
+                    controller.setTab(TraineeClassDetailTab.challenges),
+              ),
+              _ClassDetailTab(
+                key: const Key('teacher_access_class_tab_people'),
+                label: 'People',
+                icon: FluentIcons.people,
+                selected: controller.tab == TraineeClassDetailTab.people,
+                onPressed: () =>
+                    controller.setTab(TraineeClassDetailTab.people),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         if (controller.errorMessage != null) ...[
@@ -422,13 +427,7 @@ class _ClassroomSummaryCard extends StatelessWidget {
             },
           ),
           const SizedBox(height: AppSpacing.md),
-          Divider(
-            style: DividerThemeData(
-              decoration: BoxDecoration(color: context.elixBorder),
-              horizontalMargin: EdgeInsets.zero,
-              verticalMargin: EdgeInsets.zero,
-            ),
-          ),
+          _ClassroomHairline(),
           const SizedBox(height: AppSpacing.md),
           Wrap(
             spacing: AppSpacing.lg,
@@ -568,28 +567,11 @@ class _ClassworkToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElixPanelCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(
-        children: [
-          Icon(
-            FluentIcons.education,
-            size: 16,
-            color: context.elixTextSecondary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Practice, review submissions, and track what is due.',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ),
-        ],
-      ),
+    return Text(
+      'Practice, review submissions, and track what is due.',
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
     );
   }
 }
@@ -602,62 +584,69 @@ class _PeoplePane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.classmatesLoading) {
-      return const Center(child: ProgressRing());
+      return const ElixStatusPanel(
+        isLoading: true,
+        icon: FluentIcons.people,
+        title: 'Loading people',
+        message: 'Loading classmates for this classroom.',
+      );
     }
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 860),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _RosterSectionHeader(title: 'Teachers'),
-          _RosterRow(
-            key: const Key('teacher_access_class_teacher_row'),
-            avatarKey: Key(
-              'teacher_access_class_teacher_avatar_${controller.groupId}',
-            ),
-            initials: userInitials(controller.teacherDisplayName),
-            networkImageUrl: controller.profilePictureUrlFor(
-              controller.membership?.teacherId ?? '',
-            ),
-            name: controller.teacherDisplayName,
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          _RosterSectionHeader(
-            title: 'Classmates',
-            trailing:
-                '${controller.classmates.length} '
-                '${controller.classmates.length == 1 ? 'classmate' : 'classmates'}',
-          ),
-          if (controller.classmates.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-              child: ElixStatusPanel(
-                key: Key('teacher_access_class_classmates_empty'),
-                icon: FluentIcons.people,
-                title: 'No classmates yet',
-                message: 'No students in this class yet.',
+      child: ElixPanelCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _RosterSectionHeader(title: 'Teachers'),
+            _RosterRow(
+              key: const Key('teacher_access_class_teacher_row'),
+              avatarKey: Key(
+                'teacher_access_class_teacher_avatar_${controller.groupId}',
               ),
-            )
-          else
-            for (final member in controller.classmates)
-              _RosterRow(
-                key: Key(
-                  'teacher_access_classmate_row_'
-                  '${controller.groupId}_${member.traineeId}',
-                ),
-                avatarKey: Key(
-                  'teacher_access_classmate_avatar_'
-                  '${controller.groupId}_${member.traineeId}',
-                ),
-                initials: userInitials(member.traineeDisplayName),
-                networkImageUrl: controller.profilePictureUrlFor(
-                  member.traineeId,
-                ),
-                name: member.traineeId == controller.traineeId
-                    ? '${member.traineeDisplayName} (you)'
-                    : member.traineeDisplayName,
+              initials: userInitials(controller.teacherDisplayName),
+              networkImageUrl: controller.profilePictureUrlFor(
+                controller.membership?.teacherId ?? '',
               ),
-        ],
+              name: controller.teacherDisplayName,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _RosterSectionHeader(
+              title: 'Classmates',
+              trailing:
+                  '${controller.classmates.length} '
+                  '${controller.classmates.length == 1 ? 'classmate' : 'classmates'}',
+            ),
+            if (controller.classmates.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                child: ElixStatusPanel(
+                  key: Key('teacher_access_class_classmates_empty'),
+                  icon: FluentIcons.people,
+                  title: 'No classmates yet',
+                  message: 'No students in this class yet.',
+                ),
+              )
+            else
+              for (final member in controller.classmates)
+                _RosterRow(
+                  key: Key(
+                    'teacher_access_classmate_row_'
+                    '${controller.groupId}_${member.traineeId}',
+                  ),
+                  avatarKey: Key(
+                    'teacher_access_classmate_avatar_'
+                    '${controller.groupId}_${member.traineeId}',
+                  ),
+                  initials: userInitials(member.traineeDisplayName),
+                  networkImageUrl: controller.profilePictureUrlFor(
+                    member.traineeId,
+                  ),
+                  name: member.traineeId == controller.traineeId
+                      ? '${member.traineeDisplayName} (you)'
+                      : member.traineeDisplayName,
+                ),
+          ],
+        ),
       ),
     );
   }
@@ -697,13 +686,7 @@ class _RosterSectionHeader extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
-        Divider(
-          style: DividerThemeData(
-            decoration: BoxDecoration(color: context.elixBorder),
-            horizontalMargin: EdgeInsets.zero,
-            verticalMargin: EdgeInsets.zero,
-          ),
-        ),
+        const _ClassroomHairline(),
       ],
     );
   }
@@ -792,13 +775,13 @@ class _ClassDetailTab extends StatelessWidget {
                 : hovered
                 ? colors.interactiveHover
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: selected
                   ? colors.brandPrimary
                   : highContrast
                   ? colors.borderStrong
-                  : colors.borderSubtle,
+                  : Colors.transparent,
               width: highContrast || selected ? 2 : 1,
             ),
           ),
@@ -818,6 +801,22 @@ class _ClassDetailTab extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _ClassroomHairline extends StatelessWidget {
+  const _ClassroomHairline();
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Container(height: 1, color: context.elixBorder);
+    }
+    return shad.ShadSeparator.horizontal(
+      thickness: 1,
+      color: context.elixBorder,
+      margin: EdgeInsets.zero,
     );
   }
 }

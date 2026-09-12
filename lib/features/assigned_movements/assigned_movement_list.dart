@@ -1,13 +1,14 @@
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/date_time_format.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/movement_image.dart';
@@ -229,27 +230,7 @@ class _TopicSectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final countLabel =
         '$assignmentCount ${assignmentCount == 1 ? 'assignment' : 'assignments'}';
-    return Row(
-      children: [
-        Icon(FluentIcons.folder, size: 16, color: context.elixTextSecondary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.headingMedium.copyWith(
-              color: context.elixTextPrimary,
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Text(
-          countLabel,
-          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-        ),
-      ],
-    );
+    return ElixSectionHeader(heading: label, subtitle: countLabel);
   }
 }
 
@@ -384,9 +365,7 @@ class _AssignedMovementCard extends StatelessWidget {
       submission,
     );
     final dueLabel = assignedMovementDueLabel(assignment);
-    final dueColor = assignment.isOverdue
-        ? AppColors.error
-        : context.elixTextSecondary;
+    final dueColor = assignedMovementDueColor(context, assignment);
     final hasDemoVideo =
         assignment.activityAssessment?.demonstrationVideo != null;
     final titleStyle = AppTheme.cardTitle(color: context.elixTextPrimary);
@@ -454,16 +433,21 @@ class _AssignedMovementCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: _IconLabel(
-                            icon: assignedMovementStatusIcon(
-                              assignment,
-                              attempt,
-                              submission,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: AssignedMovementStatusBadge(
+                                icon: assignedMovementStatusIcon(
+                                  assignment,
+                                  attempt,
+                                  submission,
+                                ),
+                                label: statusLabel,
+                                color: statusColor,
+                              ),
                             ),
-                            text: statusLabel,
-                            color: statusColor,
-                            expand: true,
-                            alignEnd: true,
                           ),
                         ),
                       ],
@@ -596,63 +580,42 @@ class _SecondaryAssignmentAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.elixColors;
-    final highContrast = context.isHighContrast;
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return SizedBox(
+        width: double.infinity,
+        height: double.infinity,
+        child: Button(
+          onPressed: onPressed,
+          style: ButtonStyle(
+            padding: WidgetStateProperty.all(
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 14),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return SizedBox(
       width: double.infinity,
       height: double.infinity,
-      child: Button(
+      child: shad.ShadButton.outline(
         onPressed: onPressed,
-        style: ButtonStyle(
-          padding: WidgetStateProperty.all(
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          ),
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.pressed)) {
-              return colors.interactivePressed;
-            }
-            if (states.contains(WidgetState.hovered) ||
-                states.contains(WidgetState.focused)) {
-              return colors.interactiveHover;
-            }
-            return highContrast
-                ? colors.surfaceBase
-                : colors.surfaceInteractive;
-          }),
-          foregroundColor: WidgetStateProperty.all(colors.textPrimary),
-          shape: WidgetStateProperty.resolveWith((states) {
-            return RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                color: states.contains(WidgetState.focused)
-                    ? colors.focusRing
-                    : (highContrast
-                          ? colors.borderStrong
-                          : colors.borderSubtle),
-                width: states.contains(WidgetState.focused)
-                    ? (highContrast
-                          ? ElixFocus.ringWidthHighContrast
-                          : ElixFocus.ringWidth)
-                    : (highContrast ? 2 : 1),
-              ),
-            );
-          }),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 14, color: colors.textPrimary),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.label(color: colors.textPrimary),
-              ),
-            ),
-          ],
-        ),
+        expands: true,
+        leading: Icon(icon, size: 14),
+        child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
     );
   }
@@ -743,14 +706,12 @@ class _IconLabel extends StatelessWidget {
     required this.text,
     required this.color,
     this.expand = false,
-    this.alignEnd = false,
   });
 
   final IconData icon;
   final String text;
   final Color color;
   final bool expand;
-  final bool alignEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -758,7 +719,6 @@ class _IconLabel extends StatelessWidget {
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      textAlign: alignEnd ? TextAlign.end : TextAlign.start,
       style: AppTheme.caption.copyWith(
         color: color,
         fontWeight: FontWeight.w600,
@@ -766,9 +726,6 @@ class _IconLabel extends StatelessWidget {
     );
     return Row(
       mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
-      mainAxisAlignment: alignEnd
-          ? MainAxisAlignment.end
-          : MainAxisAlignment.start,
       children: [
         Icon(icon, size: 13, color: color),
         const SizedBox(width: 6),
@@ -951,6 +908,23 @@ AssignmentAttempt? _latestTeacherActivityWorkflowAttempt(
     }
   }
   return latest;
+}
+
+Color assignedMovementDueColor(
+  BuildContext context,
+  GroupAssignment assignment,
+) {
+  if (assignment.isOverdue) return AppColors.error;
+  if (assignedMovementDueLabel(assignment) == 'Due today') {
+    return context.elixColors.warning;
+  }
+  return context.elixTextSecondary;
+}
+
+String? assignedMovementDueTimestampLabel(GroupAssignment assignment) {
+  final due = assignment.dueAt;
+  if (due == null) return null;
+  return formatElixrDateTime(due);
 }
 
 String assignedMovementDueLabel(GroupAssignment assignment) {

@@ -5,6 +5,7 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -16,6 +17,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_back_button.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -320,6 +322,9 @@ class _AssignmentHeader extends StatelessWidget {
       currentAttempt,
       assignment.isTeacherCreated ? currentAttempt : null,
     );
+    final dueLabel = assignedMovementDueLabel(assignment);
+    final dueTimestamp = assignedMovementDueTimestampLabel(assignment);
+    final dueColor = assignedMovementDueColor(context, assignment);
     final instructions = assignment.displayInstructions?.trim();
     final safetyGuidance = assignment.displaySafetyGuidance?.trim();
 
@@ -333,10 +338,7 @@ class _AssignmentHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (activityAssessment != null) ...[
-                Text(
-                  'TEACHER ACTIVITY',
-                  style: AppTheme.eyebrow(color: AppColors.accent),
-                ),
+                ElixEyebrow(label: 'Teacher activity', color: AppColors.accent),
                 const SizedBox(height: AppSpacing.xs),
               ],
               ElixEditorialHeader(
@@ -412,13 +414,7 @@ class _AssignmentHeader extends StatelessWidget {
                     label: 'Status · $statusLabel',
                     color: statusColor,
                   ),
-                  ElixPill(
-                    text: assignedMovementDueLabel(assignment),
-                    color: assignment.isOverdue
-                        ? AppColors.error
-                        : context.elixTextSecondary,
-                    compact: true,
-                  ),
+                  ElixPill(text: dueLabel, color: dueColor, compact: true),
                   if (!assignment.isActive)
                     ElixPill(
                       text: 'Archived',
@@ -427,6 +423,16 @@ class _AssignmentHeader extends StatelessWidget {
                     ),
                 ],
               ),
+              if (dueTimestamp != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  dueTimestamp,
+                  style: AppTheme.caption.copyWith(
+                    color: dueColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
               if (assignment.isOfficial) ...[
                 const SizedBox(height: AppSpacing.sm),
                 _OfficialAccessNote(assignment: assignment),
@@ -678,12 +684,12 @@ class _ActivityDemoCardState extends State<_ActivityDemoCard> {
                           style: AppTheme.body.copyWith(color: AppColors.error),
                         ),
                         const SizedBox(height: AppSpacing.sm),
-                        Button(
+                        _DetailOutlineButton(
+                          label: 'Try again',
                           onPressed: () {
                             setState(() => _error = null);
                             unawaited(_open());
                           },
-                          child: const Text('Try again'),
                         ),
                       ],
                     ),
@@ -747,7 +753,10 @@ class _TeacherActivityOverview extends StatelessWidget {
             _ActivityDetail(
               icon: FluentIcons.calendar,
               label: 'Deadline',
-              value: assignedMovementDueLabel(assignment),
+              value: [
+                assignedMovementDueLabel(assignment),
+                ?assignedMovementDueTimestampLabel(assignment),
+              ].join(' · '),
             ),
             _ActivityDetail(
               icon: FluentIcons.clock,
@@ -912,11 +921,18 @@ class _AccentIcon extends StatelessWidget {
     width: 42,
     height: 42,
     decoration: BoxDecoration(
-      color: AppColors.primary.withValues(alpha: 0.16),
-      borderRadius: BorderRadius.circular(13),
-      border: Border.all(color: AppColors.accent.withValues(alpha: 0.38)),
+      color: context.isHighContrast
+          ? context.elixCardSurface
+          : context.elixColors.surfaceInteractive,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: context.isHighContrast
+            ? context.elixBorder
+            : context.elixColors.borderSubtle,
+        width: context.isHighContrast ? 2 : 1,
+      ),
     ),
-    child: Icon(icon, size: 19, color: AppColors.accent),
+    child: Icon(icon, size: 19, color: context.elixColors.brandPrimary),
   );
 }
 
@@ -1261,8 +1277,15 @@ class _YourWork extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Wrap(
                 spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
                 children: [
-                  FilledButton(
+                  ElixPrimaryButton(
+                    label: isTeacherActivity
+                        ? 'Retry automatic submission'
+                        : 'Turn in',
+                    expanded: false,
+                    dense: true,
+                    isLoading: controller.turnInBusy,
                     onPressed: controller.turnInBusy
                         ? null
                         : isTeacherActivity
@@ -1273,24 +1296,15 @@ class _YourWork extends StatelessWidget {
                             assignment,
                             current!,
                           ),
-                    child: controller.turnInBusy
-                        ? const ProgressRing()
-                        : Text(
-                            isTeacherActivity
-                                ? 'Retry automatic submission'
-                                : 'Turn in',
-                          ),
                   ),
                   if (!isTeacherActivity)
-                    Button(
+                    _DetailOutlineButton(
+                      label: controller.draftRemovalBusy
+                          ? 'Removing…'
+                          : 'Remove recording',
                       onPressed: controller.draftRemovalBusy
                           ? null
                           : () => controller.removeAttachedDraft(),
-                      child: Text(
-                        controller.draftRemovalBusy
-                            ? 'Removing…'
-                            : 'Remove recording',
-                      ),
                     ),
                 ],
               ),
@@ -1309,11 +1323,11 @@ class _YourWork extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
-            Button(
+            _DetailOutlineButton(
+              label: 'Retry removal',
               onPressed: controller.draftRemovalBusy
                   ? null
                   : controller.removeAttachedDraft,
-              child: const Text('Retry removal'),
             ),
           ],
           if ((!assignment.isTeacherCreated || isTeacherActivity) &&
@@ -1352,13 +1366,11 @@ class _YourWork extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Align(
               alignment: Alignment.centerLeft,
-              child: Button(
+              child: _DetailOutlineButton(
+                label: controller.unsubmitBusy ? 'Working…' : 'Unsubmit',
                 onPressed: controller.unsubmitBusy || !controller.canUnsubmit
                     ? null
                     : () => _confirmUnsubmit(context, controller),
-                child: controller.unsubmitBusy
-                    ? const ProgressRing()
-                    : const Text('Unsubmit'),
               ),
             ),
             if (!controller.canUnsubmit && !controller.unsubmitBusy)
@@ -1388,13 +1400,13 @@ class _YourWork extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Align(
               alignment: Alignment.centerLeft,
-              child: Button(
+              child: _DetailOutlineButton(
+                label: controller.unsubmitBusy
+                    ? 'Working…'
+                    : 'Retry withdrawal',
                 onPressed: controller.unsubmitBusy || !controller.canUnsubmit
                     ? null
                     : () => _confirmUnsubmit(context, controller),
-                child: controller.unsubmitBusy
-                    ? const ProgressRing()
-                    : const Text('Retry withdrawal'),
               ),
             ),
           ],
@@ -1445,18 +1457,25 @@ class _EmptyWorkState extends StatelessWidget {
     child: Column(
       children: [
         Container(
-          width: 76,
-          height: 76,
+          width: 48,
+          height: 48,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.16),
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.accent.withValues(alpha: 0.32)),
+            color: context.isHighContrast
+                ? context.elixCardSurface
+                : context.elixColors.surfaceInteractive,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: context.isHighContrast
+                  ? context.elixBorder
+                  : context.elixColors.borderSubtle,
+              width: context.isHighContrast ? 2 : 1,
+            ),
           ),
-          child: const Icon(
+          child: Icon(
             FluentIcons.video,
-            size: 29,
-            color: AppColors.accent,
+            size: 22,
+            color: context.elixColors.brandPrimary,
           ),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -1479,10 +1498,7 @@ class _EmptyWorkState extends StatelessWidget {
             label: label,
             expanded: true,
             icon: FluentIcons.play,
-            padding: const EdgeInsets.symmetric(
-              vertical: 18,
-              horizontal: AppSpacing.lg,
-            ),
+            dense: true,
             onPressed: onStart,
           )
         else if (noTriesRemaining)
@@ -1499,28 +1515,18 @@ Future<void> _confirmUnsubmit(
   BuildContext context,
   AssignmentDetailController controller,
 ) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Unsubmit this clip?'),
-      content: const Text(
-        'The submitted clip will be removed and this assignment will return '
-        'to in progress. You can record and submit a new clip while the '
-        'assignment is still open.',
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Unsubmit'),
-        ),
-      ],
-    ),
+  const title = 'Unsubmit this clip?';
+  const message =
+      'The submitted clip will be removed and this assignment will return '
+      'to in progress. You can record and submit a new clip while the '
+      'assignment is still open.';
+  final confirmed = await _confirmAssignmentAction(
+    context,
+    title: title,
+    message: message,
+    confirmLabel: 'Unsubmit',
   );
-  if (confirmed == true) await controller.unsubmit();
+  if (confirmed) await controller.unsubmit();
 }
 
 Future<void> _confirmTurnIn(
@@ -1532,27 +1538,91 @@ Future<void> _confirmTurnIn(
   final duration = attempt.videoDurationMs == null
       ? 'Recording attached'
       : 'Recording duration ${formatSubmissionDurationMs(attempt.videoDurationMs!)}';
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Turn in your work?'),
-      content: Text(
+  final confirmed = await _confirmAssignmentAction(
+    context,
+    title: 'Turn in your work?',
+    message:
         '${assignment.displayTitle}\n$duration\n\n'
         'This recording will be submitted to ${assignment.teacherDisplayName} for checking.',
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Turn in'),
-        ),
-      ],
-    ),
+    confirmLabel: 'Turn in',
   );
-  if (confirmed == true) await controller.turnIn();
+  if (confirmed) await controller.turnIn();
+}
+
+Future<bool> _confirmAssignmentAction(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String confirmLabel,
+}) async {
+  final useShad =
+      !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
+  if (!useShad) {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => ContentDialog(
+            title: Text(title),
+            content: Text(message),
+            actions: [
+              Button(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(confirmLabel),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+  return await ElixDialog.show<bool>(
+        context,
+        title: title,
+        content: Text(
+          message,
+          style: AppTheme.body.copyWith(
+            fontSize: 14,
+            color: context.elixTextSecondary,
+            height: 1.45,
+          ),
+        ),
+        actions: [
+          Button(
+            onPressed: () =>
+                Navigator.of(context, rootNavigator: true).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElixPrimaryButton(
+            label: confirmLabel,
+            expanded: false,
+            onPressed: () =>
+                Navigator.of(context, rootNavigator: true).pop(true),
+          ),
+        ],
+        uniformActionSize: const Size(128, 56),
+      ) ??
+      false;
+}
+
+class _DetailOutlineButton extends StatelessWidget {
+  const _DetailOutlineButton({required this.label, this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Button(onPressed: onPressed, child: Text(label));
+    }
+    return shad.ShadButton.outline(
+      onPressed: onPressed,
+      enabled: onPressed != null,
+      child: Text(label),
+    );
+  }
 }
 
 class _AttemptHistoryRow extends StatelessWidget {

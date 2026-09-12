@@ -138,11 +138,12 @@ class _ClassroomPageHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     return ElixEditorialHeader(
-      heading: 'Classroom',
+      heading: 'Classrooms',
       eyebrow: 'CLASSROOM',
       subtitle:
-          'Join a class with a code from your teacher, then open approved '
-          'classrooms and their classwork below.',
+          'Join with a teacher code, then open a class to see classwork '
+          'and assignments.',
+      variant: ElixEditorialHeaderVariant.compact,
       headingMaxLines: 1,
       leading: Container(
         width: 40,

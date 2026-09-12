@@ -3,11 +3,16 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_panel_card.dart';
+import '../../core/widgets/elix_primary_button.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/elixr_video_player.dart';
 import '../../data/models/activity_learning_material.dart';
 import '../../data/repositories/activity_learning_material_repository.dart';
@@ -576,27 +581,20 @@ class _ActivityLearningMaterialsTraineeSectionState
         final file = await widget.repository.openFile(material);
         if (!mounted || generation != _loadGeneration) return;
         if (material.type == ActivityLearningMaterialType.image) {
-          await showDialog<void>(
+          await _showTraineeMaterialDialog(
             context: context,
-            builder: (_) => ContentDialog(
-              title: Text(material.displayName),
-              content: SizedBox(
-                width: 760,
-                child: Image.file(file, fit: BoxFit.contain),
-              ),
-              actions: [
-                Button(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close'),
-                ),
-              ],
+            title: material.displayName,
+            content: SizedBox(
+              width: 760,
+              child: Image.file(file, fit: BoxFit.contain),
             ),
           );
         } else if (material.type == ActivityLearningMaterialType.video) {
-          await showDialog<void>(
+          await _showTraineeMaterialDialog(
             context: context,
-            builder: (_) =>
-                _MaterialVideoDialog(title: material.displayName, file: file),
+            title: material.displayName,
+            content: _MaterialVideoPlayer(file: file),
+            maxHeight: 520,
           );
         } else {
           await Process.start('explorer.exe', [file.path]);
@@ -627,18 +625,22 @@ class _ActivityLearningMaterialsTraineeSectionState
     final materials = _materials;
     if (_error != null) return _ErrorRow(message: _error!, action: _load);
     if (materials == null) {
-      return const Padding(
-        padding: EdgeInsets.only(top: AppSpacing.md),
-        child: ProgressRing(),
+      return const ElixStatusPanel(
+        isLoading: true,
+        icon: FluentIcons.education,
+        title: 'Loading learning materials',
+        message: 'Opening the files your teacher shared.',
       );
     }
     if (materials.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.md),
+    return ElixPanelCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Learning materials', style: AppTheme.headingMedium),
+          const ElixSectionHeader(
+            heading: 'Learning materials',
+            subtitle: 'Guides and examples from your teacher.',
+          ),
           const SizedBox(height: AppSpacing.sm),
           for (final material in materials)
             _TraineeMaterialRow(
@@ -652,15 +654,14 @@ class _ActivityLearningMaterialsTraineeSectionState
   }
 }
 
-class _MaterialVideoDialog extends StatefulWidget {
-  const _MaterialVideoDialog({required this.title, required this.file});
-  final String title;
+class _MaterialVideoPlayer extends StatefulWidget {
+  const _MaterialVideoPlayer({required this.file});
   final File file;
   @override
-  State<_MaterialVideoDialog> createState() => _MaterialVideoDialogState();
+  State<_MaterialVideoPlayer> createState() => _MaterialVideoPlayerState();
 }
 
-class _MaterialVideoDialogState extends State<_MaterialVideoDialog> {
+class _MaterialVideoPlayerState extends State<_MaterialVideoPlayer> {
   final _session = ElixrPlaybackSession();
   @override
   void dispose() {
@@ -669,21 +670,52 @@ class _MaterialVideoDialogState extends State<_MaterialVideoDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => ContentDialog(
-    title: Text(widget.title),
-    content: SizedBox(
-      width: 760,
-      height: 430,
-      child: ElixrVideoPlayer(
-        source: Uri.file(widget.file.path),
-        mirrored: false,
-        session: _session,
-      ),
+  Widget build(BuildContext context) => SizedBox(
+    width: 760,
+    height: 430,
+    child: ElixrVideoPlayer(
+      source: Uri.file(widget.file.path),
+      mirrored: false,
+      session: _session,
     ),
+  );
+}
+
+Future<void> _showTraineeMaterialDialog({
+  required BuildContext context,
+  required String title,
+  required Widget content,
+  double maxHeight = 640,
+}) {
+  final useShad =
+      !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
+  if (!useShad) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: Text(title),
+        content: content,
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+  return ElixDialog.show<void>(
+    context,
+    title: title,
+    maxWidth: 800,
+    maxHeight: maxHeight,
+    scrollableContent: true,
+    content: content,
     actions: [
-      Button(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Close'),
+      ElixPrimaryButton(
+        label: 'Close',
+        expanded: false,
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
       ),
     ],
   );
@@ -699,9 +731,16 @@ class _TraineeMaterialRow extends StatelessWidget {
   final bool opening;
   final VoidCallback onOpen;
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-    child: ElixPanelCard(
+  Widget build(BuildContext context) {
+    final actionLabel = material.type == ActivityLearningMaterialType.image
+        ? 'View'
+        : material.type == ActivityLearningMaterialType.video
+        ? 'Watch'
+        : material.type == ActivityLearningMaterialType.link
+        ? 'Open link'
+        : 'Open';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Row(
         children: [
           Icon(activityLearningMaterialIcon(material.type)),
@@ -724,24 +763,20 @@ class _TraineeMaterialRow extends StatelessWidget {
               ],
             ),
           ),
-          Button(
-            onPressed: opening ? null : onOpen,
-            child: opening
-                ? const ProgressRing()
-                : Text(
-                    material.type == ActivityLearningMaterialType.image
-                        ? 'View'
-                        : material.type == ActivityLearningMaterialType.video
-                        ? 'Watch'
-                        : material.type == ActivityLearningMaterialType.link
-                        ? 'Open link'
-                        : 'Open',
-                  ),
-          ),
+          if (opening)
+            const SizedBox(width: 22, height: 22, child: ProgressRing())
+          else if (context.isHighContrast ||
+              shad.ShadTheme.maybeOf(context) == null)
+            Button(onPressed: onOpen, child: Text(actionLabel))
+          else
+            shad.ShadButton.outline(
+              onPressed: onOpen,
+              child: Text(actionLabel),
+            ),
         ],
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _TeacherMaterialRow extends StatelessWidget {

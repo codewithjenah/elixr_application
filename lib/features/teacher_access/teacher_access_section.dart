@@ -3,12 +3,13 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/date_time_format.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
@@ -566,13 +567,16 @@ class _JoinCodeEntry extends StatelessWidget {
       onChanged: controller.setCodeInput,
       onSubmitted: controller.busy ? null : controller.resolveCode,
     );
-    final action = ElixPrimaryButton(
+    final action = SizedBox(
       key: const Key('teacher_access_resolve_code'),
-      label: 'Continue',
-      expanded: compact,
-      padding: _continuePadding,
-      isLoading: controller.busy,
-      onPressed: controller.busy ? null : controller.resolveCode,
+      height: 32,
+      child: ElixPrimaryButton(
+        label: 'Continue',
+        expanded: compact,
+        padding: _continuePadding,
+        isLoading: controller.busy,
+        onPressed: controller.busy ? null : controller.resolveCode,
+      ),
     );
 
     return Column(
@@ -619,47 +623,30 @@ class _ClassCodeField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
     final colors = context.elixColors;
     return Semantics(
       textField: true,
       label: 'Class code',
-      child: AnimatedContainer(
-        duration: ElixMotion.duration(context, ElixMotion.micro),
-        curve: ElixMotion.microCurve,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: focused && !highContrast
-              ? [
-                  BoxShadow(
-                    color: colors.glowPrimary.withValues(alpha: 0.28),
-                    blurRadius: 12,
-                    spreadRadius: 0,
-                  ),
-                ]
-              : const [],
+      child: TextBox(
+        key: const Key('teacher_access_roster_code'),
+        focusNode: focusNode,
+        placeholder: 'XXXX-XXXX-XXXX',
+        controller: controller,
+        enabled: enabled,
+        onChanged: onChanged,
+        onSubmitted: (_) => onSubmitted?.call(),
+        prefix: Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Icon(
+            FluentIcons.permissions,
+            size: 14,
+            color: focused ? colors.brandPrimary : context.elixTextSecondary,
+          ),
         ),
-        child: TextBox(
-          key: const Key('teacher_access_roster_code'),
-          focusNode: focusNode,
-          placeholder: 'XXXX-XXXX-XXXX',
-          controller: controller,
-          enabled: enabled,
-          onChanged: onChanged,
-          onSubmitted: (_) => onSubmitted?.call(),
-          prefix: Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: Icon(
-              FluentIcons.permissions,
-              size: 14,
-              color: focused ? colors.brandPrimary : context.elixTextSecondary,
-            ),
-          ),
-          style: AppTheme.body.copyWith(
-            letterSpacing: 1.1,
-            fontWeight: FontWeight.w600,
-            color: context.elixTextPrimary,
-          ),
+        style: AppTheme.body.copyWith(
+          letterSpacing: 1.1,
+          fontWeight: FontWeight.w600,
+          color: context.elixTextPrimary,
         ),
       ),
     );
@@ -744,9 +731,9 @@ class _JoinConfirmActions extends StatelessWidget {
               isLoading: controller.busy,
               onPressed: controller.busy ? null : controller.confirmJoin,
             ),
-            Button(
+            _AccessOutlineButton(
+              label: 'Use a different code',
               onPressed: controller.busy ? null : controller.resetJoin,
-              child: const Text('Use a different code'),
             ),
           ],
         ),
@@ -918,12 +905,12 @@ class _PendingJoinsCard extends StatelessWidget {
           subtitle:
               'Waiting for ${membership.teacherDisplayName} to accept you · '
               '${_formatTime(membership.createdAt)}',
-          trailing: Button(
+          trailing: _AccessOutlineButton(
             key: Key('teacher_access_cancel_group_${membership.id}'),
+            label: 'Cancel',
             onPressed: controller.busy
                 ? null
                 : () => controller.cancelPendingGroup(membership),
-            child: const Text('Cancel'),
           ),
         ),
       );
@@ -1118,18 +1105,8 @@ class _YourClassroomsSectionState extends State<_YourClassroomsSection> {
           search: showSearch
               ? SizedBox(
                   width: widget.compact ? double.infinity : 240,
-                  child: TextBox(
-                    key: const Key('teacher_access_class_search'),
+                  child: _ClassSearchField(
                     controller: _searchController,
-                    placeholder: 'Search classes',
-                    prefix: Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Icon(
-                        FluentIcons.search,
-                        size: 14,
-                        color: context.elixTextSecondary,
-                      ),
-                    ),
                     onChanged: (value) => setState(() => _query = value),
                   ),
                 )
@@ -1156,26 +1133,9 @@ class _ClassesHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final heading = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 3,
-          height: 42,
-          margin: const EdgeInsets.only(top: 2),
-          decoration: BoxDecoration(
-            color: AppColors.primary,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElixSectionHeader(
-            heading: 'Your classrooms',
-            subtitle: "Select a class to view assignments and classmates.",
-          ),
-        ),
-      ],
+    final heading = ElixSectionHeader(
+      heading: 'Your classrooms',
+      subtitle: 'Select a class to view assignments and classmates.',
     );
     if (search == null) return heading;
     if (compact) {
@@ -1375,28 +1335,113 @@ Future<void> _confirmLeaveClass(
 ) async {
   final className =
       controller.groupNamesById[membership.groupId]?.name ?? 'this class';
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: Text('Leave $className?'),
-      content: const Text(
-        'You will no longer see this class or its assignments. You can ask '
-        'to join again later with a current class code.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          key: const Key('teacher_access_confirm_leave'),
-          child: const Text('Leave class'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
-  );
+  const message =
+      'You will no longer see this class or its assignments. You can ask '
+      'to join again later with a current class code.';
+  final useShad =
+      !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
+  final accepted = useShad
+      ? await ElixDialog.show<bool>(
+          context,
+          title: 'Leave $className?',
+          icon: FluentIcons.people,
+          content: Text(
+            message,
+            style: AppTheme.body.copyWith(
+              fontSize: 14,
+              color: context.elixTextSecondary,
+              height: 1.45,
+            ),
+          ),
+          actions: [
+            Button(
+              onPressed: () =>
+                  Navigator.of(context, rootNavigator: true).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElixPrimaryButton(
+              key: const Key('teacher_access_confirm_leave'),
+              label: 'Leave class',
+              expanded: false,
+              onPressed: () =>
+                  Navigator.of(context, rootNavigator: true).pop(true),
+            ),
+          ],
+          uniformActionSize: const Size(128, 56),
+        )
+      : await showDialog<bool>(
+          context: context,
+          builder: (context) => ContentDialog(
+            title: Text('Leave $className?'),
+            content: const Text(message),
+            actions: [
+              Button(
+                child: const Text('Cancel'),
+                onPressed: () => Navigator.pop(context, false),
+              ),
+              FilledButton(
+                key: const Key('teacher_access_confirm_leave'),
+                child: const Text('Leave class'),
+                onPressed: () => Navigator.pop(context, true),
+              ),
+            ],
+          ),
+        );
   if (accepted == true) await controller.leaveApprovedGroup(membership);
+}
+
+class _ClassSearchField extends StatelessWidget {
+  const _ClassSearchField({required this.controller, required this.onChanged});
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Icon(
+        FluentIcons.search,
+        size: 14,
+        color: context.elixTextSecondary,
+      ),
+    );
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return TextBox(
+        key: const Key('teacher_access_class_search'),
+        controller: controller,
+        placeholder: 'Search classes',
+        prefix: icon,
+        onChanged: onChanged,
+      );
+    }
+    return shad.ShadInput(
+      key: const Key('teacher_access_class_search'),
+      controller: controller,
+      placeholder: const Text('Search classes'),
+      leading: icon,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _AccessOutlineButton extends StatelessWidget {
+  const _AccessOutlineButton({super.key, required this.label, this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Button(onPressed: onPressed, child: Text(label));
+    }
+    return shad.ShadButton.outline(
+      onPressed: onPressed,
+      enabled: onPressed != null,
+      child: Text(label),
+    );
+  }
 }
 
 T? _maybeRead<T>(BuildContext context) {
