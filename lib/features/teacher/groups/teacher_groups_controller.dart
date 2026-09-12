@@ -55,6 +55,7 @@ class TeacherGroupsController extends ChangeNotifier {
   int actionMessageRevision = 0;
   TeacherGroupDetailTab tab = TeacherGroupDetailTab.classwork;
   bool _closed = false;
+  final Completer<void> _closeSignal = Completer<void>();
 
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<List<GroupMembership>>? _pendingSub;
@@ -178,6 +179,7 @@ class TeacherGroupsController extends ChangeNotifier {
   }
 
   Future<void> openGroupById(String groupId) async {
+    if (_closed) return;
     final trimmed = groupId.trim();
     unauthorized = false;
     if (trimmed.isEmpty) {
@@ -198,6 +200,7 @@ class TeacherGroupsController extends ChangeNotifier {
     if (group == null) {
       try {
         final fetched = await repository.getGroup(groupId: trimmed);
+        if (_closed) return;
         if (fetched != null && fetched.teacherId == teacherId) {
           group = fetched;
         }
@@ -208,6 +211,7 @@ class TeacherGroupsController extends ChangeNotifier {
       group = null;
     }
 
+    if (_closed) return;
     if (group == null) {
       unauthorized = true;
       errorMessage = 'This class is not available.';
@@ -215,10 +219,12 @@ class TeacherGroupsController extends ChangeNotifier {
       return;
     }
 
+    if (_closed) return;
     await selectGroup(group);
   }
 
   Future<void> selectGroup(ElixrGroup group) async {
+    if (_closed) return;
     if (selectedGroup?.id != group.id) {
       pendingMemberships = const [];
       approvedMemberships = const [];
@@ -228,10 +234,12 @@ class TeacherGroupsController extends ChangeNotifier {
     unauthorized = false;
     actionMessage = null;
     notifyListeners();
+    if (_closed) return;
     await _watchSelectedGroup(group.id);
   }
 
   void clearSelection() {
+    if (_closed) return;
     selectedGroup = null;
     pendingMemberships = const [];
     approvedMemberships = const [];
@@ -431,6 +439,7 @@ class TeacherGroupsController extends ChangeNotifier {
       );
 
   Future<void> _watchSelectedGroup(String groupId) async {
+    if (_closed) return;
     final watchGeneration = ++_membershipWatchGeneration;
     final previousPending = _pendingSub;
     final previousApproved = _approvedSub;
@@ -439,8 +448,10 @@ class TeacherGroupsController extends ChangeNotifier {
     unawaited(previousPending?.cancel());
     unawaited(previousApproved?.cancel());
     approvedMembershipsReady = false;
-    activeInvite = await repository.getActiveGroupInvite(groupId: groupId);
-    if (watchGeneration != _membershipWatchGeneration) return;
+    final invite = await repository.getActiveGroupInvite(groupId: groupId);
+    if (_closed || watchGeneration != _membershipWatchGeneration) return;
+    activeInvite = invite;
+    if (_closed || watchGeneration != _membershipWatchGeneration) return;
     final pendingFirst = Completer<void>();
     final approvedFirst = Completer<void>();
     _pendingSub = repository
@@ -451,14 +462,18 @@ class TeacherGroupsController extends ChangeNotifier {
         )
         .listen(
           (value) {
-            if (watchGeneration != _membershipWatchGeneration) return;
+            if (_closed || watchGeneration != _membershipWatchGeneration) {
+              return;
+            }
             pendingMemberships = value;
             _syncMemberProfileWatches();
             if (!pendingFirst.isCompleted) pendingFirst.complete();
             notifyListeners();
           },
           onError: (Object error, StackTrace stackTrace) {
-            if (watchGeneration != _membershipWatchGeneration) return;
+            if (_closed || watchGeneration != _membershipWatchGeneration) {
+              return;
+            }
             _logMembershipStreamFailure('pending', error, stackTrace);
             errorMessage = 'Could not load pending requests.';
             if (!pendingFirst.isCompleted) pendingFirst.complete();
@@ -473,7 +488,9 @@ class TeacherGroupsController extends ChangeNotifier {
         )
         .listen(
           (value) {
-            if (watchGeneration != _membershipWatchGeneration) return;
+            if (_closed || watchGeneration != _membershipWatchGeneration) {
+              return;
+            }
             approvedMemberships = value;
             approvedMembershipsReady = true;
             _syncMemberProfileWatches();
@@ -481,15 +498,20 @@ class TeacherGroupsController extends ChangeNotifier {
             notifyListeners();
           },
           onError: (Object error, StackTrace stackTrace) {
-            if (watchGeneration != _membershipWatchGeneration) return;
+            if (_closed || watchGeneration != _membershipWatchGeneration) {
+              return;
+            }
             _logMembershipStreamFailure('approved', error, stackTrace);
             errorMessage = 'Could not load members.';
             if (!approvedFirst.isCompleted) approvedFirst.complete();
             notifyListeners();
           },
         );
-    await Future.wait([pendingFirst.future, approvedFirst.future]);
-    if (watchGeneration != _membershipWatchGeneration) return;
+    await Future.any<void>([
+      Future.wait<void>([pendingFirst.future, approvedFirst.future]),
+      _closeSignal.future,
+    ]);
+    if (_closed || watchGeneration != _membershipWatchGeneration) return;
     notifyListeners();
   }
 
@@ -632,6 +654,7 @@ class TeacherGroupsController extends ChangeNotifier {
   void dispose() {
     _closed = true;
     _membershipWatchGeneration++;
+    if (!_closeSignal.isCompleted) _closeSignal.complete();
     unawaited(_groupsSub?.cancel());
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());

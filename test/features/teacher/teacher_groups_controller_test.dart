@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
@@ -302,6 +304,29 @@ class _SpyGroupRepository implements GroupRepository {
       membershipId: membershipId,
       traineeId: traineeId,
     );
+  }
+}
+
+class _DelayedGetGroupRepository extends _SpyGroupRepository {
+  _DelayedGetGroupRepository(super.inner);
+
+  final _started = <String, Completer<void>>{};
+  final _release = <String, Completer<void>>{};
+
+  Future<void> waitForGetGroup(String groupId) =>
+      (_started[groupId] ??= Completer<void>()).future;
+
+  void releaseGetGroup(String groupId) {
+    final release = _release[groupId] ??= Completer<void>();
+    if (!release.isCompleted) release.complete();
+  }
+
+  @override
+  Future<ElixrGroup?> getGroup({required String groupId}) async {
+    final started = _started[groupId] ??= Completer<void>();
+    if (!started.isCompleted) started.complete();
+    await (_release[groupId] ??= Completer<void>()).future;
+    return super.getGroup(groupId: groupId);
   }
 }
 
@@ -757,6 +782,39 @@ void main() {
     expect(controller.selectedGroup, isNull);
     expect(controller.errorMessage, 'This class is not available.');
   });
+
+  test(
+    'openGroupById exits silently when disposed during group lookup',
+    () async {
+      final delayed = _DelayedGetGroupRepository(memory);
+      final local = TeacherGroupsController(
+        repository: delayed,
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        publicProfileRepository: profiles,
+      );
+      var disposed = false;
+      addTearDown(() {
+        if (!disposed) local.dispose();
+      });
+
+      final group = await memory.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      final opening = local.openGroupById(group.id);
+      await delayed.waitForGetGroup(group.id);
+
+      local.dispose();
+      disposed = true;
+      delayed.releaseGetGroup(group.id);
+      await opening;
+
+      expect(delayed.membershipWatchCalls, isEmpty);
+      expect(local.selectedGroup, isNull);
+    },
+  );
 
   test('startForGroup marks missing classes unauthorized', () async {
     await controller.startForGroup('missing');
