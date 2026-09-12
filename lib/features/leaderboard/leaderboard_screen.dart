@@ -1,11 +1,13 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/leaderboard_period.dart';
 import '../../data/repositories/leaderboard_repository.dart';
@@ -319,18 +321,16 @@ class _InitialErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Leaderboard is temporarily unavailable.',
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          FilledButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: ElixStatusPanel(
+          title: 'Leaderboard unavailable',
+          message: 'Leaderboard is temporarily unavailable.',
+          isError: true,
+          icon: FluentIcons.error,
+          actionLabel: 'Retry',
+          onAction: onRetry,
+        ),
       ),
     );
   }
@@ -379,7 +379,11 @@ class _LoadMoreFooter extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
-            Button(onPressed: onLoadMore, child: const Text('Try again')),
+            _LeaderboardAction(
+              label: 'Try again',
+              onPressed: onLoadMore,
+              primary: false,
+            ),
           ],
         ),
       );
@@ -392,8 +396,30 @@ class _LoadMoreFooter extends StatelessWidget {
       child: Center(
         child: isLoadingMore
             ? const ProgressRing(activeColor: AppColors.primary)
-            : Button(onPressed: onLoadMore, child: const Text('Load more')),
+            : _LeaderboardAction(label: 'Load more', onPressed: onLoadMore),
       ),
     );
+  }
+}
+
+class _LeaderboardAction extends StatelessWidget {
+  const _LeaderboardAction({
+    required this.label,
+    required this.onPressed,
+    this.primary = true,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Button(onPressed: onPressed, child: Text(label));
+    }
+    return primary
+        ? shad.ShadButton(onPressed: onPressed, child: Text(label))
+        : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
   }
 }

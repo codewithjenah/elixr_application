@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -305,13 +306,13 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
           style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.sm),
-        Button(
+        _QuestAction(
           onPressed: () {
             _error = null;
             _board = null;
             unawaited(_loadBoard());
           },
-          child: const Text('Retry'),
+          label: 'Retry',
         ),
       ];
     }
@@ -326,10 +327,7 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
           style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.sm),
-        Button(
-          onPressed: () => _claim(questId),
-          child: const Text('Retry claim'),
-        ),
+        _QuestAction(onPressed: () => _claim(questId), label: 'Retry claim'),
         const SizedBox(height: AppSpacing.md),
       ];
     }
@@ -389,6 +387,21 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
         total: board.questIds.length,
       ),
     ];
+  }
+}
+
+class _QuestAction extends StatelessWidget {
+  const _QuestAction({required this.onPressed, required this.label});
+
+  final VoidCallback onPressed;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Button(onPressed: onPressed, child: Text(label));
+    }
+    return shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
   }
 }
 

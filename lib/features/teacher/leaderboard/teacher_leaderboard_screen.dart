@@ -2,6 +2,7 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -164,20 +165,20 @@ class _Toolbar extends StatelessWidget {
             runSpacing: AppSpacing.sm,
             children: [
               for (final scope in TeacherLeaderboardScope.values)
-                ToggleButton(
-                  checked: controller.scope == scope,
-                  onChanged: (_) => controller.setScope(scope),
-                  child: Text(_scopeLabel(scope)),
+                _ScopeButton(
+                  scope: scope,
+                  selected: controller.scope == scope,
+                  onPressed: () => controller.setScope(scope),
                 ),
             ],
           ),
         ),
         if (controller.showGroupPicker && controller.activeGroups.isNotEmpty)
-          ComboBox<String>(
+          _GroupSelect(
             value: controller.selectedGroupId,
-            items: [
+            options: [
               for (final group in controller.activeGroups)
-                ComboBoxItem(value: group.id, child: Text(group.name)),
+                shad.ShadOption(value: group.id, child: Text(group.name)),
             ],
             onChanged: controller.setSelectedGroupId,
           ),
@@ -191,6 +192,74 @@ class _Toolbar extends StatelessWidget {
       TeacherLeaderboardScope.myStudents => 'My Students',
       TeacherLeaderboardScope.group => 'Group',
     };
+  }
+}
+
+class _ScopeButton extends StatelessWidget {
+  const _ScopeButton({
+    required this.scope,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final TeacherLeaderboardScope scope;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _Toolbar._scopeLabel(scope);
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return ToggleButton(
+        checked: selected,
+        onChanged: (_) => onPressed(),
+        child: Text(label),
+      );
+    }
+    return shad.ShadButton.raw(
+      variant: selected
+          ? shad.ShadButtonVariant.secondary
+          : shad.ShadButtonVariant.outline,
+      size: shad.ShadButtonSize.sm,
+      onPressed: selected ? null : onPressed,
+      child: Text(label),
+    );
+  }
+}
+
+class _GroupSelect extends StatelessWidget {
+  const _GroupSelect({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String? value;
+  final List<shad.ShadOption<String>> options;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return ComboBox<String>(
+        value: value,
+        items: [
+          for (final option in options)
+            ComboBoxItem(value: option.value, child: option.child),
+        ],
+        onChanged: onChanged,
+      );
+    }
+    return SizedBox(
+      width: 240,
+      child: shad.ShadSelect<String>(
+        initialValue: value,
+        options: options,
+        selectedOptionBuilder: (context, selected) =>
+            options.firstWhere((option) => option.value == selected).child,
+        onChanged: onChanged,
+      ),
+    );
   }
 }
 
@@ -358,7 +427,11 @@ class _LoadMoreFooter extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
-            Button(onPressed: list.loadMore, child: const Text('Try again')),
+            _TeacherLeaderboardAction(
+              label: 'Try again',
+              onPressed: list.loadMore,
+              primary: false,
+            ),
           ],
         ),
       );
@@ -369,9 +442,34 @@ class _LoadMoreFooter extends StatelessWidget {
       child: Center(
         child: list.isLoadingMore
             ? const ProgressRing(activeColor: AppColors.primary)
-            : Button(onPressed: list.loadMore, child: const Text('Load more')),
+            : _TeacherLeaderboardAction(
+                label: 'Load more',
+                onPressed: list.loadMore,
+              ),
       ),
     );
+  }
+}
+
+class _TeacherLeaderboardAction extends StatelessWidget {
+  const _TeacherLeaderboardAction({
+    required this.label,
+    required this.onPressed,
+    this.primary = true,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Button(onPressed: onPressed, child: Text(label));
+    }
+    return primary
+        ? shad.ShadButton(onPressed: onPressed, child: Text(label))
+        : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
   }
 }
 

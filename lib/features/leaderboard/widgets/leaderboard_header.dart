@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/services.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -114,241 +114,104 @@ class LeaderboardPeriodSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return _FluentPeriodSelector(period: period, onChanged: onChanged);
+    }
     return Semantics(
       label: 'Leaderboard period',
-      child: Container(
-        height: 42,
-        padding: const EdgeInsets.all(AppSpacing.xs),
-        decoration: BoxDecoration(
-          color: context.elixCardSurface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: context.elixBorder),
-        ),
-        child: Row(
-          children: [
-            for (final value in LeaderboardPeriod.values)
-              Expanded(
-                child: _PeriodButton(
-                  key: ValueKey('leaderboard-period-${value.name}'),
-                  icon: _periodIcon(value),
-                  label: LeaderboardPresentation.periodLabel(value),
-                  selected: value == period,
-                  onPressed: onChanged == null || value == period
-                      ? null
-                      : () => onChanged!(value),
+      child: Row(
+        children: [
+          for (final value in LeaderboardPeriod.values) ...[
+            Expanded(
+              child: shad.ShadButton.raw(
+                key: ValueKey('leaderboard-period-${value.name}'),
+                variant: value == period
+                    ? shad.ShadButtonVariant.secondary
+                    : shad.ShadButtonVariant.ghost,
+                size: shad.ShadButtonSize.sm,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                onPressed: onChanged == null || value == period
+                    ? null
+                    : () => onChanged!(value),
+                child: Expanded(
+                  child: Text(
+                    LeaderboardPresentation.periodLabel(value),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
+            ),
+            if (value != LeaderboardPeriod.allTime)
+              const SizedBox(width: AppSpacing.xs),
           ],
-        ),
+        ],
       ),
     );
   }
 }
 
-IconData _periodIcon(LeaderboardPeriod period) {
-  return switch (period) {
-    LeaderboardPeriod.today => FluentIcons.clock,
-    LeaderboardPeriod.thisMonth => FluentIcons.calendar,
-    LeaderboardPeriod.allTime => FluentIcons.globe,
-  };
-}
+class _FluentPeriodSelector extends StatelessWidget {
+  const _FluentPeriodSelector({required this.period, required this.onChanged});
 
-class _PeriodButton extends StatefulWidget {
-  const _PeriodButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback? onPressed;
-
-  @override
-  State<_PeriodButton> createState() => _PeriodButtonState();
-}
-
-class _PeriodButtonState extends State<_PeriodButton> {
-  bool _hovered = false;
-  bool _focused = false;
+  final LeaderboardPeriod period;
+  final ValueChanged<LeaderboardPeriod>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final interactive = widget.onPressed != null;
-    final highlighted = widget.selected || _hovered || _focused;
-
     return Semantics(
-      button: true,
-      selected: widget.selected,
-      enabled: interactive || widget.selected,
-      label: '${widget.label} leaderboard',
-      child: FocusableActionDetector(
-        enabled: interactive,
-        mouseCursor: interactive
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-        },
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              widget.onPressed?.call();
-              return null;
-            },
-          ),
-        },
-        onShowHoverHighlight: (value) {
-          if (_hovered != value) setState(() => _hovered = value);
-        },
-        onShowFocusHighlight: (value) {
-          if (_focused != value) setState(() => _focused = value);
-        },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            decoration: BoxDecoration(
-              color: widget.selected
-                  ? AppColors.primary.withValues(
-                      alpha: context.isDarkTheme ? 0.18 : 0.12,
-                    )
-                  : _hovered
-                  ? AppColors.accent.withValues(alpha: 0.08)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _focused
-                    ? AppColors.primary.withValues(alpha: 0.85)
-                    : widget.selected
-                    ? AppColors.primary.withValues(alpha: 0.36)
-                    : Colors.transparent,
-                width: _focused ? 1.5 : 1,
+      label: 'Leaderboard period',
+      child: Row(
+        children: [
+          for (final value in LeaderboardPeriod.values) ...[
+            Expanded(
+              child: ToggleButton(
+                checked: value == period,
+                onChanged: onChanged == null || value == period
+                    ? null
+                    : (_) => onChanged!(value),
+                child: Text(LeaderboardPresentation.periodLabel(value)),
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ExcludeSemantics(
-                  child: Icon(
-                    widget.icon,
-                    size: 12,
-                    color: widget.selected
-                        ? AppColors.primarySoft
-                        : context.elixTextSecondary,
-                  ),
-                ),
-                const SizedBox(width: 5),
-                Flexible(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: highlighted
-                          ? FontWeight.w700
-                          : FontWeight.w600,
-                      color: widget.selected
-                          ? AppColors.primarySoft
-                          : context.elixTextSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+            if (value != LeaderboardPeriod.allTime)
+              const SizedBox(width: AppSpacing.xs),
+          ],
+        ],
       ),
     );
   }
 }
 
-class _RefreshButton extends StatefulWidget {
+class _RefreshButton extends StatelessWidget {
   const _RefreshButton({required this.enabled, required this.onPressed});
 
   final bool enabled;
   final VoidCallback onPressed;
 
   @override
-  State<_RefreshButton> createState() => _RefreshButtonState();
-}
-
-class _RefreshButtonState extends State<_RefreshButton> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
   Widget build(BuildContext context) {
-    final interactive = widget.enabled;
-    final accentBorder = _hovered || _focused;
-
+    final useShad =
+        !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
+    final child = !useShad
+        ? IconButton(
+            icon: const Icon(FluentIcons.refresh),
+            onPressed: enabled ? onPressed : null,
+          )
+        : shad.ShadIconButton.outline(
+            icon: const Icon(FluentIcons.refresh),
+            onPressed: enabled ? onPressed : null,
+          );
     return Semantics(
       button: true,
-      enabled: interactive,
+      enabled: enabled,
       label: 'Refresh leaderboard',
-      child: Tooltip(
-        message: 'Refresh leaderboard',
-        child: FocusableActionDetector(
-          enabled: interactive,
-          onShowFocusHighlight: (focused) {
-            if (_focused != focused) setState(() => _focused = focused);
-          },
-          onShowHoverHighlight: (hovered) {
-            if (_hovered != hovered) setState(() => _hovered = hovered);
-          },
-          mouseCursor: interactive
-              ? SystemMouseCursors.click
-              : SystemMouseCursors.basic,
-          shortcuts: const <ShortcutActivator, Intent>{
-            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-          },
-          actions: <Type, Action<Intent>>{
-            ActivateIntent: CallbackAction<ActivateIntent>(
-              onInvoke: (_) {
-                if (interactive) widget.onPressed();
-                return null;
-              },
+      child: !useShad
+          ? Tooltip(message: 'Refresh leaderboard', child: child)
+          : shad.ShadTooltip(
+              builder: (context) => const Text('Refresh leaderboard'),
+              child: child,
             ),
-          },
-          child: GestureDetector(
-            onTap: interactive ? widget.onPressed : null,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              width: 42,
-              height: 42,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: context.elixCardSurface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: !interactive
-                      ? context.elixBorder.withValues(alpha: 0.5)
-                      : accentBorder
-                      ? AppColors.accent.withValues(alpha: 0.60)
-                      : context.elixBorder,
-                  width: _focused ? 1.5 : 1,
-                ),
-              ),
-              child: Icon(
-                FluentIcons.refresh,
-                size: 16,
-                color: interactive
-                    ? AppColors.accentSoft
-                    : context.elixTextSecondary.withValues(alpha: 0.55),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -605,9 +606,24 @@ class _LoadErrorState extends StatelessWidget {
             style: TextStyle(color: context.elixTextSecondary, fontSize: 12),
           ),
         ),
-        Button(onPressed: onRetry, child: const Text('Retry')),
+        _GamificationAction(onPressed: onRetry, label: 'Retry'),
       ],
     );
+  }
+}
+
+class _GamificationAction extends StatelessWidget {
+  const _GamificationAction({required this.onPressed, required this.label});
+
+  final VoidCallback onPressed;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Button(onPressed: onPressed, child: Text(label));
+    }
+    return shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
   }
 }
 

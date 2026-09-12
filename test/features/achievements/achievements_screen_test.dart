@@ -30,6 +30,7 @@ import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 const _testUserId = 'u1';
 
@@ -282,17 +283,26 @@ Future<void> settleUi(WidgetTester tester) async {
 
 Future<void> _openAchievementFilterMenu(WidgetTester tester) async {
   await tester.tap(
-    find.byWidgetPredicate(
-      (widget) => widget.runtimeType.toString().startsWith('ComboBox<'),
-    ),
+    find.byWidgetPredicate((widget) => widget is shad.ShadSelect),
   );
   await settleUi(tester);
 }
 
 Future<void> _selectAchievementFilter(WidgetTester tester, String label) async {
-  await _openAchievementFilterMenu(tester);
-  final options = find.text(label).hitTestable();
-  await tester.tap(options.last);
+  const optionIndex = {
+    'All achievements': 0,
+    'Claimable': 1,
+    'In progress': 2,
+    'Claimed': 3,
+    'Locked': 4,
+  };
+  final select =
+      tester.widget(
+            find.byWidgetPredicate((widget) => widget is shad.ShadSelect),
+          )
+          as dynamic;
+  final option = (select.options as List)[optionIndex[label]!];
+  select.onChanged(option.value);
   await settleUi(tester);
 }
 
@@ -326,14 +336,16 @@ Widget _wrapAchievementsScreen({
     ],
     child: FluentApp(
       theme: AppTheme.dark,
-      home: AchievementsScreen(
-        achievementRepository: _FakeAchievementRepository(
-          claimedIdsStream ?? Stream.value(claimedIds),
+      home: ElixShadThemeBridge(
+        child: AchievementsScreen(
+          achievementRepository: _FakeAchievementRepository(
+            claimedIdsStream ?? Stream.value(claimedIds),
+          ),
+          leaderboardRepository: _FakeLeaderboardRepository(_entry()),
+          sessionRepository: _FakeSessionRepository(sessions),
+          gamificationRepository:
+              gamificationRepository ?? _FakeGamificationRepository(),
         ),
-        leaderboardRepository: _FakeLeaderboardRepository(_entry()),
-        sessionRepository: _FakeSessionRepository(sessions),
-        gamificationRepository:
-            gamificationRepository ?? _FakeGamificationRepository(),
       ),
     ),
   );
@@ -541,9 +553,7 @@ void main() {
       expect(find.byIcon(FluentIcons.view_all), findsOneWidget);
       expect(
         find.descendant(
-          of: find.byWidgetPredicate(
-            (widget) => widget.runtimeType.toString().startsWith('ComboBox<'),
-          ),
+          of: find.byWidgetPredicate((widget) => widget is shad.ShadSelect),
           matching: find.text('${counts['all']}'),
         ),
         findsOneWidget,
@@ -718,9 +728,7 @@ void main() {
       await expectNoOverflow(tester);
       expect(find.text('All achievements'), findsOneWidget);
       expect(
-        find.byWidgetPredicate(
-          (widget) => widget.runtimeType.toString().startsWith('ComboBox<'),
-        ),
+        find.byWidgetPredicate((widget) => widget is shad.ShadSelect),
         findsOneWidget,
       );
     });

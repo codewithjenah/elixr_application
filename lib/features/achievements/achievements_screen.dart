@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -835,9 +836,9 @@ class _AchievementFilterDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
+    final options = [
       for (final option in _AchievementFilter.values)
-        ComboBoxItem<_AchievementFilter>(
+        shad.ShadOption<_AchievementFilter>(
           value: option,
           child: _AchievementFilterOptionRow(
             icon: _achievementFilterIcon(option),
@@ -847,40 +848,33 @@ class _AchievementFilterDropdown extends StatelessWidget {
         ),
     ];
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.75)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          height: _kAchievementFilterDropdownHeight,
-          child: ComboBox<_AchievementFilter>(
-            value: filter,
-            isExpanded: true,
-            items: items,
-            icon: Icon(
-              FluentIcons.chevron_down,
-              size: 10,
-              color: context.elixTextSecondary,
-            ),
-            selectedItemBuilder: (context) {
-              return [
-                for (final option in _AchievementFilter.values)
-                  _AchievementFilterOptionRow(
-                    icon: _achievementFilterIcon(option),
-                    label: _achievementFilterDisplayLabel(option),
-                    count: _achievementFilterCount(option, filterCounts),
-                  ),
-              ];
-            },
-            onChanged: (value) {
-              if (value != null) onFilterChanged(value);
-            },
-          ),
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return SizedBox(
+        height: _kAchievementFilterDropdownHeight,
+        child: ComboBox<_AchievementFilter>(
+          value: filter,
+          isExpanded: true,
+          items: [
+            for (final option in options)
+              ComboBoxItem(value: option.value, child: option.child),
+          ],
+          onChanged: (value) {
+            if (value != null) onFilterChanged(value);
+          },
         ),
+      );
+    }
+    return SizedBox(
+      height: _kAchievementFilterDropdownHeight,
+      child: shad.ShadSelect<_AchievementFilter>(
+        initialValue: filter,
+        minWidth: isExpanded ? null : _kAchievementFilterDropdownWidth,
+        options: options,
+        selectedOptionBuilder: (context, selected) =>
+            options.firstWhere((option) => option.value == selected).child,
+        onChanged: (value) {
+          if (value != null) onFilterChanged(value);
+        },
       ),
     );
   }

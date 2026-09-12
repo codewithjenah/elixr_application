@@ -65,7 +65,7 @@ LeaderboardEntry entry({
 Widget wrap(Widget child) {
   return FluentApp(
     theme: AppTheme.dark,
-    home: ScaffoldPage(content: child),
+    home: ScaffoldPage(content: ElixShadThemeBridge(child: child)),
   );
 }
 
@@ -184,10 +184,6 @@ void main() {
         expect(find.text('Current Season'), findsOneWidget);
         expect(find.text('All time'), findsOneWidget);
         expect(find.text('All Time'), findsNothing);
-        expect(find.byIcon(FluentIcons.clock), findsOneWidget);
-        expect(find.byIcon(FluentIcons.calendar), findsOneWidget);
-        expect(find.byIcon(FluentIcons.globe), findsOneWidget);
-
         await tester.tap(find.text('Today'));
         expect(selected, LeaderboardPeriod.today);
       },
