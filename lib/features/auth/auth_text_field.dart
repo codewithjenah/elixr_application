@@ -250,34 +250,18 @@ class _AuthTextFieldState extends State<AuthTextField> {
             child: AnimatedContainer(
               duration: motion,
               curve: ElixMotion.standardCurve,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: fill,
-                border: Border.all(color: borderColor, width: borderWidth),
-                boxShadow: highContrast || !enabled
-                    ? const []
-                    : [
-                        if (_focused && !emphasizeStatus)
-                          BoxShadow(
-                            color: colors.glowPrimary.withValues(alpha: 0.16),
-                            blurRadius: 14,
-                            spreadRadius: -4,
-                          ),
-                        if (_focused && widget.status == AuthFieldStatus.error)
-                          BoxShadow(
-                            color: colors.error.withValues(alpha: 0.16),
-                            blurRadius: 12,
-                            spreadRadius: -4,
-                          ),
-                        if (_focused &&
-                            widget.status == AuthFieldStatus.success)
-                          BoxShadow(
-                            color: colors.success.withValues(alpha: 0.14),
-                            blurRadius: 12,
-                            spreadRadius: -4,
-                          ),
-                      ],
-              ),
+              // ShadInput owns normal-theme fill, borders and focus state.
+              // Fluent keeps its explicit high-contrast boundary.
+              decoration: highContrast
+                  ? BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: fill,
+                      border: Border.all(
+                        color: borderColor,
+                        width: borderWidth,
+                      ),
+                    )
+                  : null,
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: widget.dense ? 46 : 50),
                 child: context.isHighContrast

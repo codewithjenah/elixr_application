@@ -346,6 +346,83 @@ class ElixDialog extends StatelessWidget {
         ? context.elixTextPrimary
         : (iconColor ?? context.elixColors.brandPrimary);
 
+    final dialogContents = Column(
+      mainAxisSize: scrollableContent ? MainAxisSize.max : MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.xl,
+            AppSpacing.xl,
+            AppSpacing.md,
+          ),
+          child: ElixEditorialHeader(
+            heading: title,
+            subtitle: subtitle,
+            variant: ElixEditorialHeaderVariant.compact,
+            leading: icon == null
+                ? null
+                : Container(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: highContrast
+                          ? context.elixCardSurface
+                          : iconTone.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: highContrast
+                          ? Border.all(color: context.elixBorder, width: 2)
+                          : null,
+                    ),
+                    child: Icon(icon, color: iconTone, size: 22),
+                  ),
+          ),
+        ),
+        if (scrollableContent)
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.sm,
+                AppSpacing.xl,
+                AppSpacing.md,
+              ),
+              child: content,
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.xl,
+              AppSpacing.sm,
+              AppSpacing.xl,
+              AppSpacing.md,
+            ),
+            child: content,
+          ),
+      ],
+    );
+    final dialogActions = actions == null || actions!.isEmpty
+        ? const <Widget>[]
+        : actions!.length == 1
+        ? [SizedBox(width: double.infinity, child: actions!.first)]
+        : [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                for (var i = 0; i < actions!.length; i++) ...[
+                  if (i > 0) const SizedBox(width: AppSpacing.sm),
+                  if (uniformActionSize == null)
+                    actions![i]
+                  else
+                    SizedBox.fromSize(
+                      size: uniformActionSize,
+                      child: actions![i],
+                    ),
+                ],
+              ],
+            ),
+          ];
     final legacyBody = Material(
       type: MaterialType.transparency,
       child: Container(
@@ -407,53 +484,9 @@ class ElixDialog extends StatelessWidget {
                           ],
                         ),
                       ),
-                child: ElixEditorialHeader(
-                  heading: title,
-                  subtitle: subtitle,
-                  variant: ElixEditorialHeaderVariant.compact,
-                  leading: icon == null
-                      ? null
-                      : Container(
-                          padding: const EdgeInsets.all(AppSpacing.sm),
-                          decoration: BoxDecoration(
-                            color: highContrast
-                                ? context.elixCardSurface
-                                : iconTone.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                            border: highContrast
-                                ? Border.all(
-                                    color: context.elixBorder,
-                                    width: 2,
-                                  )
-                                : null,
-                          ),
-                          child: Icon(icon, color: iconTone, size: 22),
-                        ),
-                ),
+                child: dialogContents,
               ),
-              if (scrollableContent)
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.xl,
-                      AppSpacing.sm,
-                      AppSpacing.xl,
-                      AppSpacing.md,
-                    ),
-                    child: content,
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.xl,
-                    AppSpacing.sm,
-                    AppSpacing.xl,
-                    AppSpacing.md,
-                  ),
-                  child: content,
-                ),
-              if (actions != null && actions!.isNotEmpty)
+              if (dialogActions.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.xl,
@@ -461,23 +494,7 @@ class ElixDialog extends StatelessWidget {
                     AppSpacing.xl,
                     AppSpacing.xl,
                   ),
-                  child: actions!.length == 1
-                      ? SizedBox(width: double.infinity, child: actions!.first)
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            for (var i = 0; i < actions!.length; i++) ...[
-                              if (i > 0) const SizedBox(width: AppSpacing.sm),
-                              if (uniformActionSize == null)
-                                actions![i]
-                              else
-                                SizedBox.fromSize(
-                                  size: uniformActionSize,
-                                  child: actions![i],
-                                ),
-                            ],
-                          ],
-                        ),
+                  child: dialogActions.single,
                 ),
             ],
           ),
@@ -493,8 +510,11 @@ class ElixDialog extends StatelessWidget {
       ),
       padding: EdgeInsets.zero,
       backgroundColor: context.elixCardSurface,
-      actions: const [],
-      child: legacyBody,
+      border: Border.all(color: context.elixColors.borderSubtle),
+      shadows: const [],
+      actions: dialogActions,
+      scrollable: scrollableContent,
+      child: dialogContents,
     );
   }
 }

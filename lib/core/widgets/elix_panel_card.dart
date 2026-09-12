@@ -56,7 +56,7 @@ class ElixPanelCard extends StatelessWidget {
       child: child,
     );
 
-    final panel = Container(
+    final legacyPanel = Container(
       width: expand ? double.infinity : null,
       decoration: BoxDecoration(
         color: highContrast ? surface : null,
@@ -124,16 +124,34 @@ class ElixPanelCard extends StatelessWidget {
             : content,
       ),
     );
-    // Shad owns the normal panel surface; the legacy container remains only
-    // for the explicit high-contrast treatment and the optional accent rail.
-    if (highContrast) return panel;
+    // High contrast retains the explicit Fluent treatment. In normal themes,
+    // ShadCard is the surface; only the optional ELIXR accent rail remains.
+    if (highContrast) return legacyPanel;
     return shad.ShadCard(
       key: const ValueKey('elix-panel-shad-card'),
       width: expand ? double.infinity : null,
       padding: EdgeInsets.zero,
-      shadows: const [],
-      backgroundColor: colors.surfaceRaised,
-      child: panel,
+      radius: BorderRadius.circular(12),
+      border: shad.ShadBorder.all(color: borderColor),
+      shadows: flattenSurface ? const [] : null,
+      backgroundColor: surface,
+      child: showAccentBar && accentColor != null
+          ? Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 3),
+                  child: content,
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 3,
+                  child: ColoredBox(color: accentColor),
+                ),
+              ],
+            )
+          : content,
     );
   }
 }

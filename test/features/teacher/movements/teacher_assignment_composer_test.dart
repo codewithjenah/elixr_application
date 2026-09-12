@@ -21,6 +21,7 @@ import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   _TrackingAssignments({required InMemoryGroupRepository groupRepository})
@@ -545,19 +546,21 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: TeacherAssignmentComposer(
-          teacherId: 'teacher-1',
-          teacherDisplayName: 'Grace Hopper',
-          groups: availableGroups,
-          movementRepository: movements,
-          groupRepository: groups,
-          lockedGroup: lockedGroup,
-          creationService: creationService,
-          officialMovement: officialMovement,
-          initialOfficialProp: initialOfficialProp,
-          teacherCreatedMovement: teacherCreatedMovement,
-          existingAssignment: existingAssignment,
-          materialRepository: materialRepository,
+        home: ElixShadThemeBridge(
+          child: TeacherAssignmentComposer(
+            teacherId: 'teacher-1',
+            teacherDisplayName: 'Grace Hopper',
+            groups: availableGroups,
+            movementRepository: movements,
+            groupRepository: groups,
+            lockedGroup: lockedGroup,
+            creationService: creationService,
+            officialMovement: officialMovement,
+            initialOfficialProp: initialOfficialProp,
+            teacherCreatedMovement: teacherCreatedMovement,
+            existingAssignment: existingAssignment,
+            materialRepository: materialRepository,
+          ),
         ),
       ),
     );
@@ -588,42 +591,25 @@ void main() {
     );
     await _enablePublicationScheduling(tester);
     final date = tester
-        .widget<DatePicker>(
+        .widget<shad.ShadDatePicker>(
           find.byKey(const Key('teacher_assignment_publish_date')),
         )
         .selected!;
-    final hourBox = tester.widget<ComboBox<int>>(
-      find.byKey(const Key('teacher_assignment_publish_hour')),
+    final timePicker = tester.widget<shad.ShadTimePicker>(
+      find.byKey(const Key('teacher_assignment_publish_time')),
     );
-    expect(
-      hourBox.items!.map((item) => item.value),
-      orderedEquals(List<int>.generate(12, (index) => index + 1)),
-    );
-    final minuteBox = tester.widget<ComboBox<int>>(
-      find.byKey(const Key('teacher_assignment_publish_minute')),
-    );
-    expect(
-      minuteBox.items!.map((item) => item.value),
-      orderedEquals(List<int>.generate(60, (index) => index)),
-    );
-    for (final minute in [7, 23, 59]) {
-      final item = minuteBox.items!.singleWhere((item) => item.value == minute);
-      expect(item.child, isA<Text>());
-      expect((item.child as Text).data, minute.toString().padLeft(2, '0'));
-    }
+    expect(timePicker.showSeconds, isFalse);
+    expect(timePicker.minHour, 1);
+    expect(timePicker.maxHour, 12);
     expect(find.textContaining('Manila'), findsNothing);
-    hourBox.onChanged!(hour);
-    await tester.pump();
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_publish_period')),
-        )
-        .onChanged!(period);
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_publish_minute')),
-        )
-        .onChanged!(minute);
+    timePicker.onChanged!(
+      shad.ShadTimeOfDay(
+        hour: hour,
+        minute: minute,
+        second: 0,
+        period: period == 'AM' ? shad.ShadDayPeriod.am : shad.ShadDayPeriod.pm,
+      ),
+    );
     await tester.pump();
 
     await tester.ensureVisible(
@@ -738,25 +724,22 @@ void main() {
     );
     await enableDueDate(tester);
     tester
-        .widget<DatePicker>(
+        .widget<shad.ShadDatePicker>(
           find.byKey(const Key('teacher_assignment_due_date')),
         )
         .onChanged!(DateTime(2026, 9, 15));
     tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_hour')),
+        .widget<shad.ShadTimePicker>(
+          find.byKey(const Key('teacher_assignment_due_time')),
         )
-        .onChanged!(8);
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_due_minute')),
-        )
-        .onChanged!(30);
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_due_period')),
-        )
-        .onChanged!('PM');
+        .onChanged!(
+      const shad.ShadTimeOfDay(
+        hour: 8,
+        minute: 30,
+        second: 0,
+        period: shad.ShadDayPeriod.pm,
+      ),
+    );
     await tester.pump();
 
     await saveDraft(tester);

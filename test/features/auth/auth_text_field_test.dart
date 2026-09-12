@@ -15,11 +15,13 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: ScaffoldPage(
-          content: ValueListenableBuilder<String>(
-            valueListenable: password,
-            builder: (context, value, _) =>
-                AuthPasswordChecklist(password: value),
+        home: ElixShadThemeBridge(
+          child: ScaffoldPage(
+            content: ValueListenableBuilder<String>(
+              valueListenable: password,
+              builder: (context, value, _) =>
+                  AuthPasswordChecklist(password: value),
+            ),
           ),
         ),
       ),
@@ -49,12 +51,14 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: ScaffoldPage(
-          content: AuthTextField(
-            controller: controller,
-            label: 'Email address',
-            placeholder: 'Email address',
-            icon: FluentIcons.mail_solid,
+        home: ElixShadThemeBridge(
+          child: ScaffoldPage(
+            content: AuthTextField(
+              controller: controller,
+              label: 'Email address',
+              placeholder: 'Email address',
+              icon: FluentIcons.mail_solid,
+            ),
           ),
         ),
       ),
@@ -65,14 +69,16 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: ScaffoldPage(
-          content: AuthTextField(
-            controller: controller,
-            label: 'Email address',
-            placeholder: 'Email address',
-            icon: FluentIcons.mail_solid,
-            status: AuthFieldStatus.error,
-            validationText: 'Enter a valid email address.',
+        home: ElixShadThemeBridge(
+          child: ScaffoldPage(
+            content: AuthTextField(
+              controller: controller,
+              label: 'Email address',
+              placeholder: 'Email address',
+              icon: FluentIcons.mail_solid,
+              status: AuthFieldStatus.error,
+              validationText: 'Enter a valid email address.',
+            ),
           ),
         ),
       ),

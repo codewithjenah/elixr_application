@@ -4,6 +4,7 @@ import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 void main() {
   testWidgets('accent bar supports LayoutBuilder content', (tester) async {
@@ -51,22 +52,10 @@ void main() {
       ),
     );
 
-    final panels = tester
-        .widgetList<Container>(find.byType(Container))
-        .where((container) => container.decoration is BoxDecoration);
-    final routine = panels.firstWhere(
-      (container) =>
-          (container.decoration! as BoxDecoration).borderRadius ==
-          BorderRadius.circular(18),
-    );
-    final hero = panels.lastWhere(
-      (container) =>
-          (container.decoration! as BoxDecoration).borderRadius ==
-          BorderRadius.circular(18),
-    );
-
-    expect((routine.decoration! as BoxDecoration).boxShadow, isEmpty);
-    expect((hero.decoration! as BoxDecoration).boxShadow, isNotEmpty);
+    final cards = tester.widgetList<shad.ShadCard>(find.byType(shad.ShadCard));
+    expect(cards, hasLength(2));
+    expect(cards.first.shadows, isEmpty);
+    expect(cards.last.shadows, isNull);
   });
 
   testWidgets('high contrast panels use an opaque strong border', (

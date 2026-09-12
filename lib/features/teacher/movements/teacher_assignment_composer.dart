@@ -6,6 +6,7 @@ import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/auth/teacher_auth_messages.dart';
 import '../../../core/constants/app_colors.dart';
@@ -4837,85 +4838,32 @@ class _DueDateField extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 360),
-            child: DatePicker(
+            child: shad.ShadDatePicker(
               key: const Key('teacher_assignment_due_date'),
               selected: _manilaCivilDate(dueAt!),
-              onChanged: enabled ? onDateChanged : null,
+              formatDate: _formatScheduleDate,
+              onChanged: enabled
+                  ? (value) {
+                      if (value != null) onDateChanged(value);
+                    }
+                  : null,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text('Time', style: AppTheme.bodySecondary),
           const SizedBox(height: AppSpacing.xs),
-          Row(
-            children: [
-              Expanded(
-                child: _scheduleTimePart(
-                  label: 'Hour',
-                  child: ComboBox<int>(
-                    key: const Key('teacher_assignment_due_hour'),
-                    value: _hour12From24(_manilaCivilHour(dueAt!)),
-                    isExpanded: true,
-                    placeholder: const Text('Hour'),
-                    items: [
-                      for (var value = 1; value <= 12; value++)
-                        ComboBoxItem(
-                          value: value,
-                          child: Text(value.toString()),
-                        ),
-                    ],
-                    onChanged: enabled
-                        ? (value) {
-                            if (value != null) onHourChanged(value);
-                          }
-                        : null,
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: _scheduleTimePart(
-                  label: 'Minute',
-                  child: ComboBox<int>(
-                    key: const Key('teacher_assignment_due_minute'),
-                    value: _manilaCivilMinute(dueAt!),
-                    isExpanded: true,
-                    placeholder: const Text('Minute'),
-                    items: [
-                      for (var value = 0; value < 60; value++)
-                        ComboBoxItem(
-                          value: value,
-                          child: Text(value.toString().padLeft(2, '0')),
-                        ),
-                    ],
-                    onChanged: enabled
-                        ? (value) {
-                            if (value != null) onMinuteChanged(value);
-                          }
-                        : null,
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: _scheduleTimePart(
-                  label: 'AM / PM',
-                  child: ComboBox<String>(
-                    key: const Key('teacher_assignment_due_period'),
-                    value: _periodForHour24(_manilaCivilHour(dueAt!)),
-                    isExpanded: true,
-                    items: const [
-                      ComboBoxItem(value: 'AM', child: Text('AM')),
-                      ComboBoxItem(value: 'PM', child: Text('PM')),
-                    ],
-                    onChanged: enabled
-                        ? (value) {
-                            if (value != null) onPeriodChanged(value);
-                          }
-                        : null,
-                  ),
-                ),
-              ),
-            ],
+          _scheduleTimePicker(
+            key: const Key('teacher_assignment_due_time'),
+            hour24: _manilaCivilHour(dueAt!),
+            minute: _manilaCivilMinute(dueAt!),
+            enabled: enabled,
+            onChanged: (time) {
+              onHourChanged(time.hour);
+              onMinuteChanged(time.minute);
+              onPeriodChanged(
+                time.period == shad.ShadDayPeriod.am ? 'AM' : 'PM',
+              );
+            },
           ),
         ],
       ],
@@ -5321,9 +5269,6 @@ class _PublicationScheduleField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hour12 = _hour12From24(hour24);
-    final period = _periodForHour24(hour24);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -5333,98 +5278,67 @@ class _PublicationScheduleField extends StatelessWidget {
         const SizedBox(height: AppSpacing.xs),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 360),
-          child: DatePicker(
+          child: shad.ShadDatePicker(
             key: const Key('teacher_assignment_publish_date'),
             selected: date,
-            onChanged: enabled ? onDateChanged : null,
+            formatDate: _formatScheduleDate,
+            onChanged: enabled
+                ? (value) {
+                    if (value != null) onDateChanged(value);
+                  }
+                : null,
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
         Text('Time', style: AppTheme.bodySecondary),
         const SizedBox(height: AppSpacing.xs),
-        Row(
-          children: [
-            Expanded(
-              child: _scheduleTimePart(
-                label: 'Hour',
-                child: ComboBox<int>(
-                  key: const Key('teacher_assignment_publish_hour'),
-                  value: hour12,
-                  isExpanded: true,
-                  placeholder: const Text('Hour'),
-                  items: [
-                    for (var value = 1; value <= 12; value++)
-                      ComboBoxItem(value: value, child: Text(value.toString())),
-                  ],
-                  onChanged: enabled
-                      ? (value) {
-                          if (value != null) onHourChanged(value);
-                        }
-                      : null,
-                ),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: _scheduleTimePart(
-                label: 'Minute',
-                child: ComboBox<int>(
-                  key: const Key('teacher_assignment_publish_minute'),
-                  value: minute,
-                  isExpanded: true,
-                  placeholder: const Text('Minute'),
-                  items: [
-                    for (var value = 0; value < 60; value++)
-                      ComboBoxItem(
-                        value: value,
-                        child: Text(value.toString().padLeft(2, '0')),
-                      ),
-                  ],
-                  onChanged: enabled
-                      ? (value) {
-                          if (value != null) onMinuteChanged(value);
-                        }
-                      : null,
-                ),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: _scheduleTimePart(
-                label: 'AM / PM',
-                child: ComboBox<String>(
-                  key: const Key('teacher_assignment_publish_period'),
-                  value: period,
-                  isExpanded: true,
-                  items: const [
-                    ComboBoxItem(value: 'AM', child: Text('AM')),
-                    ComboBoxItem(value: 'PM', child: Text('PM')),
-                  ],
-                  onChanged: enabled
-                      ? (value) {
-                          if (value != null) onPeriodChanged(value);
-                        }
-                      : null,
-                ),
-              ),
-            ),
-          ],
+        _scheduleTimePicker(
+          key: const Key('teacher_assignment_publish_time'),
+          hour24: hour24,
+          minute: minute,
+          enabled: enabled,
+          onChanged: (time) {
+            onHourChanged(time.hour);
+            onMinuteChanged(time.minute);
+            onPeriodChanged(time.period == shad.ShadDayPeriod.am ? 'AM' : 'PM');
+          },
         ),
       ],
     );
   }
 }
 
-Widget _scheduleTimePart({required String label, required Widget child}) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(label, style: AppTheme.caption),
-      const SizedBox(height: AppSpacing.xs),
-      child,
-    ],
+Widget _scheduleTimePicker({
+  required Key key,
+  required int hour24,
+  required int minute,
+  required bool enabled,
+  required ValueChanged<shad.ShadTimeOfDay> onChanged,
+}) {
+  final hour12 = _hour12From24(hour24);
+  final period = _periodForHour24(hour24) == 'AM'
+      ? shad.ShadDayPeriod.am
+      : shad.ShadDayPeriod.pm;
+  return shad.ShadTimePicker.period(
+    key: key,
+    initialValue: shad.ShadTimeOfDay(
+      hour: hour12,
+      minute: minute,
+      second: 0,
+      period: period,
+    ),
+    minHour: 1,
+    maxHour: 12,
+    showHours: true,
+    showMinutes: true,
+    showSeconds: false,
+    enabled: enabled,
+    onChanged: onChanged,
   );
 }
+
+String _formatScheduleDate(DateTime date) =>
+    '${date.month}/${date.day}/${date.year}';
 
 class _SummaryItem extends StatelessWidget {
   const _SummaryItem({
