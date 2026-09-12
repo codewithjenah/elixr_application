@@ -2,7 +2,6 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
@@ -54,30 +53,6 @@ class TraineeClassAccent {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [start, Color.lerp(start, end, 0.42)!, end],
-  );
-}
-
-LinearGradient _classCardHeroGradient(Color header, {required bool isDark}) {
-  final lifted = Color.lerp(
-    header,
-    const Color(0xFFFFFFFF),
-    isDark ? 0.18 : 0.08,
-  )!;
-  final deep = Color.lerp(
-    header,
-    isDark ? const Color(0xFF140816) : const Color(0xFF2C1238),
-    isDark ? 0.42 : 0.26,
-  )!;
-  final elixrBlend = Color.lerp(
-    header,
-    AppColors.accent,
-    isDark ? 0.32 : 0.20,
-  )!;
-  return LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [lifted, header, elixrBlend, deep],
-    stops: const [0.0, 0.36, 0.68, 1.0],
   );
 }
 
@@ -196,23 +171,18 @@ class TraineeClassCard extends StatefulWidget {
 class _TraineeClassCardState extends State<TraineeClassCard> {
   bool _hovered = false;
   bool _focused = false;
-  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
     final colors = context.elixColors;
-    final glowScale = context.elixWorkspaceVisuals.persistentGlowScale;
     final header = traineeClassHeaderColor(widget.groupId);
     final initials =
         (widget.ownerInitials == null || widget.ownerInitials!.trim().isEmpty)
         ? userInitials(widget.teacherName)
         : widget.ownerInitials!;
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final lift = highContrast || reduceMotion
-        ? 0.0
-        : (_pressed ? 0.0 : (_hovered ? -1.5 : 0.0));
+    const lift = 0.0;
 
     final borderColor = highContrast
         ? (_focused ? colors.focusRing : colors.borderStrong)
@@ -228,31 +198,7 @@ class _TraineeClassCardState extends State<TraineeClassCard> {
         ? (highContrast ? ElixFocus.ringWidthHighContrast : ElixFocus.ringWidth)
         : (highContrast ? 2.0 : 1.0);
 
-    final shadows = highContrast
-        ? const <BoxShadow>[]
-        : [
-            BoxShadow(
-              color: colors.shadow.withValues(
-                alpha: isDark
-                    ? (_hovered ? 0.48 : 0.34)
-                    : (_hovered ? 0.14 : 0.08),
-              ),
-              blurRadius: _hovered ? 18 : 12,
-              offset: Offset(0, _pressed ? 2 : (_hovered ? 7 : 4)),
-            ),
-            BoxShadow(
-              color: header.withValues(
-                alpha:
-                    (isDark ? 0.18 : 0.10) *
-                    glowScale *
-                    (_hovered ? 1.25 : 0.8) *
-                    (_pressed ? 0.55 : 1),
-              ),
-              blurRadius: _hovered ? 20 : 14,
-              spreadRadius: -8,
-              offset: Offset(0, _hovered ? 9 : 7),
-            ),
-          ];
+    const shadows = <BoxShadow>[];
 
     return Semantics(
       button: true,
@@ -281,9 +227,6 @@ class _TraineeClassCardState extends State<TraineeClassCard> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.onOpen,
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapUp: (_) => setState(() => _pressed = false),
-          onTapCancel: () => setState(() => _pressed = false),
           child: AnimatedContainer(
             duration: ElixMotion.duration(context, ElixMotion.standard),
             curve: ElixMotion.standardCurve,
@@ -595,24 +538,8 @@ class _ClassCardHeroBackdrop extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: color,
-            gradient: highContrast
-                ? null
-                : _classCardHeroGradient(color, isDark: isDark),
-          ),
-        ),
+        ColoredBox(color: color),
         if (!highContrast) ...[
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(-0.72, -0.92),
-                radius: 1.15,
-                colors: [Color(0x38FFFFFF), Color(0x00000000)],
-              ),
-            ),
-          ),
           Positioned(
             right: -34,
             top: -42,
@@ -637,25 +564,6 @@ class _ClassCardHeroBackdrop extends StatelessWidget {
                 FluentIcons.education,
                 size: 108,
                 color: Colors.white.withValues(alpha: 0.14),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 0,
-            left: 18,
-            right: 18,
-            height: 1,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withValues(alpha: 0),
-                      Colors.white.withValues(alpha: 0.48),
-                      Colors.white.withValues(alpha: 0),
-                    ],
-                  ),
-                ),
               ),
             ),
           ),

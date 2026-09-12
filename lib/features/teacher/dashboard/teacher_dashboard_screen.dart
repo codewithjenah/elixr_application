@@ -827,10 +827,15 @@ class _DashboardContent extends StatelessWidget {
       heading: 'Your classrooms',
       eyebrow: 'CLASSROOMS',
       subtitle: 'Manage students and class activity.',
-      action: Button(
-        onPressed: () => context.go(AppRoutePaths.teacherGroups),
-        child: const Text('View classrooms'),
-      ),
+      action: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+          ? Button(
+              onPressed: () => context.go(AppRoutePaths.teacherGroups),
+              child: const Text('View classrooms'),
+            )
+          : shad.ShadButton.outline(
+              onPressed: () => context.go(AppRoutePaths.teacherGroups),
+              child: const Text('View classrooms'),
+            ),
       child: controller.groupSummaries.isEmpty
           ? Text(
               'No active classrooms yet.',
@@ -906,10 +911,15 @@ class _NeedsAttentionCard extends StatelessWidget {
           : reviewCount > 0 || controller.pendingQueue.isNotEmpty
           ? 'Start with the work waiting on you.'
           : 'Nothing is waiting for a decision.',
-      action: Button(
-        onPressed: () => context.go(AppRoutePaths.teacherToReview),
-        child: const Text('Review work'),
-      ),
+      action: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+          ? Button(
+              onPressed: () => context.go(AppRoutePaths.teacherToReview),
+              child: const Text('Review work'),
+            )
+          : shad.ShadButton.outline(
+              onPressed: () => context.go(AppRoutePaths.teacherToReview),
+              child: const Text('Review work'),
+            ),
       child: Column(
         children: [
           if (activityLoading)
@@ -982,10 +992,15 @@ class _ActivityPreview extends StatelessWidget {
           : controller == null
           ? 'Activity will appear as classrooms become active.'
           : '${controller.unreadCount} unread notification${controller.unreadCount == 1 ? '' : 's'}',
-      action: Button(
-        onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
-        child: const Text('View all'),
-      ),
+      action: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+          ? Button(
+              onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
+              child: const Text('View all'),
+            )
+          : shad.ShadButton.outline(
+              onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
+              child: const Text('View all'),
+            ),
       child: loading
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),

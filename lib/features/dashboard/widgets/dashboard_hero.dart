@@ -1,12 +1,13 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../progress/training_recommendation.dart';
-
-const _pink = AppColors.primary;
 
 /// Dashboard hero: greeting, brand headline, session status, and CTAs.
 ///
@@ -106,19 +107,13 @@ class DashboardHero extends StatelessWidget {
         final minImageLedHeight = (constraints.maxWidth / _bannerWidthToHeight)
             .clamp(_minImageLedHeight, _maxBannerHeight);
 
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
-            decoration: BoxDecoration(
-              color: highContrast ? context.elixCardSurface : null,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: highContrast
-                    ? context.elixBorder
-                    : Colors.white.withValues(alpha: 0.08),
-                width: highContrast ? 2 : 1,
-              ),
-            ),
+        return ElixPanelCard(
+          accent: context.elixColors.brandPrimary,
+          showAccentBar: true,
+          variant: ElixPanelVariant.hero,
+          padding: EdgeInsets.zero,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
             child: Stack(
               clipBehavior: Clip.hardEdge,
               children: [
@@ -132,36 +127,10 @@ class DashboardHero extends StatelessWidget {
                       alignment: _bannerAlignment,
                     ),
                   ),
-                  // Left-weighted readability wash; keeps the bartender clear on the right.
+                  // A single restrained wash protects copy without turning the
+                  // dashboard into another gradient-heavy surface.
                   const Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          stops: [0.0, 0.42, 0.70, 1.0],
-                          colors: [
-                            Color(0xF20D0D0F),
-                            Color(0xB313091F),
-                            Color(0x4013091F),
-                            Color(0x0A13091F),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Soft bottom vignette for chip/CTA legibility without darkening the art.
-                  const Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          stops: [0.55, 1.0],
-                          colors: [Color(0x00000000), Color(0x33000000)],
-                        ),
-                      ),
-                    ),
+                    child: ColoredBox(color: Color(0x9E17111E)),
                   ),
                 ],
                 if (showSlogan)
@@ -186,10 +155,10 @@ class DashboardHero extends StatelessWidget {
                   ),
                 Padding(
                   padding: EdgeInsets.fromLTRB(
-                    28,
-                    26,
-                    showSlogan ? 226 : 28,
-                    26,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    showSlogan ? 226 : AppSpacing.lg,
+                    AppSpacing.lg,
                   ),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
@@ -240,24 +209,14 @@ class DashboardHero extends StatelessWidget {
                                   ).copyWith(height: 1.05),
                                 )
                               else
-                                ShaderMask(
-                                  blendMode: BlendMode.srcIn,
-                                  shaderCallback: (bounds) =>
-                                      const LinearGradient(
-                                        colors: [
-                                          AppColors.primary,
-                                          AppColors.accentSoft,
-                                        ],
-                                      ).createShader(bounds),
-                                  child: Text(
-                                    _movementName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppTheme.pageTitle(
-                                      context,
-                                      color: Colors.white,
-                                    ).copyWith(height: 1.05),
-                                  ),
+                                Text(
+                                  _movementName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTheme.pageTitle(
+                                    context,
+                                    color: Colors.white,
+                                  ).copyWith(height: 1.05),
                                 ),
                               const SizedBox(height: 8),
                               Text(
@@ -366,7 +325,7 @@ class _SessionStatusChip extends StatelessWidget {
   }
 }
 
-class _HeroActionButton extends StatefulWidget {
+class _HeroActionButton extends StatelessWidget {
   const _HeroActionButton({
     required this.label,
     required this.onPressed,
@@ -382,130 +341,35 @@ class _HeroActionButton extends StatefulWidget {
   final bool expand;
 
   @override
-  State<_HeroActionButton> createState() => _HeroActionButtonState();
-}
-
-class _HeroActionButtonState extends State<_HeroActionButton> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    final colors = context.elixColors;
-    final showFocusRing = _focused;
-    final decoration = BoxDecoration(
-      borderRadius: BorderRadius.circular(11),
-      gradient: widget.primary && !highContrast
-          ? LinearGradient(
-              colors: _hovered
-                  ? const [Color(0xFFFF6A9E), Color(0xFF9B74F0)]
-                  : const [Color(0xFFE8457A), Color(0xFF7C4FD6)],
-            )
-          : null,
-      color: widget.primary
-          ? (highContrast ? colors.brandPrimary : null)
-          : (highContrast
-                ? colors.surfaceRaised
-                : Colors.white.withValues(alpha: _hovered ? 0.14 : 0.07)),
-      border: showFocusRing
-          ? Border.all(
-              color: colors.focusRing,
-              width: highContrast
-                  ? ElixFocus.ringWidthHighContrast
-                  : ElixFocus.ringWidth,
-            )
-          : widget.primary && !highContrast
-          ? null
-          : Border.all(
-              color: highContrast
-                  ? colors.borderStrong
-                  : Colors.white.withValues(alpha: _hovered ? 0.32 : 0.16),
-              width: highContrast ? 2 : 1,
+    final child = primary
+        ? ElixPrimaryButton(
+            label: label,
+            icon: icon,
+            onPressed: onPressed,
+            expanded: expand,
+            dense: true,
+          )
+        : context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? Button(
+            onPressed: onPressed,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 14),
+                  const SizedBox(width: 6),
+                ],
+                Text(label, style: const TextStyle(fontSize: 13)),
+              ],
             ),
-      boxShadow: widget.primary && !highContrast
-          ? [
-              BoxShadow(
-                color: _pink.withValues(alpha: _hovered ? 0.22 : 0.12),
-                blurRadius: _hovered ? 10 : 6,
-                offset: const Offset(0, 2),
-              ),
-            ]
-          : const [],
-    );
-
-    final labelStyle = TextStyle(
-      fontSize: 12.5,
-      fontWeight: FontWeight.w600,
-      color: widget.primary && highContrast
-          ? colors.onBrand
-          : Colors.white.withValues(alpha: widget.primary ? 1 : 0.92),
-    );
-
-    // Flexible + loose keeps the CTA content-sized when space allows, and
-    // prevents RenderFlex overflow when the parent caps width.
-    final button = AnimatedContainer(
-      duration: ElixMotion.duration(context, ElixMotion.standard),
-      curve: ElixMotion.standardCurve,
-      height: 42,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: decoration,
-      child: Row(
-        mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (widget.icon != null) ...[
-            Icon(
-              widget.icon,
-              size: 11.5,
-              color: widget.primary && highContrast
-                  ? colors.onBrand
-                  : Colors.white,
-            ),
-            const SizedBox(width: 7),
-          ],
-          Flexible(
-            fit: FlexFit.loose,
-            child: Text(
-              widget.label,
-              maxLines: 1,
-              softWrap: false,
-              overflow: TextOverflow.fade,
-              style: labelStyle,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    final child = widget.expand
-        ? button
-        : ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: widget.primary ? 300 : 220),
-            child: button,
+          )
+        : shad.ShadButton.outline(
+            onPressed: onPressed,
+            expands: expand,
+            leading: icon == null ? null : Icon(icon, size: 14),
+            child: Text(label, style: const TextStyle(fontSize: 13)),
           );
-
-    return Semantics(
-      button: true,
-      label: widget.label,
-      child: FocusableActionDetector(
-        mouseCursor: SystemMouseCursors.click,
-        onShowHoverHighlight: (hovered) {
-          setState(() => _hovered = hovered);
-        },
-        onShowFocusHighlight: (focused) {
-          setState(() => _focused = focused);
-        },
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              widget.onPressed();
-              return null;
-            },
-          ),
-        },
-        child: GestureDetector(onTap: widget.onPressed, child: child),
-      ),
-    );
+    return child;
   }
 }
