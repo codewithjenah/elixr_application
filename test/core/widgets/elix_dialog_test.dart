@@ -11,18 +11,20 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: ElixDialog(
-          title: 'Confirm?',
-          content: const Text('Confirmation copy'),
-          uniformActionSize: const Size(128, 56),
-          actions: [
-            Button(onPressed: () {}, child: const Text('Cancel')),
-            ElixPrimaryButton(
-              label: 'Longer action',
-              expanded: false,
-              onPressed: () {},
-            ),
-          ],
+        home: ElixShadThemeBridge(
+          child: ElixDialog(
+            title: 'Confirm?',
+            content: const Text('Confirmation copy'),
+            uniformActionSize: const Size(128, 56),
+            actions: [
+              Button(onPressed: () {}, child: const Text('Cancel')),
+              ElixPrimaryButton(
+                label: 'Confirm',
+                expanded: false,
+                onPressed: () {},
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' show Material, MaterialType;
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
@@ -57,26 +58,24 @@ class ElixDialog extends StatelessWidget {
     bool barrierDismissible = true,
     bool scrollableContent = false,
   }) {
-    return showDialog<T>(
+    return shad.showShadDialog<T>(
       context: context,
       barrierDismissible: barrierDismissible,
       barrierColor: context.isHighContrast
           ? Colors.black
           : const Color(0xCC000000),
-      builder: (ctx) => Center(
-        child: ElixDialog(
-          title: title,
-          subtitle: subtitle,
-          icon: icon,
-          iconColor: iconColor,
-          headerAccentColor: headerAccentColor,
-          content: content,
-          actions: actions,
-          uniformActionSize: uniformActionSize,
-          maxWidth: maxWidth,
-          maxHeight: maxHeight,
-          scrollableContent: scrollableContent,
-        ),
+      builder: (ctx) => ElixDialog(
+        title: title,
+        subtitle: subtitle,
+        icon: icon,
+        iconColor: iconColor,
+        headerAccentColor: headerAccentColor,
+        content: content,
+        actions: actions,
+        uniformActionSize: uniformActionSize,
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+        scrollableContent: scrollableContent,
       ),
     );
   }
@@ -162,7 +161,7 @@ class ElixDialog extends StatelessWidget {
                 style: AppTheme.caption.copyWith(color: ctx.elixTextSecondary),
               ),
               const SizedBox(height: 6),
-              TextBox(
+              shad.ShadInput(
                 controller: passwordController,
                 obscureText: obscured,
                 autofocus: true,
@@ -170,7 +169,7 @@ class ElixDialog extends StatelessWidget {
                   horizontal: AppSpacing.md,
                   vertical: 11,
                 ),
-                suffix: IconButton(
+                trailing: IconButton(
                   icon: Icon(
                     obscured ? FluentIcons.view : FluentIcons.hide,
                     size: 15,
@@ -347,7 +346,7 @@ class ElixDialog extends StatelessWidget {
         ? context.elixTextPrimary
         : (iconColor ?? context.elixColors.brandPrimary);
 
-    return Material(
+    final legacyBody = Material(
       type: MaterialType.transparency,
       child: Container(
         constraints: BoxConstraints(
@@ -484,6 +483,18 @@ class ElixDialog extends StatelessWidget {
           ),
         ),
       ),
+    );
+    if (highContrast) return legacyBody;
+    return shad.ShadDialog(
+      key: const ValueKey('elix-shad-dialog'),
+      constraints: BoxConstraints(
+        maxWidth: maxWidth,
+        maxHeight: maxHeight ?? size.height * .85,
+      ),
+      padding: EdgeInsets.zero,
+      backgroundColor: context.elixCardSurface,
+      actions: const [],
+      child: legacyBody,
     );
   }
 }

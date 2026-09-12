@@ -2,6 +2,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_toast.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 void main() {
   Future<void> pumpToastHost(
@@ -18,10 +19,15 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: Builder(
-          builder: (context) => Button(
-            onPressed: () => ElixToast.showSuccess(context, message: message),
-            child: const Text('Show toast'),
+        home: ElixShadThemeBridge(
+          child: shad.ShadToaster(
+            child: Builder(
+              builder: (context) => Button(
+                onPressed: () =>
+                    ElixToast.showSuccess(context, message: message),
+                child: const Text('Show toast'),
+              ),
+            ),
           ),
         ),
       ),

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
@@ -279,80 +280,151 @@ class _AuthTextFieldState extends State<AuthTextField> {
               ),
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: widget.dense ? 46 : 50),
-                child: TextBox(
-                  controller: widget.controller,
-                  placeholder: widget.placeholder,
-                  placeholderStyle: AppTheme.body.copyWith(
-                    color: colors.textMuted.withValues(alpha: 0.9),
-                    fontSize: 14,
-                  ),
-                  obscureText: _obscured,
-                  keyboardType: widget.keyboardType,
-                  onSubmitted: widget.onSubmitted,
-                  onChanged: widget.onChanged,
-                  focusNode: widget.focusNode,
-                  enabled: enabled,
-                  textInputAction: widget.textInputAction,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                    vertical: widget.dense ? 8 : 11,
-                  ),
-                  decoration: const BoxDecoration(
-                    color: Color(0x00000000),
-                    border: Border.fromBorderSide(BorderSide.none),
-                  ),
-                  highlightColor: const Color(0x00000000),
-                  unfocusedColor: const Color(0x00000000),
-                  foregroundDecoration: const BoxDecoration(
-                    border: Border.fromBorderSide(BorderSide.none),
-                  ),
-                  prefix: Padding(
-                    padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
-                    child: Icon(
-                      widget.icon,
-                      color: !enabled
-                          ? colors.disabledText
-                          : _focused
-                          ? (emphasizeStatus
-                                ? statusColor
-                                : colors.brandPrimary)
-                          : colors.textSecondary,
-                      size: 16,
-                    ),
-                  ),
-                  suffix: widget.isLoading
-                      ? const Padding(
-                          padding: EdgeInsets.all(10),
-                          child: SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: ProgressRing(strokeWidth: 2),
+                child: context.isHighContrast
+                    ? TextBox(
+                        controller: widget.controller,
+                        placeholder: widget.placeholder,
+                        placeholderStyle: AppTheme.body.copyWith(
+                          color: colors.textMuted.withValues(alpha: 0.9),
+                          fontSize: 14,
+                        ),
+                        obscureText: _obscured,
+                        keyboardType: widget.keyboardType,
+                        onSubmitted: widget.onSubmitted,
+                        onChanged: widget.onChanged,
+                        focusNode: widget.focusNode,
+                        enabled: enabled,
+                        textInputAction: widget.textInputAction,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: widget.dense ? 8 : 11,
+                        ),
+                        prefix: Padding(
+                          padding: const EdgeInsets.only(
+                            left: AppSpacing.sm + 2,
                           ),
-                        )
-                      : widget.obscureText
-                      ? Semantics(
-                          button: true,
-                          label: _obscured ? 'Show password' : 'Hide password',
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: IconButton(
-                              icon: Icon(
-                                _obscured ? FluentIcons.view : FluentIcons.hide,
-                                size: 15,
-                                color: colors.textSecondary,
-                              ),
-                              onPressed: enabled
-                                  ? () => setState(() => _obscured = !_obscured)
-                                  : null,
-                            ),
+                          child: Icon(
+                            widget.icon,
+                            color: !enabled
+                                ? colors.disabledText
+                                : _focused
+                                ? (emphasizeStatus
+                                      ? statusColor
+                                      : colors.brandPrimary)
+                                : colors.textSecondary,
+                            size: 16,
                           ),
-                        )
-                      : null,
-                  style: AppTheme.body.copyWith(
-                    color: enabled ? colors.textPrimary : colors.disabledText,
-                    fontSize: 14,
-                  ),
-                ),
+                        ),
+                        suffix: widget.isLoading
+                            ? const Padding(
+                                padding: EdgeInsets.all(10),
+                                child: SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: ProgressRing(strokeWidth: 2),
+                                ),
+                              )
+                            : widget.obscureText
+                            ? Semantics(
+                                button: true,
+                                label: _obscured
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                child: MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: IconButton(
+                                    icon: Icon(
+                                      _obscured
+                                          ? FluentIcons.view
+                                          : FluentIcons.hide,
+                                      size: 15,
+                                      color: colors.textSecondary,
+                                    ),
+                                    onPressed: enabled
+                                        ? () => setState(
+                                            () => _obscured = !_obscured,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                              )
+                            : null,
+                        style: AppTheme.body.copyWith(
+                          color: enabled
+                              ? colors.textPrimary
+                              : colors.disabledText,
+                          fontSize: 14,
+                        ),
+                      )
+                    : shad.ShadInput(
+                        key: const ValueKey('auth-shad-input'),
+                        controller: widget.controller,
+                        placeholder: Text(widget.placeholder),
+                        obscureText: _obscured,
+                        keyboardType: widget.keyboardType,
+                        onSubmitted: widget.onSubmitted,
+                        onChanged: widget.onChanged,
+                        focusNode: widget.focusNode,
+                        enabled: enabled,
+                        textInputAction: widget.textInputAction,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: widget.dense ? 8 : 11,
+                        ),
+                        leading: Padding(
+                          padding: const EdgeInsets.only(
+                            left: AppSpacing.sm + 2,
+                          ),
+                          child: Icon(
+                            widget.icon,
+                            color: !enabled
+                                ? colors.disabledText
+                                : _focused
+                                ? (emphasizeStatus
+                                      ? statusColor
+                                      : colors.brandPrimary)
+                                : colors.textSecondary,
+                            size: 16,
+                          ),
+                        ),
+                        trailing: widget.isLoading
+                            ? const Padding(
+                                padding: EdgeInsets.all(10),
+                                child: SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: ProgressRing(strokeWidth: 2),
+                                ),
+                              )
+                            : widget.obscureText
+                            ? Semantics(
+                                button: true,
+                                label: _obscured
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                child: IconButton(
+                                  icon: Icon(
+                                    _obscured
+                                        ? FluentIcons.view
+                                        : FluentIcons.hide,
+                                    size: 15,
+                                    color: colors.textSecondary,
+                                  ),
+                                  onPressed: enabled
+                                      ? () => setState(
+                                          () => _obscured = !_obscured,
+                                        )
+                                      : null,
+                                ),
+                              )
+                            : null,
+                        style: AppTheme.body.copyWith(
+                          color: enabled
+                              ? colors.textPrimary
+                              : colors.disabledText,
+                          fontSize: 14,
+                        ),
+                      ),
               ),
             ),
           ),

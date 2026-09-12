@@ -20,6 +20,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
@@ -305,34 +306,40 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
             debugShowCheckedModeBanner: false,
             builder: (context, child) {
               return ElixShadThemeBridge(
-                child: MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: TextScaler.linear(settings.textScale)),
-                  child: Consumer<AuthService>(
-                    builder: (context, auth, _) {
-                      final startupFailed =
-                          auth.initializationState ==
-                          AuthInitializationState.failed;
-                      if (!_splashFinished || auth.isLoading || startupFailed) {
-                        return SplashScreen(
-                          authReady:
-                              auth.initializationState ==
-                              AuthInitializationState.ready,
-                          startupError: auth.initializationFailure?.message,
-                          onRetry: startupFailed
-                              ? () => unawaited(auth.initialize())
-                              : null,
-                          onFinished: () {
-                            if (mounted) setState(() => _splashFinished = true);
-                          },
+                child: shad.ShadToaster(
+                  child: MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      textScaler: TextScaler.linear(settings.textScale),
+                    ),
+                    child: Consumer<AuthService>(
+                      builder: (context, auth, _) {
+                        final startupFailed =
+                            auth.initializationState ==
+                            AuthInitializationState.failed;
+                        if (!_splashFinished ||
+                            auth.isLoading ||
+                            startupFailed) {
+                          return SplashScreen(
+                            authReady:
+                                auth.initializationState ==
+                                AuthInitializationState.ready,
+                            startupError: auth.initializationFailure?.message,
+                            onRetry: startupFailed
+                                ? () => unawaited(auth.initialize())
+                                : null,
+                            onFinished: () {
+                              if (mounted) {
+                                setState(() => _splashFinished = true);
+                              }
+                            },
+                          );
+                        }
+                        return KeyedSubtree(
+                          key: ValueKey(auth.accountSessionGeneration),
+                          child: child ?? const SizedBox.shrink(),
                         );
-                      }
-                      return KeyedSubtree(
-                        key: ValueKey(auth.accountSessionGeneration),
-                        child: child ?? const SizedBox.shrink(),
-                      );
-                    },
+                      },
+                    ),
                   ),
                 ),
               );

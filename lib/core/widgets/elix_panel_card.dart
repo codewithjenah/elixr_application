@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
@@ -55,7 +56,7 @@ class ElixPanelCard extends StatelessWidget {
       child: child,
     );
 
-    return Container(
+    final panel = Container(
       width: expand ? double.infinity : null,
       decoration: BoxDecoration(
         color: highContrast ? surface : null,
@@ -123,6 +124,17 @@ class ElixPanelCard extends StatelessWidget {
             : content,
       ),
     );
+    // Shad owns the normal panel surface; the legacy container remains only
+    // for the explicit high-contrast treatment and the optional accent rail.
+    if (highContrast) return panel;
+    return shad.ShadCard(
+      key: const ValueKey('elix-panel-shad-card'),
+      width: expand ? double.infinity : null,
+      padding: EdgeInsets.zero,
+      shadows: const [],
+      backgroundColor: colors.surfaceRaised,
+      child: panel,
+    );
   }
 }
 
@@ -142,31 +154,40 @@ class ElixPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
+    if (!highContrast) {
+      return shad.ShadBadge.outline(
+        key: const ValueKey('elix-shad-badge'),
+        backgroundColor: color.withValues(alpha: 0.12),
+        foregroundColor: Color.lerp(color, context.elixTextPrimary, 0.25),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 8 : 10,
+          vertical: compact ? 3 : 5,
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: compact ? 10 : 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 10,
         vertical: compact ? 3 : 5,
       ),
       decoration: BoxDecoration(
-        color: highContrast
-            ? context.elixCardSurface
-            : color.withValues(alpha: 0.14),
+        color: context.elixCardSurface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: highContrast
-              ? context.elixBorder
-              : color.withValues(alpha: 0.32),
-          width: highContrast ? 2 : 1,
-        ),
+        border: Border.all(color: context.elixBorder, width: 2),
       ),
       child: Text(
         text,
         style: TextStyle(
           fontSize: compact ? 10 : 11,
           fontWeight: FontWeight.w600,
-          color: highContrast
-              ? context.elixTextPrimary
-              : Color.lerp(color, context.elixTextPrimary, 0.25),
+          color: context.elixTextPrimary,
         ),
       ),
     );

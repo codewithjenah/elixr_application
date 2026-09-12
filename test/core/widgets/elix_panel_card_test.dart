@@ -9,14 +9,16 @@ void main() {
   testWidgets('accent bar supports LayoutBuilder content', (tester) async {
     await tester.pumpWidget(
       FluentApp(
-        home: SizedBox(
-          width: 480,
-          child: ElixPanelCard(
-            accent: AppColors.primary,
-            showAccentBar: true,
-            child: LayoutBuilder(
-              builder: (context, constraints) =>
-                  SizedBox(height: constraints.maxWidth > 0 ? 80 : 0),
+        home: ElixShadThemeBridge(
+          child: SizedBox(
+            width: 480,
+            child: ElixPanelCard(
+              accent: AppColors.primary,
+              showAccentBar: true,
+              child: LayoutBuilder(
+                builder: (context, constraints) =>
+                    SizedBox(height: constraints.maxWidth > 0 ? 80 : 0),
+              ),
             ),
           ),
         ),
@@ -33,15 +35,17 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: const ElixWorkspaceVisualScope.teacher(
-          child: Column(
-            children: [
-              ElixPanelCard(child: Text('Routine')),
-              ElixPanelCard(
-                variant: ElixPanelVariant.hero,
-                child: Text('Highlight'),
-              ),
-            ],
+        home: const ElixShadThemeBridge(
+          child: ElixWorkspaceVisualScope.teacher(
+            child: Column(
+              children: [
+                ElixPanelCard(child: Text('Routine')),
+                ElixPanelCard(
+                  variant: ElixPanelVariant.hero,
+                  child: Text('Highlight'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

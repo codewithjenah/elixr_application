@@ -11,6 +11,7 @@ import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import 'package:provider/provider.dart';
 
 class _LoginRepository implements AuthRepositoryBase {
@@ -190,7 +191,10 @@ void main() {
   }
 
   Finder field(String placeholder) => find.byWidgetPredicate(
-    (widget) => widget is TextBox && widget.placeholder == placeholder,
+    (widget) =>
+        widget is shad.ShadInput &&
+        widget.placeholder is Text &&
+        (widget.placeholder as Text).data == placeholder,
   );
 
   testWidgets('validates locally without overflowing the compact login form', (
@@ -426,22 +430,31 @@ void main() {
   ) async {
     await pumpLogin(tester);
     await tester.enterText(field('Password'), 'secret12');
-    expect(tester.widget<TextBox>(field('Password')).obscureText, isTrue);
+    expect(
+      tester.widget<shad.ShadInput>(field('Password')).obscureText,
+      isTrue,
+    );
 
     await tester.tap(find.byIcon(FluentIcons.view));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
 
-    expect(tester.widget<TextBox>(field('Password')).obscureText, isFalse);
     expect(
-      tester.widget<TextBox>(field('Password')).controller?.text,
+      tester.widget<shad.ShadInput>(field('Password')).obscureText,
+      isFalse,
+    );
+    expect(
+      tester.widget<shad.ShadInput>(field('Password')).controller?.text,
       'secret12',
     );
 
     await tester.tap(find.byIcon(FluentIcons.hide));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
-    expect(tester.widget<TextBox>(field('Password')).obscureText, isTrue);
+    expect(
+      tester.widget<shad.ShadInput>(field('Password')).obscureText,
+      isTrue,
+    );
   });
 
   testWidgets('login remains usable when animations are disabled', (
