@@ -49,89 +49,106 @@ class _TraineeActivityCenterScreenState
           ],
         ),
       ),
-      content: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              AppSpacing.md,
-              AppSpacing.lg,
-              0,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Checkbox(
-                  checked: _unreadOnly,
-                  onChanged: (value) {
-                    setState(() => _unreadOnly = value ?? false);
-                  },
-                  content: const Text('Unread only'),
+      content: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1120),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                  0,
                 ),
-                if (controller.hasStreamError ||
-                    controller.persistenceMessage != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  InfoBar(
-                    severity: controller.hasStreamError
-                        ? InfoBarSeverity.warning
-                        : InfoBarSeverity.info,
-                    title: Text(
-                      controller.hasStreamError
-                          ? 'Some activity could not be refreshed'
-                          : 'Read status is temporary',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Checkbox(
+                          checked: _unreadOnly,
+                          onChanged: (value) {
+                            setState(() => _unreadOnly = value ?? false);
+                          },
+                          content: const Text('Unread only'),
+                        ),
+                        const Spacer(),
+                        if (controller.unreadCount > 0)
+                          ElixPill(
+                            text: '${controller.unreadCount} unread',
+                            color: AppColors.accent,
+                            compact: true,
+                          ),
+                      ],
                     ),
-                    content: Text(
-                      controller.persistenceMessage ??
-                          'Some classroom updates may be missing. Try again.',
-                    ),
-                    action: controller.hasStreamError
-                        ? Button(
-                            onPressed: controller.retry,
-                            child: const Text('Try again'),
-                          )
-                        : null,
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.md),
-              ],
-            ),
-          ),
-          Expanded(
-            child: controller.loading
-                ? const Center(child: ProgressRing())
-                : visible.isEmpty
-                ? _EmptyState(
-                    unreadOnly: _unreadOnly,
-                    hasError: controller.hasStreamError,
-                    onRetry: controller.retry,
-                  )
-                : ListView.separated(
-                    key: const Key('trainee_activity_list'),
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      0,
-                      AppSpacing.lg,
-                      AppSpacing.lg,
-                    ),
-                    itemCount: visible.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final activity = visible[index];
-                      return _ActivityRow(
-                        activity: activity,
-                        onOpen: () async {
-                          await controller.markRead(activity);
-                          if (context.mounted) {
-                            context.push(activity.destination);
-                          }
+                    if (controller.hasStreamError ||
+                        controller.persistenceMessage != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      InfoBar(
+                        severity: controller.hasStreamError
+                            ? InfoBarSeverity.warning
+                            : InfoBarSeverity.info,
+                        title: Text(
+                          controller.hasStreamError
+                              ? 'Some activity could not be refreshed'
+                              : 'Read status is temporary',
+                        ),
+                        content: Text(
+                          controller.persistenceMessage ??
+                              'Some classroom updates may be missing. Try again.',
+                        ),
+                        action: controller.hasStreamError
+                            ? Button(
+                                onPressed: controller.retry,
+                                child: const Text('Try again'),
+                              )
+                            : null,
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: controller.loading
+                    ? const Center(child: ProgressRing())
+                    : visible.isEmpty
+                    ? _EmptyState(
+                        unreadOnly: _unreadOnly,
+                        hasError: controller.hasStreamError,
+                        onRetry: controller.retry,
+                      )
+                    : ListView.separated(
+                        key: const Key('trainee_activity_list'),
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          0,
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                        ),
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: AppSpacing.sm),
+                        itemBuilder: (context, index) {
+                          final activity = visible[index];
+                          return _ActivityRow(
+                            activity: activity,
+                            onOpen: () async {
+                              await controller.markRead(activity);
+                              if (context.mounted) {
+                                context.push(activity.destination);
+                              }
+                            },
+                          );
                         },
-                      );
-                    },
-                  ),
+                      ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -198,6 +215,11 @@ class _ActivityRow extends StatelessWidget {
         cursor: SystemMouseCursors.click,
         onPressed: onOpen,
         builder: (context, states) => ElixPanelCard(
+          accent: activity.isRead ? null : AppColors.accent,
+          showAccentBar: !activity.isRead,
+          variant: activity.isRead
+              ? ElixPanelVariant.normal
+              : ElixPanelVariant.elevated,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

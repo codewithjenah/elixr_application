@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
@@ -52,7 +53,64 @@ extension ElixThemeContext on BuildContext {
   Color get elixBorder => elixColors.borderSubtle;
 }
 
+/// Supplies Shadcn primitives with the active ELIXR semantic theme while the
+/// application continues to use FluentApp as its desktop shell.
+class ElixShadThemeBridge extends StatelessWidget {
+  const ElixShadThemeBridge({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return shad.ShadTheme(
+      data: AppTheme.shadTheme(
+        context.elixColors,
+        brightness: FluentTheme.of(context).brightness,
+      ),
+      child: child,
+    );
+  }
+}
+
 abstract final class AppTheme {
+  /// Maps ELIXR's semantic palette into flutter-shadcn-ui without replacing
+  /// FluentApp's routing, accessibility, or platform window integration.
+  ///
+  /// The bridge is deliberately derived from [ElixSemanticColors], rather
+  /// than maintaining a second palette for Shadcn controls.
+  static shad.ShadThemeData shadTheme(
+    ElixSemanticColors colors, {
+    required Brightness brightness,
+  }) {
+    return shad.ShadThemeData(
+      brightness: brightness,
+      colorScheme: shad.ShadColorScheme(
+        background: colors.canvas,
+        foreground: colors.textPrimary,
+        card: colors.surfaceRaised,
+        cardForeground: colors.textPrimary,
+        popover: colors.surfaceRaised,
+        popoverForeground: colors.textPrimary,
+        primary: colors.brandPrimary,
+        primaryForeground: colors.onBrand,
+        secondary: colors.surfaceInteractive,
+        secondaryForeground: colors.textPrimary,
+        muted: colors.surfaceTinted,
+        mutedForeground: colors.textSecondary,
+        accent: colors.interactiveHover,
+        accentForeground: colors.textPrimary,
+        destructive: colors.error,
+        destructiveForeground: colors.onBrand,
+        border: colors.borderSubtle,
+        input: colors.borderInteractive,
+        ring: colors.focusRing,
+        selection: colors.interactiveSelected,
+      ),
+      radius: BorderRadius.circular(12),
+      textTheme: shad.ShadTextTheme(family: ElixTypography.fontFamily),
+    );
+  }
+
   static FluentThemeData get dark {
     return _buildTheme(
       brightness: Brightness.dark,

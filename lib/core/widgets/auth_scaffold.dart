@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
@@ -614,6 +615,33 @@ class AuthFormCard extends StatelessWidget {
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
     final flatten = context.elixWorkspaceVisuals.flattenDenseSurfaces;
+
+    // High contrast retains the established Fluent surface, whose stronger
+    // focus and border treatment has already been validated across auth flows.
+    if (!highContrast) {
+      return shad.ShadTheme(
+        data: AppTheme.shadTheme(
+          colors,
+          brightness: FluentTheme.of(context).brightness,
+        ),
+        child: shad.ShadCard(
+          padding: padding ?? const EdgeInsets.all(AppSpacing.md),
+          backgroundColor: colors.surfaceRaised,
+          radius: BorderRadius.circular(20),
+          border: shad.ShadBorder.all(color: colors.borderSubtle),
+          shadows: flatten
+              ? const []
+              : [
+                  BoxShadow(
+                    color: colors.shadow.withValues(alpha: isDark ? .38 : .10),
+                    blurRadius: 24,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+          child: child,
+        ),
+      );
+    }
 
     return Container(
       padding: padding ?? const EdgeInsets.all(AppSpacing.md),

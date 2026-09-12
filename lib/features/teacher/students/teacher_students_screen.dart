@@ -137,58 +137,61 @@ class _Toolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.md,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        SizedBox(
-          width: 280,
-          child: TextBox(
-            controller: searchController,
-            placeholder: 'Search by name',
-            prefix: const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child: Icon(FluentIcons.search),
+    return ElixPanelCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.md,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SizedBox(
+            width: 280,
+            child: TextBox(
+              controller: searchController,
+              placeholder: 'Search by name',
+              prefix: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Icon(FluentIcons.search),
+              ),
+              onChanged: controller.setSearchQuery,
             ),
-            onChanged: controller.setSearchQuery,
           ),
-        ),
-        ComboBox<String?>(
-          value: controller.selectedGroupId,
-          placeholder: const Text('All classes'),
-          items: [
-            const ComboBoxItem(value: null, child: Text('All classes')),
-            for (final group in controller.groups.where((g) => g.isActive))
-              ComboBoxItem(value: group.id, child: Text(group.name)),
-          ],
-          onChanged: controller.setGroupFilter,
-        ),
-        ComboBox<TeacherStudentStatusFilter>(
-          value: controller.statusFilter,
-          items: const [
-            ComboBoxItem(
-              value: TeacherStudentStatusFilter.approved,
-              child: Text('Approved'),
-            ),
-            ComboBoxItem(
-              value: TeacherStudentStatusFilter.all,
-              child: Text('All statuses'),
-            ),
-            ComboBoxItem(
-              value: TeacherStudentStatusFilter.pending,
-              child: Text('Pending'),
-            ),
-            ComboBoxItem(
-              value: TeacherStudentStatusFilter.inactive,
-              child: Text('Removed / inactive'),
-            ),
-          ],
-          onChanged: (value) {
-            if (value != null) controller.setStatusFilter(value);
-          },
-        ),
-      ],
+          ComboBox<String?>(
+            value: controller.selectedGroupId,
+            placeholder: const Text('All classes'),
+            items: [
+              const ComboBoxItem(value: null, child: Text('All classes')),
+              for (final group in controller.groups.where((g) => g.isActive))
+                ComboBoxItem(value: group.id, child: Text(group.name)),
+            ],
+            onChanged: controller.setGroupFilter,
+          ),
+          ComboBox<TeacherStudentStatusFilter>(
+            value: controller.statusFilter,
+            items: const [
+              ComboBoxItem(
+                value: TeacherStudentStatusFilter.approved,
+                child: Text('Approved'),
+              ),
+              ComboBoxItem(
+                value: TeacherStudentStatusFilter.all,
+                child: Text('All statuses'),
+              ),
+              ComboBoxItem(
+                value: TeacherStudentStatusFilter.pending,
+                child: Text('Pending'),
+              ),
+              ComboBoxItem(
+                value: TeacherStudentStatusFilter.inactive,
+                child: Text('Removed / inactive'),
+              ),
+            ],
+            onChanged: (value) {
+              if (value != null) controller.setStatusFilter(value);
+            },
+          ),
+        ],
+      ),
     );
   }
 }

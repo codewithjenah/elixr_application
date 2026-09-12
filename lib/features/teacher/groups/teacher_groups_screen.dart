@@ -10,6 +10,7 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/elix_toast.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -172,40 +173,60 @@ class _GroupsGrid extends StatelessWidget {
                 'Students in each class stay in their own group.',
           )
         else ...[
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  showArchived ? 'Archived classrooms' : 'Your classrooms',
-                  style: AppTheme.headingMedium.copyWith(
-                    fontSize: 16,
-                    color: context.elixTextPrimary,
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 180,
-                child: ComboBox<bool>(
-                  key: const Key('teacher_groups_status_filter'),
-                  value: showArchived,
-                  items: const [
-                    ComboBoxItem(value: false, child: Text('Active')),
-                    ComboBoxItem(value: true, child: Text('Archived')),
+          ElixPanelCard(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final heading = Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      showArchived ? 'Archived classrooms' : 'Your classrooms',
+                      style: AppTheme.headingMedium.copyWith(
+                        fontSize: 16,
+                        color: context.elixTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${visibleGroups.length} classroom${visibleGroups.length == 1 ? '' : 's'}',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
                   ],
-                  onChanged: (value) {
-                    if (value != null) onArchivedChanged(value);
-                  },
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                '${visibleGroups.length}',
-                style: AppTheme.caption.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ],
+                );
+                final filter = SizedBox(
+                  width: 180,
+                  child: ComboBox<bool>(
+                    key: const Key('teacher_groups_status_filter'),
+                    value: showArchived,
+                    items: const [
+                      ComboBoxItem(value: false, child: Text('Active')),
+                      ComboBoxItem(value: true, child: Text('Archived')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) onArchivedChanged(value);
+                    },
+                  ),
+                );
+                if (constraints.maxWidth >= _groupsCompactBreakpoint) {
+                  return Row(
+                    children: [
+                      Expanded(child: heading),
+                      filter,
+                    ],
+                  );
+                }
+                return Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.sm,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [heading, filter],
+                );
+              },
+            ),
           ),
           const SizedBox(height: AppSpacing.md),
           if (visibleGroups.isEmpty)

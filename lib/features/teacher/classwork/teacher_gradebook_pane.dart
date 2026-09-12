@@ -107,60 +107,64 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: [
-            SizedBox(
-              width: 280,
-              child: TextBox(
-                key: const Key('teacher_gradebook_student_search'),
-                controller: _searchController,
-                placeholder: 'Search students',
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            ComboBox<TeacherGradebookScope>(
-              value: _scope,
-              onChanged: (value) => setState(() => _scope = value ?? _scope),
-              items: const [
-                ComboBoxItem(
-                  value: TeacherGradebookScope.all,
-                  child: Text('All classwork'),
-                ),
-                ComboBoxItem(
-                  value: TeacherGradebookScope.active,
-                  child: Text('Active'),
-                ),
-                ComboBoxItem(
-                  value: TeacherGradebookScope.archived,
-                  child: Text('Archived'),
-                ),
-              ],
-            ),
-            Tooltip(
-              message: 'Export the complete gradebook for this classroom',
-              child: Button(
-                key: const Key('teacher_gradebook_export'),
-                onPressed:
-                    _exporting ||
-                        controller.loading ||
-                        controller.unauthorized ||
-                        controller.approvedMemberships.isEmpty ||
-                        controller.assignments.isEmpty
-                    ? null
-                    : () => _chooseAndExport(controller),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(FluentIcons.download),
-                    const SizedBox(width: AppSpacing.xs),
-                    Text(_exporting ? 'Exporting…' : 'Export'),
-                  ],
+        ElixPanelCard(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 280,
+                child: TextBox(
+                  key: const Key('teacher_gradebook_student_search'),
+                  controller: _searchController,
+                  placeholder: 'Search students',
+                  onChanged: (_) => setState(() {}),
                 ),
               ),
-            ),
-          ],
+              ComboBox<TeacherGradebookScope>(
+                value: _scope,
+                onChanged: (value) => setState(() => _scope = value ?? _scope),
+                items: const [
+                  ComboBoxItem(
+                    value: TeacherGradebookScope.all,
+                    child: Text('All classwork'),
+                  ),
+                  ComboBoxItem(
+                    value: TeacherGradebookScope.active,
+                    child: Text('Active'),
+                  ),
+                  ComboBoxItem(
+                    value: TeacherGradebookScope.archived,
+                    child: Text('Archived'),
+                  ),
+                ],
+              ),
+              Tooltip(
+                message: 'Export the complete gradebook for this classroom',
+                child: Button(
+                  key: const Key('teacher_gradebook_export'),
+                  onPressed:
+                      _exporting ||
+                          controller.loading ||
+                          controller.unauthorized ||
+                          controller.approvedMemberships.isEmpty ||
+                          controller.assignments.isEmpty
+                      ? null
+                      : () => _chooseAndExport(controller),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(FluentIcons.download),
+                      const SizedBox(width: AppSpacing.xs),
+                      Text(_exporting ? 'Exporting…' : 'Export'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         if (_exportMessage != null)

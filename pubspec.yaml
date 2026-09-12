@@ -46,6 +46,7 @@ dependencies:
   image_picker: ^1.2.2
   crop: ^0.5.5
   fluent_ui: 4.9.2
+  shadcn_ui: ^0.56.3
   audioplayers: ^6.7.1
   path_provider: ^2.1.5
   file_selector: ^1.0.3

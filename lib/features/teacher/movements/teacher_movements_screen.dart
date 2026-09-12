@@ -9,6 +9,7 @@ import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
@@ -216,13 +217,8 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
+                    ElixPanelCard(
                       padding: const EdgeInsets.all(AppSpacing.sm),
-                      decoration: BoxDecoration(
-                        color: context.elixCardSurface,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: context.elixBorder),
-                      ),
                       child: Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,
                         spacing: AppSpacing.sm,

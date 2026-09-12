@@ -95,9 +95,10 @@ class CalendarSummaryCards extends StatelessWidget {
           children: [
             _MetricRow(tiles: cards.sublist(0, 2)),
             const SizedBox(height: AppSpacing.sm),
-            _MetricRow(tiles: cards.sublist(2, 4)),
-            const SizedBox(height: AppSpacing.sm),
-            _MetricRow(tiles: cards.sublist(4)),
+            // Keep the last classroom metric from becoming a stranded full-
+            // width card beneath the grid. Three compact metrics remain
+            // readable at the narrow desktop width this branch serves.
+            _MetricRow(tiles: cards.sublist(2)),
           ],
         );
       },
