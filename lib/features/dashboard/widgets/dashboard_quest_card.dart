@@ -5,8 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
-
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/gamification_rules.dart';
 import '../../../core/progression/progression_catalog.dart';
@@ -350,7 +348,7 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
       if (_claimErrorMessage != null) ...[
         Text(
           _claimErrorMessage!,
-          style: const TextStyle(fontSize: 11, color: AppColors.error),
+          style: ElixTypography.caption(color: context.elixColors.error),
         ),
         const SizedBox(height: AppSpacing.sm),
       ],
@@ -487,7 +485,9 @@ class _ProgressionStrip extends StatelessWidget {
                           FractionallySizedBox(
                             widthFactor: progress.clamp(0.0, 1.0),
                             child: Container(
-                              color: AppColors.primary.withValues(alpha: 0.85),
+                              color: context.elixColors.brandPrimary.withValues(
+                                alpha: 0.85,
+                              ),
                             ),
                           ),
                         ],
@@ -524,12 +524,16 @@ class _CompleteBanner extends StatelessWidget {
         horizontal: 10,
       ),
       decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.08),
+        color: context.elixColors.success.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
-          const Icon(FluentIcons.trophy2, size: 16, color: AppColors.success),
+          Icon(
+            FluentIcons.trophy2,
+            size: 16,
+            color: context.elixColors.success,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -595,7 +599,9 @@ class _BoardGauge extends StatelessWidget {
                 FractionallySizedBox(
                   widthFactor: progress.clamp(0.0, 1.0),
                   child: Container(
-                    color: AppColors.primary.withValues(alpha: 0.85),
+                    color: context.elixColors.brandPrimary.withValues(
+                      alpha: 0.85,
+                    ),
                   ),
                 ),
               ],
@@ -620,10 +626,10 @@ class _QuestTile extends StatelessWidget {
   final bool claimDisabled;
   final VoidCallback onClaim;
 
-  Color _tierColor() => switch (quest.tier) {
-    QuestTier.easy => AppColors.success,
-    QuestTier.medium => AppColors.warning,
-    QuestTier.hard => AppColors.primary,
+  Color _tierColor(BuildContext context) => switch (quest.tier) {
+    QuestTier.easy => context.elixColors.success,
+    QuestTier.medium => context.elixColors.warning,
+    QuestTier.hard => context.elixColors.brandPrimary,
   };
 
   @override
@@ -646,7 +652,7 @@ class _QuestTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
         color: claimable
-            ? AppColors.success.withValues(alpha: 0.07)
+            ? context.elixColors.success.withValues(alpha: 0.07)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
@@ -662,7 +668,7 @@ class _QuestTile extends StatelessWidget {
                   children: [
                     DashboardPill(
                       text: quest.tier.label,
-                      color: _tierColor(),
+                      color: _tierColor(context),
                       compact: true,
                     ),
                     const SizedBox(width: 8),
@@ -681,10 +687,10 @@ class _QuestTile extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       '+${quest.xp} XP',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.warning,
+                        color: context.elixColors.milestone,
                       ),
                     ),
                   ],
@@ -695,7 +701,7 @@ class _QuestTile extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 10,
                     color: claimable
-                        ? AppColors.success
+                        ? context.elixColors.success
                         : context.elixTextSecondary,
                   ),
                 ),
@@ -713,7 +719,8 @@ class _QuestTile extends StatelessWidget {
                           FractionallySizedBox(
                             widthFactor: progress,
                             child: Container(
-                              color: AppColors.accent.withValues(alpha: 0.75),
+                              color: context.elixColors.brandSecondary
+                                  .withValues(alpha: 0.75),
                             ),
                           ),
                         ],

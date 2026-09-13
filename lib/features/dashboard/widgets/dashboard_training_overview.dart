@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/repositories/progress_repository.dart';
 import 'dashboard_panel_card.dart';
@@ -41,7 +41,7 @@ class DashboardTrainingOverview extends StatelessWidget {
             ? '$sessionsThisWeek this week'
             : 'Start practicing',
         icon: FluentIcons.timer,
-        accent: AppColors.accent,
+        accent: context.elixColors.brandSecondary,
       ),
       _MetricData(
         label: hasRubric ? 'Average Rubric (V2)' : 'Average Legacy Score',
@@ -55,7 +55,7 @@ class DashboardTrainingOverview extends StatelessWidget {
                   : 'Not enough data'
             : 'Legacy scoring',
         icon: FluentIcons.favorite_star,
-        accent: AppColors.accentSoft,
+        accent: context.elixColors.brandPrimary,
       ),
       _MetricData(
         label: hasRubric ? 'Best Rubric' : 'Best Legacy Score',
@@ -63,7 +63,7 @@ class DashboardTrainingOverview extends StatelessWidget {
         valueSuffix: best != null ? scaleSuffix : null,
         subLabel: 'Personal record',
         icon: FluentIcons.trophy2,
-        accent: AppColors.warning,
+        accent: context.elixColors.milestone,
         milestone: true,
       ),
       _MetricData(
@@ -71,7 +71,7 @@ class DashboardTrainingOverview extends StatelessWidget {
         value: stats?.mostPracticedMovement ?? '—',
         subLabel: 'Most practiced',
         icon: FluentIcons.diamond,
-        accent: AppColors.primarySoft,
+        accent: context.elixColors.brandPrimary,
         flexibleValue: true,
       ),
     ];
@@ -205,7 +205,7 @@ class _MetricZone extends StatelessWidget {
                   : Colors.white.withValues(
                       alpha: context.isDarkTheme ? 0.025 : 0.55,
                     ),
-              borderRadius: BorderRadius.circular(13),
+              borderRadius: BorderRadius.circular(ElixRadius.card),
               border: Border.all(
                 color: context.isHighContrast
                     ? context.elixBorder
@@ -226,7 +226,7 @@ class _MetricZone extends StatelessWidget {
                   color: context.isHighContrast
                       ? context.elixCardSurface
                       : accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(ElixRadius.control),
                   border: context.isHighContrast
                       ? Border.all(color: accent)
                       : null,

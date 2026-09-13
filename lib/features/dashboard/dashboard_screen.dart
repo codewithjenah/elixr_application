@@ -3,11 +3,11 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/movements.dart';
 import '../../core/progression/practice_variant.dart';
 import '../../core/progression/progression_access.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/utils/user_name.dart';
@@ -260,7 +260,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       firstName: firstName,
                       greeting: _timeGreeting(),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: AppSpacing.mdPlus),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final wide = constraints.maxWidth >= _wideBreakpoint;
@@ -269,7 +269,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(child: mainColumn),
-                              const SizedBox(width: 18),
+                              const SizedBox(width: AppSpacing.mdPlus),
                               SizedBox(width: _railWidth, child: rightRail),
                             ],
                           );
@@ -277,7 +277,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         return Column(
                           children: [
                             mainColumn,
-                            const SizedBox(height: 18),
+                            const SizedBox(height: AppSpacing.mdPlus),
                             rightRail,
                           ],
                         );
@@ -359,7 +359,7 @@ class _QuickStartCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tutorial = context.watch<TutorialProgressService>();
     return DashboardPanelCard(
-      accent: AppColors.primary,
+      accent: context.elixColors.brandPrimary,
       showAccentBar: true,
       padding: const EdgeInsets.fromLTRB(AppSpacing.md, 12, AppSpacing.md, 12),
       child: Column(
@@ -371,13 +371,15 @@ class _QuickStartCard extends StatelessWidget {
                 width: 28,
                 height: 28,
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(8),
+                  color: context.elixColors.brandPrimary.withValues(
+                    alpha: 0.14,
+                  ),
+                  borderRadius: BorderRadius.circular(ElixRadius.control),
                 ),
-                child: const Icon(
+                child: Icon(
                   FluentIcons.rocket,
                   size: 14,
-                  color: AppColors.primary,
+                  color: context.elixColors.brandPrimary,
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -387,11 +389,7 @@ class _QuickStartCard extends StatelessWidget {
                   children: [
                     Text(
                       'QUICK START',
-                      style: AppTheme.caption.copyWith(
-                        letterSpacing: 0.8,
-                        fontWeight: FontWeight.w700,
-                        color: context.elixTextSecondary,
-                      ),
+                      style: AppTheme.eyebrow(color: context.elixTextSecondary),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -438,7 +436,9 @@ class _QuickStartStep extends StatelessWidget {
   final bool complete;
   @override
   Widget build(BuildContext context) {
-    final color = complete ? AppColors.success : context.elixTextSecondary;
+    final color = complete
+        ? context.elixColors.success
+        : context.elixTextSecondary;
     return Padding(
       padding: const EdgeInsets.only(bottom: 7),
       child: Row(
@@ -452,23 +452,21 @@ class _QuickStartStep extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: complete
-                ? const Icon(
+                ? Icon(
                     FluentIcons.check_mark,
                     size: 9,
-                    color: AppColors.success,
+                    color: context.elixColors.success,
                   )
                 : null,
           ),
           const SizedBox(width: 8),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+            style: ElixTypography.caption(
               color: complete
                   ? context.elixTextSecondary
                   : context.elixTextPrimary,
-            ),
+            ).copyWith(fontWeight: FontWeight.w500),
           ),
         ],
       ),

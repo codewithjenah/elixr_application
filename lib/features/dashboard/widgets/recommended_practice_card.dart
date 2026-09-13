@@ -2,10 +2,11 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/progression/practice_variant.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../movements/movements_presentation.dart';
 import '../../progress/training_recommendation.dart';
 import 'dashboard_panel_card.dart';
@@ -51,7 +52,7 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
       return DashboardPanelCard(
         child: Text(
           'Sign in to see your personalized practice recommendation.',
-          style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
+          style: AppTheme.supporting(color: context.elixTextSecondary),
         ),
       );
     }
@@ -88,16 +89,20 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                     height: 46,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.13),
-                      borderRadius: BorderRadius.circular(12),
+                      color: context.elixColors.brandPrimary.withValues(
+                        alpha: 0.13,
+                      ),
+                      borderRadius: BorderRadius.circular(ElixRadius.card),
                       border: Border.all(
-                        color: AppColors.primary.withValues(alpha: 0.26),
+                        color: context.elixColors.brandPrimary.withValues(
+                          alpha: 0.26,
+                        ),
                       ),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       FluentIcons.bullseye_target,
                       size: 21,
-                      color: AppColors.primarySoft,
+                      color: context.elixColors.brandPrimary,
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -107,9 +112,7 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                       children: [
                         Text(
                           runnable ? movement.name : 'No ready practice yet',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                          style: AppTheme.cardTitle(
                             color: context.elixTextPrimary,
                           ),
                           maxLines: 1,
@@ -138,10 +141,8 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                         if (runnable) const SizedBox(height: 7),
                         Text(
                           recommendation.reason,
-                          style: TextStyle(
-                            fontSize: 12,
+                          style: AppTheme.supporting(
                             color: context.elixTextSecondary,
-                            height: 1.35,
                           ),
                         ),
                       ],
@@ -149,40 +150,18 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                   ),
                 ],
               );
-              final action = Button(
+              final action = ElixPrimaryButton(
+                expanded: compact,
+                dense: true,
+                variant: ElixButtonVariant.outline,
+                icon: FluentIcons.chevron_right,
+                label: runnable ? 'Practice this' : 'Open Movements',
                 onPressed: runnable
                     ? () => _practiceNow(
                         recommendation.recommendedVariant!,
                         movement.difficulty,
                       )
                     : _openMovements,
-                style: ButtonStyle(
-                  padding: WidgetStateProperty.all(
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  ),
-                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.isHovered) {
-                      return AppColors.primary.withValues(alpha: 0.20);
-                    }
-                    return AppColors.primary.withValues(alpha: 0.10);
-                  }),
-                  shape: WidgetStateProperty.all(
-                    RoundedRectangleBorder(
-                      side: BorderSide(
-                        color: AppColors.primary.withValues(alpha: 0.72),
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(runnable ? 'Practice this' : 'Open Movements'),
-                    const SizedBox(width: 8),
-                    const Icon(FluentIcons.chevron_right, size: 11),
-                  ],
-                ),
               );
 
               if (compact) {
@@ -246,16 +225,14 @@ class _InfoChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(ElixRadius.control),
         border: Border.all(color: color.withValues(alpha: 0.22)),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
+        style: ElixTypography.caption(
           color: Color.lerp(color, context.elixTextPrimary, 0.2),
-        ),
+        ).copyWith(fontWeight: FontWeight.w600),
       ),
     );
   }

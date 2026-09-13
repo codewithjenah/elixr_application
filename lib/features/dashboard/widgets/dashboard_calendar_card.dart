@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../calendar/utils/calendar_metrics.dart';
@@ -46,16 +46,13 @@ class DashboardCalendarCard extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   ),
                 ),
-                child: const Text(
-                  'View Planner',
-                  style: TextStyle(fontSize: 11),
-                ),
+                child: Text('View Planner', style: ElixTypography.caption()),
               ),
             ],
           ),
           Text(
             DateFormat.yMMMM().format(today),
-            style: TextStyle(fontSize: 11, color: context.elixTextSecondary),
+            style: ElixTypography.caption(color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           Row(
@@ -73,11 +70,9 @@ class DashboardCalendarCard extends StatelessWidget {
                   child: Text(
                     d,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w600,
+                    style: ElixTypography.caption(
                       color: context.elixTextSecondary,
-                    ),
+                    ).copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
             ],
@@ -148,14 +143,18 @@ class _CompactDayCell extends StatelessWidget {
             decoration: isToday
                 ? BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.primary.withValues(alpha: 0.92),
+                    color: context.elixColors.brandPrimary,
                   )
                 : practiced
                 ? BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.accent.withValues(alpha: 0.18),
+                    color: context.elixColors.brandSecondary.withValues(
+                      alpha: 0.18,
+                    ),
                     border: Border.all(
-                      color: AppColors.accent.withValues(alpha: 0.45),
+                      color: context.elixColors.brandSecondary.withValues(
+                        alpha: 0.45,
+                      ),
                     ),
                   )
                 : null,
@@ -164,17 +163,18 @@ class _CompactDayCell extends StatelessWidget {
               children: [
                 Text(
                   '${date.day}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: isToday || practiced || classroom
-                        ? FontWeight.w700
-                        : FontWeight.w400,
-                    color: isToday
-                        ? Colors.white
-                        : practiced
-                        ? context.elixTextPrimary
-                        : context.elixTextSecondary,
-                  ),
+                  style:
+                      ElixTypography.caption(
+                        color: isToday
+                            ? context.elixColors.onBrand
+                            : practiced
+                            ? context.elixTextPrimary
+                            : context.elixTextSecondary,
+                      ).copyWith(
+                        fontWeight: isToday || practiced || classroom
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                      ),
                 ),
                 if (classroom)
                   const Positioned(

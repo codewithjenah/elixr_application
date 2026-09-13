@@ -4,9 +4,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/message_unread_badge.dart';
 import '../../trainee/activity_center/trainee_activity_controller.dart';
@@ -164,13 +164,15 @@ class _NotificationsFlyout extends StatelessWidget {
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(20),
+                        color: context.elixColors.brandSecondary.withValues(
+                          alpha: 0.14,
+                        ),
+                        borderRadius: BorderRadius.circular(ElixRadius.pill),
                       ),
                       child: Text(
                         '${controller!.unreadCount} new',
                         style: AppTheme.caption.copyWith(
-                          color: AppColors.accent,
+                          color: context.elixColors.brandSecondary,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -253,12 +255,16 @@ class _NotificationPreview extends StatelessWidget {
           ? context.elixPanelSurface
           : activity.isRead
           ? Colors.transparent
-          : AppColors.accent.withValues(alpha: 0.07),
+          : context.elixColors.brandSecondary.withValues(alpha: 0.07),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(_icon(activity.type), size: 17, color: AppColors.accent),
+          Icon(
+            _icon(activity.type),
+            size: 17,
+            color: context.elixColors.brandSecondary,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -299,8 +305,8 @@ class _NotificationPreview extends StatelessWidget {
               width: 7,
               height: 7,
               margin: const EdgeInsets.only(left: 8, top: 5),
-              decoration: const BoxDecoration(
-                color: AppColors.accent,
+              decoration: BoxDecoration(
+                color: context.elixColors.brandSecondary,
                 shape: BoxShape.circle,
               ),
             ),
@@ -365,72 +371,75 @@ class _HeaderIconButtonState extends State<_HeaderIconButton> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
     return Semantics(
       button: true,
       label: widget.tooltip,
       child: Tooltip(
         message: widget.tooltip,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: GestureDetector(
-            onTap: widget.onPressed,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: highContrast
-                    ? context.elixCardSurface
-                    : isDark
-                    ? const Color(
-                        0xFF171424,
-                      ).withValues(alpha: _hovered ? 0.96 : 0.82)
-                    : context.elixCardSurface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
+        child: FocusableActionDetector(
+          actions: {
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                widget.onPressed();
+                return null;
+              },
+            ),
+          },
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              onTap: widget.onPressed,
+              child: AnimatedContainer(
+                duration: ElixMotion.duration(context, ElixMotion.micro),
+                width: AppSpacing.iconControlSize,
+                height: AppSpacing.iconControlSize,
+                decoration: BoxDecoration(
                   color: highContrast
-                      ? context.elixBorder
-                      : isDark
-                      ? AppColors.accent.withValues(
-                          alpha: _hovered ? 0.42 : 0.20,
-                        )
-                      : context.elixBorder,
-                  width: highContrast ? 2 : 1,
-                ),
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Center(
-                    child: Icon(
-                      widget.icon,
-                      size: 18,
-                      color: context.elixTextPrimary,
-                    ),
+                      ? context.elixColors.surfaceRaised
+                      : _hovered
+                      ? context.elixColors.interactiveHover
+                      : context.elixCardSurface,
+                  borderRadius: BorderRadius.circular(ElixRadius.card),
+                  border: Border.all(
+                    color: highContrast
+                        ? context.elixColors.borderStrong
+                        : context.elixColors.borderSubtle,
+                    width: highContrast ? 2 : 1,
                   ),
-                  if (widget.unreadCount > 0)
-                    Positioned(
-                      top: 2,
-                      right: 2,
-                      child: IgnorePointer(
-                        child: ExcludeSemantics(
-                          child: MessageUnreadBadge(
-                            key: const ValueKey(
-                              'dashboard-header-notification-unread-badge',
+                ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Center(
+                      child: Icon(
+                        widget.icon,
+                        size: 18,
+                        color: context.elixTextPrimary,
+                      ),
+                    ),
+                    if (widget.unreadCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 2,
+                        child: IgnorePointer(
+                          child: ExcludeSemantics(
+                            child: MessageUnreadBadge(
+                              key: const ValueKey(
+                                'dashboard-header-notification-unread-badge',
+                              ),
+                              count: widget.unreadCount,
+                              compact: true,
+                              semanticLabel:
+                                  '${widget.unreadCount} unread notifications',
                             ),
-                            count: widget.unreadCount,
-                            compact: true,
-                            semanticLabel:
-                                '${widget.unreadCount} unread notifications',
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

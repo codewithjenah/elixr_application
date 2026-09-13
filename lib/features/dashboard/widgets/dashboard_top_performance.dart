@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/session.dart';
 import 'dashboard_panel_card.dart';
@@ -144,12 +145,9 @@ class _RecordBadge extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             isPerfect ? 'PR' : 'Best',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
+            style: ElixTypography.caption(
               color: color,
-            ),
+            ).copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.4),
           ),
         ],
       ),
