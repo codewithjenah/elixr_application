@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import 'package:video_player_win/video_player_win.dart';
 
 import '../../../core/constants/app_spacing.dart';
@@ -500,106 +501,106 @@ class _TeacherMovementBuilderDialogState
         ? 'Publish a new teacher-reviewed Activity revision for future assignments.'
         : 'Build a reusable teacher-reviewed activity that you can assign to classes later.';
 
-    return FocusTraversalGroup(
-      child: ElixScaffoldPage(
-        padding: EdgeInsets.zero,
-        header: ElixEditorialPageHeader(
-          heading: heading,
-          eyebrow: _isAssignmentEditor
-              ? 'CLASSROOM ACTIVITY'
-              : 'TEACHER ACTIVITIES',
-          subtitle: subtitle,
-          leading: Icon(FluentIcons.learning_tools, color: accent),
-        ),
-        content: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1120),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xl,
-                AppSpacing.sm,
-                AppSpacing.xl,
-                AppSpacing.xl,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _ReviewModeNotice(isRetiredTemplate: _isRetiredTemplate),
-                  if (_validationMessage != null) ...[
+    return ElixShadThemeBridge(
+      child: FocusTraversalGroup(
+        child: ElixScaffoldPage(
+          padding: EdgeInsets.zero,
+          header: ElixEditorialPageHeader(
+            heading: heading,
+            eyebrow: _isAssignmentEditor
+                ? 'CLASSROOM ACTIVITY'
+                : 'TEACHER ACTIVITIES',
+            subtitle: subtitle,
+            leading: Icon(FluentIcons.learning_tools, color: accent),
+          ),
+          content: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1120),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.sm,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ReviewModeNotice(isRetiredTemplate: _isRetiredTemplate),
+                    if (_validationMessage != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      _ValidationNotice(message: _validationMessage!),
+                    ],
                     const SizedBox(height: AppSpacing.md),
-                    _ValidationNotice(message: _validationMessage!),
-                  ],
-                  const SizedBox(height: AppSpacing.md),
-                  _FormSection(
-                    icon: FluentIcons.edit,
-                    title: 'Activity details',
-                    description: 'Name the Activity and its practice steps.',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _BuilderField(
-                          label: 'Title',
-                          helperText:
-                              'Use a short, recognizable Activity name.',
-                          showHelper: false,
-                          child: TextBox(
-                            key: const ValueKey('builder-title'),
-                            controller: _title,
-                            enabled: fieldsEnabled,
-                            autofocus: fieldsEnabled,
-                            placeholder: 'Activity title',
+                    _FormSection(
+                      icon: FluentIcons.edit,
+                      title: 'Activity details',
+                      description: 'Name the Activity and its practice steps.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _BuilderField(
+                            label: 'Title',
+                            helperText:
+                                'Use a short, recognizable Activity name.',
+                            showHelper: false,
+                            child: _BuilderTextInput(
+                              key: const ValueKey('builder-title'),
+                              controller: _title,
+                              enabled: fieldsEnabled,
+                              autofocus: fieldsEnabled,
+                              placeholder: 'Activity title',
+                            ),
                           ),
-                        ),
-                        if (_isAssignmentEditor) ...[
+                          if (_isAssignmentEditor) ...[
+                            const SizedBox(height: AppSpacing.sm),
+                            _BuilderField(
+                              label: 'Topic',
+                              helperText:
+                                  'Optional label for organizing classwork.',
+                              child: _BuilderTextInput(
+                                key: const ValueKey('builder-topic'),
+                                controller: _topic,
+                                enabled: fieldsEnabled,
+                                maxLength: GroupAssignment.maxTopicLength,
+                                placeholder: 'Example: Bottle control',
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: AppSpacing.sm),
                           _BuilderField(
-                            label: 'Topic',
+                            label: 'Instructions',
                             helperText:
-                                'Optional label for organizing classwork.',
-                            child: TextBox(
-                              key: const ValueKey('builder-topic'),
-                              controller: _topic,
+                                'Describe what the trainee should practice and submit.',
+                            child: _BuilderTextInput(
+                              key: const ValueKey('builder-instructions'),
+                              controller: _instructions,
                               enabled: fieldsEnabled,
-                              maxLength: GroupAssignment.maxTopicLength,
-                              placeholder: 'Example: Bottle control',
+                              minLines: 3,
+                              maxLines: 3,
+                              placeholder:
+                                  'Enter step-by-step practice guidance',
                             ),
                           ),
                         ],
-                        const SizedBox(height: AppSpacing.sm),
-                        _BuilderField(
-                          label: 'Instructions',
-                          helperText:
-                              'Describe what the trainee should practice and submit.',
-                          child: TextBox(
-                            key: const ValueKey('builder-instructions'),
-                            controller: _instructions,
-                            enabled: fieldsEnabled,
-                            minLines: 3,
-                            maxLines: 3,
-                            placeholder: 'Enter step-by-step practice guidance',
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final practiceSetup = _FormSection(
-                        icon: FluentIcons.product_variant,
-                        title: 'Practice setup',
-                        description:
-                            'Choose the prop trainees need before recording.',
-                        compact: true,
-                        child: _BuilderField(
-                          label: 'Required prop',
-                          helperText:
-                              'ELIXR checks that this prop is visible before recording begins.',
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: ComboBox<TrainingProp>(
+                    const SizedBox(height: AppSpacing.md),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final practiceSetup = _FormSection(
+                          icon: FluentIcons.product_variant,
+                          title: 'Practice setup',
+                          description:
+                              'Choose the prop trainees need before recording.',
+                          compact: true,
+                          child: _BuilderField(
+                            label: 'Required prop',
+                            helperText:
+                                'ELIXR checks that this prop is visible before recording begins.',
+                            child: _BuilderSelect<TrainingProp>(
+                              semanticLabel: 'Required prop',
                               value: _draft.requiredProp,
-                              isExpanded: true,
                               items: [
                                 for (final value in TrainingProp.values)
                                   ComboBoxItem(
@@ -617,473 +618,477 @@ class _TeacherMovementBuilderDialogState
                                   : null,
                             ),
                           ),
-                        ),
-                      );
-                      final safetyGuidance = _FormSection(
-                        icon: FluentIcons.shield,
-                        title: 'Safety guidance',
-                        description:
-                            'Optional advice for a safer practice space.',
-                        optional: true,
-                        compact: true,
-                        child: _BuilderField(
-                          label: 'Guidance for trainees',
-                          helperText: 'Add clearance or handling reminders.',
-                          child: TextBox(
-                            key: const ValueKey('builder-safety'),
-                            controller: _safety,
-                            enabled: fieldsEnabled,
-                            minLines: 3,
-                            maxLines: 3,
-                            placeholder:
-                                'Example: Keep the practice area clear',
-                          ),
-                        ),
-                      );
-
-                      if (constraints.maxWidth >= 620) {
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: practiceSetup),
-                            const SizedBox(width: AppSpacing.xl),
-                            Expanded(child: safetyGuidance),
-                          ],
                         );
-                      }
+                        final safetyGuidance = _FormSection(
+                          icon: FluentIcons.shield,
+                          title: 'Safety guidance',
+                          description:
+                              'Optional advice for a safer practice space.',
+                          optional: true,
+                          compact: true,
+                          child: _BuilderField(
+                            label: 'Guidance for trainees',
+                            helperText: 'Add clearance or handling reminders.',
+                            child: _BuilderTextInput(
+                              key: const ValueKey('builder-safety'),
+                              controller: _safety,
+                              enabled: fieldsEnabled,
+                              minLines: 3,
+                              maxLines: 3,
+                              placeholder:
+                                  'Example: Keep the practice area clear',
+                            ),
+                          ),
+                        );
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          practiceSetup,
-                          const SizedBox(height: AppSpacing.lg),
-                          safetyGuidance,
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  if (_isAssignmentEditor &&
-                      widget.onManageLearningMaterials != null) ...[
-                    _FormSection(
-                      icon: FluentIcons.education,
-                      title: 'Learning materials',
-                      description:
-                          'Optional supporting files or links for Trainees.',
-                      optional: true,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Button(
-                          key: const ValueKey(
-                            'teacher_activity_manage_materials',
-                          ),
-                          onPressed: _saving
-                              ? null
-                              : () => widget.onManageLearningMaterials!(),
-                          child: const Text('Manage materials'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                  ],
-                  _FormSection(
-                    icon: FluentIcons.heart,
-                    title: 'Practice requirements',
-                    description:
-                        'ELIXR checks the required prop plus these visibility requirements before recording.',
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final fields = [
-                          _BuilderField(
-                            label: 'Hand readiness',
-                            helperText: 'How many hands must be visible.',
-                            child: ComboBox<ActivityHandRequirement>(
-                              key: const ValueKey('builder-readiness-hands'),
-                              value: _draft.readiness.hands,
-                              isExpanded: true,
-                              items: [
-                                for (final value
-                                    in ActivityHandRequirement.values)
-                                  ComboBoxItem(
-                                    value: value,
-                                    child: Text(value.displayLabel),
-                                  ),
-                              ],
-                              onChanged: fieldsEnabled
-                                  ? (value) {
-                                      if (value == null) return;
-                                      setState(() {
-                                        _draft.readiness =
-                                            TeacherActivityReadinessSpec(
-                                              hands: value,
-                                              body: _draft.readiness.body,
-                                            );
-                                      });
-                                    }
-                                  : null,
-                            ),
-                          ),
-                          _BuilderField(
-                            label: 'Body readiness',
-                            helperText:
-                                'Whether the trainee’s upper body must be visible.',
-                            child: ComboBox<ActivityBodyRequirement>(
-                              key: const ValueKey('builder-readiness-body'),
-                              value: _draft.readiness.body,
-                              isExpanded: true,
-                              items: [
-                                for (final value
-                                    in ActivityBodyRequirement.values)
-                                  ComboBoxItem(
-                                    value: value,
-                                    child: Text(value.displayLabel),
-                                  ),
-                              ],
-                              onChanged: fieldsEnabled
-                                  ? (value) {
-                                      if (value == null) return;
-                                      setState(() {
-                                        _draft.readiness =
-                                            TeacherActivityReadinessSpec(
-                                              hands: _draft.readiness.hands,
-                                              body: value,
-                                            );
-                                      });
-                                    }
-                                  : null,
-                            ),
-                          ),
-                        ];
-                        if (constraints.maxWidth >= 700) {
+                        if (constraints.maxWidth >= 620) {
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: practiceSetup),
+                              const SizedBox(width: AppSpacing.xl),
+                              Expanded(child: safetyGuidance),
+                            ],
+                          );
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            practiceSetup,
+                            const SizedBox(height: AppSpacing.lg),
+                            safetyGuidance,
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    if (_isAssignmentEditor &&
+                        widget.onManageLearningMaterials != null) ...[
+                      _FormSection(
+                        icon: FluentIcons.education,
+                        title: 'Learning materials',
+                        description:
+                            'Optional supporting files or links for Trainees.',
+                        optional: true,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: _BuilderSecondaryButton(
+                            key: const ValueKey(
+                              'teacher_activity_manage_materials',
+                            ),
+                            onPressed: _saving
+                                ? null
+                                : () => widget.onManageLearningMaterials!(),
+                            child: const Text('Manage materials'),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
+                    _FormSection(
+                      icon: FluentIcons.heart,
+                      title: 'Practice requirements',
+                      description:
+                          'ELIXR checks the required prop plus these visibility requirements before recording.',
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final fields = [
+                            _BuilderField(
+                              label: 'Hand readiness',
+                              helperText: 'How many hands must be visible.',
+                              child: _BuilderSelect<ActivityHandRequirement>(
+                                key: const ValueKey('builder-readiness-hands'),
+                                value: _draft.readiness.hands,
+                                items: [
+                                  for (final value
+                                      in ActivityHandRequirement.values)
+                                    ComboBoxItem(
+                                      value: value,
+                                      child: Text(value.displayLabel),
+                                    ),
+                                ],
+                                onChanged: fieldsEnabled
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _draft.readiness =
+                                              TeacherActivityReadinessSpec(
+                                                hands: value,
+                                                body: _draft.readiness.body,
+                                              );
+                                        });
+                                      }
+                                    : null,
+                              ),
+                            ),
+                            _BuilderField(
+                              label: 'Body readiness',
+                              helperText:
+                                  'Whether the trainee’s upper body must be visible.',
+                              child: _BuilderSelect<ActivityBodyRequirement>(
+                                key: const ValueKey('builder-readiness-body'),
+                                value: _draft.readiness.body,
+                                items: [
+                                  for (final value
+                                      in ActivityBodyRequirement.values)
+                                    ComboBoxItem(
+                                      value: value,
+                                      child: Text(value.displayLabel),
+                                    ),
+                                ],
+                                onChanged: fieldsEnabled
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _draft.readiness =
+                                              TeacherActivityReadinessSpec(
+                                                hands: _draft.readiness.hands,
+                                                body: value,
+                                              );
+                                        });
+                                      }
+                                    : null,
+                              ),
+                            ),
+                          ];
+                          if (constraints.maxWidth >= 700) {
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (
+                                  var index = 0;
+                                  index < fields.length;
+                                  index++
+                                ) ...[
+                                  Expanded(child: fields[index]),
+                                  if (index < fields.length - 1)
+                                    const SizedBox(width: AppSpacing.md),
+                                ],
+                              ],
+                            );
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               for (
                                 var index = 0;
                                 index < fields.length;
                                 index++
                               ) ...[
-                                Expanded(child: fields[index]),
+                                fields[index],
                                 if (index < fields.length - 1)
-                                  const SizedBox(width: AppSpacing.md),
+                                  const SizedBox(height: AppSpacing.md),
                               ],
                             ],
                           );
-                        }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (
-                              var index = 0;
-                              index < fields.length;
-                              index++
-                            ) ...[
-                              fields[index],
-                              if (index < fields.length - 1)
-                                const SizedBox(height: AppSpacing.md),
-                            ],
-                          ],
-                        );
-                      },
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _FormSection(
-                    icon: FluentIcons.clipboard_list,
-                    title: 'Scoring & rubric',
-                    description:
-                        'Use a built-in rubric or define 3–5 transparent criteria.',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _BuilderField(
-                          label: 'Rubric template',
-                          helperText:
-                              'Criteria scale automatically to the maximum score.',
-                          child: ComboBox<TeacherActivityRubricTemplate>(
-                            key: const ValueKey('builder-rubric-template'),
-                            value: _draft.rubricTemplate,
-                            isExpanded: true,
-                            items: [
-                              for (final value
-                                  in TeacherActivityRubricTemplate.values)
-                                ComboBoxItem(
-                                  value: value,
-                                  child: Text(value.displayLabel),
-                                ),
-                            ],
-                            onChanged: fieldsEnabled
-                                ? (value) {
-                                    if (value == null) return;
-                                    setState(
-                                      () => _draft.rubricTemplate = value,
-                                    );
-                                  }
-                                : null,
-                          ),
-                        ),
-                        if (_draft.rubricTemplate ==
-                            TeacherActivityRubricTemplate.custom) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            'Custom criteria',
-                            style: AppTheme.label(
-                              color: context.elixTextPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.xs),
-                          Text(
-                            'Enter 3–5 criteria. Their point maximums must total ${_draft.maximumScore}.',
-                            style: AppTheme.supporting(
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          for (
-                            var index = 0;
-                            index < _customCriteria.length;
-                            index++
-                          ) ...[
-                            _CustomCriterionEditor(
-                              index: index,
-                              controllers: _customCriteria[index],
-                              enabled: fieldsEnabled,
-                              canRemove: _customCriteria.length > 3,
-                              onRemove: () => _removeCustomCriterion(index),
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                          ],
-                          Button(
-                            key: const ValueKey('builder-add-custom-criterion'),
-                            onPressed:
-                                fieldsEnabled && _customCriteria.length < 5
-                                ? _addCustomCriterion
-                                : null,
-                            child: const Text('Add criterion'),
-                          ),
-                        ],
-                        if (_draft.rubricTemplate !=
-                            TeacherActivityRubricTemplate.custom) ...[
-                          const SizedBox(height: AppSpacing.md),
+                    const SizedBox(height: AppSpacing.lg),
+                    _FormSection(
+                      icon: FluentIcons.clipboard_list,
+                      title: 'Scoring & rubric',
+                      description:
+                          'Use a built-in rubric or define 3–5 transparent criteria.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
                           _BuilderField(
-                            label: 'Maximum score',
+                            label: 'Rubric template',
                             helperText:
-                                'Choose 30, 50, or 100 points, or enter a whole number from 1 to 100.',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                ComboBox<String>(
+                                'Criteria scale automatically to the maximum score.',
+                            child:
+                                _BuilderSelect<TeacherActivityRubricTemplate>(
                                   key: const ValueKey(
-                                    'builder-max-score-preset',
+                                    'builder-rubric-template',
                                   ),
-                                  value: _draft.usesCustomMaximumScore
-                                      ? 'custom'
-                                      : '${_draft.maximumScore}',
-                                  isExpanded: true,
-                                  items: const [
-                                    ComboBoxItem(
-                                      value: '30',
-                                      child: Text('30 points'),
-                                    ),
-                                    ComboBoxItem(
-                                      value: '50',
-                                      child: Text('50 points'),
-                                    ),
-                                    ComboBoxItem(
-                                      value: '100',
-                                      child: Text('100 points'),
-                                    ),
-                                    ComboBoxItem(
-                                      value: 'custom',
-                                      child: Text('Custom maximum score'),
-                                    ),
+                                  value: _draft.rubricTemplate,
+                                  items: [
+                                    for (final value
+                                        in TeacherActivityRubricTemplate.values)
+                                      ComboBoxItem(
+                                        value: value,
+                                        child: Text(value.displayLabel),
+                                      ),
                                   ],
                                   onChanged: fieldsEnabled
                                       ? (value) {
                                           if (value == null) return;
-                                          setState(() {
-                                            if (value == 'custom') {
-                                              _draft.maximumScore = 0;
-                                            } else {
-                                              _draft.maximumScore = int.parse(
-                                                value,
-                                              );
-                                            }
-                                          });
+                                          setState(
+                                            () => _draft.rubricTemplate = value,
+                                          );
                                         }
                                       : null,
                                 ),
-                                if (_draft.usesCustomMaximumScore) ...[
-                                  const SizedBox(height: AppSpacing.sm),
-                                  TextBox(
-                                    key: const ValueKey(
-                                      'builder-custom-max-score',
-                                    ),
-                                    controller: _customMaximumScore,
-                                    enabled: fieldsEnabled,
-                                    placeholder: '1–100',
-                                    onChanged: (value) => setState(() {
-                                      _draft.maximumScore =
-                                          int.tryParse(value.trim()) ?? 0;
-                                    }),
-                                  ),
-                                ],
-                              ],
-                            ),
                           ),
-                        ] else ...[
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            'Total: ${_customCriteria.fold<int>(0, (sum, item) => sum + (int.tryParse(item.maximumPoints.text.trim()) ?? 0))} points',
-                            style: AppTheme.label(
-                              color: context.elixTextPrimary,
-                            ),
-                          ),
-                        ],
-                        if (_draft.rubricTemplate !=
-                                TeacherActivityRubricTemplate.custom &&
-                            _draft.hasValidMaximumScore) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          _RubricCriteriaTable(
-                            criteria: TeacherActivityRubric.builtIn(
-                              _draft.rubricTemplate,
-                              _draft.maximumScore,
-                            ).criteria,
-                          ),
-                        ],
-                        const SizedBox(height: AppSpacing.md),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final durationField = _BuilderField(
-                              label: 'Recording duration',
-                              helperText:
-                                  'The maximum length for each submitted recording.',
-                              child: ComboBox<int>(
-                                key: const ValueKey(
-                                  'builder-recording-duration',
-                                ),
-                                value: _draft.recordingDurationSeconds,
-                                isExpanded: true,
-                                items: [
-                                  for (final value
-                                      in TeacherActivityAssessmentContract
-                                          .supportedRecordingDurations)
-                                    ComboBoxItem(
-                                      value: value,
-                                      child: Text('$value seconds'),
-                                    ),
-                                ],
-                                onChanged: fieldsEnabled
-                                    ? (value) {
-                                        if (value == null) return;
-                                        setState(
-                                          () =>
-                                              _draft.recordingDurationSeconds =
-                                                  value,
-                                        );
-                                      }
-                                    : null,
+                          if (_draft.rubricTemplate ==
+                              TeacherActivityRubricTemplate.custom) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              'Custom criteria',
+                              style: AppTheme.label(
+                                color: context.elixTextPrimary,
                               ),
-                            );
-                            return durationField;
-                          },
-                        ),
-                      ],
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              'Enter 3–5 criteria. Their point maximums must total ${_draft.maximumScore}.',
+                              style: AppTheme.supporting(
+                                color: context.elixTextSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            for (
+                              var index = 0;
+                              index < _customCriteria.length;
+                              index++
+                            ) ...[
+                              _CustomCriterionEditor(
+                                index: index,
+                                controllers: _customCriteria[index],
+                                enabled: fieldsEnabled,
+                                canRemove: _customCriteria.length > 3,
+                                onRemove: () => _removeCustomCriterion(index),
+                              ),
+                              const SizedBox(height: AppSpacing.sm),
+                            ],
+                            _BuilderSecondaryButton(
+                              key: const ValueKey(
+                                'builder-add-custom-criterion',
+                              ),
+                              onPressed:
+                                  fieldsEnabled && _customCriteria.length < 5
+                                  ? _addCustomCriterion
+                                  : null,
+                              child: const Text('Add criterion'),
+                            ),
+                          ],
+                          if (_draft.rubricTemplate !=
+                              TeacherActivityRubricTemplate.custom) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            _BuilderField(
+                              label: 'Maximum score',
+                              helperText:
+                                  'Choose 30, 50, or 100 points, or enter a whole number from 1 to 100.',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _BuilderSelect<String>(
+                                    key: const ValueKey(
+                                      'builder-max-score-preset',
+                                    ),
+                                    value: _draft.usesCustomMaximumScore
+                                        ? 'custom'
+                                        : '${_draft.maximumScore}',
+                                    items: const [
+                                      ComboBoxItem(
+                                        value: '30',
+                                        child: Text('30 points'),
+                                      ),
+                                      ComboBoxItem(
+                                        value: '50',
+                                        child: Text('50 points'),
+                                      ),
+                                      ComboBoxItem(
+                                        value: '100',
+                                        child: Text('100 points'),
+                                      ),
+                                      ComboBoxItem(
+                                        value: 'custom',
+                                        child: Text('Custom maximum score'),
+                                      ),
+                                    ],
+                                    onChanged: fieldsEnabled
+                                        ? (value) {
+                                            if (value == null) return;
+                                            setState(() {
+                                              if (value == 'custom') {
+                                                _draft.maximumScore = 0;
+                                              } else {
+                                                _draft.maximumScore = int.parse(
+                                                  value,
+                                                );
+                                              }
+                                            });
+                                          }
+                                        : null,
+                                  ),
+                                  if (_draft.usesCustomMaximumScore) ...[
+                                    const SizedBox(height: AppSpacing.sm),
+                                    _BuilderTextInput(
+                                      key: const ValueKey(
+                                        'builder-custom-max-score',
+                                      ),
+                                      controller: _customMaximumScore,
+                                      enabled: fieldsEnabled,
+                                      placeholder: '1–100',
+                                      onChanged: (value) => setState(() {
+                                        _draft.maximumScore =
+                                            int.tryParse(value.trim()) ?? 0;
+                                      }),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              'Total: ${_customCriteria.fold<int>(0, (sum, item) => sum + (int.tryParse(item.maximumPoints.text.trim()) ?? 0))} points',
+                              style: AppTheme.label(
+                                color: context.elixTextPrimary,
+                              ),
+                            ),
+                          ],
+                          if (_draft.rubricTemplate !=
+                                  TeacherActivityRubricTemplate.custom &&
+                              _draft.hasValidMaximumScore) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            _RubricCriteriaTable(
+                              criteria: TeacherActivityRubric.builtIn(
+                                _draft.rubricTemplate,
+                                _draft.maximumScore,
+                              ).criteria,
+                            ),
+                          ],
+                          const SizedBox(height: AppSpacing.md),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final durationField = _BuilderField(
+                                label: 'Recording duration',
+                                helperText:
+                                    'The maximum length for each submitted recording.',
+                                child: _BuilderSelect<int>(
+                                  key: const ValueKey(
+                                    'builder-recording-duration',
+                                  ),
+                                  value: _draft.recordingDurationSeconds,
+                                  items: [
+                                    for (final value
+                                        in TeacherActivityAssessmentContract
+                                            .supportedRecordingDurations)
+                                      ComboBoxItem(
+                                        value: value,
+                                        child: Text('$value seconds'),
+                                      ),
+                                  ],
+                                  onChanged: fieldsEnabled
+                                      ? (value) {
+                                          if (value == null) return;
+                                          setState(
+                                            () =>
+                                                _draft.recordingDurationSeconds =
+                                                    value,
+                                          );
+                                        }
+                                      : null,
+                                ),
+                              );
+                              return durationField;
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _DemoMediaSection(
-                    metadata: _draft.demonstrationVideo,
-                    localFile: _demoFile,
-                    playback: _demoPlayback,
-                    busy: _saving || _uploadingDemo,
-                    onPickUpload: _pickAndUploadDemo,
-                    onRecord: _recordDemoWithElixr,
-                    onRemove: _removeDemo,
-                  ),
-                  if (_isAssignmentEditor) ...[
                     const SizedBox(height: AppSpacing.lg),
-                    _AssignmentSettingsSection(
-                      hasDueDate: _hasDueDate,
-                      dueAt: _dueAt,
-                      attemptPolicy: _attemptPolicy,
-                      audienceType: _audienceType,
-                      recipientIds: _recipientIds,
-                      memberships: widget.approvedMemberships,
-                      enabled: fieldsEnabled,
-                      onDueDateChanged: (value) => setState(() {
-                        _hasDueDate = value;
-                        _dueAt ??= DateTime.now().add(const Duration(days: 7));
-                      }),
-                      onDueAtChanged: (value) => setState(() => _dueAt = value),
-                      onAttemptPolicyChanged: (value) =>
-                          setState(() => _attemptPolicy = value),
-                      onAudienceTypeChanged: (value) => setState(() {
-                        _audienceType = value;
-                        if (value == AssignmentAudienceType.entireClass) {
-                          _recipientIds.clear();
-                        } else if (value ==
-                                AssignmentAudienceType.individualStudent &&
-                            _recipientIds.length > 1) {
-                          _recipientIds = {_recipientIds.first};
-                        }
-                      }),
-                      onRecipientChanged: (traineeId, selected) => setState(() {
-                        if (selected) {
-                          if (_audienceType ==
-                              AssignmentAudienceType.individualStudent) {
-                            _recipientIds = {traineeId};
-                          } else {
-                            _recipientIds.add(traineeId);
-                          }
-                        } else {
-                          _recipientIds.remove(traineeId);
-                        }
-                      }),
+                    _DemoMediaSection(
+                      metadata: _draft.demonstrationVideo,
+                      localFile: _demoFile,
+                      playback: _demoPlayback,
+                      busy: _saving || _uploadingDemo,
+                      onPickUpload: _pickAndUploadDemo,
+                      onRecord: _recordDemoWithElixr,
+                      onRemove: _removeDemo,
                     ),
+                    if (_isAssignmentEditor) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      _AssignmentSettingsSection(
+                        hasDueDate: _hasDueDate,
+                        dueAt: _dueAt,
+                        attemptPolicy: _attemptPolicy,
+                        audienceType: _audienceType,
+                        recipientIds: _recipientIds,
+                        memberships: widget.approvedMemberships,
+                        enabled: fieldsEnabled,
+                        onDueDateChanged: (value) => setState(() {
+                          _hasDueDate = value;
+                          _dueAt ??= DateTime.now().add(
+                            const Duration(days: 7),
+                          );
+                        }),
+                        onDueAtChanged: (value) =>
+                            setState(() => _dueAt = value),
+                        onAttemptPolicyChanged: (value) =>
+                            setState(() => _attemptPolicy = value),
+                        onAudienceTypeChanged: (value) => setState(() {
+                          _audienceType = value;
+                          if (value == AssignmentAudienceType.entireClass) {
+                            _recipientIds.clear();
+                          } else if (value ==
+                                  AssignmentAudienceType.individualStudent &&
+                              _recipientIds.length > 1) {
+                            _recipientIds = {_recipientIds.first};
+                          }
+                        }),
+                        onRecipientChanged: (traineeId, selected) =>
+                            setState(() {
+                              if (selected) {
+                                if (_audienceType ==
+                                    AssignmentAudienceType.individualStudent) {
+                                  _recipientIds = {traineeId};
+                                } else {
+                                  _recipientIds.add(traineeId);
+                                }
+                              } else {
+                                _recipientIds.remove(traineeId);
+                              }
+                            }),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
-        ),
-        bottomBar: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xl,
-            vertical: AppSpacing.sm,
-          ),
-          decoration: BoxDecoration(
-            color: context.elixCardSurface,
-            border: Border(top: BorderSide(color: context.elixBorder)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Button(
-                onPressed: _saving ? null : () => Navigator.pop(context),
-                child: Text(_isRetiredTemplate ? 'Close' : 'Cancel'),
-              ),
-              if (!_isRetiredTemplate) ...[
-                const SizedBox(width: AppSpacing.sm),
-                ElixPrimaryButton(
-                  key: const ValueKey('teacher-reviewed-save'),
-                  label: _isAssignmentEditor
-                      ? 'Save assignment changes'
-                      : _isEditing
-                      ? 'Save revision'
-                      : 'Save activity',
-                  expanded: false,
-                  dense: true,
-                  isLoading: _saving,
-                  onPressed:
-                      _isEditing &&
-                          !_isAssignmentEditor &&
-                          widget.onEditTeacherReviewed == null
-                      ? null
-                      : _save,
+          bottomBar: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xl,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: context.elixCardSurface,
+              border: Border(top: BorderSide(color: context.elixBorder)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _BuilderSecondaryButton(
+                  onPressed: _saving ? null : () => Navigator.pop(context),
+                  child: Text(_isRetiredTemplate ? 'Close' : 'Cancel'),
                 ),
+                if (!_isRetiredTemplate) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  ElixPrimaryButton(
+                    key: const ValueKey('teacher-reviewed-save'),
+                    label: _isAssignmentEditor
+                        ? 'Save assignment changes'
+                        : _isEditing
+                        ? 'Save revision'
+                        : 'Save activity',
+                    expanded: false,
+                    dense: true,
+                    isLoading: _saving,
+                    onPressed:
+                        _isEditing &&
+                            !_isAssignmentEditor &&
+                            widget.onEditTeacherReviewed == null
+                        ? null
+                        : _save,
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -1217,16 +1222,15 @@ class _AssignmentSettingsSection extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Checkbox(
-          checked: hasDueDate,
-          onChanged: enabled
-              ? (value) => onDueDateChanged(value ?? false)
-              : null,
-          content: const Text('Set a due date'),
+        _BuilderCheckbox(
+          value: hasDueDate,
+          enabled: enabled,
+          label: const Text('Set a due date'),
+          onChanged: onDueDateChanged,
         ),
         if (hasDueDate) ...[
           const SizedBox(height: AppSpacing.xs),
-          DatePicker(
+          _BuilderDatePicker(
             selected: dueAt ?? DateTime.now(),
             onChanged: enabled ? onDueAtChanged : null,
           ),
@@ -1235,11 +1239,10 @@ class _AssignmentSettingsSection extends StatelessWidget {
         _BuilderField(
           label: 'Attempt limit',
           helperText: 'Limit how many recordings each trainee may submit.',
-          child: ComboBox<String>(
+          child: _BuilderSelect<String>(
             value: attemptPolicy.isUnlimited
                 ? 'unlimited'
                 : '${attemptPolicy.maximumAttempts}',
-            isExpanded: true,
             items: const [
               ComboBoxItem(value: '1', child: Text('1 attempt')),
               ComboBoxItem(value: '2', child: Text('2 attempts')),
@@ -1262,9 +1265,8 @@ class _AssignmentSettingsSection extends StatelessWidget {
         _BuilderField(
           label: 'Assign to',
           helperText: 'Choose the trainees who can access this Activity.',
-          child: ComboBox<AssignmentAudienceType>(
+          child: _BuilderSelect<AssignmentAudienceType>(
             value: audienceType,
-            isExpanded: true,
             items: const [
               ComboBoxItem(
                 value: AssignmentAudienceType.entireClass,
@@ -1289,13 +1291,12 @@ class _AssignmentSettingsSection extends StatelessWidget {
         if (audienceType != AssignmentAudienceType.entireClass) ...[
           const SizedBox(height: AppSpacing.sm),
           for (final membership in memberships)
-            Checkbox(
-              checked: recipientIds.contains(membership.traineeId),
-              onChanged: enabled
-                  ? (value) =>
-                        onRecipientChanged(membership.traineeId, value ?? false)
-                  : null,
-              content: Text(membership.traineeDisplayName),
+            _BuilderCheckbox(
+              value: recipientIds.contains(membership.traineeId),
+              enabled: enabled,
+              label: Text(membership.traineeDisplayName),
+              onChanged: (value) =>
+                  onRecipientChanged(membership.traineeId, value),
             ),
         ],
       ],
@@ -1397,15 +1398,18 @@ class _CustomCriterionEditor extends StatelessWidget {
               ),
             ),
             if (canRemove)
-              IconButton(
-                key: ValueKey('builder-remove-custom-criterion-$index'),
-                icon: const Icon(FluentIcons.delete),
-                onPressed: enabled ? onRemove : null,
+              Tooltip(
+                message: 'Remove criterion ${index + 1}',
+                child: IconButton(
+                  key: ValueKey('builder-remove-custom-criterion-$index'),
+                  icon: const Icon(FluentIcons.delete),
+                  onPressed: enabled ? onRemove : null,
+                ),
               ),
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
-        TextBox(
+        _BuilderTextInput(
           key: ValueKey('builder-custom-criterion-label-$index'),
           controller: controllers.label,
           enabled: enabled,
@@ -1413,7 +1417,7 @@ class _CustomCriterionEditor extends StatelessWidget {
           maxLength: 80,
         ),
         const SizedBox(height: AppSpacing.xs),
-        TextBox(
+        _BuilderTextInput(
           key: ValueKey('builder-custom-criterion-description-$index'),
           controller: controllers.description,
           enabled: enabled,
@@ -1423,7 +1427,7 @@ class _CustomCriterionEditor extends StatelessWidget {
           maxLines: 3,
         ),
         const SizedBox(height: AppSpacing.xs),
-        TextBox(
+        _BuilderTextInput(
           key: ValueKey('builder-custom-criterion-points-$index'),
           controller: controllers.maximumPoints,
           enabled: enabled,
@@ -1524,24 +1528,28 @@ class _DemoMediaSection extends StatelessWidget {
                     spacing: AppSpacing.sm,
                     runSpacing: AppSpacing.sm,
                     children: [
-                      Button(
+                      _BuilderSecondaryButton(
                         key: const ValueKey('builder-demo-upload'),
                         onPressed: busy ? null : onPickUpload,
                         child: Text(
                           demo == null ? 'Upload MP4' : 'Replace MP4',
                         ),
                       ),
-                      Button(
-                        key: const ValueKey('builder-demo-record'),
-                        onPressed: busy ? null : onRecord,
-                        child: Text(
-                          demo == null
-                              ? 'Record with ELIXR'
-                              : 'Replace by recording',
-                        ),
-                      ),
+                      demo == null
+                          ? ElixPrimaryButton(
+                              key: const ValueKey('builder-demo-record'),
+                              onPressed: busy ? null : onRecord,
+                              expanded: false,
+                              dense: true,
+                              label: 'Record with ELIXR',
+                            )
+                          : _BuilderSecondaryButton(
+                              key: const ValueKey('builder-demo-record'),
+                              onPressed: busy ? null : onRecord,
+                              child: const Text('Replace by recording'),
+                            ),
                       if (demo != null)
-                        Button(
+                        _BuilderDestructiveButton(
                           key: const ValueKey('builder-demo-remove'),
                           onPressed: busy ? null : onRemove,
                           child: const Text('Remove'),
@@ -1843,10 +1851,210 @@ class _BuilderField extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
         ] else
           const SizedBox(height: AppSpacing.xs),
-        MergeSemantics(
-          child: Semantics(label: label, hint: helperText, child: child),
+        Semantics(
+          container: true,
+          label: label,
+          hint: helperText,
+          child: child,
         ),
       ],
     );
   }
+}
+
+/// Keeps the modern form controls out of high-contrast mode, where Fluent's
+/// native desktop controls retain the system contrast behavior already used by
+/// the rest of ELIXR.
+class _BuilderTextInput extends StatelessWidget {
+  const _BuilderTextInput({
+    super.key,
+    required this.controller,
+    required this.enabled,
+    required this.placeholder,
+    this.autofocus = false,
+    this.maxLength,
+    this.minLines,
+    this.maxLines,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final bool enabled;
+  final String placeholder;
+  final bool autofocus;
+  final int? maxLength;
+  final int? minLines;
+  final int? maxLines;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final multiline = (minLines ?? 1) > 1;
+    if (context.isHighContrast) {
+      return TextBox(
+        controller: controller,
+        enabled: enabled,
+        autofocus: autofocus,
+        placeholder: placeholder,
+        maxLength: maxLength,
+        minLines: minLines,
+        maxLines: maxLines,
+        onChanged: onChanged,
+      );
+    }
+    if (multiline) {
+      return shad.ShadTextarea(
+        controller: controller,
+        enabled: enabled,
+        placeholder: Text(placeholder),
+        maxLength: maxLength,
+        minHeight: 88,
+        maxHeight: 126,
+        resizable: false,
+        onChanged: onChanged,
+      );
+    }
+    return shad.ShadInput(
+      controller: controller,
+      enabled: enabled,
+      autofocus: autofocus,
+      placeholder: Text(placeholder),
+      maxLength: maxLength,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _BuilderSelect<T> extends StatelessWidget {
+  const _BuilderSelect({
+    super.key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.semanticLabel,
+  });
+
+  final T value;
+  final List<ComboBoxItem<T>> items;
+  final ValueChanged<T?>? onChanged;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final control = context.isHighContrast
+        ? ComboBox<T>(
+            value: value,
+            isExpanded: true,
+            items: items,
+            onChanged: onChanged,
+          )
+        : shad.ShadSelect<T>(
+            initialValue: value,
+            options: [
+              for (final item in items)
+                if (item.value case final T itemValue)
+                  shad.ShadOption(value: itemValue, child: item.child),
+            ],
+            selectedOptionBuilder: (_, selected) =>
+                items.firstWhere((item) => item.value == selected).child,
+            onChanged: onChanged,
+          );
+    return semanticLabel == null
+        ? control
+        : Semantics(label: semanticLabel, child: control);
+  }
+}
+
+class _BuilderSecondaryButton extends StatelessWidget {
+  const _BuilderSecondaryButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.outline(onPressed: onPressed, child: child);
+}
+
+class _BuilderDestructiveButton extends StatelessWidget {
+  const _BuilderDestructiveButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.destructive(onPressed: onPressed, child: child);
+}
+
+class _BuilderCheckbox extends StatelessWidget {
+  const _BuilderCheckbox({
+    required this.value,
+    required this.enabled,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final bool enabled;
+  final Widget label;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Checkbox(
+          checked: value,
+          onChanged: enabled ? (next) => onChanged(next ?? false) : null,
+          content: label,
+        )
+      : shad.ShadCheckbox(
+          value: value,
+          enabled: enabled,
+          onChanged: enabled ? onChanged : null,
+          label: label,
+        );
+}
+
+class _BuilderDatePicker extends StatelessWidget {
+  const _BuilderDatePicker({required this.selected, required this.onChanged});
+
+  final DateTime selected;
+  final ValueChanged<DateTime>? onChanged;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? DatePicker(selected: selected, onChanged: onChanged)
+      : shad.ShadDatePicker(
+          selected: selected,
+          enabled: onChanged != null,
+          onChanged: onChanged == null
+              ? null
+              : (date) {
+                  if (date == null) return;
+                  // This editor changes only the civil date; retain the
+                  // established due-time component.
+                  onChanged!(
+                    DateTime(
+                      date.year,
+                      date.month,
+                      date.day,
+                      selected.hour,
+                      selected.minute,
+                      selected.second,
+                      selected.millisecond,
+                      selected.microsecond,
+                    ),
+                  );
+                },
+        );
 }

@@ -28,6 +28,7 @@ import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _TrackingMovements extends InMemoryTeacherMovementRepository {
   int createCalls = 0;
@@ -226,12 +227,12 @@ void main() {
     expect(find.byKey(const ValueKey('builder-safety')), findsOneWidget);
     expect(find.bySemanticsLabel('Title'), findsOneWidget);
     expect(find.bySemanticsLabel('Instructions'), findsOneWidget);
-    expect(find.bySemanticsLabel('Required prop'), findsOneWidget);
+    expect(find.text('Required prop'), findsOneWidget);
     expect(find.bySemanticsLabel('Guidance for trainees'), findsOneWidget);
-    expect(find.bySemanticsLabel('Hand readiness'), findsOneWidget);
-    expect(find.bySemanticsLabel('Body readiness'), findsOneWidget);
-    expect(find.bySemanticsLabel('Rubric template'), findsOneWidget);
-    expect(find.bySemanticsLabel('Maximum score'), findsOneWidget);
+    expect(find.text('Hand readiness'), findsOneWidget);
+    expect(find.text('Body readiness'), findsOneWidget);
+    expect(find.text('Rubric template'), findsOneWidget);
+    expect(find.text('Maximum score'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('builder-rubric-criteria-table')),
       findsOneWidget,
@@ -239,7 +240,7 @@ void main() {
     expect(find.text('What the Teacher assesses'), findsOneWidget);
     expect(find.text('Total'), findsOneWidget);
     expect(find.bySemanticsLabel('Default attempts'), findsNothing);
-    expect(find.bySemanticsLabel('Recording duration'), findsOneWidget);
+    expect(find.text('Recording duration'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('builder-demo-media-placeholder')),
       findsOneWidget,
@@ -1100,7 +1101,12 @@ void main() {
     expect(find.text('Template scored'), findsNothing);
     expect(
       tester
-          .widget<TextBox>(find.byKey(const ValueKey('builder-title')))
+          .widget<shad.ShadInput>(
+            find.descendant(
+              of: find.byKey(const ValueKey('builder-title')),
+              matching: find.byType(shad.ShadInput),
+            ),
+          )
           .enabled,
       isFalse,
     );

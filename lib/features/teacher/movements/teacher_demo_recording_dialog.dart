@@ -4,11 +4,13 @@ import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elixr_video_player.dart';
+import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/models/ws_protocol.dart';
@@ -25,10 +27,16 @@ typedef TeacherDemoRecordUpload =
 Future<TeacherActivityVideoMetadata?> showTeacherDemoRecordingDialog(
   BuildContext context, {
   required TeacherDemoRecordUpload upload,
-}) => showDialog<TeacherActivityVideoMetadata>(
-  context: context,
+}) => ElixDialog.show<TeacherActivityVideoMetadata>(
+  context,
+  title: 'Record demonstration with ELIXR',
+  subtitle: 'Record up to 60 seconds, then preview, retake, or save.',
+  icon: FluentIcons.video,
+  maxWidth: 760,
+  maxHeight: MediaQuery.sizeOf(context).height * .9,
+  scrollableContent: true,
   barrierDismissible: false,
-  builder: (_) => _TeacherDemoRecordingDialog(upload: upload),
+  content: _TeacherDemoRecordingDialog(upload: upload),
 );
 
 class _TeacherDemoRecordingDialog extends StatefulWidget {
@@ -248,85 +256,101 @@ class _TeacherDemoRecordingDialogState
   @override
   Widget build(BuildContext context) {
     final clip = _clip;
-    return ContentDialog(
-      title: const Text('Record demonstration with ELIXR'),
-      content: SizedBox(
-        width: 680,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'ELIXR uses the selected camera through the Python camera service. Record up to 60 seconds, then preview, retake, or save.',
-              style: AppTheme.bodySecondary,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            AspectRatio(
-              aspectRatio: 4 / 3,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: clip != null
-                    ? ElixrVideoPlayer(
-                        source: Uri.file(clip.localPath),
-                        mirrored: false,
-                        session: _playback,
-                      )
-                    : _frame == null
-                    ? Center(
-                        child: _preparing
-                            ? const ProgressRing()
-                            : const Icon(FluentIcons.video, size: 36),
-                      )
-                    : Image.memory(_frame!, fit: BoxFit.contain),
+    return SizedBox(
+      width: 680,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'ELIXR uses the selected camera through the Python camera service.',
+            style: AppTheme.bodySecondary,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AspectRatio(
+            aspectRatio: 4 / 3,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(8),
               ),
+              child: clip != null
+                  ? ElixrVideoPlayer(
+                      source: Uri.file(clip.localPath),
+                      mirrored: false,
+                      session: _playback,
+                    )
+                  : _frame == null
+                  ? Center(
+                      child: _preparing
+                          ? const ProgressRing()
+                          : const Icon(FluentIcons.video, size: 36),
+                    )
+                  : Image.memory(_frame!, fit: BoxFit.contain),
             ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            _recording
+                ? 'Recording ${_elapsedSeconds.clamp(0, _maximumSeconds)}s / ${_maximumSeconds}s'
+                : clip == null
+                ? (_preparing ? 'Preparing camera…' : 'Camera ready')
+                : 'Preview recording',
+            style: AppTheme.body,
+          ),
+          if (_error != null) ...[
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              _recording
-                  ? 'Recording ${_elapsedSeconds.clamp(0, _maximumSeconds)}s / ${_maximumSeconds}s'
-                  : clip == null
-                  ? (_preparing ? 'Preparing camera…' : 'Camera ready')
-                  : 'Preview the recording before saving it.',
-              style: AppTheme.body,
+            shad.ShadAlert.destructive(
+              title: const Text('Camera or recording error'),
+              description: Text(_error!),
             ),
-            if (_error != null) ...[
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                _error!,
-                style: AppTheme.caption.copyWith(color: AppColors.error),
-              ),
-            ],
           ],
-        ),
+          const SizedBox(height: AppSpacing.md),
+          const Divider(),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              shad.ShadButton.ghost(
+                onPressed: _busy ? null : _close,
+                child: const Text('Cancel'),
+              ),
+              if (clip != null)
+                shad.ShadButton.outline(
+                  onPressed: _busy ? null : _retake,
+                  child: const Text('Retake'),
+                ),
+              if (clip == null && !_recording)
+                ElixPrimaryButton(
+                  label: 'Start recording',
+                  expanded: false,
+                  dense: true,
+                  onPressed: _preparing || _busy || _error != null
+                      ? null
+                      : _startRecording,
+                ),
+              if (_recording)
+                ElixPrimaryButton(
+                  label: _busy ? 'Stopping…' : 'Stop recording',
+                  expanded: false,
+                  dense: true,
+                  isLoading: _busy,
+                  onPressed: _busy ? null : _stopRecording,
+                ),
+              if (clip != null)
+                ElixPrimaryButton(
+                  label: _busy ? 'Saving…' : 'Use demonstration',
+                  expanded: false,
+                  dense: true,
+                  isLoading: _busy,
+                  onPressed: _busy ? null : _save,
+                ),
+            ],
+          ),
+        ],
       ),
-      actions: [
-        Button(onPressed: _busy ? null : _close, child: const Text('Cancel')),
-        if (clip != null)
-          Button(
-            onPressed: _busy ? null : _retake,
-            child: const Text('Retake'),
-          ),
-        if (clip == null && !_recording)
-          FilledButton(
-            onPressed: _preparing || _busy || _error != null
-                ? null
-                : _startRecording,
-            child: const Text('Start recording'),
-          ),
-        if (_recording)
-          FilledButton(
-            onPressed: _busy ? null : _stopRecording,
-            child: const Text('Stop recording'),
-          ),
-        if (clip != null)
-          FilledButton(
-            onPressed: _busy ? null : _save,
-            child: Text(_busy ? 'Saving…' : 'Use demonstration'),
-          ),
-      ],
     );
   }
 }
