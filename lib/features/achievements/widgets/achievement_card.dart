@@ -230,7 +230,7 @@ class _AchievementCardState extends State<AchievementCard> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 14, 16, 14),
+                      padding: const EdgeInsets.fromLTRB(18, 14, 16, 13),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -282,7 +282,7 @@ class _AchievementCardState extends State<AchievementCard> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    const SizedBox(height: 8),
+                                    const SizedBox(height: 7),
                                     Text(
                                       widget.view.definition.description,
                                       style: AppTheme.bodySecondary.copyWith(

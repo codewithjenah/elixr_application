@@ -6,6 +6,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/features/auth/auth_form_chrome.dart';
+import 'package:elixr_application/features/auth/auth_text_field.dart';
 import 'package:elixr_application/features/auth/register_screen.dart';
 import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -135,10 +136,15 @@ Future<void> _setSurface(
 }
 
 Finder _authField(String placeholder) {
-  return find.byWidgetPredicate(
-    (widget) => widget is TextBox && widget.placeholder == placeholder,
+  return find.descendant(
+    of: _authFieldContainer(placeholder),
+    matching: find.byType(EditableText),
   );
 }
+
+Finder _authFieldContainer(String placeholder) => find.byWidgetPredicate(
+  (widget) => widget is AuthTextField && widget.placeholder == placeholder,
+);
 
 Future<void> _enterAuthField(
   WidgetTester tester,
@@ -162,7 +168,7 @@ int _countRegisterFieldsInRow(Element rowElement) {
   var count = 0;
   void visit(Element element) {
     final widget = element.widget;
-    if (widget is TextBox &&
+    if (widget is AuthTextField &&
         _registerFieldPlaceholders.contains(widget.placeholder)) {
       count++;
     }
@@ -403,7 +409,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 150));
         expect(_authField('First name'), findsOneWidget);
         expect(
-          tester.widget<TextBox>(_authField('First name')).controller?.text,
+          tester
+              .widget<AuthTextField>(_authFieldContainer('First name'))
+              .controller
+              .text,
           'Ada',
         );
       },
@@ -470,11 +479,17 @@ void main() {
 
       expect(_authField('First name'), findsOneWidget);
       expect(
-        tester.widget<TextBox>(_authField('First name')).controller?.text,
+        tester
+            .widget<AuthTextField>(_authFieldContainer('First name'))
+            .controller
+            .text,
         'Ada',
       );
       expect(
-        tester.widget<TextBox>(_authField('Last name')).controller?.text,
+        tester
+            .widget<AuthTextField>(_authFieldContainer('Last name'))
+            .controller
+            .text,
         'Lovelace',
       );
     });
