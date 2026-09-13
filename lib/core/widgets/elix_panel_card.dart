@@ -78,7 +78,7 @@ class ElixPanelCard extends StatelessWidget {
                         colors.surfaceRaised,
                       ],
               ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(ElixRadius.panel),
         border: Border.all(color: borderColor, width: highContrast ? 2 : 1),
         boxShadow: highContrast || flattenSurface
             ? const []
@@ -102,7 +102,7 @@ class ElixPanelCard extends StatelessWidget {
               ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(ElixRadius.panel),
         child: showAccentBar && accentColor != null
             ? Stack(
                 children: [
@@ -136,7 +136,7 @@ class ElixPanelCard extends StatelessWidget {
       key: const ValueKey('elix-panel-shad-card'),
       width: expand ? double.infinity : null,
       padding: EdgeInsets.zero,
-      radius: BorderRadius.circular(12),
+      radius: BorderRadius.circular(ElixRadius.panel),
       border: shad.ShadBorder.all(color: borderColor),
       shadows: flattenSurface ? const [] : null,
       backgroundColor: surface,

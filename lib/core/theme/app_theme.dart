@@ -106,7 +106,7 @@ abstract final class AppTheme {
         ring: colors.focusRing,
         selection: colors.interactiveSelected,
       ),
-      radius: BorderRadius.circular(12),
+      radius: BorderRadius.circular(ElixRadius.card),
       textTheme: shad.ShadTextTheme(family: ElixTypography.fontFamily),
     );
   }
@@ -339,7 +339,7 @@ abstract final class AppTheme {
     bool highContrast,
   ) {
     ShapeBorder shapeFor(Set<WidgetState> states) => RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(ElixRadius.control),
       side: BorderSide(
         color: states.contains(WidgetState.focused)
             ? colors.focusRing
@@ -417,7 +417,7 @@ abstract final class AppTheme {
   ) => ContentDialogThemeData(
     decoration: BoxDecoration(
       color: colors.surfaceRaised,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(ElixRadius.dialog),
       border: Border.all(
         color: highContrast ? colors.borderStrong : colors.borderInteractive,
         width: highContrast ? 2 : 1,
@@ -477,7 +477,7 @@ abstract final class AppTheme {
         context.elixWorkspaceVisuals.flattenDenseSurfaces;
     return BoxDecoration(
       color: color ?? context.elixCardSurface,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(ElixRadius.card),
       border: Border.all(
         color: context.elixBorder.withValues(
           alpha: highContrast ? 1 : (isDark ? 0.6 : 1),
@@ -521,7 +521,7 @@ abstract final class AppTheme {
     final glowColor = glow ?? AppColors.primary;
     return BoxDecoration(
       color: surface,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(ElixRadius.panel),
       border: Border.all(color: borderColor, width: highContrast ? 2 : 1),
       boxShadow: highContrast
           ? const []

@@ -4,6 +4,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../theme/elix_design_tokens.dart';
 import 'elix_editorial_header.dart';
 import 'elix_primary_button.dart';
 
@@ -273,7 +274,7 @@ class ElixDialog extends StatelessWidget {
                   color: ctx.isHighContrast
                       ? ctx.elixCardSurface
                       : ctx.elixColors.success.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(ElixRadius.control),
                   border: Border.all(
                     color: ctx.isHighContrast
                         ? ctx.elixBorder
@@ -424,7 +425,7 @@ class ElixDialog extends StatelessWidget {
         margin: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
           color: context.elixCardSurface,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(ElixRadius.dialog),
           border: Border.all(
             color: highContrast
                 ? context.elixBorder
@@ -449,7 +450,7 @@ class ElixDialog extends StatelessWidget {
                 ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(ElixRadius.dialog),
           child: Column(
             mainAxisSize: scrollableContent
                 ? MainAxisSize.max

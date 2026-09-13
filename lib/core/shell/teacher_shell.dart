@@ -3,12 +3,13 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
-import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/elix_design_tokens.dart';
 import '../router/app_route_paths.dart';
 import '../widgets/elix_editorial_header.dart';
+import '../widgets/elix_dialog.dart';
+import '../widgets/elix_primary_button.dart';
 import '../widgets/elix_scaffold_page.dart';
 import 'teacher_sidebar.dart';
 
@@ -27,24 +28,29 @@ class _TeacherShellState extends State<TeacherShell> {
   bool _sidebarCollapsed = false;
 
   Future<void> _confirmAndLogout() async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Log out?'),
-        content: const Text(
-          'Are you sure you want to log out of your ELIXR Teacher account?',
-        ),
-        actions: [
-          Button(
-            child: const Text('Cancel'),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          FilledButton(
-            child: const Text('Log out'),
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
+    final shouldLogout = await ElixDialog.show<bool>(
+      context,
+      title: 'Log out?',
+      subtitle: 'You can sign in again at any time.',
+      icon: FluentIcons.sign_out,
+      content: Text(
+        'Are you sure you want to log out of your ELIXR Teacher account?',
+        style: AppTheme.body.copyWith(color: context.elixTextSecondary),
       ),
+      actions: [
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
+          onPressed: () =>
+              Navigator.of(context, rootNavigator: true).pop(false),
+        ),
+        ElixPrimaryButton(
+          label: 'Log out',
+          expanded: false,
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+        ),
+      ],
     );
 
     if (shouldLogout != true || !mounted) return;
@@ -101,7 +107,7 @@ class TeacherPlaceholderScreen extends StatelessWidget {
               Icon(
                 FluentIcons.info_solid,
                 size: 48,
-                color: AppColors.primary.withValues(alpha: 0.85),
+                color: context.elixColors.brandPrimary.withValues(alpha: 0.85),
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(

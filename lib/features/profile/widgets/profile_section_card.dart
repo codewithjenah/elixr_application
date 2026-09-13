@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 
 /// Shared surface + header chrome for profile content sections.
 class ProfileSectionCard extends StatelessWidget {
@@ -22,19 +23,9 @@ class ProfileSectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    return ElixPanelCard(
       padding: padding,
-      decoration: BoxDecoration(
-        color: context.elixPanelSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: context.isHighContrast
-              ? context.elixBorder
-              : context.elixBorder.withValues(alpha: 0.5),
-          width: context.isHighContrast ? 2 : 1,
-        ),
-      ),
+      variant: ElixPanelVariant.elevated,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
