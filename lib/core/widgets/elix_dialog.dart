@@ -344,6 +344,7 @@ class ElixDialog extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final accent = headerAccentColor ?? context.elixColors.brandPrimary;
     final highContrast = context.isHighContrast;
+    final dialogMaxHeight = maxHeight ?? size.height * 0.85;
     final iconTone = highContrast
         ? context.elixTextPrimary
         : (iconColor ?? context.elixColors.brandPrimary);
@@ -406,23 +407,10 @@ class ElixDialog extends StatelessWidget {
     );
     final dialogActions = actions == null || actions!.isEmpty
         ? const <Widget>[]
-        : actions!.length == 1
-        ? [SizedBox(width: double.infinity, child: actions!.first)]
-        : [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                for (var i = 0; i < actions!.length; i++) ...[
-                  if (i > 0) const SizedBox(width: AppSpacing.sm),
-                  if (uniformActionSize == null)
-                    actions![i]
-                  else
-                    SizedBox.fromSize(
-                      size: uniformActionSize,
-                      child: actions![i],
-                    ),
-                ],
-              ],
+        : <Widget>[
+            _ElixDialogFooter(
+              actions: actions!,
+              uniformActionSize: uniformActionSize,
             ),
           ];
     final legacyBody = Material(
@@ -430,7 +418,8 @@ class ElixDialog extends StatelessWidget {
       child: Container(
         constraints: BoxConstraints(
           maxWidth: maxWidth,
-          maxHeight: maxHeight ?? size.height * 0.85,
+          maxHeight: dialogMaxHeight,
+          minHeight: scrollableContent ? dialogMaxHeight : 0,
         ),
         margin: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
@@ -467,56 +456,95 @@ class ElixDialog extends StatelessWidget {
                 : MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.xl,
-                  AppSpacing.xl,
-                  AppSpacing.xl,
-                  AppSpacing.md,
-                ),
-                decoration: highContrast
-                    ? null
-                    : BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            accent.withValues(alpha: 0.12),
-                            Colors.transparent,
-                          ],
-                        ),
-                      ),
-                child: dialogContents,
-              ),
-              if (dialogActions.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.xl,
-                    AppSpacing.sm,
-                    AppSpacing.xl,
-                    AppSpacing.xl,
-                  ),
-                  child: dialogActions.single,
-                ),
+              if (scrollableContent)
+                Expanded(child: _legacyContent(context, accent, dialogContents))
+              else
+                _legacyContent(context, accent, dialogContents),
+              if (dialogActions.isNotEmpty) dialogActions.single,
             ],
           ),
         ),
       ),
     );
-    if (highContrast) return legacyBody;
+    if (highContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return legacyBody;
+    }
     return shad.ShadDialog(
       key: const ValueKey('elix-shad-dialog'),
       constraints: BoxConstraints(
         maxWidth: maxWidth,
-        maxHeight: maxHeight ?? size.height * .85,
+        maxHeight: dialogMaxHeight,
       ),
       padding: EdgeInsets.zero,
       backgroundColor: context.elixCardSurface,
       border: Border.all(color: context.elixColors.borderSubtle),
       shadows: const [],
+      // The shared footer owns its responsive layout and its explicit inner
+      // spacing, rather than relying on ShadDialog defaults with zero padding.
+      expandActionsWhenTiny: false,
       actions: dialogActions,
       scrollable: scrollableContent,
       child: dialogContents,
+    );
+  }
+
+  Widget _legacyContent(
+    BuildContext context,
+    Color accent,
+    Widget dialogContents,
+  ) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.xl,
+        AppSpacing.xl,
+        AppSpacing.md,
+      ),
+      decoration: context.isHighContrast
+          ? null
+          : BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [accent.withValues(alpha: 0.12), Colors.transparent],
+              ),
+            ),
+      child: dialogContents,
+    );
+  }
+}
+
+class _ElixDialogFooter extends StatelessWidget {
+  const _ElixDialogFooter({required this.actions, this.uniformActionSize});
+
+  final List<Widget> actions;
+  final Size? uniformActionSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final actionWidgets = [
+      for (final action in actions)
+        if (uniformActionSize == null)
+          action
+        else
+          SizedBox.fromSize(size: uniformActionSize, child: action),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.sm,
+        AppSpacing.xl,
+        AppSpacing.xl,
+      ),
+      child: actions.length == 1
+          ? SizedBox(width: double.infinity, child: actionWidgets.single)
+          : Wrap(
+              alignment: WrapAlignment.end,
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: actionWidgets,
+            ),
     );
   }
 }

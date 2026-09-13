@@ -151,8 +151,14 @@ void main() {
         find.byKey(const ValueKey('elix-primary-shad-button')),
       );
       final progress = tester.getRect(find.byType(ProgressRing));
+      final loadingLabel = tester.getRect(find.text('Continue'));
       expect(loadingButton.contains(progress.topLeft), isTrue);
       expect(loadingButton.contains(progress.bottomRight), isTrue);
+      expect(progress.width, closeTo(progress.height, 0.01));
+      expect(progress.width, closeTo(18, 0.01));
+      expect((progress.center.dy - loadingLabel.center.dy).abs(), lessThan(1));
+      expect(loadingButton.width, 320);
+      expect(find.text('Continue'), findsOneWidget);
 
       await tester.pumpWidget(
         host(
@@ -177,6 +183,42 @@ void main() {
     },
   );
 
+  testWidgets('loading primary buttons keep square spinners across layouts', (
+    tester,
+  ) async {
+    for (final expanded in [true, false]) {
+      await tester.pumpWidget(
+        host(
+          ElixShadThemeBridge(
+            child: SizedBox(
+              width: expanded ? 320 : null,
+              child: ElixPrimaryButton(
+                label: expanded ? 'Sign in' : 'Continue',
+                icon: FluentIcons.next,
+                isLoading: true,
+                expanded: expanded,
+                onPressed: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final button = tester.getRect(
+        find.byKey(const ValueKey('elix-primary-shad-button')),
+      );
+      final spinner = tester.getRect(find.byType(ProgressRing));
+      final label = tester.getRect(
+        find.text(expanded ? 'Sign in' : 'Continue'),
+      );
+      expect(spinner.size, const Size(18, 18));
+      expect((spinner.center.dy - label.center.dy).abs(), lessThan(1));
+      expect(find.byIcon(FluentIcons.next), findsNothing);
+      if (expanded) expect(button.width, 320);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets(
     'Shad primary label remains visible with accessible text scaling in light and dark themes',
     (tester) async {
@@ -193,7 +235,11 @@ void main() {
                 child: Center(
                   child: const SizedBox(
                     width: 320,
-                    child: ElixPrimaryButton(label: 'Sign in', onPressed: null),
+                    child: ElixPrimaryButton(
+                      label: 'Sign in',
+                      onPressed: null,
+                      isLoading: true,
+                    ),
                   ),
                 ),
               ),
@@ -201,6 +247,10 @@ void main() {
           ),
         );
         expectLabelFitsAndIsCentered(tester, 'Sign in');
+        expect(
+          tester.getRect(find.byType(ProgressRing)).size,
+          const Size(18, 18),
+        );
         expect(tester.takeException(), isNull);
       }
     },
@@ -372,7 +422,12 @@ void main() {
     );
 
     final semantics = tester.getSemantics(
-      find.bySemanticsLabel('Save changes'),
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            widget.properties.label == 'Save changes' &&
+            widget.properties.value == 'Loading',
+      ),
     );
     expect(semantics.label, 'Save changes');
     expect(semantics.value, 'Loading');

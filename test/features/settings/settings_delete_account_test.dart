@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_core/models/user.dart';
@@ -281,6 +282,19 @@ void main() {
     final dialogRect = tester.getRect(phraseDialog);
     expect(dialogRect.top, greaterThanOrEqualTo(0));
     expect(dialogRect.bottom, lessThanOrEqualTo(768));
+    final cancelRect = tester.getRect(
+      find.widgetWithText(Button, 'Cancel').first,
+    );
+    final continueRect = tester.getRect(
+      find.widgetWithText(ElixPrimaryButton, 'Continue'),
+    );
+    for (final action in [cancelRect, continueRect]) {
+      expect(dialogRect.contains(action.topLeft), isTrue);
+      expect(dialogRect.contains(action.bottomRight), isTrue);
+      expect(action.left - dialogRect.left, greaterThan(0));
+      expect(dialogRect.right - action.right, greaterThan(0));
+      expect(dialogRect.bottom - action.bottom, greaterThan(0));
+    }
     expect(
       find.text('Required. Type the full phrase exactly as shown.'),
       findsOneWidget,

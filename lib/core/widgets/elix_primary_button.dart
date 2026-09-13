@@ -27,18 +27,17 @@ class ElixPrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final disabled = isLoading || onPressed == null;
-    final child = isLoading
-        ? const SizedBox(
-            width: 18,
-            height: 18,
-            child: ProgressRing(strokeWidth: 2),
-          )
-        : Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.action(),
-          );
+    final labelChild = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTheme.action(),
+    );
+    const loadingIndicator = SizedBox(
+      width: 18,
+      height: 18,
+      child: ProgressRing(strokeWidth: 2),
+    );
     final effectivePadding =
         padding ??
         EdgeInsets.symmetric(
@@ -54,7 +53,16 @@ class ElixPrimaryButton extends StatelessWidget {
       button = FilledButton(
         onPressed: disabled ? null : onPressed,
         style: ButtonStyle(padding: WidgetStatePropertyAll(effectivePadding)),
-        child: child,
+        child: isLoading
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  loadingIndicator,
+                  const SizedBox(width: AppSpacing.sm),
+                  Flexible(child: labelChild),
+                ],
+              )
+            : labelChild,
       );
     } else {
       final resolvedPadding = effectivePadding.resolve(
@@ -72,8 +80,13 @@ class ElixPrimaryButton extends StatelessWidget {
             .clamp(40, double.infinity)
             .toDouble(),
         padding: effectivePadding,
-        leading: icon == null ? null : Icon(icon, size: 16),
-        child: expanded || isLoading ? child : Flexible(child: child),
+        // ShadButton expands its child to consume the remaining row width.
+        // Keep loading feedback in its dedicated leading slot so the ring
+        // retains its square constraints while an expanded label fills space.
+        leading: isLoading
+            ? loadingIndicator
+            : (icon == null ? null : Icon(icon, size: 16)),
+        child: expanded ? labelChild : Flexible(child: labelChild),
       );
     }
     if (expanded && context.isHighContrast) {

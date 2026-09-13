@@ -900,6 +900,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       headerAccentColor: context.elixColors.error,
       maxWidth: 620,
       maxHeight: MediaQuery.sizeOf(context).height - (AppSpacing.lg * 2),
+      uniformActionSize: const Size(160, 52),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -1027,28 +1028,20 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
         ],
       ),
       actions: [
-        SizedBox(
-          width: 160,
-          height: 52,
-          child: Button(
-            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-            child: const Text('Cancel'),
-          ),
+        Button(
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+          child: const Text('Cancel'),
         ),
-        SizedBox(
-          width: 160,
-          height: 52,
-          child: ElixPrimaryButton(
-            label: 'Continue',
-            dense: true,
-            expanded: false,
-            onPressed: _canContinue
-                ? () => Navigator.of(
-                    context,
-                    rootNavigator: true,
-                  ).pop(_phraseController.text.trim())
-                : null,
-          ),
+        ElixPrimaryButton(
+          label: 'Continue',
+          dense: true,
+          expanded: false,
+          onPressed: _canContinue
+              ? () => Navigator.of(
+                  context,
+                  rootNavigator: true,
+                ).pop(_phraseController.text.trim())
+              : null,
         ),
       ],
     );
