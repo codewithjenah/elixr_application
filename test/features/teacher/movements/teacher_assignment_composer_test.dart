@@ -23,6 +23,38 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
+shad.ShadSelect<T> composerSelect<T>(WidgetTester tester, Key key) =>
+    tester.widget<shad.ShadSelect<T>>(
+      find.descendant(
+        of: find.byKey(key),
+        matching: find.byType(shad.ShadSelect<T>),
+      ),
+    );
+
+shad.ShadInput composerInput(WidgetTester tester, Key key) =>
+    tester.widget<shad.ShadInput>(
+      find.descendant(
+        of: find.byKey(key),
+        matching: find.byType(shad.ShadInput),
+      ),
+    );
+
+shad.ShadSwitch composerSwitch(WidgetTester tester, Key key) =>
+    tester.widget<shad.ShadSwitch>(
+      find.descendant(
+        of: find.byKey(key),
+        matching: find.byType(shad.ShadSwitch),
+      ),
+    );
+
+shad.ShadButton composerSecondaryButton(WidgetTester tester, Key key) =>
+    tester.widget<shad.ShadButton>(
+      find.descendant(
+        of: find.byKey(key),
+        matching: find.byType(shad.ShadButton),
+      ),
+    );
+
 class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   _TrackingAssignments({required InMemoryGroupRepository groupRepository})
     : super(groupRepository: groupRepository);
@@ -569,11 +601,10 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const Key('teacher_assignment_customize_activity')),
       );
-      tester
-          .widget<ToggleSwitch>(
-            find.byKey(const Key('teacher_assignment_customize_activity')),
-          )
-          .onChanged!(true);
+      composerSwitch(
+        tester,
+        const Key('teacher_assignment_customize_activity'),
+      ).onChanged!(true);
       await tester.pumpAndSettle();
     }
   }
@@ -939,11 +970,10 @@ void main() {
         findsNothing,
       );
       expect(
-        tester
-            .widget<Button>(
-              find.byKey(const Key('teacher_assignment_schedule')),
-            )
-            .onPressed,
+        composerSecondaryButton(
+          tester,
+          const Key('teacher_assignment_schedule'),
+        ).onPressed,
         isNull,
       );
 
@@ -1179,11 +1209,10 @@ void main() {
       teacherCreatedMovement: customMovement,
     );
 
-    tester
-        .widget<ComboBox<String>>(
-          find.byKey(const Key('teacher_assignment_maximum_preset')),
-        )
-        .onChanged!('custom');
+    composerSelect<String>(
+      tester,
+      const Key('teacher_assignment_maximum_preset'),
+    ).onChanged!('custom');
     await tester.pump();
     await tester.enterText(
       find.byKey(const Key('teacher_assignment_max_score')),
@@ -1328,18 +1357,17 @@ void main() {
     expect(materials.listedAssignmentIds, [assignment.id]);
     expect(find.text('Balance guide.pdf'), findsOneWidget);
     expect(
-      tester
-          .widget<ComboBox<int>>(
-            find.byKey(const Key('teacher_assignment_recording_duration')),
-          )
-          .value,
+      composerSelect<int>(
+        tester,
+        const Key('teacher_assignment_recording_duration'),
+      ).initialValue,
       45,
     );
     expect(
-      tester
-          .widget<TextBox>(find.byKey(const Key('teacher_assignment_title')))
-          .controller!
-          .text,
+      composerInput(
+        tester,
+        const Key('teacher_assignment_title'),
+      ).controller!.text,
       'Balance recording',
     );
   });
@@ -1366,11 +1394,10 @@ void main() {
       existingAssignment: assignment,
       materialRepository: _MaterialRepository(),
     );
-    tester
-        .widget<ComboBox<int>>(
-          find.byKey(const Key('teacher_assignment_recording_duration')),
-        )
-        .onChanged!(60);
+    composerSelect<int>(
+      tester,
+      const Key('teacher_assignment_recording_duration'),
+    ).onChanged!(60);
     await tester.pump();
     await tester.ensureVisible(
       find.byKey(const Key('teacher_assignment_save_changes')),
@@ -1906,19 +1933,17 @@ void main() {
         lockedGroup: group,
         materialRepository: _MaterialRepository(),
       );
-      tester
-          .widget<ComboBox<String>>(
-            find.byKey(const Key('teacher_assignment_class')),
-          )
-          .onChanged!('group-2');
+      composerSelect<String>(
+        tester,
+        const Key('teacher_assignment_class'),
+      ).onChanged!('group-2');
       await tester.pumpAndSettle();
       expect(find.text('Select one trainee.'), findsNothing);
       expect(
-        tester
-            .widget<Button>(
-              find.byKey(const Key('teacher_assignment_save_draft')),
-            )
-            .onPressed,
+        composerSecondaryButton(
+          tester,
+          const Key('teacher_assignment_save_draft'),
+        ).onPressed,
         isNull,
       );
     },
@@ -1944,12 +1969,18 @@ void main() {
         findsOneWidget,
       );
       expect(
-        tester
-            .widget<ComboBox<String>>(
-              find.byKey(const Key('teacher_assignment_class')),
-            )
-            .onChanged,
+        composerSelect<String>(
+          tester,
+          const Key('teacher_assignment_class'),
+        ).onChanged,
         isNull,
+      );
+      expect(
+        composerSelect<String>(
+          tester,
+          const Key('teacher_assignment_class'),
+        ).enabled,
+        isFalse,
       );
     },
   );
@@ -1978,7 +2009,7 @@ void main() {
       existingAssignment: assignment,
       materialRepository: materials,
     );
-    final remove = find.widgetWithText(Button, 'Remove');
+    final remove = find.widgetWithText(shad.ShadButton, 'Remove');
     await tester.ensureVisible(remove);
     await tester.tap(remove);
     await tester.pump();
@@ -2018,10 +2049,10 @@ void main() {
       findsOneWidget,
     );
     expect(
-      tester
-          .widget<TextBox>(find.byKey(const Key('teacher_assignment_topic')))
-          .controller!
-          .text,
+      composerInput(
+        tester,
+        const Key('teacher_assignment_topic'),
+      ).controller!.text,
       'Original topic',
     );
 
@@ -2098,11 +2129,10 @@ void main() {
 
       expect(find.text('Shaker control'), findsWidgets);
       expect(
-        tester
-            .widget<ComboBox<String>>(
-              find.byKey(const Key('teacher_assignment_attempt_policy')),
-            )
-            .value,
+        composerSelect<String>(
+          tester,
+          const Key('teacher_assignment_attempt_policy'),
+        ).initialValue,
         '3',
       );
       expect(find.text('Control & Consistency'), findsWidgets);
@@ -2111,8 +2141,9 @@ void main() {
         find.byKey(const Key('teacher_assignment_title')),
         'Shaker control — Group A',
       );
-      final duration = tester.widget<ComboBox<int>>(
-        find.byKey(const Key('teacher_assignment_recording_duration')),
+      final duration = composerSelect<int>(
+        tester,
+        const Key('teacher_assignment_recording_duration'),
       );
       duration.onChanged!(60);
       await tester.pump();
@@ -2142,8 +2173,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final template = tester.widget<ComboBox<TeacherActivityRubricTemplate>>(
-      find.byKey(const Key('teacher_assignment_rubric_template')),
+    final template = composerSelect<TeacherActivityRubricTemplate>(
+      tester,
+      const Key('teacher_assignment_rubric_template'),
     );
     template.onChanged!(TeacherActivityRubricTemplate.custom);
     await tester.pump();
@@ -2282,10 +2314,25 @@ void main() {
 
       final classroom = find.byKey(const Key('teacher_assignment_class'));
       await tester.ensureVisible(classroom);
-      expect(tester.widget<ComboBox<String>>(classroom).value, group.id);
-      tester.widget<ComboBox<String>>(classroom).onChanged!(otherGroup.id);
+      expect(
+        composerSelect<String>(
+          tester,
+          const Key('teacher_assignment_class'),
+        ).initialValue,
+        group.id,
+      );
+      composerSelect<String>(
+        tester,
+        const Key('teacher_assignment_class'),
+      ).onChanged!(otherGroup.id);
       await tester.pump();
-      expect(tester.widget<ComboBox<String>>(classroom).value, otherGroup.id);
+      expect(
+        composerSelect<String>(
+          tester,
+          const Key('teacher_assignment_class'),
+        ).initialValue,
+        otherGroup.id,
+      );
       expect(find.text('0 selected'), findsOneWidget);
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -2940,16 +2987,23 @@ void main() {
       final propBox = find.byKey(const Key('teacher_assignment_official_prop'));
       expect(propBox, findsOneWidget);
       expect(
-        tester.widget<ComboBox<TrainingProp>>(propBox).value,
+        composerSelect<TrainingProp>(
+          tester,
+          const Key('teacher_assignment_official_prop'),
+        ).initialValue,
         TrainingProp.bottle,
       );
 
-      tester.widget<ComboBox<TrainingProp>>(propBox).onChanged!(
-        TrainingProp.shaker,
-      );
+      composerSelect<TrainingProp>(
+        tester,
+        const Key('teacher_assignment_official_prop'),
+      ).onChanged!(TrainingProp.shaker);
       await tester.pump();
       expect(
-        tester.widget<ComboBox<TrainingProp>>(propBox).value,
+        composerSelect<TrainingProp>(
+          tester,
+          const Key('teacher_assignment_official_prop'),
+        ).initialValue,
         TrainingProp.shaker,
       );
 
@@ -2961,13 +3015,17 @@ void main() {
       await tester.tap(oneFinger);
       await tester.pump();
       expect(
-        tester.widget<ComboBox<TrainingProp>>(propBox).value,
+        composerSelect<TrainingProp>(
+          tester,
+          const Key('teacher_assignment_official_prop'),
+        ).initialValue,
         TrainingProp.bottle,
       );
 
-      tester.widget<ComboBox<TrainingProp>>(propBox).onChanged!(
-        TrainingProp.shaker,
-      );
+      composerSelect<TrainingProp>(
+        tester,
+        const Key('teacher_assignment_official_prop'),
+      ).onChanged!(TrainingProp.shaker);
       await tester.pump();
 
       await publishAssignment(tester);

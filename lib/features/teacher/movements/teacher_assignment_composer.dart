@@ -1252,17 +1252,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           _ComposerField(
             label: 'Classroom',
             hint: 'Only active classes can receive new assignments.',
-            child: ComboBox<String>(
+            child: _ComposerSelect<String>(
               key: const Key('teacher_assignment_class'),
               value: _selectedGroup?.id,
               isExpanded: true,
               items: [
                 for (final group in _activeGroups)
                   ComboBoxItem(value: group.id, child: Text(group.name)),
-              ],
-              selectedItemBuilder: (context) => [
-                for (final group in _activeGroups)
-                  Text(group.name, overflow: TextOverflow.ellipsis),
               ],
               onChanged: _submitting || !_canEditIdentity
                   ? null
@@ -1352,16 +1348,15 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ),
           const SizedBox(height: AppSpacing.md),
           if (_canOfferLatestTeacherRevision) ...[
-            InfoBar(
+            _ComposerAlert(
               key: const Key('teacher_assignment_older_revision'),
-              severity: InfoBarSeverity.info,
               title: const Text(
                 'This assignment uses an older saved version of this Activity.',
               ),
               content: const Text(
                 'Keep the saved version unless you want to use the latest Activity details.',
               ),
-              action: Button(
+              action: _ComposerSecondaryButton(
                 key: const Key('teacher_assignment_use_latest_revision'),
                 onPressed: () => unawaited(_useLatestTeacherRevision()),
                 child: const Text('Use latest version'),
@@ -1370,10 +1365,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             const SizedBox(height: AppSpacing.md),
           ],
           if (!_isEditing || _canEditAssessment)
-            ToggleSwitch(
+            _ComposerSwitch(
               key: const Key('teacher_assignment_customize_activity'),
-              checked: _customizeActivity,
-              content: const Text('Customize for this assignment'),
+              value: _customizeActivity,
+              label: const Text('Customize for this assignment'),
               onChanged: _submitting || !_canEditAssessment
                   ? null
                   : (value) => setState(() {
@@ -1394,7 +1389,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             _ComposerField(
               label: 'Assignment title',
               hint: 'Required · up to 80 characters',
-              child: TextBox(
+              child: _ComposerInput(
                 key: const Key('teacher_assignment_title'),
                 controller: _assignmentTitleController,
                 maxLength: TeacherReviewedMovementSpec.titleMaxLength,
@@ -1406,9 +1401,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             _ComposerField(
               label: 'Instructions',
               hint: 'Required · explain what the trainee should practice.',
-              child: TextBox(
+              child: _ComposerInput(
                 key: const Key('teacher_assignment_instructions'),
                 controller: _instructionsController,
+                minLines: 4,
                 maxLines: 4,
                 maxLength: TeacherReviewedMovementSpec.instructionsMaxLength,
                 enabled: !_submitting,
@@ -1419,9 +1415,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             _ComposerField(
               label: 'Safety guidance',
               hint: 'Optional · visible before the trainee starts an attempt.',
-              child: TextBox(
+              child: _ComposerInput(
                 key: const Key('teacher_assignment_safety_guidance'),
                 controller: _safetyGuidanceController,
+                minLines: 3,
                 maxLines: 3,
                 maxLength: TeacherReviewedMovementSpec.safetyGuidanceMaxLength,
                 enabled: !_submitting,
@@ -1454,7 +1451,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           _ComposerField(
             label: 'Maximum score',
             hint: 'Enter a value from 1 to 100.',
-            child: TextBox(
+            child: _ComposerInput(
               key: const Key('teacher_assignment_max_score'),
               controller: _maxScoreController,
               enabled: !_submitting && _canEditAssessment,
@@ -1489,7 +1486,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           _ComposerField(
             label: 'Topic',
             hint: 'For example: Bottle Basics',
-            child: TextBox(
+            child: _ComposerInput(
               key: const Key('teacher_assignment_topic'),
               controller: _topicController,
               maxLength: GroupAssignment.maxTopicLength,
@@ -1608,8 +1605,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         ],
         if (_editLockExplanation != null) ...[
           const SizedBox(height: AppSpacing.lg),
-          InfoBar(
-            severity: InfoBarSeverity.warning,
+          _ComposerAlert(
             title: const Text('Some settings are locked'),
             content: Text(_editLockExplanation!),
           ),
@@ -1617,7 +1613,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             const SizedBox(height: AppSpacing.sm),
             Align(
               alignment: Alignment.centerLeft,
-              child: Button(
+              child: _ComposerSecondaryButton(
                 key: const Key('teacher_assignment_retry_edit_safety'),
                 onPressed: _submitting ? null : _loadEditSafety,
                 child: const Text('Retry'),
@@ -1664,7 +1660,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           label: 'PDF / file',
           hint:
               'Optional · PDF, image, or MP4 video within the existing size limits.',
-          child: Button(
+          child: _ComposerSecondaryButton(
             key: const Key('teacher_assignment_choose_material_file'),
             onPressed: _submitting ? null : _queueFile,
             child: const Text('Choose PDF / file'),
@@ -1674,7 +1670,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _ComposerField(
           label: 'Resource link',
           hint: 'Optional · paste a supported HTTP or HTTPS link.',
-          child: TextBox(
+          child: _ComposerInput(
             key: const Key('teacher_assignment_material_link_url'),
             controller: _materialLinkController,
             enabled: !_submitting,
@@ -1689,7 +1685,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           child: Row(
             children: [
               Expanded(
-                child: TextBox(
+                child: _ComposerInput(
                   key: const Key('teacher_assignment_material_link_name'),
                   controller: _materialLinkNameController,
                   enabled: !_submitting,
@@ -1699,7 +1695,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Button(
+              _ComposerSecondaryButton(
                 key: const Key('teacher_assignment_add_material_link'),
                 onPressed: _submitting ? null : _queueLink,
                 child: const Text('Add link'),
@@ -1906,7 +1902,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           _ComposerField(
             label: 'Maximum score',
             hint: 'Use a preset or enter a custom maximum from 1 to 100.',
-            child: ComboBox<String>(
+            child: _ComposerSelect<String>(
               key: const Key('teacher_assignment_maximum_preset'),
               value: isPreset ? '$maximum' : 'custom',
               isExpanded: true,
@@ -1915,12 +1911,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 ComboBoxItem(value: '50', child: Text('50 points')),
                 ComboBoxItem(value: '100', child: Text('100 points')),
                 ComboBoxItem(value: 'custom', child: Text('Custom maximum')),
-              ],
-              selectedItemBuilder: (context) => const [
-                Text('30 points', overflow: TextOverflow.ellipsis),
-                Text('50 points', overflow: TextOverflow.ellipsis),
-                Text('100 points', overflow: TextOverflow.ellipsis),
-                Text('Custom maximum', overflow: TextOverflow.ellipsis),
               ],
               onChanged: _submitting
                   ? null
@@ -1940,7 +1930,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             _ComposerField(
               label: 'Custom maximum score',
               hint: 'Enter a value from 1 to 100.',
-              child: TextBox(
+              child: _ComposerInput(
                 key: const Key('teacher_assignment_max_score'),
                 controller: _maxScoreController,
                 keyboardType: TextInputType.number,
@@ -1980,7 +1970,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _ComposerField(
           label: 'Recording duration',
           hint: 'The recording automatically stops at the selected limit.',
-          child: ComboBox<int>(
+          child: _ComposerSelect<int>(
             key: const Key('teacher_assignment_recording_duration'),
             value: _recordingDurationSeconds,
             isExpanded: true,
@@ -1989,12 +1979,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                   in TeacherActivityAssessmentContract
                       .supportedRecordingDurations)
                 ComboBoxItem(value: seconds, child: Text('$seconds seconds')),
-            ],
-            selectedItemBuilder: (context) => [
-              for (final seconds
-                  in TeacherActivityAssessmentContract
-                      .supportedRecordingDurations)
-                Text('$seconds seconds', overflow: TextOverflow.ellipsis),
             ],
             onChanged: _submitting
                 ? null
@@ -2005,7 +1989,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _ComposerField(
           label: 'Rubric',
           hint: 'Built-in criteria scale deterministically to the maximum.',
-          child: ComboBox<TeacherActivityRubricTemplate>(
+          child: _ComposerSelect<TeacherActivityRubricTemplate>(
             key: const Key('teacher_assignment_rubric_template'),
             value: _rubricTemplate,
             isExpanded: true,
@@ -2015,10 +1999,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                   value: template,
                   child: Text(template.displayLabel),
                 ),
-            ],
-            selectedItemBuilder: (context) => [
-              for (final template in TeacherActivityRubricTemplate.values)
-                Text(template.displayLabel, overflow: TextOverflow.ellipsis),
             ],
             onChanged: _submitting
                 ? null
@@ -2046,7 +2026,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   Widget _attemptAllowanceField({required bool enabled}) => _ComposerField(
     label: 'Attempt allowance',
     hint: 'A finite attempt is counted only when recording genuinely starts.',
-    child: ComboBox<String>(
+    child: _ComposerSelect<String>(
       key: const Key('teacher_assignment_attempt_policy'),
       value: _attemptPolicy.isUnlimited
           ? 'unlimited'
@@ -2057,12 +2037,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         ComboBoxItem(value: '2', child: Text('2 attempts')),
         ComboBoxItem(value: '3', child: Text('3 attempts')),
         ComboBoxItem(value: 'unlimited', child: Text('Unlimited attempts')),
-      ],
-      selectedItemBuilder: (context) => const [
-        Text('1 attempt', overflow: TextOverflow.ellipsis),
-        Text('2 attempts', overflow: TextOverflow.ellipsis),
-        Text('3 attempts', overflow: TextOverflow.ellipsis),
-        Text('Unlimited attempts', overflow: TextOverflow.ellipsis),
       ],
       onChanged: _submitting || !enabled
           ? null
@@ -2083,17 +2057,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     required List<T> values,
     required String Function(T value) label,
     required ValueChanged<T> onChanged,
-  }) => ComboBox<T>(
+  }) => _ComposerSelect<T>(
     key: key,
     value: value,
     isExpanded: true,
     items: [
       for (final item in values)
         ComboBoxItem(value: item, child: Text(label(item))),
-    ],
-    selectedItemBuilder: (context) => [
-      for (final item in values)
-        Text(label(item), overflow: TextOverflow.ellipsis),
     ],
     onChanged: _submitting
         ? null
@@ -2130,7 +2100,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         const SizedBox(height: AppSpacing.sm),
       ],
       if (_customCriteria.length < 5)
-        Button(
+        _ComposerSecondaryButton(
           key: const Key('teacher_assignment_add_criterion'),
           onPressed: _submitting
               ? null
@@ -2283,7 +2253,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             const SizedBox(height: AppSpacing.md),
             InfoLabel(
               label: 'Training prop',
-              child: ComboBox<TrainingProp>(
+              child: _ComposerSelect<TrainingProp>(
                 key: const Key('teacher_assignment_official_prop'),
                 value: _selectedOfficialProp,
                 items: [
@@ -2346,7 +2316,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         const SizedBox(height: AppSpacing.sm),
         Align(
           alignment: Alignment.centerLeft,
-          child: Button(
+          child: _ComposerSecondaryButton(
             key: const Key('teacher_assignment_create_movement'),
             onPressed:
                 _submitting || _creatingTeacherMovement || !_canEditIdentity
@@ -2525,7 +2495,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Button(
+          _ComposerSecondaryButton(
             key: const Key('teacher_assignment_create_movement'),
             onPressed: _submitting || _creatingTeacherMovement
                 ? null
@@ -2647,15 +2617,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         Row(
           children: [
             Expanded(
-              child: TextBox(
+              child: _ComposerInput(
                 key: const Key('teacher_assignment_roster_search'),
                 controller: _rosterSearchController,
                 enabled: !_submitting && _canEditIdentity,
                 placeholder: 'Search trainees',
-                prefix: const Padding(
-                  padding: EdgeInsets.only(left: 10),
-                  child: Icon(FluentIcons.search, size: 14),
-                ),
                 onChanged: (_) => setState(() {}),
               ),
             ),
@@ -3433,7 +3399,10 @@ class _QueuedMaterialRow extends StatelessWidget {
             if (material.isSaving)
               const SizedBox(width: 16, height: 16, child: ProgressRing()),
             if (canRemove)
-              Button(onPressed: onRemove, child: const Text('Remove')),
+              _ComposerSecondaryButton(
+                onPressed: onRemove,
+                child: const Text('Remove'),
+              ),
           ],
         ),
       ),
@@ -3492,7 +3461,7 @@ class _PersistedMaterialRow extends StatelessWidget {
               ],
             ),
           ),
-          Button(
+          _ComposerSecondaryButton(
             onPressed: enabled
                 ? (markedForRemoval ? onRestore : onRemove)
                 : null,
@@ -3519,7 +3488,7 @@ class _InlineMaterialError extends StatelessWidget {
           style: AppTheme.caption.copyWith(color: AppColors.error),
         ),
       ),
-      Button(
+      _ComposerSecondaryButton(
         onPressed: onRetry == null ? null : () => unawaited(onRetry!()),
         child: const Text('Retry'),
       ),
@@ -3627,7 +3596,7 @@ class _CustomCriterionEditor extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
-        TextBox(
+        _ComposerInput(
           key: Key('teacher_assignment_criterion_${index}_label'),
           controller: draft.label,
           enabled: enabled,
@@ -3636,17 +3605,18 @@ class _CustomCriterionEditor extends StatelessWidget {
           onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: AppSpacing.xs),
-        TextBox(
+        _ComposerInput(
           key: Key('teacher_assignment_criterion_${index}_description'),
           controller: draft.description,
           enabled: enabled,
           maxLength: 500,
+          minLines: 2,
           maxLines: 2,
           placeholder: 'What should the teacher look for?',
           onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: AppSpacing.xs),
-        TextBox(
+        _ComposerInput(
           key: Key('teacher_assignment_criterion_${index}_points'),
           controller: draft.maximumPoints,
           enabled: enabled,
@@ -3882,7 +3852,7 @@ class _AudienceRosterState extends StatelessWidget {
             ),
           ),
           if (actionLabel != null && onAction != null)
-            Button(
+            _ComposerSecondaryButton(
               onPressed: () => unawaited(onAction!()),
               child: Text(actionLabel!),
             ),
@@ -3906,6 +3876,212 @@ class _ComposerSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElixPanelCard(padding: padding, child: child);
   }
+}
+
+/// Keeps the composer on the shared Shad treatment in normal mode while
+/// retaining Fluent's stronger native controls for high-contrast users.
+class _ComposerSelect<T> extends StatelessWidget {
+  const _ComposerSelect({
+    super.key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.isExpanded = true,
+  });
+
+  final T? value;
+  final List<ComboBoxItem<T>> items;
+  final ValueChanged<T?>? onChanged;
+  final bool isExpanded;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? ComboBox<T>(
+          value: value,
+          isExpanded: isExpanded,
+          items: items,
+          onChanged: onChanged,
+        )
+      : shad.ShadSelect<T>(
+          initialValue: value,
+          enabled: onChanged != null,
+          placeholder: const Text('Select an option'),
+          options: [
+            for (final item in items)
+              if (item.value case final T itemValue)
+                shad.ShadOption(value: itemValue, child: item.child),
+          ],
+          selectedOptionBuilder: (_, selected) =>
+              items.firstWhere((item) => item.value == selected).child,
+          onChanged: onChanged,
+        );
+}
+
+class _ComposerInput extends StatelessWidget {
+  const _ComposerInput({
+    super.key,
+    required this.controller,
+    required this.enabled,
+    this.placeholder,
+    this.maxLength,
+    this.minLines,
+    this.maxLines,
+    this.keyboardType,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final bool enabled;
+  final String? placeholder;
+  final int? maxLength;
+  final int? minLines;
+  final int? maxLines;
+  final TextInputType? keyboardType;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final multiline = (maxLines ?? 1) > 1 || (minLines ?? 1) > 1;
+    if (context.isHighContrast) {
+      return TextBox(
+        controller: controller,
+        enabled: enabled,
+        placeholder: placeholder,
+        maxLength: maxLength,
+        minLines: minLines,
+        maxLines: maxLines,
+        keyboardType: keyboardType,
+        onChanged: onChanged,
+      );
+    }
+    if (multiline) {
+      return shad.ShadTextarea(
+        controller: controller,
+        enabled: enabled,
+        placeholder: placeholder == null ? null : Text(placeholder!),
+        maxLength: maxLength,
+        minHeight: 88,
+        maxHeight: 144,
+        resizable: false,
+        onChanged: onChanged,
+      );
+    }
+    return shad.ShadInput(
+      controller: controller,
+      enabled: enabled,
+      placeholder: placeholder == null ? null : Text(placeholder!),
+      maxLength: maxLength,
+      keyboardType: keyboardType,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _ComposerSwitch extends StatelessWidget {
+  const _ComposerSwitch({
+    super.key,
+    required this.value,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final Widget label;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? ToggleSwitch(checked: value, content: label, onChanged: onChanged)
+      : shad.ShadSwitch(
+          value: value,
+          label: label,
+          enabled: onChanged != null,
+          onChanged: onChanged,
+        );
+}
+
+class _ComposerCheckbox extends StatelessWidget {
+  const _ComposerCheckbox({
+    super.key,
+    required this.value,
+    required this.enabled,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final bool enabled;
+  final Widget label;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Checkbox(
+          checked: value,
+          content: label,
+          onChanged: enabled && onChanged != null
+              ? (next) => onChanged!(next ?? false)
+              : null,
+        )
+      : shad.ShadCheckbox(
+          value: value,
+          enabled: enabled,
+          label: label,
+          onChanged: onChanged,
+        );
+}
+
+class _ComposerSecondaryButton extends StatelessWidget {
+  const _ComposerSecondaryButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+    this.expands = false,
+  });
+
+  final VoidCallback? onPressed;
+  final Widget child;
+  final bool expands;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.outline(
+          onPressed: onPressed,
+          expands: expands,
+          child: child,
+        );
+}
+
+class _ComposerAlert extends StatelessWidget {
+  const _ComposerAlert({
+    super.key,
+    required this.title,
+    required this.content,
+    this.action,
+    this.severity = InfoBarSeverity.info,
+  });
+
+  final Widget title;
+  final Widget content;
+  final Widget? action;
+  final InfoBarSeverity severity;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? InfoBar(
+          severity: severity,
+          title: title,
+          content: content,
+          action: action,
+        )
+      : severity == InfoBarSeverity.error
+      ? shad.ShadAlert.destructive(
+          title: title,
+          description: content,
+          trailing: action,
+        )
+      : shad.ShadAlert(title: title, description: content, trailing: action);
 }
 
 class _ComposerHeroCard extends StatelessWidget {
@@ -4233,7 +4409,7 @@ class _TeacherActivityDetailsDialogState
               ),
       ),
       actions: [
-        Button(
+        _ComposerSecondaryButton(
           key: const Key('teacher_assignment_activity_details_close'),
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
@@ -4494,7 +4670,7 @@ class _MovementChoiceCard extends StatelessWidget {
               ),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Button(
+                child: _ComposerSecondaryButton(
                   key: viewDetailsKey,
                   onPressed: enabled ? onViewDetails : null,
                   child: const Text('View details'),
@@ -4742,7 +4918,7 @@ class _DueDateField extends StatelessWidget {
 
   final DateTime? dueAt;
   final bool enabled;
-  final ValueChanged<bool?> onToggle;
+  final ValueChanged<bool> onToggle;
   final ValueChanged<DateTime> onDateChanged;
   final ValueChanged<int> onHourChanged;
   final ValueChanged<int> onMinuteChanged;
@@ -4769,10 +4945,11 @@ class _DueDateField extends StatelessWidget {
               width: highContrast ? 2 : 1,
             ),
           ),
-          child: Checkbox(
+          child: _ComposerCheckbox(
             key: const Key('teacher_assignment_due_date_toggle'),
-            checked: dueAt != null,
-            content: const Column(
+            value: dueAt != null,
+            enabled: enabled,
+            label: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Add a due date (optional)'),
@@ -5088,7 +5265,7 @@ class _AssignmentActionFooter extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (validationError != null) ...[
-            InfoBar(
+            _ComposerAlert(
               key: const Key('teacher_assignment_error'),
               title: Text(
                 isEditing
@@ -5097,7 +5274,10 @@ class _AssignmentActionFooter extends StatelessWidget {
               ),
               content: Text(validationError!),
               severity: InfoBarSeverity.error,
-              onClose: onDismissValidation,
+              action: _ComposerSecondaryButton(
+                onPressed: onDismissValidation,
+                child: const Text('Dismiss'),
+              ),
             ),
             const SizedBox(height: AppSpacing.sm),
           ],
@@ -5122,23 +5302,22 @@ class _AssignmentActionFooter extends StatelessWidget {
           ),
           if (!isEditing || isEditingDraft || onSaveDraft != null) ...[
             const SizedBox(height: AppSpacing.sm),
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: Button(
-                    key: const Key('teacher_assignment_save_draft'),
-                    onPressed: isSubmitting ? null : onSaveDraft,
-                    child: Text(isEditingDraft ? 'Save draft' : 'Save changes'),
-                  ),
+                _ComposerSecondaryButton(
+                  key: const Key('teacher_assignment_save_draft'),
+                  onPressed: isSubmitting ? null : onSaveDraft,
+                  expands: true,
+                  child: Text(isEditingDraft ? 'Save draft' : 'Save changes'),
                 ),
                 if (!isEditing || onSchedule != null) ...[
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Button(
-                      key: const Key('teacher_assignment_schedule'),
-                      onPressed: isSubmitting ? null : onSchedule,
-                      child: const Text('Schedule'),
-                    ),
+                  const SizedBox(height: AppSpacing.sm),
+                  _ComposerSecondaryButton(
+                    key: const Key('teacher_assignment_schedule'),
+                    onPressed: isSubmitting ? null : onSchedule,
+                    expands: true,
+                    child: const Text('Schedule'),
                   ),
                 ],
               ],
@@ -5159,7 +5338,7 @@ class _PublicationScheduleToggle extends StatelessWidget {
 
   final bool enabled;
   final bool interactive;
-  final ValueChanged<bool?> onChanged;
+  final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -5179,10 +5358,11 @@ class _PublicationScheduleToggle extends StatelessWidget {
           width: highContrast ? 2 : 1,
         ),
       ),
-      child: Checkbox(
+      child: _ComposerCheckbox(
         key: const Key('teacher_assignment_schedule_toggle'),
-        checked: enabled,
-        content: const Column(
+        value: enabled,
+        enabled: interactive,
+        label: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Schedule publication (optional)'),
