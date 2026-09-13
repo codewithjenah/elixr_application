@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
@@ -407,11 +408,17 @@ class _AuthLegalConsentState extends State<AuthLegalConsent> {
           children: [
             Padding(
               padding: const EdgeInsets.only(top: 1),
-              child: Checkbox(
-                key: widget.checkboxKey,
-                checked: widget.agreed,
-                onChanged: (value) => widget.onChanged(value == true),
-              ),
+              child: highContrast || shad.ShadTheme.maybeOf(context) == null
+                  ? Checkbox(
+                      key: widget.checkboxKey,
+                      checked: widget.agreed,
+                      onChanged: (value) => widget.onChanged(value == true),
+                    )
+                  : shad.ShadCheckbox(
+                      key: widget.checkboxKey,
+                      value: widget.agreed,
+                      onChanged: widget.onChanged,
+                    ),
             ),
             const SizedBox(width: AppSpacing.sm),
             Expanded(

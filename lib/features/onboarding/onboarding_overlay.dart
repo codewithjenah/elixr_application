@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -65,7 +66,9 @@ class OnboardingOverlay {
       useRootNavigator: false,
       barrierDismissible: false,
       barrierColor: const Color(0xCC000000),
-      builder: (ctx) => const Center(child: _OnboardingOverlayBody()),
+      builder: (ctx) => const ElixShadThemeBridge(
+        child: Center(child: _OnboardingOverlayBody()),
+      ),
     );
   }
 }
@@ -128,6 +131,7 @@ class _OnboardingOverlayBodyState extends State<_OnboardingOverlayBody> {
       icon: step.icon,
       iconColor: AppColors.primary,
       maxWidth: 480,
+      uniformActionSize: Size(actionWidth, 56),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -145,28 +149,19 @@ class _OnboardingOverlayBodyState extends State<_OnboardingOverlayBody> {
         ],
       ),
       actions: [
-        Row(
-          children: [
-            const Spacer(),
-            SizedBox(
-              width: actionWidth,
-              height: 56,
-              child: Button(
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+            ? Button(
+                onPressed: (_stepIndex == 0 || _closing) ? null : _goBack,
+                child: const Text('Back'),
+              )
+            : shad.ShadButton.outline(
                 onPressed: (_stepIndex == 0 || _closing) ? null : _goBack,
                 child: const Text('Back'),
               ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            SizedBox(
-              width: actionWidth,
-              height: 56,
-              child: ElixPrimaryButton(
-                label: _isLastStep ? 'Go to Dashboard' : 'Next',
-                expanded: false,
-                onPressed: _closing ? null : _goNext,
-              ),
-            ),
-          ],
+        ElixPrimaryButton(
+          label: _isLastStep ? 'Go to Dashboard' : 'Next',
+          expanded: false,
+          onPressed: _closing ? null : _goNext,
         ),
       ],
     );

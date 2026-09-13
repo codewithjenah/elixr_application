@@ -1,17 +1,17 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import 'package:elixr_core/models/coach_code.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 
 import '../../core/auth/teacher_auth_messages.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/router/app_route_paths.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
+import 'auth_form_chrome.dart';
 import 'auth_text_field.dart';
 
 class CompleteGoogleProfileScreen extends StatefulWidget {
@@ -168,30 +168,9 @@ class _CompleteGoogleProfileScreenState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (choosingRole) ...[
-            RadioButton(
-              key: const Key('google_profile_trainee_role'),
-              checked: selectedIntent == GoogleOnboardingIntent.trainee,
-              onChanged: (checked) {
-                if (checked) {
-                  setState(
-                    () => _selectedIntent = GoogleOnboardingIntent.trainee,
-                  );
-                }
-              },
-              content: const Text('Trainee'),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            RadioButton(
-              key: const Key('google_profile_teacher_role'),
-              checked: selectedIntent == GoogleOnboardingIntent.teacher,
-              onChanged: (checked) {
-                if (checked) {
-                  setState(
-                    () => _selectedIntent = GoogleOnboardingIntent.teacher,
-                  );
-                }
-              },
-              content: const Text('Teacher'),
+            _GoogleRoleSelector(
+              selectedIntent: selectedIntent,
+              onChanged: (intent) => setState(() => _selectedIntent = intent),
             ),
             if (selectedIntent == null) ...[
               const SizedBox(height: AppSpacing.md),
@@ -227,12 +206,7 @@ class _CompleteGoogleProfileScreenState
           const SizedBox(height: AppSpacing.sm),
           Text(isGoogle ? 'Verified Google email' : 'Account email'),
           const SizedBox(height: AppSpacing.xs),
-          TextBox(
-            key: const Key('google_profile_email'),
-            controller: _emailController,
-            readOnly: true,
-            enabled: false,
-          ),
+          _ReadOnlyEmailField(controller: _emailController),
           if (isTeacher) ...[
             const SizedBox(height: AppSpacing.md),
             AuthTextField(
@@ -252,35 +226,10 @@ class _CompleteGoogleProfileScreenState
             ),
           ],
           const SizedBox(height: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Checkbox(
-                key: const Key('google_profile_legal_consent'),
-                checked: _agreedToLegal,
-                onChanged: (value) =>
-                    setState(() => _agreedToLegal = value == true),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Wrap(
-                  children: [
-                    const Text('I agree to the '),
-                    HyperlinkButton(
-                      onPressed: () =>
-                          context.push(AppRoutePaths.privacyPolicy),
-                      child: const Text('Privacy Policy'),
-                    ),
-                    const Text(' and '),
-                    HyperlinkButton(
-                      onPressed: () =>
-                          context.push(AppRoutePaths.termsOfService),
-                      child: const Text('Terms of Service'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          AuthLegalConsent(
+            checkboxKey: const Key('google_profile_legal_consent'),
+            agreed: _agreedToLegal,
+            onChanged: (agreed) => setState(() => _agreedToLegal = agreed),
           ),
           if (_error != null) ...[
             const SizedBox(height: AppSpacing.sm),
@@ -297,14 +246,111 @@ class _CompleteGoogleProfileScreenState
             onPressed: _isCancelling ? null : _complete,
           ),
           const SizedBox(height: AppSpacing.xs),
-          Button(
+          _GoogleSecondaryButton(
             onPressed: _isSaving || _isCancelling ? null : _cancel,
             child: _isCancelling
-                ? const ProgressRing(strokeWidth: 2)
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: ProgressRing(strokeWidth: 2),
+                  )
                 : const Text('Cancel and sign out'),
           ),
         ],
       ),
     );
   }
+}
+
+class _GoogleRoleSelector extends StatelessWidget {
+  const _GoogleRoleSelector({
+    required this.selectedIntent,
+    required this.onChanged,
+  });
+
+  final GoogleOnboardingIntent? selectedIntent;
+  final ValueChanged<GoogleOnboardingIntent> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RadioButton(
+            key: const Key('google_profile_trainee_role'),
+            checked: selectedIntent == GoogleOnboardingIntent.trainee,
+            onChanged: (checked) {
+              if (checked) onChanged(GoogleOnboardingIntent.trainee);
+            },
+            content: const Text(
+              'Trainee — Practice movements and track progress.',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          RadioButton(
+            key: const Key('google_profile_teacher_role'),
+            checked: selectedIntent == GoogleOnboardingIntent.teacher,
+            onChanged: (checked) {
+              if (checked) onChanged(GoogleOnboardingIntent.teacher);
+            },
+            content: const Text('Teacher — Manage classrooms and assignments.'),
+          ),
+        ],
+      );
+    }
+    return shad.ShadRadioGroup<GoogleOnboardingIntent>(
+      initialValue: selectedIntent,
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+      items: const [
+        shad.ShadRadio(
+          key: Key('google_profile_trainee_role'),
+          value: GoogleOnboardingIntent.trainee,
+          label: Text('Trainee — Practice movements and track progress.'),
+        ),
+        shad.ShadRadio(
+          key: Key('google_profile_teacher_role'),
+          value: GoogleOnboardingIntent.teacher,
+          label: Text('Teacher — Manage classrooms and assignments.'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReadOnlyEmailField extends StatelessWidget {
+  const _ReadOnlyEmailField({required this.controller});
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return TextBox(
+        key: const Key('google_profile_email'),
+        controller: controller,
+        readOnly: true,
+        enabled: false,
+      );
+    }
+    return shad.ShadInput(
+      key: const Key('google_profile_email'),
+      controller: controller,
+      readOnly: true,
+      enabled: false,
+    );
+  }
+}
+
+class _GoogleSecondaryButton extends StatelessWidget {
+  const _GoogleSecondaryButton({required this.onPressed, required this.child});
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.ghost(onPressed: onPressed, child: child);
 }

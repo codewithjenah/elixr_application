@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/auth_scaffold.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
@@ -109,92 +112,100 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen>
     final passwordController = TextEditingController();
     String? dialogError;
     bool loading = false;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => ContentDialog(
-          title: Text(
-            resendPending ? 'Resend corrected-email link' : 'Change email',
-          ),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+    await ElixDialog.show<void>(
+      context,
+      title: resendPending ? 'Resend corrected-email link' : 'Change email',
+      subtitle: 'Confirm your identity',
+      icon: FluentIcons.mail,
+      maxWidth: 420,
+      content: StatefulBuilder(
+        builder: (dialogContext, setDialogState) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (!resendPending)
+              AuthTextField(
+                key: const Key('verify_change_email_field'),
+                controller: emailController,
+                label: 'Correct email address',
+                placeholder: 'name@example.com',
+                icon: FluentIcons.mail,
+                keyboardType: TextInputType.emailAddress,
+                enabled: !loading,
+              ),
+            if (!resendPending) const SizedBox(height: AppSpacing.sm),
+            AuthTextField(
+              key: const Key('verify_change_password_field'),
+              controller: passwordController,
+              label: 'Current password',
+              placeholder: 'Current password',
+              icon: FluentIcons.lock,
+              obscureText: true,
+              enabled: !loading,
+            ),
+            if (dialogError != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              AuthErrorBanner(message: dialogError!),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                if (!resendPending)
-                  AuthTextField(
-                    key: const Key('verify_change_email_field'),
-                    controller: emailController,
-                    label: 'Correct email address',
-                    placeholder: 'name@example.com',
-                    icon: FluentIcons.mail,
-                    keyboardType: TextInputType.emailAddress,
-                    enabled: !loading,
-                  ),
-                if (!resendPending) const SizedBox(height: AppSpacing.sm),
-                AuthTextField(
-                  key: const Key('verify_change_password_field'),
-                  controller: passwordController,
-                  label: 'Current password',
-                  placeholder: 'Current password',
-                  icon: FluentIcons.lock,
-                  obscureText: true,
-                  enabled: !loading,
+                _VerificationSecondaryButton(
+                  onPressed: loading
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
                 ),
-                if (dialogError != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  AuthErrorBanner(message: dialogError!),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            Button(
-              onPressed: loading ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: const Key('verify_change_submit'),
-              onPressed: loading
-                  ? null
-                  : () async {
-                      final emailError = resendPending
-                          ? null
-                          : validateAuthEmail(emailController.text);
-                      if (emailError != null ||
-                          passwordController.text.isEmpty) {
-                        setDialogState(() {
-                          dialogError =
-                              emailError ?? 'Current password is required.';
-                        });
-                        return;
-                      }
-                      setDialogState(() => loading = true);
-                      try {
-                        final auth = context.read<AuthService>();
-                        final sent = resendPending
-                            ? await auth.resendPendingEmailChange(
-                                currentPassword: passwordController.text,
-                              )
-                            : await auth.requestEmailChange(
-                                newEmail: emailController.text.trim(),
-                                currentPassword: passwordController.text,
+                const SizedBox(width: AppSpacing.sm),
+                ElixPrimaryButton(
+                  key: const Key('verify_change_submit'),
+                  label: resendPending ? 'Resend link' : 'Send verification',
+                  expanded: false,
+                  isLoading: loading,
+                  onPressed: loading
+                      ? null
+                      : () async {
+                          final emailError = resendPending
+                              ? null
+                              : validateAuthEmail(emailController.text);
+                          if (emailError != null ||
+                              passwordController.text.isEmpty) {
+                            setDialogState(() {
+                              dialogError =
+                                  emailError ?? 'Current password is required.';
+                            });
+                            return;
+                          }
+                          setDialogState(() => loading = true);
+                          try {
+                            final auth = dialogContext.read<AuthService>();
+                            final sent = resendPending
+                                ? await auth.resendPendingEmailChange(
+                                    currentPassword: passwordController.text,
+                                  )
+                                : await auth.requestEmailChange(
+                                    newEmail: emailController.text.trim(),
+                                    currentPassword: passwordController.text,
+                                  );
+                            if (!sent) {
+                              throw Exception('No email change was requested.');
+                            }
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                          } catch (error) {
+                            setDialogState(() {
+                              loading = false;
+                              dialogError = error.toString().replaceFirst(
+                                'Exception: ',
+                                '',
                               );
-                        if (!sent) {
-                          throw Exception('No email change was requested.');
-                        }
-                        if (dialogContext.mounted) Navigator.pop(dialogContext);
-                      } catch (error) {
-                        setDialogState(() {
-                          loading = false;
-                          dialogError = error.toString().replaceFirst(
-                            'Exception: ',
-                            '',
-                          );
-                        });
-                      }
-                    },
-              child: Text(resendPending ? 'Resend link' : 'Send verification'),
+                            });
+                          }
+                        },
+                ),
+              ],
             ),
           ],
         ),
@@ -233,10 +244,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen>
             const SizedBox(height: AppSpacing.md),
           ],
           if (auth.teacherAuthInfoMessage != null) ...[
-            InfoBar(
-              title: Text(auth.teacherAuthInfoMessage!),
-              severity: InfoBarSeverity.success,
-            ),
+            _VerificationInfo(message: auth.teacherAuthInfoMessage!),
             const SizedBox(height: AppSpacing.md),
           ],
           _VerificationStatus(
@@ -259,7 +267,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen>
             onPressed: _checkVerification,
           ),
           const SizedBox(height: AppSpacing.sm),
-          Button(
+          _VerificationSecondaryButton(
             key: const Key('verify_resend_button'),
             onPressed: _isBusy || !auth.canResendVerification
                 ? null
@@ -273,13 +281,13 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen>
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Button(
+          _VerificationSecondaryButton(
             key: const Key('verify_change_email'),
             onPressed: _isBusy || pending ? null : _changeEmail,
             child: const Text('Change email address'),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Button(
+          _VerificationTertiaryButton(
             key: const Key('verify_sign_out'),
             onPressed: _isBusy ? null : _signOut,
             child: const Text('Sign out'),
@@ -288,6 +296,54 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen>
       ),
     );
   }
+}
+
+class _VerificationInfo extends StatelessWidget {
+  const _VerificationInfo({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return InfoBar(title: Text(message), severity: InfoBarSeverity.success);
+    }
+    return shad.ShadAlert(
+      title: const Text('Email verification'),
+      description: Text(message),
+    );
+  }
+}
+
+class _VerificationSecondaryButton extends StatelessWidget {
+  const _VerificationSecondaryButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+  });
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.outline(onPressed: onPressed, child: child);
+}
+
+class _VerificationTertiaryButton extends StatelessWidget {
+  const _VerificationTertiaryButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+  });
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.ghost(onPressed: onPressed, child: child);
 }
 
 class _VerificationStatus extends StatelessWidget {

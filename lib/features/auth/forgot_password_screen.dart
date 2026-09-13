@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/auth/teacher_auth_messages.dart';
 import '../../core/constants/app_spacing.dart';
@@ -184,7 +185,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         Row(
           children: [
             Expanded(
-              child: Button(
+              child: _ForgotSecondaryButton(
                 key: const Key('forgot_edit_email'),
                 onPressed: _isLoading ? null : _editEmail,
                 child: const Text('Edit email'),
@@ -192,7 +193,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
-              child: Button(
+              child: _ForgotSecondaryButton(
                 key: const Key('forgot_resend'),
                 onPressed: _isLoading || _cooldownSeconds > 0 ? null : _submit,
                 child: Text(
@@ -232,4 +233,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       ],
     );
   }
+}
+
+class _ForgotSecondaryButton extends StatelessWidget {
+  const _ForgotSecondaryButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+  });
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.outline(onPressed: onPressed, child: child);
 }
