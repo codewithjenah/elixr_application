@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/session.dart';
@@ -354,28 +355,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final plan = _selectedSnapshot.plan;
     if (userId == null || plan == null) return;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return ContentDialog(
-          title: const Text('Remove this plan?'),
-          content: const Text(
-            'This day will become unplanned. Completed practice is unchanged.',
-          ),
-          actions: [
-            Button(
-              onPressed: () =>
-                  Navigator.of(context, rootNavigator: true).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context, rootNavigator: true).pop(true),
-              child: const Text('Remove Plan'),
-            ),
-          ],
-        );
-      },
+    final confirmed = await ElixDialog.confirm(
+      context,
+      title: 'Remove this plan?',
+      message:
+          'This day will become unplanned. Completed practice is unchanged.',
+      confirmLabel: 'Remove Plan',
     );
     if (confirmed != true || !mounted) return;
 
@@ -514,12 +499,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     if (metrics.plannedDays == 0 &&
                         classroomDueThisMonth == 0) ...[
                       const SizedBox(height: AppSpacing.md),
-                      InfoBar(
-                        title: const Text('No training planned this month'),
-                        content: const Text(
-                          'Select a day to schedule practice or a rest day.',
-                        ),
-                        severity: InfoBarSeverity.info,
+                      const ElixStatusPanel(
+                        title: 'No training planned this month',
+                        message:
+                            'Select a day to schedule practice or a rest day.',
                       ),
                     ],
                     if (activity != null &&
@@ -528,18 +511,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         activity.classroomDataStatus !=
                             TraineeClassroomDataStatus.loading) ...[
                       const SizedBox(height: AppSpacing.md),
-                      InfoBar(
-                        title: const Text(
-                          'Classroom status could not be verified.',
-                        ),
-                        content: const Text(
-                          'Your practice planner is still available. Classroom due and submission status will return after retrying.',
-                        ),
-                        severity: InfoBarSeverity.warning,
-                        action: Button(
-                          onPressed: activity.retry,
-                          child: const Text('Retry'),
-                        ),
+                      ElixStatusPanel(
+                        title: 'Classroom status could not be verified.',
+                        message:
+                            'Your practice planner is still available. Classroom due and submission status will return after retrying.',
+                        isError: true,
+                        actionLabel: 'Retry',
+                        onAction: activity.retry,
                       ),
                     ],
                     const SizedBox(height: AppSpacing.md),

@@ -5,6 +5,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import 'calendar_chrome.dart';
 
 class CalendarHeader extends StatelessWidget {
@@ -208,7 +209,13 @@ class _HighContrastMonthNavGroup extends StatelessWidget {
           onPressed: onNextMonth,
         ),
       ),
-      Button(onPressed: onToday, child: const Text('Today')),
+      ElixPrimaryButton(
+        label: 'Today',
+        variant: ElixButtonVariant.outline,
+        expanded: false,
+        dense: true,
+        onPressed: onToday,
+      ),
     ],
   );
 }

@@ -155,17 +155,13 @@ class _ContactFeedbackSectionState extends State<ContactFeedbackSection> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                Button(
+                ElixPrimaryButton(
                   key: const Key('contact_feedback_copy_email'),
+                  label: 'Copy email address',
+                  icon: FluentIcons.copy,
+                  expanded: false,
+                  variant: ElixButtonVariant.outline,
                   onPressed: _copyEmail,
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(FluentIcons.copy, size: 16),
-                      SizedBox(width: AppSpacing.sm),
-                      Text('Copy email address'),
-                    ],
-                  ),
                 ),
               ],
             ),

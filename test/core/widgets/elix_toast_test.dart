@@ -70,4 +70,29 @@ void main() {
 
     expect(find.byKey(const Key('elix_toast')), findsNothing);
   });
+
+  testWidgets('error toasts use a distinct title', (tester) async {
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ElixShadThemeBridge(
+          child: shad.ShadToaster(
+            child: Builder(
+              builder: (context) => Button(
+                onPressed: () =>
+                    ElixToast.showError(context, message: 'Upload failed.'),
+                child: const Text('Show error'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Show error'));
+    await tester.pumpAndSettle();
+    expect(find.text('Something went wrong'), findsOneWidget);
+    expect(find.text('Upload failed.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

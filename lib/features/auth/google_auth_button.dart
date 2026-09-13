@@ -45,7 +45,7 @@ class GoogleAuthButton extends StatelessWidget {
                 : hovered
                 ? colors.interactiveHover
                 : colors.surfaceRaised,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(ElixRadius.card),
             border: Border.all(
               color: focused
                   ? colors.focusRing

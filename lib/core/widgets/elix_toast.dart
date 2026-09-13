@@ -7,8 +7,39 @@ import '../theme/app_theme.dart';
 /// showing the next one instead of relying on replacement implementation.
 abstract final class ElixToast {
   static void showSuccess(BuildContext context, {required String message}) {
+    _show(context, title: 'Success', message: message, isError: false);
+  }
+
+  static void showError(BuildContext context, {required String message}) {
+    _show(
+      context,
+      title: 'Something went wrong',
+      message: message,
+      isError: true,
+    );
+  }
+
+  static void _show(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required bool isError,
+  }) {
     final toaster = shad.ShadToaster.maybeOf(context);
-    if (toaster == null) return;
+    if (toaster == null) {
+      displayInfoBar(
+        context,
+        builder: (_, _) => KeyedSubtree(
+          key: const Key('elix_toast'),
+          child: InfoBar(
+            title: Text(title),
+            content: Text(message),
+            severity: isError ? InfoBarSeverity.error : InfoBarSeverity.success,
+          ),
+        ),
+      );
+      return;
+    }
     toaster
         .hide(animate: false)
         .whenComplete(
@@ -16,10 +47,10 @@ abstract final class ElixToast {
             shad.ShadToast(
               key: const Key('elix_toast'),
               duration: const Duration(milliseconds: 3600),
-              title: const Text('Success'),
+              title: Text(title),
               description: Semantics(
                 liveRegion: true,
-                label: 'Success: $message',
+                label: '$title: $message',
                 child: Text(message, style: AppTheme.bodySecondary),
               ),
               closeIcon: Semantics(

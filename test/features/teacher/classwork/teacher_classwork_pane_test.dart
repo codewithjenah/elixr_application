@@ -13,6 +13,7 @@ import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _FailingAttemptPaneRepository
     extends InMemoryClassroomAssignmentRepository {
@@ -111,6 +112,9 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
+        builder: (context, child) => ElixShadThemeBridge(
+          child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+        ),
         home: Padding(
           padding: const EdgeInsets.all(16),
           child: AnimatedBuilder(
@@ -343,6 +347,9 @@ void main() {
       await tester.pumpWidget(
         FluentApp(
           theme: AppTheme.dark,
+          builder: (context, child) => ElixShadThemeBridge(
+            child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+          ),
           home: Padding(
             padding: const EdgeInsets.all(16),
             child: AnimatedBuilder(
@@ -397,6 +404,9 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
+        builder: (context, child) => ElixShadThemeBridge(
+          child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+        ),
         home: Padding(
           padding: const EdgeInsets.all(16),
           child: AnimatedBuilder(
@@ -474,6 +484,7 @@ void main() {
     await tester.ensureVisible(saveReview);
     await tester.tap(saveReview);
     await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 3600));
 
     final checked = await assignments.getAttempt(attemptId: 'submission');
     expect(checked?.status, AssignmentAttemptStatus.checked);

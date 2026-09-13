@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -646,7 +647,7 @@ void main() {
       await tester.tap(find.byKey(const Key('privacy_evidence_toggle')));
       await tester.pumpAndSettle();
       await tester.tap(
-        find.widgetWithText(FilledButton, 'Delete and turn off'),
+        find.widgetWithText(ElixPrimaryButton, 'Delete and turn off'),
       );
       await tester.pump();
 
@@ -720,7 +721,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('privacy_evidence_toggle')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Delete and turn off'));
+    await tester.tap(
+      find.widgetWithText(ElixPrimaryButton, 'Delete and turn off'),
+    );
     await tester.pumpAndSettle();
 
     expect(sessions.revokeCalls, 1);

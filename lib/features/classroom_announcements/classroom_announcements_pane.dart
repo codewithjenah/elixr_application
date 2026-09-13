@@ -145,16 +145,13 @@ class ClassroomAnnouncementsPane extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             Align(
               alignment: Alignment.center,
-              child: _AnnouncementOutlineButton(
+              child: ElixPrimaryButton(
                 key: const Key('classroom_announcements_load_more'),
+                label: 'Load older',
+                expanded: false,
+                variant: ElixButtonVariant.outline,
+                isLoading: controller.loadingMore,
                 onPressed: controller.loadingMore ? null : controller.loadMore,
-                child: controller.loadingMore
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: ProgressRing(),
-                      )
-                    : const Text('Load older'),
               ),
             ),
           ],
@@ -576,9 +573,11 @@ Future<void> _showEditor(
             ),
           ),
           actions: [
-            _AnnouncementOutlineButton(
+            ElixPrimaryButton(
+              label: 'Cancel',
+              expanded: false,
+              variant: ElixButtonVariant.outline,
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
             ),
             ElixPrimaryButton(
               key: const Key('classroom_announcement_save'),
@@ -659,44 +658,6 @@ String _periodForHour(int hour) => hour < 12 ? 'AM' : 'PM';
 int _from12Hour(int hour, String period) {
   final normalized = hour == 12 ? 0 : hour;
   return period == 'PM' ? normalized + 12 : normalized;
-}
-
-class _AnnouncementOutlineButton extends StatelessWidget {
-  const _AnnouncementOutlineButton({
-    super.key,
-    this.onPressed,
-    required this.child,
-  });
-  final VoidCallback? onPressed;
-  final Widget child;
-  @override
-  Widget build(BuildContext context) =>
-      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-      ? Button(onPressed: onPressed, child: child)
-      : shad.ShadButton.outline(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          child: child,
-        );
-}
-
-class _AnnouncementDestructiveButton extends StatelessWidget {
-  const _AnnouncementDestructiveButton({
-    super.key,
-    this.onPressed,
-    required this.child,
-  });
-  final VoidCallback? onPressed;
-  final Widget child;
-  @override
-  Widget build(BuildContext context) =>
-      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-      ? FilledButton(onPressed: onPressed, child: child)
-      : shad.ShadButton.destructive(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          child: child,
-        );
 }
 
 class _AnnouncementIconAction extends StatelessWidget {
@@ -869,24 +830,14 @@ Future<void> _confirmDelete(
   ClassroomAnnouncement announcement,
   ClassroomAnnouncementsController controller,
 ) async {
-  final accepted = await ElixDialog.show<bool>(
+  final accepted = await ElixDialog.confirm(
     context,
     title: 'Delete announcement?',
+    message: 'This announcement will be removed for the whole class.',
+    confirmLabel: 'Delete',
+    destructive: true,
+    confirmKey: const Key('classroom_announcement_confirm_delete'),
     maxWidth: 440,
-    content: const Text(
-      'This announcement will be removed for the whole class.',
-    ),
-    actions: [
-      _AnnouncementOutlineButton(
-        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
-        child: const Text('Cancel'),
-      ),
-      _AnnouncementDestructiveButton(
-        key: const Key('classroom_announcement_confirm_delete'),
-        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-        child: const Text('Delete'),
-      ),
-    ],
   );
   if (accepted != true) return;
   final success = await controller.delete(announcement);

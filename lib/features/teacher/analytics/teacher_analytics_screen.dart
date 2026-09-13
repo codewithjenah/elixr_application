@@ -234,51 +234,43 @@ class _AnalyticsActions extends StatelessWidget {
         controller.snapshot != null &&
         (controller.snapshot!.hasActivity ||
             controller.snapshot!.hasExpectedWork);
-    final actions =
-        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-        ? [
-            Button(
-              key: const Key('teacher_progress_student_rankings'),
-              onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
-              child: const Text('Student rankings'),
-            ),
-            Button(
-              key: const Key('teacher_analytics_export'),
-              onPressed: exportEnabled ? onExport : null,
-              child: Text(exporting ? 'Exporting…' : 'Export'),
-            ),
-            Button(
-              key: const Key('teacher_analytics_refresh'),
-              onPressed: controller.sessionLoading ? null : controller.refresh,
-              child: const Text('Refresh'),
-            ),
-          ]
-        : [
-            shad.ShadButton.outline(
-              key: const Key('teacher_progress_student_rankings'),
-              onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
-              leading: const Icon(FluentIcons.trophy2_solid, size: 15),
-              child: const Text('Student rankings'),
-            ),
-            shad.ShadButton.outline(
-              key: const Key('teacher_analytics_export'),
-              enabled: exportEnabled,
-              onPressed: exportEnabled ? onExport : null,
-              leading: const Icon(FluentIcons.download, size: 15),
-              child: Text(exporting ? 'Exporting…' : 'Export'),
-            ),
-            shad.ShadTooltip(
-              builder: (context) => const Text('Refresh analytics'),
-              child: shad.ShadIconButton.ghost(
-                key: const Key('teacher_analytics_refresh'),
-                icon: const Icon(FluentIcons.refresh, size: 16),
-                enabled: !controller.sessionLoading,
-                onPressed: controller.sessionLoading
-                    ? null
-                    : controller.refresh,
-              ),
-            ),
-          ];
+    final actions = [
+      ElixPrimaryButton(
+        key: const Key('teacher_progress_student_rankings'),
+        label: 'Student rankings',
+        variant: ElixButtonVariant.outline,
+        expanded: false,
+        icon: FluentIcons.trophy2_solid,
+        onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
+      ),
+      ElixPrimaryButton(
+        key: const Key('teacher_analytics_export'),
+        label: exporting ? 'Exporting…' : 'Export',
+        variant: ElixButtonVariant.outline,
+        expanded: false,
+        icon: FluentIcons.download,
+        onPressed: exportEnabled ? onExport : null,
+      ),
+      if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null)
+        ElixPrimaryButton(
+          key: const Key('teacher_analytics_refresh'),
+          label: 'Refresh',
+          variant: ElixButtonVariant.outline,
+          expanded: false,
+          icon: FluentIcons.refresh,
+          onPressed: controller.sessionLoading ? null : controller.refresh,
+        )
+      else
+        shad.ShadTooltip(
+          builder: (context) => const Text('Refresh analytics'),
+          child: shad.ShadIconButton.ghost(
+            key: const Key('teacher_analytics_refresh'),
+            icon: const Icon(FluentIcons.refresh, size: 16),
+            enabled: !controller.sessionLoading,
+            onPressed: controller.sessionLoading ? null : controller.refresh,
+          ),
+        ),
+    ];
     return Wrap(
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,

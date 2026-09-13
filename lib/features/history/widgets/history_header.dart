@@ -38,7 +38,7 @@ class HistoryHeader extends StatelessWidget {
           color: AppColors.accent.withValues(
             alpha: context.isDarkTheme ? 0.2 : 0.12,
           ),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(ElixRadius.card),
           border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
         ),
         child: Icon(FluentIcons.history, size: 20, color: AppColors.accentSoft),

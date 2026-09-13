@@ -1080,21 +1080,20 @@ class AccountProfileSectionState extends State<AccountProfileSection>
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.xs,
             children: [
-              Button(
+              ElixPrimaryButton(
                 key: const Key('account_profile_change_photo'),
+                label: hasPhoto ? 'Change photo' : 'Add photo',
+                variant: ElixButtonVariant.outline,
+                expanded: false,
                 onPressed: avatarDisabled ? null : _pickImage,
-                child: Text(hasPhoto ? 'Change photo' : 'Add photo'),
               ),
               if (hasPhoto)
-                Button(
+                ElixPrimaryButton(
                   key: const Key('account_profile_remove_photo'),
+                  label: 'Remove photo',
+                  variant: ElixButtonVariant.destructive,
+                  expanded: false,
                   onPressed: avatarDisabled ? null : _removeProfilePicture,
-                  style: ButtonStyle(
-                    foregroundColor: WidgetStatePropertyAll(
-                      context.elixColors.error,
-                    ),
-                  ),
-                  child: const Text('Remove photo'),
                 ),
             ],
           ),
@@ -1294,36 +1293,17 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   }
 }
 
-Future<bool> _confirmRemoveProfilePicture(BuildContext context) async {
-  final result = await ElixDialog.show<bool>(
+Future<bool> _confirmRemoveProfilePicture(BuildContext context) {
+  return ElixDialog.confirm(
     context,
     title: 'Remove profile photo?',
     icon: FluentIcons.warning,
-    iconColor: context.elixColors.error,
-    headerAccentColor: context.elixColors.error,
+    message:
+        'Your current photo will be deleted and your initials will be shown '
+        'instead. This can’t be undone.',
+    cancelLabel: 'Cancel',
+    confirmLabel: 'Remove photo',
+    destructive: true,
     maxWidth: 420,
-    barrierDismissible: false,
-    content: Text(
-      'Your current photo will be deleted and your initials will be shown '
-      'instead. This can’t be undone.',
-      style: AppTheme.body.copyWith(
-        fontSize: 14,
-        color: context.elixTextSecondary,
-        height: 1.45,
-      ),
-    ),
-    actions: [
-      Button(
-        autofocus: true,
-        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
-        child: const Text('Cancel'),
-      ),
-      ElixPrimaryButton(
-        label: 'Remove photo',
-        expanded: false,
-        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-      ),
-    ],
   );
-  return result == true;
 }

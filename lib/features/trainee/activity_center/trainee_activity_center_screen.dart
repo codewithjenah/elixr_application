@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_scaffold_page.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/elix_toast.dart';
@@ -73,10 +74,12 @@ class _TraineeActivityCenterScreenState
                               color: AppColors.accent,
                               compact: true,
                             ),
-                          _ShadActionButton(
+                          ElixPrimaryButton(
                             key: const Key('trainee_activity_mark_all_read'),
                             icon: FluentIcons.check_mark,
                             label: 'Mark all read',
+                            expanded: false,
+                            variant: ElixButtonVariant.outline,
                             onPressed: controller.unreadCount == 0
                                 ? null
                                 : () => _markAllRead(controller),
@@ -86,12 +89,18 @@ class _TraineeActivityCenterScreenState
                       if (controller.hasStreamError ||
                           controller.persistenceMessage != null) ...[
                         const SizedBox(height: AppSpacing.sm),
-                        _ActivityFeedback(
+                        ElixStatusPanel(
                           isError: controller.hasStreamError,
+                          title: controller.hasStreamError
+                              ? 'Some activity could not be refreshed'
+                              : 'Read status is temporary',
                           message:
                               controller.persistenceMessage ??
                               'Some classroom updates may be missing. Try again.',
-                          onRetry: controller.hasStreamError
+                          actionLabel: controller.hasStreamError
+                              ? 'Try again'
+                              : null,
+                          onAction: controller.hasStreamError
                               ? controller.retry
                               : null,
                         ),
@@ -166,83 +175,6 @@ class _UnreadOnlyControl extends StatelessWidget {
           value: value,
           onChanged: onChanged,
           label: const Text('Unread only'),
-        );
-}
-
-class _ShadActionButton extends StatelessWidget {
-  const _ShadActionButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? Button(
-          onPressed: onPressed,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14),
-              const SizedBox(width: AppSpacing.xs),
-              Text(label),
-            ],
-          ),
-        )
-      : shad.ShadButton.outline(
-          onPressed: onPressed,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14),
-              const SizedBox(width: AppSpacing.xs),
-              Text(label),
-            ],
-          ),
-        );
-}
-
-class _ActivityFeedback extends StatelessWidget {
-  const _ActivityFeedback({
-    required this.isError,
-    required this.message,
-    this.onRetry,
-  });
-  final bool isError;
-  final String message;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? InfoBar(
-          severity: isError ? InfoBarSeverity.warning : InfoBarSeverity.info,
-          title: Text(
-            isError
-                ? 'Some activity could not be refreshed'
-                : 'Read status is temporary',
-          ),
-          content: Text(message),
-          action: onRetry == null
-              ? null
-              : Button(onPressed: onRetry, child: const Text('Try again')),
-        )
-      : shad.ShadAlert(
-          title: Text(
-            isError
-                ? 'Some activity could not be refreshed'
-                : 'Read status is temporary',
-          ),
-          description: Text(message),
-          trailing: onRetry == null
-              ? null
-              : shad.ShadButton.outline(
-                  onPressed: onRetry,
-                  child: const Text('Try again'),
-                ),
         );
 }
 

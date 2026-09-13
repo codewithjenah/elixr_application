@@ -338,32 +338,15 @@ class SecuritySectionState extends State<SecuritySection> {
                             },
                           ),
                           const SizedBox(height: AppSpacing.md),
-                          FilledButton(
+                          ElixPrimaryButton(
+                            label: _savingPassword
+                                ? 'Updating password...'
+                                : 'Update password',
+                            icon: _savingPassword ? null : FluentIcons.accept,
+                            isLoading: _savingPassword,
                             onPressed: _savingPassword || !_canSubmitPassword
                                 ? null
                                 : _savePassword,
-                            child: _savingPassword
-                                ? Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const ProgressRing(strokeWidth: 2),
-                                      const SizedBox(width: AppSpacing.sm),
-                                      Text(
-                                        'Updating password...',
-                                        style: AppTheme.body.copyWith(
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                : const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(FluentIcons.accept, size: 14),
-                                      SizedBox(width: AppSpacing.sm),
-                                      Text('Update password'),
-                                    ],
-                                  ),
                           ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
@@ -1028,9 +1011,11 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
         ],
       ),
       actions: [
-        Button(
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-          child: const Text('Cancel'),
         ),
         ElixPrimaryButton(
           label: 'Continue',

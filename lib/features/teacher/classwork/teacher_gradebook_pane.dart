@@ -93,125 +93,125 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
 
     return ElixShadThemeBridge(
       child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (widget.showHeading) ...[
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.showHeading) ...[
+            Text(
+              'Grades',
+              style: AppTheme.headingMedium.copyWith(
+                color: context.elixTextPrimary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
           Text(
-            'Grades',
-            style: AppTheme.headingMedium.copyWith(
-              color: context.elixTextPrimary,
+            '${controller.approvedMemberships.length} students · ${assignments.length} assignments · $toReview to review',
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
-        ],
-        Text(
-          '${controller.approvedMemberships.length} students · ${assignments.length} assignments · $toReview to review',
-          style: AppTheme.bodySecondary.copyWith(
-            color: context.elixTextSecondary,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        ElixPanelCard(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 280,
-                child: shad.ShadInput(
-                  key: const Key('teacher_gradebook_student_search'),
-                  controller: _searchController,
-                  placeholder: const Text('Search students'),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              shad.ShadSelect<TeacherGradebookScope>(
-                initialValue: _scope,
-                onChanged: (value) => setState(() => _scope = value ?? _scope),
-                selectedOptionBuilder: (context, value) => Text(
-                  switch (value) {
-                    TeacherGradebookScope.all => 'All classwork',
-                    TeacherGradebookScope.active => 'Active',
-                    TeacherGradebookScope.archived => 'Archived',
-                  },
-                ),
-                options: const [
-                  shad.ShadOption(
-                    value: TeacherGradebookScope.all,
-                    child: Text('All classwork'),
-                  ),
-                  shad.ShadOption(
-                    value: TeacherGradebookScope.active,
-                    child: Text('Active'),
-                  ),
-                  shad.ShadOption(
-                    value: TeacherGradebookScope.archived,
-                    child: Text('Archived'),
-                  ),
-                ],
-              ),
-              shad.ShadTooltip(
-                builder: (context) => const Text(
-                  'Export the complete gradebook for this classroom',
-                ),
-                child: shad.ShadButton.outline(
-                  key: const Key('teacher_gradebook_export'),
-                  onPressed:
-                      _exporting ||
-                          controller.loading ||
-                          controller.unauthorized ||
-                          controller.approvedMemberships.isEmpty ||
-                          controller.assignments.isEmpty
-                      ? null
-                      : () => _chooseAndExport(controller),
-                    child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(FluentIcons.download),
-                      const SizedBox(width: AppSpacing.xs),
-                      Text(_exporting ? 'Exporting…' : 'Export'),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        if (_exportMessage != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.md),
-            child: shad.ShadAlert(
-              title: const Text('Gradebook exported'),
-              description: Text(_exportMessage!),
-            ),
-          ),
-        if (controller.approvedMemberships.isEmpty)
-          const ElixStatusPanel(message: 'No students in this class yet.')
-        else if (assignments.isEmpty)
-          const ElixStatusPanel(message: 'No classwork to grade yet.')
-        else if (students.isEmpty)
-          const ElixStatusPanel(message: 'No students match this search.')
-        else
+          const SizedBox(height: AppSpacing.md),
           ElixPanelCard(
-            padding: EdgeInsets.zero,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: _GradeMatrix(
-                students: students,
-                assignments: assignments,
-                controller: controller,
-                now: controller.gradebookReferenceNow,
-                profilePictureUrlFor: widget.profilePictureUrlFor,
-                onOpenStudent: widget.onOpenStudent,
-                onOpenAssignment: widget.onOpenAssignment,
-                onOpenCell: widget.onOpenCell,
-              ),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: 280,
+                  child: shad.ShadInput(
+                    key: const Key('teacher_gradebook_student_search'),
+                    controller: _searchController,
+                    placeholder: const Text('Search students'),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                shad.ShadSelect<TeacherGradebookScope>(
+                  initialValue: _scope,
+                  onChanged: (value) =>
+                      setState(() => _scope = value ?? _scope),
+                  selectedOptionBuilder: (context, value) =>
+                      Text(switch (value) {
+                        TeacherGradebookScope.all => 'All classwork',
+                        TeacherGradebookScope.active => 'Active',
+                        TeacherGradebookScope.archived => 'Archived',
+                      }),
+                  options: const [
+                    shad.ShadOption(
+                      value: TeacherGradebookScope.all,
+                      child: Text('All classwork'),
+                    ),
+                    shad.ShadOption(
+                      value: TeacherGradebookScope.active,
+                      child: Text('Active'),
+                    ),
+                    shad.ShadOption(
+                      value: TeacherGradebookScope.archived,
+                      child: Text('Archived'),
+                    ),
+                  ],
+                ),
+                shad.ShadTooltip(
+                  builder: (context) => const Text(
+                    'Export the complete gradebook for this classroom',
+                  ),
+                  child: shad.ShadButton.outline(
+                    key: const Key('teacher_gradebook_export'),
+                    onPressed:
+                        _exporting ||
+                            controller.loading ||
+                            controller.unauthorized ||
+                            controller.approvedMemberships.isEmpty ||
+                            controller.assignments.isEmpty
+                        ? null
+                        : () => _chooseAndExport(controller),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(FluentIcons.download),
+                        const SizedBox(width: AppSpacing.xs),
+                        Text(_exporting ? 'Exporting…' : 'Export'),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-      ],
+          const SizedBox(height: AppSpacing.md),
+          if (_exportMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: shad.ShadAlert(
+                title: const Text('Gradebook exported'),
+                description: Text(_exportMessage!),
+              ),
+            ),
+          if (controller.approvedMemberships.isEmpty)
+            const ElixStatusPanel(message: 'No students in this class yet.')
+          else if (assignments.isEmpty)
+            const ElixStatusPanel(message: 'No classwork to grade yet.')
+          else if (students.isEmpty)
+            const ElixStatusPanel(message: 'No students match this search.')
+          else
+            ElixPanelCard(
+              padding: EdgeInsets.zero,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: _GradeMatrix(
+                  students: students,
+                  assignments: assignments,
+                  controller: controller,
+                  now: controller.gradebookReferenceNow,
+                  profilePictureUrlFor: widget.profilePictureUrlFor,
+                  onOpenStudent: widget.onOpenStudent,
+                  onOpenAssignment: widget.onOpenAssignment,
+                  onOpenCell: widget.onOpenCell,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -224,33 +224,35 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
       subtitle: 'Choose a file format',
       content: StatefulBuilder(
         builder: (context, setDialogState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Export the current classroom gradebook.'),
-              const SizedBox(height: AppSpacing.sm),
-              shad.ShadRadioGroup<TeacherGradebookExportFormat>(
-                initialValue: format,
-                onChanged: (value) {
-                  if (value != null) setDialogState(() => format = value);
-                },
-                items: const [
-                  shad.ShadRadio(
-                    value: TeacherGradebookExportFormat.xlsx,
-                    label: Text('Excel (.xlsx)'),
-                  ),
-                  shad.ShadRadio(
-                    value: TeacherGradebookExportFormat.csv,
-                    label: Text('CSV (.csv)'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Export the current classroom gradebook.'),
+            const SizedBox(height: AppSpacing.sm),
+            shad.ShadRadioGroup<TeacherGradebookExportFormat>(
+              initialValue: format,
+              onChanged: (value) {
+                if (value != null) setDialogState(() => format = value);
+              },
+              items: const [
+                shad.ShadRadio(
+                  value: TeacherGradebookExportFormat.xlsx,
+                  label: Text('Excel (.xlsx)'),
+                ),
+                shad.ShadRadio(
+                  value: TeacherGradebookExportFormat.csv,
+                  label: Text('CSV (.csv)'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
       actions: [
-        Button(
-          child: const Text('Cancel'),
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
           onPressed: () => Navigator.pop(context),
         ),
         ElixPrimaryButton(
@@ -372,15 +374,16 @@ class _GradeMatrix extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              assignment.displayTitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
+                            Expanded(
+                              child: Text(
+                                assignment.displayTitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 3),
                             Text(
                               assignment.isOfficial
                                   ? 'Official ELIXR'

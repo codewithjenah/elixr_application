@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/public_profile.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
@@ -133,8 +134,11 @@ class TeacherPrivacySectionState extends State<TeacherPrivacySection> {
               onChanged: _saving ? null : _setLocked,
             ),
             const SizedBox(height: AppSpacing.md),
-            Button(
+            ElixPrimaryButton(
               key: const Key('teacher_view_my_public_profile'),
+              label: 'View my public profile',
+              expanded: false,
+              variant: ElixButtonVariant.outline,
               onPressed: () {
                 final userId = context
                     .read<AuthService>()
@@ -144,7 +148,6 @@ class TeacherPrivacySectionState extends State<TeacherPrivacySection> {
                 if (userId == null || userId.isEmpty) return;
                 context.push(AppRoutePaths.teacherProfile(userId));
               },
-              child: const Text('View my public profile'),
             ),
             if (_saving)
               const Padding(

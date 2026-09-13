@@ -9,6 +9,7 @@ import '../../core/constants/movements.dart';
 import '../../core/progression/assignment_prop_resolution.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assessment_mode.dart';
 import '../../data/models/assignment_attempt.dart';
@@ -383,7 +384,11 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
                         style: AppTheme.body,
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      Button(
+                      ElixPrimaryButton(
+                        label: _assignment == null
+                            ? 'Back to Classroom'
+                            : 'Back to assignment',
+                        variant: ElixButtonVariant.outline,
                         onPressed: () {
                           final assignment = _assignment;
                           context.go(
@@ -392,14 +397,10 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
                                 : AppRoutePaths.assignmentDetail(assignment.id),
                           );
                         },
-                        child: Text(
-                          _assignment == null
-                              ? 'Back to Classroom'
-                              : 'Back to assignment',
-                        ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      Button(
+                      ElixPrimaryButton(
+                        label: 'Retry',
                         onPressed: () {
                           setState(() {
                             _loading = true;
@@ -407,7 +408,6 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
                           });
                           _load();
                         },
-                        child: const Text('Retry'),
                       ),
                     ],
                   ),

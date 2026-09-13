@@ -3,16 +3,17 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/elix_form_field.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_status_panel.dart';
+import '../../core/widgets/elix_toast.dart';
 import '../../core/widgets/elixr_video_player.dart';
 import '../../data/models/activity_learning_material.dart';
 import '../../data/repositories/activity_learning_material_repository.dart';
@@ -124,42 +125,40 @@ class _ActivityLearningMaterialsPanelState
   }
 
   Future<void> _showAddMenu() async {
-    final type = await showDialog<ActivityLearningMaterialType>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Add material'),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+    final type = await ElixDialog.show<ActivityLearningMaterialType>(
+      context,
+      title: 'Add material',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Choose a supporting file or a safe web link.',
+            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
           ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final type in ActivityLearningMaterialType.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+              child: ElixPrimaryButton(
+                label: activityLearningMaterialTypeLabel(type),
+                icon: activityLearningMaterialIcon(type),
+                expanded: true,
+                variant: ElixButtonVariant.outline,
+                onPressed: () =>
+                    Navigator.of(context, rootNavigator: true).pop(type),
+              ),
+            ),
         ],
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Choose a supporting file or a safe web link.'),
-              const SizedBox(height: AppSpacing.sm),
-              for (final type in ActivityLearningMaterialType.values)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                  child: Button(
-                    onPressed: () => Navigator.pop(context, type),
-                    child: Row(
-                      children: [
-                        Icon(activityLearningMaterialIcon(type), size: 16),
-                        const SizedBox(width: AppSpacing.sm),
-                        Text(activityLearningMaterialTypeLabel(type)),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
       ),
+      actions: [
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+        ),
+      ],
     );
     if (type == null || !mounted) return;
     if (type == ActivityLearningMaterialType.link) {
@@ -218,42 +217,36 @@ class _ActivityLearningMaterialsPanelState
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => ContentDialog(
-          title: const Text('Add link'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InfoLabel(
-                  label: 'Display name',
-                  child: TextBox(controller: name, maxLength: 120),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                InfoLabel(
-                  label: 'URL',
-                  child: TextBox(
-                    controller: url,
-                    placeholder: 'https://example.com',
-                  ),
-                ),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: AppSpacing.sm),
-                    child: Text(
-                      error!,
-                      style: AppTheme.caption.copyWith(color: AppColors.error),
-                    ),
-                  ),
-              ],
-            ),
+        builder: (context, setDialogState) => ElixDialog(
+          title: 'Add link',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ElixTextField(
+                label: 'Display name',
+                controller: name,
+                maxLength: 120,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              ElixTextField(
+                label: 'URL',
+                controller: url,
+                placeholder: 'https://example.com',
+                errorText: error,
+              ),
+            ],
           ),
           actions: [
-            Button(
+            ElixPrimaryButton(
+              label: 'Cancel',
+              expanded: false,
+              variant: ElixButtonVariant.secondary,
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
             ),
-            FilledButton(
+            ElixPrimaryButton(
+              label: adding ? 'Adding...' : 'Add link',
+              expanded: false,
+              isLoading: adding,
               onPressed: adding
                   ? null
                   : () async {
@@ -294,7 +287,6 @@ class _ActivityLearningMaterialsPanelState
                         }
                       }
                     },
-              child: Text(adding ? 'Adding...' : 'Add link'),
             ),
           ],
         ),
@@ -435,14 +427,7 @@ class _ActivityLearningMaterialsPanelState
 
   void _showError(String message) {
     if (!mounted) return;
-    displayInfoBar(
-      context,
-      builder: (_, _) => InfoBar(
-        title: const Text('Learning materials'),
-        content: Text(message),
-        severity: InfoBarSeverity.error,
-      ),
-    );
+    ElixToast.showError(context, message: message);
   }
 
   @override
@@ -468,9 +453,10 @@ class _ActivityLearningMaterialsPanelState
                 ],
               ),
             ),
-            FilledButton(
+            ElixPrimaryButton(
+              label: 'Add material',
+              expanded: false,
               onPressed: _loading ? null : _showAddMenu,
-              child: const Text('Add material'),
             ),
           ],
         ),
@@ -602,15 +588,10 @@ class _ActivityLearningMaterialsTraineeSectionState
       }
     } catch (_) {
       if (mounted && generation == _loadGeneration) {
-        displayInfoBar(
+        ElixToast.showError(
           context,
-          builder: (_, _) => const InfoBar(
-            title: Text('Learning materials'),
-            content: Text(
+          message:
               'This material is no longer available or could not be opened.',
-            ),
-            severity: InfoBarSeverity.error,
-          ),
         );
       }
     } finally {
@@ -687,23 +668,6 @@ Future<void> _showTraineeMaterialDialog({
   required Widget content,
   double maxHeight = 640,
 }) {
-  final useShad =
-      !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
-  if (!useShad) {
-    return showDialog<void>(
-      context: context,
-      builder: (dialogContext) => ContentDialog(
-        title: Text(title),
-        content: content,
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
   return ElixDialog.show<void>(
     context,
     title: title,
@@ -715,6 +679,7 @@ Future<void> _showTraineeMaterialDialog({
       ElixPrimaryButton(
         label: 'Close',
         expanded: false,
+        variant: ElixButtonVariant.secondary,
         onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
       ),
     ],
@@ -765,13 +730,13 @@ class _TraineeMaterialRow extends StatelessWidget {
           ),
           if (opening)
             const SizedBox(width: 22, height: 22, child: ProgressRing())
-          else if (context.isHighContrast ||
-              shad.ShadTheme.maybeOf(context) == null)
-            Button(onPressed: onOpen, child: Text(actionLabel))
           else
-            shad.ShadButton.outline(
+            ElixPrimaryButton(
+              label: actionLabel,
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.outline,
               onPressed: onOpen,
-              child: Text(actionLabel),
             ),
         ],
       ),
@@ -873,9 +838,12 @@ class _PendingMaterialRow extends StatelessWidget {
             ),
           ),
           if (item.status == _PendingStatus.processing && item.message != null)
-            Button(
+            ElixPrimaryButton(
+              label: 'Check status',
+              variant: ElixButtonVariant.outline,
+              expanded: false,
+              dense: true,
               onPressed: item.checking ? null : onCheck,
-              child: const Text('Check status'),
             ),
           Tooltip(
             message: item.status == _PendingStatus.failed
@@ -905,7 +873,15 @@ class _ErrorRow extends StatelessWidget {
           style: AppTheme.bodySecondary.copyWith(color: AppColors.error),
         ),
       ),
-      Button(onPressed: action, child: const Text('Retry')),
+      ElixPrimaryButton(
+        label: 'Retry',
+        expanded: false,
+        dense: true,
+        variant: ElixButtonVariant.outline,
+        onPressed: () {
+          unawaited(action());
+        },
+      ),
     ],
   );
 }

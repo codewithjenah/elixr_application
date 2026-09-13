@@ -597,13 +597,20 @@ class _PendingCodeRow extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              Button(
+              ElixPrimaryButton(
+                label: 'Copy',
+                expanded: false,
+                dense: true,
+                variant: ElixButtonVariant.outline,
+                icon: FluentIcons.copy,
                 onPressed: () => _copyAccessCode(context, code.displayCode),
-                child: const Text('Copy'),
               ),
-              Button(
+              ElixPrimaryButton(
+                label: 'Revoke',
+                expanded: false,
+                dense: true,
+                variant: ElixButtonVariant.destructive,
                 onPressed: busy ? null : onRevoke,
-                child: const Text('Revoke'),
               ),
             ],
           ),
@@ -691,8 +698,10 @@ Future<void> _inviteFaculty(
         style: AppTheme.body.copyWith(color: context.elixTextSecondary),
       ),
       actions: [
-        Button(
-          child: const Text('Close'),
+        ElixPrimaryButton(
+          label: 'Close',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
         ),
       ],
@@ -720,8 +729,11 @@ Future<void> _inviteFaculty(
       ],
     ),
     actions: [
-      Button(
-        child: const Text('Copy'),
+      ElixPrimaryButton(
+        label: 'Copy',
+        expanded: false,
+        variant: ElixButtonVariant.outline,
+        icon: FluentIcons.copy,
         onPressed: () => _copyAccessCode(context, display),
       ),
       ElixPrimaryButton(

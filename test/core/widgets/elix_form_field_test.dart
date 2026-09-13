@@ -86,4 +86,18 @@ void main() {
       expect(tester.takeException(), isNull);
     }
   });
+
+  testWidgets('text fields accept autofocus and maxLength', (tester) async {
+    await tester.pumpWidget(
+      host(
+        const ElixTextField(label: 'Join code', autofocus: true, maxLength: 8),
+        theme: AppTheme.dark,
+      ),
+    );
+
+    final input = tester.widget<shad.ShadInput>(find.byType(shad.ShadInput));
+    expect(input.autofocus, isTrue);
+    expect(input.maxLength, 8);
+    expect(tester.takeException(), isNull);
+  });
 }

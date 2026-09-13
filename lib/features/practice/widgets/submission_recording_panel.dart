@@ -7,6 +7,8 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../submission_recording_controller.dart';
 
@@ -112,17 +114,15 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
     switch (controller.phase) {
       case SubmissionRecordingPhase.idle:
         return [
-          Button(
+          ElixPrimaryButton(
+            label: controller.isTeacherActivity
+                ? 'Start Activity recording'
+                : 'Record Submission',
             onPressed: widget.cameraReady && controller.canRecord && !busy
                 ? (controller.isTeacherActivity
                       ? controller.beginRecording
                       : controller.requestConsent)
                 : null,
-            child: Text(
-              controller.isTeacherActivity
-                  ? 'Start Activity recording'
-                  : 'Record Submission',
-            ),
           ),
         ];
       case SubmissionRecordingPhase.consent:
@@ -136,18 +136,18 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
             style: AppTheme.bodySecondary,
           ),
           const SizedBox(height: AppSpacing.sm),
-          FilledButton(
+          ElixPrimaryButton(
+            label: busy ? 'Starting…' : 'Start recording',
+            isLoading: busy,
             onPressed: widget.cameraReady && !busy
                 ? controller.beginRecording
                 : null,
-            child: busy
-                ? const Text('Starting…')
-                : const Text('Start recording'),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Button(
+          ElixPrimaryButton(
+            label: 'Cancel',
+            variant: ElixButtonVariant.outline,
             onPressed: busy ? null : controller.cancelConsent,
-            child: const Text('Cancel'),
           ),
         ];
       case SubmissionRecordingPhase.countdown:
@@ -169,11 +169,11 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
             style: AppTheme.body,
           ),
           const SizedBox(height: AppSpacing.sm),
-          FilledButton(
+          ElixPrimaryButton(
+            label: busy ? 'Stopping…' : 'Stop recording',
+            isLoading: busy,
+            variant: ElixButtonVariant.destructive,
             onPressed: busy ? null : controller.stopRecording,
-            child: busy
-                ? const Text('Stopping…')
-                : const Text('Stop recording'),
           ),
         ];
       case SubmissionRecordingPhase.preview:
@@ -195,18 +195,19 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
               ),
             ),
           const SizedBox(height: AppSpacing.sm),
-          FilledButton(
+          ElixPrimaryButton(
+            label: 'Use this recording',
             onPressed: busy ? null : () => _confirmSubmit(context),
-            child: const Text('Use this recording'),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Button(
+          ElixPrimaryButton(
+            label: 'Retake',
+            variant: ElixButtonVariant.outline,
             onPressed: busy
                 ? null
                 : () => controller.retake(
                     releasePlayback: _previewPlayback.release,
                   ),
-            child: const Text('Retake'),
           ),
         ];
       case SubmissionRecordingPhase.submitting:
@@ -223,9 +224,10 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
               style: AppTheme.body,
             ),
             const SizedBox(height: AppSpacing.sm),
-            Button(
+            ElixPrimaryButton(
+              label: 'Retry automatic submission',
+              variant: ElixButtonVariant.outline,
               onPressed: busy ? null : controller.retryActivitySubmission,
-              child: const Text('Retry automatic submission'),
             ),
           ];
         }
@@ -237,11 +239,12 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           const SizedBox(height: AppSpacing.sm),
           SizedBox(height: 180, child: _submittedVideo()),
           const SizedBox(height: AppSpacing.sm),
-          Button(
+          ElixPrimaryButton(
+            label: 'Open assignment',
+            variant: ElixButtonVariant.outline,
             onPressed: () => context.go(
               AppRoutePaths.assignmentDetail(controller.assignment.id),
             ),
-            child: const Text('Open assignment'),
           ),
         ];
       case SubmissionRecordingPhase.submitted:
@@ -256,11 +259,12 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           const SizedBox(height: AppSpacing.sm),
           SizedBox(height: 180, child: _submittedVideo()),
           const SizedBox(height: AppSpacing.sm),
-          Button(
+          ElixPrimaryButton(
+            label: 'Open assignment',
+            variant: ElixButtonVariant.outline,
             onPressed: () => context.go(
               AppRoutePaths.assignmentDetail(controller.assignment.id),
             ),
-            child: const Text('Open assignment'),
           ),
         ];
       case SubmissionRecordingPhase.failed:
@@ -269,7 +273,11 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
             controller.clip != null &&
             controller.latestSubmission?.activityAssessmentSnapshot != null;
         return [
-          Button(
+          ElixPrimaryButton(
+            label: canRetryActivityUpload
+                ? 'Retry automatic submission'
+                : 'Try again',
+            variant: ElixButtonVariant.outline,
             onPressed: busy
                 ? null
                 : canRetryActivityUpload
@@ -277,38 +285,19 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
                 : () => controller.retake(
                     releasePlayback: _previewPlayback.release,
                   ),
-            child: Text(
-              canRetryActivityUpload
-                  ? 'Retry automatic submission'
-                  : 'Try again',
-            ),
           ),
         ];
     }
   }
 
   Future<void> _confirmSubmit(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Use this recording?'),
-        content: const Text(
+    final confirmed = await ElixDialog.confirm(
+      context,
+      title: 'Use this recording?',
+      message:
           'This saves a private recording to Your work. It will not be sent '
           'to your Teacher until you choose Turn in on the assignment page.',
-        ),
-        actions: [
-          Button(
-            onPressed: () =>
-                Navigator.of(context, rootNavigator: true).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(context, rootNavigator: true).pop(true),
-            child: const Text('Use recording'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Use recording',
     );
     if (confirmed == true) {
       await _previewPlayback.release();

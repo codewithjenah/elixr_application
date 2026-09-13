@@ -7,6 +7,7 @@ import '../../../core/constants/movements.dart';
 import '../../../core/progression/practice_variant.dart';
 import '../../../core/progression/progression_access.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/training_plan.dart';
 import '../../../data/models/training_prop.dart';
@@ -320,9 +321,8 @@ class _EditorPrimaryButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String label;
   @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? FilledButton(onPressed: onPressed, child: Text(label))
-      : shad.ShadButton(onPressed: onPressed, child: Text(label));
+  Widget build(BuildContext context) =>
+      ElixPrimaryButton(label: label, expanded: false, onPressed: onPressed);
 }
 
 class _EditorOutlineButton extends StatelessWidget {
@@ -330,7 +330,10 @@ class _EditorOutlineButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String label;
   @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? Button(onPressed: onPressed, child: Text(label))
-      : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
+  Widget build(BuildContext context) => ElixPrimaryButton(
+    label: label,
+    expanded: false,
+    variant: ElixButtonVariant.outline,
+    onPressed: onPressed,
+  );
 }

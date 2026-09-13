@@ -16,6 +16,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -794,9 +795,11 @@ class _SelectedDayEmpty extends StatelessWidget {
           ),
           if (onClearFilters != null) ...[
             const SizedBox(height: AppSpacing.md),
-            Button(
+            ElixPrimaryButton(
+              label: 'Clear filters',
+              variant: ElixButtonVariant.outline,
+              expanded: false,
               onPressed: onClearFilters,
-              child: const Text('Clear filters'),
             ),
           ],
         ],

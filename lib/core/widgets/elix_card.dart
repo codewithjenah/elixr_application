@@ -55,19 +55,28 @@ class _ElixCardState extends State<ElixCard> {
             ],
           )
         : widget.child;
-    final card = context.isHighContrast
-        ? Container(
+    final highlighted = widget.resolvedVariant == ElixCardVariant.highlighted;
+    final useFluent =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null;
+    final card = useFluent
+        ? AnimatedContainer(
+            duration: ElixMotion.duration(context, ElixMotion.micro),
+            curve: ElixMotion.microCurve,
             width: double.infinity,
             padding: widget.padding,
-            decoration: AppTheme.cardDecoration(context).copyWith(
-              color: _interactive && !_enabled
-                  ? colors.disabledSurface
-                  : context.elixCardSurface,
-              border: Border.all(
-                color: _focused ? colors.focusRing : context.elixBorder,
-                width: _focused ? ElixFocus.ringWidthHighContrast : 2,
-              ),
-            ),
+            decoration:
+                (highlighted
+                        ? AppTheme.panelDecoration(context, highlighted: true)
+                        : AppTheme.cardDecoration(context))
+                    .copyWith(
+                      color: _interactive && !_enabled
+                          ? colors.disabledSurface
+                          : null,
+                      border: Border.all(
+                        color: _focused ? colors.focusRing : context.elixBorder,
+                        width: _focused ? ElixFocus.ringWidthHighContrast : 2,
+                      ),
+                    ),
             child: body,
           )
         : shad.ShadCard(
@@ -76,6 +85,25 @@ class _ElixCardState extends State<ElixCard> {
             padding: widget.padding,
             backgroundColor: widget.selected
                 ? colors.interactiveSelected
+                : highlighted
+                ? Color.alphaBlend(
+                    colors.brandPrimary.withValues(alpha: 0.08),
+                    colors.surfaceRaised,
+                  )
+                : null,
+            border: highlighted
+                ? shad.ShadBorder.all(
+                    color: colors.brandPrimary.withValues(alpha: 0.55),
+                  )
+                : null,
+            shadows: highlighted
+                ? [
+                    BoxShadow(
+                      color: colors.brandPrimary.withValues(alpha: 0.22),
+                      blurRadius: 24,
+                      spreadRadius: -4,
+                    ),
+                  ]
                 : null,
             child: body,
           );

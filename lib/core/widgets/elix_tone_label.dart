@@ -24,7 +24,9 @@ class ElixToneLabel extends StatelessWidget {
         Text(label, style: AppTheme.supporting(color: color)),
       ],
     );
-    if (context.isHighContrast) return content;
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return content;
+    }
     return shad.ShadBadge.outline(
       key: const ValueKey('elix-tone-shad-badge'),
       foregroundColor: color,

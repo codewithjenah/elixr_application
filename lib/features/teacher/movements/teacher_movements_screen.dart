@@ -9,6 +9,7 @@ import '../../../core/constants/movements.dart';
 import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
@@ -860,8 +861,11 @@ class _CustomMovementActions extends StatelessWidget {
       children: [
         Row(
           children: [
-            _TeacherSecondaryButton(
+            ElixPrimaryButton(
               label: 'Edit',
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.outline,
               onPressed: controller.busy
                   ? null
                   : () => _showCreateOrEditMovement(
@@ -875,8 +879,11 @@ class _CustomMovementActions extends StatelessWidget {
               message: canDelete
                   ? 'Permanently delete this unused movement.'
                   : 'This movement is used by an assignment and cannot be deleted.',
-              child: _TeacherDestructiveButton(
+              child: ElixPrimaryButton(
                 label: 'Delete',
+                expanded: false,
+                dense: true,
+                variant: ElixButtonVariant.destructive,
                 onPressed: controller.busy || !canDelete
                     ? null
                     : () =>
@@ -901,35 +908,6 @@ class _CustomMovementActions extends StatelessWidget {
       ],
     );
   }
-}
-
-class _TeacherSecondaryButton extends StatelessWidget {
-  const _TeacherSecondaryButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) =>
-      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-      ? Button(onPressed: onPressed, child: Text(label))
-      : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
-}
-
-class _TeacherDestructiveButton extends StatelessWidget {
-  const _TeacherDestructiveButton({
-    required this.label,
-    required this.onPressed,
-  });
-
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) =>
-      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-      ? Button(onPressed: onPressed, child: Text(label))
-      : shad.ShadButton.destructive(onPressed: onPressed, child: Text(label));
 }
 
 class _MovementCardVisual extends StatelessWidget {
@@ -1040,25 +1018,15 @@ Future<void> _confirmDeleteMovement(
   TeacherMovementsController controller,
   TeacherMovement movement,
 ) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Delete this movement?'),
-      content: Text(
+  final confirmed = await ElixDialog.confirm(
+    context,
+    title: 'Delete this movement?',
+    icon: FluentIcons.delete,
+    destructive: true,
+    confirmLabel: 'Delete',
+    message:
         '${movement.title} and all of its Activity revisions will be permanently removed. '
         'This cannot be undone.',
-      ),
-      actions: [
-        _TeacherSecondaryButton(
-          label: 'Cancel',
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        _TeacherDestructiveButton(
-          label: 'Delete',
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
   );
   if (confirmed == true) {
     await controller.deleteMovement(movement);
@@ -1190,142 +1158,113 @@ Future<void> _showMovementGuide(
   TrainingProp prop,
 ) async {
   final lesson = MovementLesson.forMovement(movement);
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) {
-      final screen = MediaQuery.sizeOf(dialogContext);
-      // Keep enough horizontal room for the upcoming instructional video while
-      // still leaving a clear margin around the dialog on smaller windows.
-      final dialogWidth = (screen.width - 48).clamp(320.0, 1440.0).toDouble();
-      return ContentDialog(
-        constraints: BoxConstraints(maxWidth: dialogWidth),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text('${movement.name} · ${prop.displayLabel} guide'),
-            ),
-            Tooltip(
-              message: 'Close guide',
-              child: Semantics(
-                label: 'Close guide',
-                button: true,
-                child: IconButton(
-                  key: const Key('teacher_movement_guide_close'),
-                  icon: const Icon(FluentIcons.chrome_close),
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: dialogWidth,
-          height: screen.height * 0.70,
-          child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(
-              dialogContext,
-            ).copyWith(scrollbars: false),
-            child: SingleChildScrollView(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final twoColumn = constraints.maxWidth >= 760;
-                  final overview = _GuideOverview(
-                    movement: movement,
-                    prop: prop,
-                    lesson: lesson,
-                  );
-                  final technique = _GuidePanel(
-                    eyebrow: 'TECHNIQUE',
-                    title: 'How to perform it',
-                    icon: FluentIcons.number_sequence,
-                    accent: difficultyAccentColor(movement.difficulty),
-                    child: Column(
-                      children: [
-                        for (
-                          var index = 0;
-                          index < lesson.steps.length;
-                          index++
-                        )
-                          _GuideStep(
-                            number: index + 1,
-                            text: lesson.steps[index],
-                          ),
-                      ],
-                    ),
-                  );
-                  final supporting = [
-                    _GuidePanel(
-                      eyebrow: 'SUCCESS TARGET',
-                      title: 'What good looks like',
-                      icon: FluentIcons.completed,
-                      accent: AppColors.success,
-                      child: Text(lesson.successTarget, style: AppTheme.body),
-                    ),
-                    _GuidePanel(
-                      eyebrow: 'AVOID THIS',
-                      title: 'Common mistake',
-                      icon: FluentIcons.error_badge,
-                      accent: AppColors.warning,
-                      child: Text(lesson.commonMistake, style: AppTheme.body),
-                    ),
-                    if (lesson.safetyNote != null)
-                      _GuidePanel(
-                        eyebrow: 'SAFETY',
-                        title: 'Practice safely',
-                        icon: FluentIcons.shield,
-                        accent: AppColors.error,
-                        child: Text(lesson.safetyNote!, style: AppTheme.body),
-                      ),
-                  ];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (twoColumn)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(flex: 2, child: overview),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(flex: 3, child: technique),
-                          ],
-                        )
-                      else ...[
-                        overview,
-                        const SizedBox(height: AppSpacing.md),
-                        technique,
-                      ],
-                      const SizedBox(height: AppSpacing.md),
-                      if (twoColumn)
-                        Wrap(
-                          spacing: AppSpacing.md,
-                          runSpacing: AppSpacing.md,
-                          children: [
-                            for (final panel in supporting)
-                              SizedBox(
-                                width:
-                                    (constraints.maxWidth - AppSpacing.md) / 2,
-                                child: panel,
-                              ),
-                          ],
-                        )
-                      else
-                        Column(
-                          children: [
-                            for (final panel in supporting) ...[
-                              panel,
-                              const SizedBox(height: AppSpacing.md),
-                            ],
-                          ],
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ),
+  final screen = MediaQuery.sizeOf(context);
+  // Keep enough horizontal room for the upcoming instructional video while
+  // still leaving a clear margin around the dialog on smaller windows.
+  final dialogWidth = (screen.width - 48).clamp(320.0, 1440.0).toDouble();
+  await ElixDialog.show<void>(
+    context,
+    title: '${movement.name} · ${prop.displayLabel} guide',
+    icon: FluentIcons.reading_mode,
+    maxWidth: dialogWidth,
+    maxHeight: screen.height * 0.85,
+    scrollableContent: true,
+    content: LayoutBuilder(
+      builder: (context, constraints) {
+        final twoColumn = constraints.maxWidth >= 760;
+        final overview = _GuideOverview(
+          movement: movement,
+          prop: prop,
+          lesson: lesson,
+        );
+        final technique = _GuidePanel(
+          eyebrow: 'TECHNIQUE',
+          title: 'How to perform it',
+          icon: FluentIcons.number_sequence,
+          accent: difficultyAccentColor(movement.difficulty),
+          child: Column(
+            children: [
+              for (var index = 0; index < lesson.steps.length; index++)
+                _GuideStep(number: index + 1, text: lesson.steps[index]),
+            ],
           ),
-        ),
-      );
-    },
+        );
+        final supporting = [
+          _GuidePanel(
+            eyebrow: 'SUCCESS TARGET',
+            title: 'What good looks like',
+            icon: FluentIcons.completed,
+            accent: AppColors.success,
+            child: Text(lesson.successTarget, style: AppTheme.body),
+          ),
+          _GuidePanel(
+            eyebrow: 'AVOID THIS',
+            title: 'Common mistake',
+            icon: FluentIcons.error_badge,
+            accent: AppColors.warning,
+            child: Text(lesson.commonMistake, style: AppTheme.body),
+          ),
+          if (lesson.safetyNote != null)
+            _GuidePanel(
+              eyebrow: 'SAFETY',
+              title: 'Practice safely',
+              icon: FluentIcons.shield,
+              accent: AppColors.error,
+              child: Text(lesson.safetyNote!, style: AppTheme.body),
+            ),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (twoColumn)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 2, child: overview),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(flex: 3, child: technique),
+                ],
+              )
+            else ...[
+              overview,
+              const SizedBox(height: AppSpacing.md),
+              technique,
+            ],
+            const SizedBox(height: AppSpacing.md),
+            if (twoColumn)
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  for (final panel in supporting)
+                    SizedBox(
+                      width: (constraints.maxWidth - AppSpacing.md) / 2,
+                      child: panel,
+                    ),
+                ],
+              )
+            else
+              Column(
+                children: [
+                  for (final panel in supporting) ...[
+                    panel,
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                ],
+              ),
+          ],
+        );
+      },
+    ),
+    actions: [
+      ElixPrimaryButton(
+        key: const Key('teacher_movement_guide_close'),
+        label: 'Close',
+        expanded: false,
+        variant: ElixButtonVariant.secondary,
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+      ),
+    ],
   );
 }
 

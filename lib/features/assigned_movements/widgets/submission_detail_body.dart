@@ -7,6 +7,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/assessment_score_display.dart';
@@ -553,10 +554,12 @@ class _TeacherReviewedSection extends StatelessWidget {
             ),
             if (onRetry != null) ...[
               const SizedBox(height: AppSpacing.sm),
-              Button(
+              ElixPrimaryButton(
                 key: const Key('submission_clip_retry'),
+                label: 'Try again',
+                variant: ElixButtonVariant.outline,
+                expanded: false,
                 onPressed: onRetry,
-                child: const Text('Try again'),
               ),
             ],
           ],

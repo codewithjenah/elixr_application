@@ -2,14 +2,15 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/elix_toast.dart';
 import '../../../core/widgets/profile_avatar.dart';
@@ -102,7 +103,7 @@ class _TeacherActivityCenterScreenState
                       if (relevantStreamError ||
                           controller.persistenceMessage != null) ...[
                         const SizedBox(height: AppSpacing.sm),
-                        _TeacherActivityFeedback(
+                        ElixStatusPanel(
                           isError: relevantStreamError,
                           title: relevantStreamError
                               ? showPending
@@ -112,7 +113,8 @@ class _TeacherActivityCenterScreenState
                           message:
                               controller.persistenceMessage ??
                               'Some information may be missing. Try refreshing.',
-                          onRetry: relevantStreamError
+                          actionLabel: relevantStreamError ? 'Retry' : null,
+                          onAction: relevantStreamError
                               ? controller.retry
                               : null,
                         ),
@@ -213,28 +215,21 @@ class _ActivityInboxToolbar extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              _TeacherActivityButton(
+              ElixPrimaryButton(
                 key: const Key('teacher_activity_unread_filter'),
+                icon: unreadOnly
+                    ? FluentIcons.filter_solid
+                    : FluentIcons.filter,
+                label: unreadOnly ? 'Unread only' : 'All activity',
+                expanded: false,
+                variant: ElixButtonVariant.outline,
                 onPressed: loading ? null : onFilterChanged,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      unreadOnly
-                          ? FluentIcons.filter_solid
-                          : FluentIcons.filter,
-                      size: 14,
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
-                    Text(unreadOnly ? 'Unread only' : 'All activity'),
-                  ],
-                ),
               ),
-              _TeacherActivityButton(
+              ElixPrimaryButton(
                 key: const Key('teacher_activity_mark_all_read'),
+                label: 'Mark all read',
+                expanded: false,
                 onPressed: loading ? null : onMarkAllRead,
-                primary: true,
-                child: const Text('Mark all read'),
               ),
             ],
           );
@@ -258,64 +253,6 @@ class _ActivityInboxToolbar extends StatelessWidget {
       ),
     );
   }
-}
-
-class _TeacherActivityButton extends StatelessWidget {
-  const _TeacherActivityButton({
-    super.key,
-    required this.onPressed,
-    required this.child,
-    this.primary = false,
-  });
-  final VoidCallback? onPressed;
-  final Widget child;
-  final bool primary;
-
-  @override
-  Widget build(BuildContext context) {
-    if (context.isHighContrast) {
-      return primary
-          ? FilledButton(onPressed: onPressed, child: child)
-          : Button(onPressed: onPressed, child: child);
-    }
-    return primary
-        ? shad.ShadButton(onPressed: onPressed, child: child)
-        : shad.ShadButton.outline(onPressed: onPressed, child: child);
-  }
-}
-
-class _TeacherActivityFeedback extends StatelessWidget {
-  const _TeacherActivityFeedback({
-    required this.isError,
-    required this.title,
-    required this.message,
-    this.onRetry,
-  });
-  final bool isError;
-  final String title;
-  final String message;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? InfoBar(
-          severity: isError ? InfoBarSeverity.warning : InfoBarSeverity.info,
-          title: Text(title),
-          content: Text(message),
-          action: onRetry == null
-              ? null
-              : Button(onPressed: onRetry, child: const Text('Retry')),
-        )
-      : shad.ShadAlert(
-          title: Text(title),
-          description: Text(message),
-          trailing: onRetry == null
-              ? null
-              : shad.ShadButton.outline(
-                  onPressed: onRetry,
-                  child: const Text('Retry'),
-                ),
-        );
 }
 
 class _ReviewQueueIntro extends StatelessWidget {
@@ -666,7 +603,7 @@ class _ActivityLeadingVisual extends StatelessWidget {
             : (activity.isRead
                   ? context.elixColors.surfaceInteractive
                   : context.elixColors.brandSecondary.withValues(alpha: 0.14)),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(ElixRadius.card),
       ),
       child: Icon(
         _ActivityRow._iconFor(activity.type),

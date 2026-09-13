@@ -145,34 +145,21 @@ class PrivacySectionState extends State<PrivacySection> {
       return;
     }
 
-    final confirmed = await ElixDialog.show<bool>(
+    final confirmed = await ElixDialog.confirm(
       context,
       title: 'Delete saved movement images?',
       icon: FluentIcons.warning,
       iconColor: context.elixColors.warning,
       headerAccentColor: context.elixColors.warning,
-      content: Text(
-        'Turning this off stops Teachers from viewing your saved movement '
-        'images and permanently deletes retained confirmed-movement images and '
-        'their session references. Your session scores and feedback remain. '
-        'Classroom learning progress sharing is unchanged.',
-        style: AppTheme.body.copyWith(
-          color: context.elixTextSecondary,
-          height: 1.45,
-        ),
-      ),
-      actions: [
-        Button(
-          child: const Text('Keep images'),
-          onPressed: () =>
-              Navigator.of(context, rootNavigator: true).pop(false),
-        ),
-        FilledButton(
-          child: const Text('Delete and turn off'),
-          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-        ),
-      ],
+      cancelLabel: 'Keep images',
+      confirmLabel: 'Delete and turn off',
+      destructive: true,
       uniformActionSize: const Size(152, 36),
+      message:
+          'Turning this off stops Teachers from viewing your saved movement '
+          'images and permanently deletes retained confirmed-movement images and '
+          'their session references. Your session scores and feedback remain. '
+          'Classroom learning progress sharing is unchanged.',
     );
     if (confirmed == true && mounted) await _setEvidenceEnabled(false);
   }

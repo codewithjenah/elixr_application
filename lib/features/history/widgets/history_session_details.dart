@@ -6,6 +6,8 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../data/models/feedback.dart' as models;
 import '../../../data/models/rubric_assessment.dart';
 import '../../../data/models/session.dart';
@@ -339,31 +341,30 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
   }
 
   void _openLightbox(BuildContext context, Uint8List image) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => ContentDialog(
-        constraints: const BoxConstraints(
-          maxWidth: _InspectorLayout.dialogMaxWidth,
-        ),
-        title: const Text('Confirmed movement image'),
-        content: AspectRatio(
-          aspectRatio: 4 / 3,
-          child: ColoredBox(
-            color: Colors.black,
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.diagonal3Values(-1, 1, 1),
-              child: Image.memory(image, fit: BoxFit.contain),
-            ),
+    ElixDialog.show<void>(
+      context,
+      title: 'Confirmed movement image',
+      maxWidth: _InspectorLayout.dialogMaxWidth,
+      scrollableContent: true,
+      content: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: ColoredBox(
+          color: Colors.black,
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(-1, 1, 1),
+            child: Image.memory(image, fit: BoxFit.contain),
           ),
         ),
-        actions: [
-          Button(
-            child: const Text('Close'),
-            onPressed: () => Navigator.of(dialogContext).pop(),
-          ),
-        ],
       ),
+      actions: [
+        ElixPrimaryButton(
+          label: 'Close',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+        ),
+      ],
     );
   }
 }
@@ -398,15 +399,11 @@ class _EvidenceRetryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!context.isHighContrast && shad.ShadTheme.maybeOf(context) != null) {
-      return shad.ShadButton.outline(
-        onPressed: onPressed,
-        child: const Text('Image unavailable — Retry'),
-      );
-    }
-    return Button(
+    return ElixPrimaryButton(
+      label: 'Image unavailable — Retry',
+      expanded: false,
+      variant: ElixButtonVariant.outline,
       onPressed: onPressed,
-      child: const Text('Image unavailable — Retry'),
     );
   }
 }

@@ -355,21 +355,22 @@ class _ChallengeCard extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              _ChallengeOutlineButton(
+              ElixPrimaryButton(
                 onPressed: onOpenLeaderboard,
-                child: const Text('View Leaderboard'),
+                label: 'View Leaderboard',
+                expanded: false,
+                variant: ElixButtonVariant.outline,
               ),
               if (!isTeacher)
-                _ChallengePrimaryButton(
+                ElixPrimaryButton(
                   key: Key('class_challenge_start_${challenge.id}'),
+                  label: status == ClassChallengeStatus.upcoming
+                      ? 'Not started'
+                      : status == ClassChallengeStatus.ended
+                      ? 'Challenge ended'
+                      : 'Start Challenge',
+                  expanded: false,
                   onPressed: canStart ? onStart : null,
-                  child: Text(
-                    status == ClassChallengeStatus.upcoming
-                        ? 'Not started'
-                        : status == ClassChallengeStatus.ended
-                        ? 'Challenge ended'
-                        : 'Start Challenge',
-                  ),
                 ),
               if (onEdit != null)
                 _ChallengeIconAction(
@@ -417,40 +418,6 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-class _ChallengePrimaryButton extends StatelessWidget {
-  const _ChallengePrimaryButton({
-    super.key,
-    required this.child,
-    this.onPressed,
-  });
-  final Widget child;
-  final VoidCallback? onPressed;
-  @override
-  Widget build(BuildContext context) =>
-      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-      ? FilledButton(onPressed: onPressed, child: child)
-      : shad.ShadButton(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          child: child,
-        );
-}
-
-class _ChallengeOutlineButton extends StatelessWidget {
-  const _ChallengeOutlineButton({required this.child, this.onPressed});
-  final Widget child;
-  final VoidCallback? onPressed;
-  @override
-  Widget build(BuildContext context) =>
-      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-      ? Button(onPressed: onPressed, child: child)
-      : shad.ShadButton.outline(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          child: child,
-        );
-}
-
 class _ChallengeIconAction extends StatelessWidget {
   const _ChallengeIconAction({
     super.key,
@@ -475,21 +442,6 @@ class _ChallengeIconAction extends StatelessWidget {
         ? Tooltip(message: tooltip, child: button)
         : shad.ShadTooltip(builder: (context) => Text(tooltip), child: button);
   }
-}
-
-class _ChallengeDestructiveButton extends StatelessWidget {
-  const _ChallengeDestructiveButton({required this.child, this.onPressed});
-  final Widget child;
-  final VoidCallback? onPressed;
-  @override
-  Widget build(BuildContext context) =>
-      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-      ? FilledButton(onPressed: onPressed, child: child)
-      : shad.ShadButton.destructive(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          child: child,
-        );
 }
 
 String _deadlineLabel(ClassChallenge challenge, ClassChallengeStatus status) {
@@ -531,13 +483,17 @@ Future<void> _archiveChallenge(
         ),
       ),
       actions: [
-        _ChallengeOutlineButton(
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.outline,
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
         ),
-        _ChallengeDestructiveButton(
+        ElixPrimaryButton(
+          label: 'Archive',
+          expanded: false,
+          variant: ElixButtonVariant.destructive,
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('Archive'),
         ),
       ],
     ),
@@ -872,11 +828,13 @@ Future<void> _showChallengeEditor(
                   SizedBox(
                     key: const Key('class_challenge_cancel_action'),
                     height: 56,
-                    child: _ChallengeOutlineButton(
+                    child: ElixPrimaryButton(
+                      label: 'Cancel',
+                      expanded: false,
+                      variant: ElixButtonVariant.outline,
                       onPressed: saving
                           ? null
                           : () => Navigator.pop(dialogContext),
-                      child: const Text('Cancel'),
                     ),
                   ),
                   SizedBox(

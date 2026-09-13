@@ -19,6 +19,7 @@ class ElixPrimaryButton extends StatelessWidget {
     this.isLoading = false,
     this.expanded = true,
     this.dense = false,
+    this.autofocus = false,
     this.padding,
     this.variant = ElixButtonVariant.primary,
   });
@@ -28,6 +29,7 @@ class ElixPrimaryButton extends StatelessWidget {
   final bool isLoading;
   final bool expanded;
   final bool dense;
+  final bool autofocus;
   final EdgeInsetsGeometry? padding;
   final ElixButtonVariant variant;
 
@@ -55,6 +57,25 @@ class ElixPrimaryButton extends StatelessWidget {
           // that 40px constraint and clipped the label.
           vertical: AppSpacing.sm,
         );
+    final fluentChild = isLoading
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              loadingIndicator,
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(child: labelChild),
+            ],
+          )
+        : icon == null
+        ? labelChild
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16),
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(child: labelChild),
+            ],
+          );
     Widget button;
     if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
       final style = switch (variant) {
@@ -62,31 +83,34 @@ class ElixPrimaryButton extends StatelessWidget {
           padding: WidgetStatePropertyAll(effectivePadding),
         ),
         ElixButtonVariant.destructive => ButtonStyle(
-          backgroundColor: WidgetStatePropertyAll(context.elixColors.error),
-          foregroundColor: WidgetStatePropertyAll(context.elixColors.onBrand),
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return context.elixColors.disabledSurface;
+            }
+            return context.elixColors.error;
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return context.elixTextSecondary;
+            }
+            return context.elixColors.onBrand;
+          }),
           padding: WidgetStatePropertyAll(effectivePadding),
         ),
         _ => ButtonStyle(padding: WidgetStatePropertyAll(effectivePadding)),
       };
       button = variant == ElixButtonVariant.outline
           ? Button(
+              autofocus: autofocus,
               onPressed: disabled ? null : onPressed,
               style: style,
-              child: isLoading ? loadingIndicator : labelChild,
+              child: isLoading ? loadingIndicator : fluentChild,
             )
           : FilledButton(
+              autofocus: autofocus,
               onPressed: disabled ? null : onPressed,
               style: style,
-              child: isLoading
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        loadingIndicator,
-                        const SizedBox(width: AppSpacing.sm),
-                        Flexible(child: labelChild),
-                      ],
-                    )
-                  : labelChild,
+              child: fluentChild,
             );
     } else {
       final resolvedPadding = effectivePadding.resolve(
@@ -102,6 +126,7 @@ class ElixPrimaryButton extends StatelessWidget {
           ElixButtonVariant.ghost => shad.ShadButtonVariant.ghost,
           ElixButtonVariant.destructive => shad.ShadButtonVariant.destructive,
         },
+        autofocus: autofocus,
         onPressed: disabled ? null : onPressed,
         enabled: !disabled,
         expands: expanded,

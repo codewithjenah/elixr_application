@@ -1867,6 +1867,9 @@ void main() {
       existingAssignment: officialDraft,
       materialRepository: _MaterialRepository(),
     );
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_mine')),
+    );
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
     expect(
@@ -1900,6 +1903,9 @@ void main() {
       creationService: service(),
       existingAssignment: draft,
       materialRepository: _MaterialRepository(),
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_official')),
     );
     await tester.tap(
       find.byKey(const Key('teacher_assignment_source_official')),
@@ -2508,7 +2514,7 @@ void main() {
       );
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const Key('teacher_assignment_activity_details_use')),
             )
             .onPressed,

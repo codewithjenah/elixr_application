@@ -75,233 +75,238 @@ class _TeacherClassworkAssignmentListState
           ];
     return ElixShadThemeBridge(
       child: ElixPanelCard(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: AppSpacing.lg,
-            runSpacing: AppSpacing.md,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Classwork', style: AppTheme.headingMedium),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Assignments and submitted work for this class.',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              if (widget.onManageActivityLibrary != null)
-                shad.ShadButton.outline(
-                  key: const Key('teacher_manage_activity_library'),
-                  onPressed: widget.onManageActivityLibrary,
-                  child: const Text('Manage activity library'),
-                ),
-              ElixPrimaryButton(
-                key: const Key('teacher_group_create_assignment'),
-                label: 'Create assignment',
-                icon: FluentIcons.add,
-                expanded: false,
-                dense: true,
-                onPressed: widget.onCreate,
-              ),
-            ],
-          ),
-          if (controller.group?.isActive == false) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'This class is archived. Existing classwork remains readable.',
-              key: const Key('teacher_group_archived_assignments_message'),
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ],
-          if (controller.errorMessage != null && !controller.unauthorized) ...[
-            const SizedBox(height: AppSpacing.md),
-            shad.ShadAlert.destructive(
-              title: const Text('Classwork action not completed'),
-              description: Text(controller.errorMessage!),
-            ),
-          ],
-          const SizedBox(height: AppSpacing.lg),
-          if (controller.assignments.isEmpty)
-            Column(
-              key: const Key('teacher_group_assignments_empty'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('No classwork yet.', style: AppTheme.bodySecondary),
-                if (controller.group?.isActive == true) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Create an assignment to give this class its next movement.',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            )
-          else ...[
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Wrap(
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.sm,
+              alignment: WrapAlignment.spaceBetween,
               crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: AppSpacing.lg,
+              runSpacing: AppSpacing.md,
               children: [
-                SizedBox(
-                  width: 210,
-                  child: shad.ShadSelect<String>(
-                    key: const Key('teacher_classwork_topic_filter'),
-                    initialValue: _selectedTopic,
-                    options: [
-                      const shad.ShadOption(
-                        value: 'All topics',
-                        child: Text('All topics'),
-                      ),
-                      for (final name in topicNames)
-                        shad.ShadOption(value: name, child: Text(name)),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _selectedTopic = value);
-                      }
-                    },
-                    selectedOptionBuilder: (context, value) => Text(value),
-                  ),
-                ),
-                shad.ShadButton.ghost(
-                  key: const Key('teacher_classwork_collapse_all'),
-                  onPressed: () {
-                    setState(() {
-                      if (_collapsedTopics.length == topicNames.length) {
-                        _collapsedTopics.clear();
-                      } else {
-                        _collapsedTopics
-                          ..clear()
-                          ..addAll(topicNames);
-                      }
-                    });
-                  },
-                  child: Text(
-                    _collapsedTopics.length == topicNames.length
-                        ? 'Expand all'
-                        : 'Collapse all',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            for (
-              var topicIndex = 0;
-              topicIndex < visibleTopics.length;
-              topicIndex++
-            ) ...[
-              if (topicIndex > 0) const SizedBox(height: AppSpacing.lg),
-              shad.ShadButton.ghost(
-                key: Key(
-                  'teacher_classwork_topic_${visibleTopics[topicIndex].$1}',
-                ),
-                onPressed: () {
-                  setState(() {
-                    final topic = visibleTopics[topicIndex].$1;
-                    if (!_collapsedTopics.add(topic)) {
-                      _collapsedTopics.remove(topic);
-                    }
-                  });
-                },
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      _collapsedTopics.contains(visibleTopics[topicIndex].$1)
-                          ? FluentIcons.chevron_right
-                          : FluentIcons.chevron_down,
-                      size: 12,
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
+                    Text('Classwork', style: AppTheme.headingMedium),
+                    const SizedBox(height: 4),
                     Text(
-                      visibleTopics[topicIndex].$1,
-                      style: AppTheme.headingMedium.copyWith(fontSize: 16),
+                      'Assignments and submitted work for this class.',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              if (!_collapsedTopics.contains(visibleTopics[topicIndex].$1)) ...[
-                const SizedBox(height: AppSpacing.sm),
-                for (
-                  var index = 0;
-                  index < visibleTopics[topicIndex].$2.length;
-                  index++
-                ) ...[
-                  if (index > 0) const SizedBox(height: AppSpacing.sm),
-                  _AssignmentRow(
-                    assignment: visibleTopics[topicIndex].$2[index],
-                    audienceLabel: controller.audienceLabel(
-                      visibleTopics[topicIndex].$2[index],
-                    ),
-                    counts: controller.rosterCountsFor(
-                      visibleTopics[topicIndex].$2[index].id,
-                    ),
-                    statusUnavailable: controller.hasAttemptLoadError(
-                      visibleTopics[topicIndex].$2[index].id,
-                    ),
-                    onOpen: () =>
-                        widget.onOpen(visibleTopics[topicIndex].$2[index]),
-                    onEdit:
-                        controller.group?.isActive == true &&
-                            visibleTopics[topicIndex].$2[index].status !=
-                                GroupAssignmentStatus.archived &&
-                            visibleTopics[topicIndex].$2[index].status !=
-                                GroupAssignmentStatus.deleting
-                        ? () => widget.onEdit?.call(
-                            visibleTopics[topicIndex].$2[index],
-                          )
-                        : null,
-                    onArchive:
-                        controller.group?.isActive == true &&
-                            visibleTopics[topicIndex].$2[index].status ==
-                                GroupAssignmentStatus.active
-                        ? () => widget.onArchive?.call(
-                            visibleTopics[topicIndex].$2[index],
-                          )
-                        : null,
-                    onDelete:
-                        controller.group?.isActive == true &&
-                            visibleTopics[topicIndex].$2[index].isActive
-                        ? () => widget.onDelete?.call(
-                            visibleTopics[topicIndex].$2[index],
-                          )
-                        : null,
-                    onRestore:
-                        controller.group?.isActive == true &&
-                            visibleTopics[topicIndex].$2[index].status ==
-                                GroupAssignmentStatus.archived
-                        ? () => controller.restoreAssignment(
-                            visibleTopics[topicIndex].$2[index],
-                          )
-                        : null,
-                    onPublish:
-                        controller.group?.isActive == true &&
-                            (visibleTopics[topicIndex].$2[index].isDraft ||
-                                visibleTopics[topicIndex].$2[index].isScheduled)
-                        ? () => controller.publishAssignmentNow(
-                            visibleTopics[topicIndex].$2[index],
-                          )
-                        : null,
+                if (widget.onManageActivityLibrary != null)
+                  shad.ShadButton.outline(
+                    key: const Key('teacher_manage_activity_library'),
+                    onPressed: widget.onManageActivityLibrary,
+                    child: const Text('Manage activity library'),
                   ),
+                ElixPrimaryButton(
+                  key: const Key('teacher_group_create_assignment'),
+                  label: 'Create assignment',
+                  icon: FluentIcons.add,
+                  expanded: false,
+                  dense: true,
+                  onPressed: widget.onCreate,
+                ),
+              ],
+            ),
+            if (controller.group?.isActive == false) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'This class is archived. Existing classwork remains readable.',
+                key: const Key('teacher_group_archived_assignments_message'),
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+            if (controller.errorMessage != null &&
+                !controller.unauthorized) ...[
+              const SizedBox(height: AppSpacing.md),
+              shad.ShadAlert.destructive(
+                title: const Text('Classwork action not completed'),
+                description: Text(controller.errorMessage!),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            if (controller.assignments.isEmpty)
+              Column(
+                key: const Key('teacher_group_assignments_empty'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('No classwork yet.', style: AppTheme.bodySecondary),
+                  if (controller.group?.isActive == true) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Create an assignment to give this class its next movement.',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
+                ],
+              )
+            else ...[
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.sm,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 210,
+                    child: shad.ShadSelect<String>(
+                      key: const Key('teacher_classwork_topic_filter'),
+                      initialValue: _selectedTopic,
+                      options: [
+                        const shad.ShadOption(
+                          value: 'All topics',
+                          child: Text('All topics'),
+                        ),
+                        for (final name in topicNames)
+                          shad.ShadOption(value: name, child: Text(name)),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _selectedTopic = value);
+                        }
+                      },
+                      selectedOptionBuilder: (context, value) => Text(value),
+                    ),
+                  ),
+                  shad.ShadButton.ghost(
+                    key: const Key('teacher_classwork_collapse_all'),
+                    onPressed: () {
+                      setState(() {
+                        if (_collapsedTopics.length == topicNames.length) {
+                          _collapsedTopics.clear();
+                        } else {
+                          _collapsedTopics
+                            ..clear()
+                            ..addAll(topicNames);
+                        }
+                      });
+                    },
+                    child: Text(
+                      _collapsedTopics.length == topicNames.length
+                          ? 'Expand all'
+                          : 'Collapse all',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              for (
+                var topicIndex = 0;
+                topicIndex < visibleTopics.length;
+                topicIndex++
+              ) ...[
+                if (topicIndex > 0) const SizedBox(height: AppSpacing.lg),
+                shad.ShadButton.ghost(
+                  key: Key(
+                    'teacher_classwork_topic_${visibleTopics[topicIndex].$1}',
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      final topic = visibleTopics[topicIndex].$1;
+                      if (!_collapsedTopics.add(topic)) {
+                        _collapsedTopics.remove(topic);
+                      }
+                    });
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _collapsedTopics.contains(visibleTopics[topicIndex].$1)
+                            ? FluentIcons.chevron_right
+                            : FluentIcons.chevron_down,
+                        size: 12,
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Text(
+                        visibleTopics[topicIndex].$1,
+                        style: AppTheme.headingMedium.copyWith(fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!_collapsedTopics.contains(
+                  visibleTopics[topicIndex].$1,
+                )) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  for (
+                    var index = 0;
+                    index < visibleTopics[topicIndex].$2.length;
+                    index++
+                  ) ...[
+                    if (index > 0) const SizedBox(height: AppSpacing.sm),
+                    _AssignmentRow(
+                      assignment: visibleTopics[topicIndex].$2[index],
+                      audienceLabel: controller.audienceLabel(
+                        visibleTopics[topicIndex].$2[index],
+                      ),
+                      counts: controller.rosterCountsFor(
+                        visibleTopics[topicIndex].$2[index].id,
+                      ),
+                      statusUnavailable: controller.hasAttemptLoadError(
+                        visibleTopics[topicIndex].$2[index].id,
+                      ),
+                      onOpen: () =>
+                          widget.onOpen(visibleTopics[topicIndex].$2[index]),
+                      onEdit:
+                          controller.group?.isActive == true &&
+                              visibleTopics[topicIndex].$2[index].status !=
+                                  GroupAssignmentStatus.archived &&
+                              visibleTopics[topicIndex].$2[index].status !=
+                                  GroupAssignmentStatus.deleting
+                          ? () => widget.onEdit?.call(
+                              visibleTopics[topicIndex].$2[index],
+                            )
+                          : null,
+                      onArchive:
+                          controller.group?.isActive == true &&
+                              visibleTopics[topicIndex].$2[index].status ==
+                                  GroupAssignmentStatus.active
+                          ? () => widget.onArchive?.call(
+                              visibleTopics[topicIndex].$2[index],
+                            )
+                          : null,
+                      onDelete:
+                          controller.group?.isActive == true &&
+                              visibleTopics[topicIndex].$2[index].isActive
+                          ? () => widget.onDelete?.call(
+                              visibleTopics[topicIndex].$2[index],
+                            )
+                          : null,
+                      onRestore:
+                          controller.group?.isActive == true &&
+                              visibleTopics[topicIndex].$2[index].status ==
+                                  GroupAssignmentStatus.archived
+                          ? () => controller.restoreAssignment(
+                              visibleTopics[topicIndex].$2[index],
+                            )
+                          : null,
+                      onPublish:
+                          controller.group?.isActive == true &&
+                              (visibleTopics[topicIndex].$2[index].isDraft ||
+                                  visibleTopics[topicIndex]
+                                      .$2[index]
+                                      .isScheduled)
+                          ? () => controller.publishAssignmentNow(
+                              visibleTopics[topicIndex].$2[index],
+                            )
+                          : null,
+                    ),
+                  ],
                 ],
               ],
             ],
           ],
-        ],
-      ),
+        ),
       ),
     );
   }
@@ -444,18 +449,24 @@ class _AssignmentRow extends StatelessWidget {
             ),
           ),
           if (assignment.status == GroupAssignmentStatus.archived) ...[
-            Button(
+            ElixPrimaryButton(
               key: Key('teacher_group_restore_assignment_${assignment.id}'),
+              label: 'Restore',
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.outline,
               onPressed: onRestore,
-              child: const Text('Restore'),
             ),
             const SizedBox(width: AppSpacing.md),
           ],
           if (onEdit != null) ...[
-            Button(
+            ElixPrimaryButton(
               key: Key('teacher_group_edit_assignment_${assignment.id}'),
+              label: 'Edit',
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.outline,
               onPressed: onEdit,
-              child: const Text('Edit'),
             ),
             const SizedBox(width: AppSpacing.xs),
           ],
@@ -470,24 +481,32 @@ class _AssignmentRow extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.xs),
           ] else if (assignment.isScheduled) ...[
-            Button(
+            ElixPrimaryButton(
               key: Key('teacher_group_publish_assignment_${assignment.id}'),
+              label: 'Publish now',
+              expanded: false,
+              dense: true,
               onPressed: onPublish,
-              child: const Text('Publish now'),
             ),
             const SizedBox(width: AppSpacing.xs),
           ],
           if (assignment.isActive) ...[
-            Button(
+            ElixPrimaryButton(
               key: Key('teacher_group_archive_assignment_${assignment.id}'),
+              label: 'Archive',
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.outline,
               onPressed: onArchive,
-              child: const Text('Archive'),
             ),
             const SizedBox(width: AppSpacing.xs),
-            Button(
+            ElixPrimaryButton(
               key: Key('teacher_group_delete_assignment_${assignment.id}'),
+              label: 'Delete',
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.destructive,
               onPressed: onDelete,
-              child: const Text('Delete'),
             ),
             const SizedBox(width: AppSpacing.md),
           ],
@@ -632,9 +651,12 @@ class TeacherStudentClassworkSection extends StatelessWidget {
         children: [
           Align(
             alignment: Alignment.centerLeft,
-            child: Button(
+            child: ElixPrimaryButton(
+              label: 'Back to assigned work',
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.ghost,
               onPressed: () => controller.selectAssignment(null),
-              child: const Text('Back to assigned work'),
             ),
           ),
           const SizedBox(height: AppSpacing.md),
@@ -766,17 +788,14 @@ class _AssignmentHeader extends StatelessWidget {
             children: [
               Text(assignment.displayTitle, style: AppTheme.headingMedium),
               if (onEdit != null)
-                Button(
+                ElixPrimaryButton(
                   key: const Key('teacher_classwork_edit_assignment'),
+                  label: 'Edit assignment',
+                  icon: FluentIcons.settings,
+                  expanded: false,
+                  dense: true,
+                  variant: ElixButtonVariant.outline,
                   onPressed: controller.busy ? null : onEdit,
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(FluentIcons.settings, size: 14),
-                      SizedBox(width: AppSpacing.sm),
-                      Text('Edit assignment'),
-                    ],
-                  ),
                 ),
             ],
           ),
@@ -1461,8 +1480,12 @@ class _TeacherSubmissionReviewDetailState
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              FilledButton(
+              ElixPrimaryButton(
                 key: const Key('teacher_classwork_save_review'),
+                expanded: false,
+                label: current.isChecked
+                    ? 'Update checked result'
+                    : 'Mark as checked',
                 onPressed: widget.controller.busy || !validGrade
                     ? null
                     : () => _saveAndConfirm(
@@ -1473,15 +1496,13 @@ class _TeacherSubmissionReviewDetailState
                           feedback: _feedback.text,
                         ),
                       ),
-                child: Text(
-                  current.isChecked
-                      ? 'Update checked result'
-                      : 'Mark as checked',
-                ),
               ),
               if (!current.isChecked && hasNext)
-                Button(
+                ElixPrimaryButton(
                   key: const Key('teacher_classwork_save_next_review'),
+                  expanded: false,
+                  variant: ElixButtonVariant.outline,
+                  label: 'Save & Next',
                   onPressed: widget.controller.busy || !validGrade
                       ? null
                       : () => _saveAndConfirm(
@@ -1492,25 +1513,28 @@ class _TeacherSubmissionReviewDetailState
                             feedback: _feedback.text,
                           ),
                         ),
-                  child: const Text('Save & Next'),
                 ),
               if (current.isChecked && !current.resultSentForCurrentRevision)
-                Button(
+                ElixPrimaryButton(
                   key: const Key('teacher_classwork_retry_result'),
+                  expanded: false,
+                  variant: ElixButtonVariant.outline,
+                  label: 'Retry notification',
                   onPressed: widget.controller.busy
                       ? null
                       : () => widget.controller.sendReviewResult(
                           attempt: current,
                           assignment: widget.assignment,
                         ),
-                  child: const Text('Retry notification'),
                 ),
             ],
           ),
         ],
         if (legacySubmitted) ...[
           const SizedBox(height: AppSpacing.sm),
-          Button(
+          ElixPrimaryButton(
+            label: 'Approve legacy review',
+            expanded: false,
             onPressed: widget.controller.busy
                 ? null
                 : () => widget.controller.reviewLegacy(
@@ -1518,7 +1542,6 @@ class _TeacherSubmissionReviewDetailState
                     verdict: AssignmentReviewVerdict.approved,
                     feedback: _feedback.text,
                   ),
-            child: const Text('Approve legacy review'),
           ),
         ],
       ],
@@ -1596,8 +1619,12 @@ class _TeacherSubmissionReviewDetailState
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              FilledButton(
+              ElixPrimaryButton(
                 key: const Key('teacher_classwork_save_rubric_review'),
+                expanded: false,
+                label: current.isChecked
+                    ? 'Update checked result'
+                    : 'Mark as checked',
                 onPressed: widget.controller.busy || !valid
                     ? null
                     : () => _saveAndConfirm(
@@ -1608,15 +1635,13 @@ class _TeacherSubmissionReviewDetailState
                           feedback: _feedback.text,
                         ),
                       ),
-                child: Text(
-                  current.isChecked
-                      ? 'Update checked result'
-                      : 'Mark as checked',
-                ),
               ),
               if (!current.isChecked && hasNext)
-                Button(
+                ElixPrimaryButton(
                   key: const Key('teacher_classwork_save_next_rubric_review'),
+                  expanded: false,
+                  variant: ElixButtonVariant.outline,
+                  label: 'Save & Next',
                   onPressed: widget.controller.busy || !valid
                       ? null
                       : () => _saveAndConfirm(
@@ -1628,21 +1653,22 @@ class _TeacherSubmissionReviewDetailState
                                 feedback: _feedback.text,
                               ),
                         ),
-                  child: const Text('Save & Next'),
                 ),
             ],
           ),
           if (current.isChecked && !current.resultSentForCurrentRevision) ...[
             const SizedBox(height: AppSpacing.sm),
-            Button(
+            ElixPrimaryButton(
               key: const Key('teacher_classwork_retry_result'),
+              expanded: false,
+              variant: ElixButtonVariant.outline,
+              label: 'Retry notification',
               onPressed: widget.controller.busy
                   ? null
                   : () => widget.controller.sendReviewResult(
                       attempt: current,
                       assignment: widget.assignment,
                     ),
-              child: const Text('Retry notification'),
             ),
           ],
         ],

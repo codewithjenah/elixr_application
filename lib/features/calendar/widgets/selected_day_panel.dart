@@ -1,9 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_primary_button.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/models/training_plan.dart';
 import '../models/calendar_classroom_assignment.dart';
 import '../models/training_day_snapshot.dart';
@@ -69,16 +70,11 @@ class SelectedDayPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (actionError != null) ...[
-            context.isHighContrast
-                ? InfoBar(
-                    title: const Text('Could not update the training plan.'),
-                    content: Text(actionError!),
-                    severity: InfoBarSeverity.error,
-                  )
-                : shad.ShadAlert.destructive(
-                    title: const Text('Could not update the training plan.'),
-                    description: Text(actionError!),
-                  ),
+            ElixStatusPanel(
+              title: 'Could not update the training plan.',
+              message: actionError!,
+              isError: true,
+            ),
             const SizedBox(height: AppSpacing.md),
           ],
           if (isEditing)
@@ -373,9 +369,8 @@ class _PrimaryActionButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String label;
   @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? FilledButton(onPressed: onPressed, child: Text(label))
-      : shad.ShadButton(onPressed: onPressed, child: Text(label));
+  Widget build(BuildContext context) =>
+      ElixPrimaryButton(label: label, expanded: false, onPressed: onPressed);
 }
 
 class _OutlineActionButton extends StatelessWidget {
@@ -383,9 +378,12 @@ class _OutlineActionButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String label;
   @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? Button(onPressed: onPressed, child: Text(label))
-      : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
+  Widget build(BuildContext context) => ElixPrimaryButton(
+    label: label,
+    expanded: false,
+    variant: ElixButtonVariant.outline,
+    onPressed: onPressed,
+  );
 }
 
 class _DestructiveActionButton extends StatelessWidget {
@@ -396,9 +394,12 @@ class _DestructiveActionButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String label;
   @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? Button(onPressed: onPressed, child: Text(label))
-      : shad.ShadButton.ghost(onPressed: onPressed, child: Text(label));
+  Widget build(BuildContext context) => ElixPrimaryButton(
+    label: label,
+    expanded: false,
+    variant: ElixButtonVariant.ghost,
+    onPressed: onPressed,
+  );
 }
 
 class _MetricChip extends StatelessWidget {
@@ -414,7 +415,7 @@ class _MetricChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: colors.surfaceTinted,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(ElixRadius.control),
         border: Border.all(color: colors.borderSubtle),
       ),
       child: Column(
@@ -451,7 +452,7 @@ class _StatusChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: context.isHighContrast ? 0 : 0.14),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(ElixRadius.pill),
         border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Row(

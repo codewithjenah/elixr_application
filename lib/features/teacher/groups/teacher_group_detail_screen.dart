@@ -20,9 +20,11 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../core/router/navigation_helpers.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_form_field.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
@@ -363,6 +365,8 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                             controller,
                             classwork,
                             selectedAssignment,
+                            widget.movementRepository ??
+                                _tryReadTeacherMovementRepository(context),
                           )
                         : null,
                   ),
@@ -476,29 +480,38 @@ class _GroupDetailBody extends StatelessWidget {
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.sm,
                   children: [
-                    Button(
+                    ElixPrimaryButton(
+                      label: 'Rename',
+                      expanded: false,
+                      variant: ElixButtonVariant.outline,
                       onPressed: controller.busy
                           ? null
                           : () => _showRenameDialog(context, controller, group),
-                      child: const Text('Rename'),
                     ),
                     if (group.isActive)
-                      Button(
+                      ElixPrimaryButton(
+                        label: 'Archive',
+                        expanded: false,
+                        variant: ElixButtonVariant.outline,
                         onPressed: controller.busy
                             ? null
                             : () => _confirmArchive(context, controller),
-                        child: const Text('Archive'),
                       )
                     else
-                      Button(
+                      ElixPrimaryButton(
                         key: const Key('teacher_group_unarchive_classroom'),
+                        label: 'Unarchive',
+                        expanded: false,
+                        variant: ElixButtonVariant.outline,
                         onPressed: controller.busy
                             ? null
                             : () => _confirmUnarchive(context, controller),
-                        child: const Text('Unarchive'),
                       ),
-                    Button(
+                    ElixPrimaryButton(
                       key: const Key('teacher_group_delete_classroom'),
+                      label: 'Delete classroom',
+                      expanded: false,
+                      variant: ElixButtonVariant.destructive,
                       onPressed: controller.busy
                           ? null
                           : () => _confirmPermanentlyDeleteClassroom(
@@ -506,7 +519,6 @@ class _GroupDetailBody extends StatelessWidget {
                               controller,
                               group,
                             ),
-                      child: const Text('Delete classroom'),
                     ),
                   ],
                 ),
@@ -539,20 +551,24 @@ class _GroupDetailBody extends StatelessWidget {
                   Wrap(
                     spacing: AppSpacing.sm,
                     children: [
-                      Button(
+                      ElixPrimaryButton(
                         key: const Key('teacher_group_copy_code'),
+                        label: 'Copy code',
+                        expanded: false,
+                        variant: ElixButtonVariant.outline,
                         onPressed: () async {
                           await Clipboard.setData(
                             ClipboardData(text: invite.displayCode),
                           );
                         },
-                        child: const Text('Copy code'),
                       ),
-                      Button(
+                      ElixPrimaryButton(
+                        label: 'Make a new code',
+                        expanded: false,
+                        variant: ElixButtonVariant.outline,
                         onPressed: controller.busy
                             ? null
                             : () => _confirmRotateInvite(context, controller),
-                        child: const Text('Make a new code'),
                       ),
                     ],
                   ),
@@ -592,6 +608,7 @@ class _GroupDetailBody extends StatelessWidget {
                     controller,
                     classworkController,
                     assignment,
+                    movementRepository,
                   )
                 : null,
             onArchive: group.isActive && !classworkController.busy
@@ -773,13 +790,15 @@ class _GroupDetailTab extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
               color: selected
-                  ? (highContrast ? AppColors.primary : AppColors.primary)
+                  ? context.elixColors.brandPrimary
                   : Color.alphaBlend(
-                      (hovered ? AppColors.primary : Colors.transparent)
+                      (hovered
+                              ? context.elixColors.brandPrimary
+                              : Colors.transparent)
                           .withValues(alpha: hovered ? 0.06 : 0),
                       context.elixCardSurface,
                     ),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(ElixRadius.card),
               border: Border.all(
                 color: selected
                     ? (highContrast ? context.elixBorder : Colors.transparent)
@@ -923,8 +942,11 @@ class _StudentsSection extends StatelessWidget {
                     groupId: controller.selectedGroup!.id,
                   ),
                 ),
-                trailing: Button(
+                trailing: ElixPrimaryButton(
                   key: Key('teacher_group_remove_${membership.id}'),
+                  label: 'Remove from class',
+                  expanded: false,
+                  variant: ElixButtonVariant.outline,
                   onPressed: controller.busy
                       ? null
                       : () => _confirmRemoveMember(
@@ -932,7 +954,6 @@ class _StudentsSection extends StatelessWidget {
                           controller,
                           membership,
                         ),
-                  child: const Text('Remove from class'),
                 ),
               ),
           const SizedBox(height: AppSpacing.xl),
@@ -954,12 +975,14 @@ class _StudentsSection extends StatelessWidget {
                       ? null
                       : () => controller.approveMembership(membership),
                 ),
-                Button(
+                ElixPrimaryButton(
                   key: Key('teacher_group_reject_${membership.id}'),
+                  label: 'Reject',
+                  expanded: false,
+                  variant: ElixButtonVariant.outline,
                   onPressed: controller.busy
                       ? null
                       : () => controller.rejectMembership(membership),
-                  child: const Text('Reject'),
                 ),
               ],
             ),
@@ -996,7 +1019,7 @@ class _TeacherRosterHeader extends StatelessWidget {
                 child: Text(
                   trailing!,
                   style: AppTheme.body.copyWith(
-                    color: AppColors.primary,
+                    color: context.elixColors.brandPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1065,7 +1088,7 @@ class _TeacherRosterRow extends StatelessWidget {
                       duration: const Duration(milliseconds: 120),
                       style: AppTheme.body.copyWith(
                         color: states.isHovered
-                            ? AppColors.primary
+                            ? context.elixColors.brandPrimary
                             : context.elixTextPrimary,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1260,6 +1283,7 @@ Future<void> _showGroupAssignmentEditor(
   TeacherGroupsController groupsController,
   TeacherClassworkController controller,
   GroupAssignment assignment,
+  TeacherMovementRepository? movementRepository,
 ) async {
   final currentAssignment =
       await controller.assignmentRepository.getAssignment(
@@ -1289,7 +1313,8 @@ Future<void> _showGroupAssignmentEditor(
     teacherId: controller.teacherId,
     teacherDisplayName: controller.teacherDisplayName,
     groups: availableGroups,
-    movementRepository: _tryReadTeacherMovementRepository(context),
+    movementRepository:
+        movementRepository ?? _tryReadTeacherMovementRepository(context),
     assignmentRepository: controller.assignmentRepository,
     groupRepository: groupsController.repository,
     lockedGroup: group,
@@ -2054,25 +2079,14 @@ Future<void> _confirmArchiveAssignment(
   TeacherClassworkController controller,
   GroupAssignment assignment,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => ContentDialog(
-      title: const Text('Archive this assignment?'),
-      content: const Text(
+  final accepted = await ElixDialog.confirm(
+    context,
+    title: 'Archive this assignment?',
+    icon: FluentIcons.archive,
+    confirmLabel: 'Archive assignment',
+    confirmKey: const Key('teacher_assignment_confirm_archive'),
+    message:
         'It will no longer be available for new trainee submissions. Existing records stay available for review.',
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const Key('teacher_assignment_confirm_archive'),
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Archive assignment'),
-        ),
-      ],
-    ),
   );
   if (accepted == true) {
     await controller.archiveAssignment(assignment);
@@ -2112,6 +2126,7 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                 iconColor: context.elixColors.error,
                 headerAccentColor: context.elixColors.error,
                 maxWidth: 520,
+                scrollableContent: true,
                 uniformActionSize: const Size(176, 40),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2133,7 +2148,7 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                         color: context.isHighContrast
                             ? context.elixCardSurface
                             : context.elixColors.interactiveHover,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(ElixRadius.control),
                         border: Border.all(
                           color: context.elixColors.borderSubtle,
                         ),
@@ -2162,10 +2177,14 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                               ),
                               Tooltip(
                                 message: 'Copy confirmation phrase',
-                                child: Button(
+                                child: ElixPrimaryButton(
                                   key: const Key(
                                     'teacher_assignment_copy_delete_phrase',
                                   ),
+                                  label: copied ? 'Copied' : 'Copy',
+                                  expanded: false,
+                                  dense: true,
+                                  variant: ElixButtonVariant.outline,
                                   onPressed: () async {
                                     await Clipboard.setData(
                                       const ClipboardData(
@@ -2176,7 +2195,6 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                                       setDialogState(() => copied = true);
                                     }
                                   },
-                                  child: Text(copied ? 'Copied' : 'Copy'),
                                 ),
                               ),
                             ],
@@ -2192,7 +2210,7 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                       ),
                     ),
                     const SizedBox(height: AppSpacing.xs),
-                    TextBox(
+                    ElixTextField(
                       key: const Key('teacher_assignment_delete_confirmation'),
                       controller: confirmation,
                       enabled: !controller.busy,
@@ -2203,22 +2221,27 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                     ),
                     if (controller.errorMessage != null) ...[
                       const SizedBox(height: AppSpacing.md),
-                      InfoBar(
-                        title: Text(controller.errorMessage!),
-                        severity: InfoBarSeverity.error,
-                      ),
+                      ElixInlineError(message: controller.errorMessage!),
                     ],
                   ],
                 ),
                 actions: [
-                  Button(
+                  ElixPrimaryButton(
+                    label: 'Cancel',
+                    expanded: false,
+                    variant: ElixButtonVariant.secondary,
                     onPressed: controller.busy
                         ? null
                         : () => Navigator.pop(dialogContext, false),
-                    child: const Text('Cancel'),
                   ),
-                  FilledButton(
+                  ElixPrimaryButton(
                     key: const Key('teacher_assignment_confirm_delete'),
+                    label: controller.busy
+                        ? 'Deleting...'
+                        : 'Delete permanently',
+                    expanded: false,
+                    isLoading: controller.busy,
+                    variant: ElixButtonVariant.destructive,
                     onPressed: phraseMatches && !controller.busy
                         ? () async {
                             // The controller sets busy synchronously before its first await.
@@ -2232,21 +2255,6 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                             }
                           }
                         : null,
-                    child: controller.busy
-                        ? const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: ProgressRing(strokeWidth: 2),
-                              ),
-                              SizedBox(width: AppSpacing.sm),
-                              Flexible(child: Text('Deleting...')),
-                            ],
-                          )
-                        : const Text('Delete permanently'),
                   ),
                 ],
               ),
@@ -2265,30 +2273,27 @@ Future<void> _showRenameDialog(
   ElixrGroup group,
 ) async {
   final nameController = TextEditingController(text: group.name);
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Rename classroom'),
-      content: SizedBox(
-        width: 420,
-        height: 44,
-        child: TextBox(
-          controller: nameController,
-          autofocus: true,
-          maxLines: 1,
-        ),
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Save'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
+  final accepted = await ElixDialog.show<bool>(
+    context,
+    title: 'Rename classroom',
+    content: ElixTextField(
+      controller: nameController,
+      autofocus: true,
+      placeholder: 'Classroom name',
     ),
+    actions: [
+      ElixPrimaryButton(
+        label: 'Cancel',
+        expanded: false,
+        variant: ElixButtonVariant.secondary,
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
+      ),
+      ElixPrimaryButton(
+        label: 'Save',
+        expanded: false,
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+      ),
+    ],
   );
   if (accepted == true) {
     await controller.renameSelectedGroup(nameController.text);
@@ -2300,25 +2305,14 @@ Future<void> _confirmArchive(
   BuildContext context,
   TeacherGroupsController controller,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Archive this classroom?'),
-      content: const Text(
+  final accepted = await ElixDialog.confirm(
+    context,
+    title: 'Archive this classroom?',
+    icon: FluentIcons.archive,
+    confirmLabel: 'Archive',
+    message:
         'Students already in this class stay. New students will not be able '
         'to join with this class code.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Archive'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
   );
   if (accepted != true) return;
   await controller.archiveSelectedGroup(showSuccess: false);
@@ -2333,26 +2327,15 @@ Future<void> _confirmUnarchive(
   BuildContext context,
   TeacherGroupsController controller,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Unarchive this classroom?'),
-      content: const Text(
+  final accepted = await ElixDialog.confirm(
+    context,
+    title: 'Unarchive this classroom?',
+    icon: FluentIcons.archive,
+    confirmLabel: 'Unarchive',
+    confirmKey: const Key('teacher_group_confirm_unarchive'),
+    message:
         'This classroom will return to your active classrooms. Its students, '
         'classwork, and existing class code will remain available.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          key: const Key('teacher_group_confirm_unarchive'),
-          child: const Text('Unarchive'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
   );
   if (accepted != true) return;
   await controller.unarchiveSelectedGroup();
@@ -2382,11 +2365,16 @@ Future<void> _confirmPermanentlyDeleteClassroom(
                 },
               ),
             },
-            child: ContentDialog(
-              title: const Text('Permanently delete classroom?'),
-              content: SizedBox(
-                width: 460,
-                child: Column(
+            child: Center(
+              child: ElixDialog(
+                title: 'Permanently delete classroom?',
+                subtitle: 'This action cannot be undone.',
+                icon: FluentIcons.delete,
+                iconColor: context.elixColors.error,
+                headerAccentColor: context.elixColors.error,
+                maxWidth: 520,
+                scrollableContent: true,
+                content: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -2394,11 +2382,15 @@ Future<void> _confirmPermanentlyDeleteClassroom(
                       'This permanently removes “${group.name}”, its class code, '
                       'memberships, assignments, submissions, and uploaded media. '
                       'This cannot be undone.',
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextSecondary,
+                        height: 1.45,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.md),
                     const Text('Type DELETE CLASSROOM to continue.'),
                     const SizedBox(height: AppSpacing.xs),
-                    TextBox(
+                    ElixTextField(
                       key: const Key('teacher_group_delete_confirmation'),
                       controller: confirmation,
                       enabled: !controller.busy,
@@ -2409,54 +2401,44 @@ Future<void> _confirmPermanentlyDeleteClassroom(
                     ),
                     if (controller.errorMessage != null) ...[
                       const SizedBox(height: AppSpacing.md),
-                      InfoBar(
-                        title: Text(controller.errorMessage!),
-                        severity: InfoBarSeverity.error,
-                      ),
+                      ElixInlineError(message: controller.errorMessage!),
                     ],
                   ],
                 ),
-              ),
-              actions: [
-                Button(
-                  onPressed: controller.busy
-                      ? null
-                      : () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  key: const Key('teacher_group_confirm_delete'),
-                  onPressed: phraseMatches && !controller.busy
-                      ? () async {
-                          // The controller sets busy synchronously before its first await.
-                          if (controller.busy) return;
-                          await controller.permanentlyDeleteClassroom(
-                            group,
-                            showSuccess: false,
-                          );
-                          if (!dialogContext.mounted) return;
-                          if (controller.errorMessage == null) {
-                            Navigator.pop(dialogContext, true);
+                actions: [
+                  ElixPrimaryButton(
+                    label: 'Cancel',
+                    expanded: false,
+                    variant: ElixButtonVariant.secondary,
+                    onPressed: controller.busy
+                        ? null
+                        : () => Navigator.pop(dialogContext, false),
+                  ),
+                  ElixPrimaryButton(
+                    key: const Key('teacher_group_confirm_delete'),
+                    label: controller.busy
+                        ? 'Deleting...'
+                        : 'Delete permanently',
+                    expanded: false,
+                    isLoading: controller.busy,
+                    variant: ElixButtonVariant.destructive,
+                    onPressed: phraseMatches && !controller.busy
+                        ? () async {
+                            // The controller sets busy synchronously before its first await.
+                            if (controller.busy) return;
+                            await controller.permanentlyDeleteClassroom(
+                              group,
+                              showSuccess: false,
+                            );
+                            if (!dialogContext.mounted) return;
+                            if (controller.errorMessage == null) {
+                              Navigator.pop(dialogContext, true);
+                            }
                           }
-                        }
-                      : null,
-                  child: controller.busy
-                      ? const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: ProgressRing(strokeWidth: 2),
-                            ),
-                            SizedBox(width: AppSpacing.sm),
-                            Flexible(child: Text('Deleting...')),
-                          ],
-                        )
-                      : const Text('Delete permanently'),
-                ),
-              ],
+                        : null,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -2474,25 +2456,14 @@ Future<void> _confirmRotateInvite(
   BuildContext context,
   TeacherGroupsController controller,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Make a new class code?'),
-      content: const Text(
+  final accepted = await ElixDialog.confirm(
+    context,
+    title: 'Make a new class code?',
+    icon: FluentIcons.refresh,
+    confirmLabel: 'Make a new code',
+    message:
         'The old code will stop working. Share the new code with students '
         'who still need to join.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Make a new code'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
   );
   if (accepted == true) await controller.rotateInvite();
 }
@@ -2502,25 +2473,14 @@ Future<void> _confirmRemoveMember(
   TeacherGroupsController controller,
   GroupMembership membership,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: Text('Remove ${membership.traineeDisplayName}?'),
-      content: const Text(
+  final accepted = await ElixDialog.confirm(
+    context,
+    title: 'Remove ${membership.traineeDisplayName}?',
+    icon: FluentIcons.people,
+    confirmLabel: 'Remove from class',
+    message:
         'This student will leave the class. They can join again later with '
         'the class code.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Remove from class'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
   );
   if (accepted == true) await controller.removeMembership(membership);
 }

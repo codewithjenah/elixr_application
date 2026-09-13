@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/layout/balanced_card_grid.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/core/constants/movements.dart';
@@ -807,14 +808,14 @@ void main() {
     for (final step in lesson.steps) {
       expect(find.text(step), findsOneWidget);
     }
-    final dialog = tester.widget<ContentDialog>(find.byType(ContentDialog));
-    expect(dialog.constraints.maxWidth, greaterThan(1200));
+    final dialog = tester.widget<ElixDialog>(find.byType(ElixDialog));
+    expect(dialog.maxWidth, greaterThan(1200));
     expect(
       find.descendant(
-        of: find.byType(ContentDialog),
-        matching: find.byType(ScrollConfiguration),
+        of: find.byType(ElixDialog),
+        matching: find.byType(SingleChildScrollView),
       ),
-      findsOneWidget,
+      findsWidgets,
     );
 
     await tester.tap(find.byKey(const Key('teacher_movement_guide_close')));

@@ -10,6 +10,8 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
+import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
@@ -551,35 +553,35 @@ class _EvidenceThumbnail extends StatelessWidget {
   final Uint8List bytes;
 
   void _openViewer(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => ContentDialog(
-        constraints: const BoxConstraints(maxWidth: 760),
-        title: const Text('Confirmed movement frame'),
-        content: AspectRatio(
-          aspectRatio: 4 / 3,
-          child: ColoredBox(
-            color: Colors.black,
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.diagonal3Values(-1, 1, 1),
-              child: Image.memory(
-                bytes,
-                fit: BoxFit.contain,
-                errorBuilder: (_, _, _) => const Center(
-                  child: Icon(FluentIcons.photo2, color: Colors.white),
-                ),
+    ElixDialog.show<void>(
+      context,
+      title: 'Confirmed movement frame',
+      maxWidth: 760,
+      content: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: ColoredBox(
+          color: Colors.black,
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(-1, 1, 1),
+            child: Image.memory(
+              bytes,
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => const Center(
+                child: Icon(FluentIcons.photo2, color: Colors.white),
               ),
             ),
           ),
         ),
-        actions: [
-          Button(
-            child: const Text('Close'),
-            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-          ),
-        ],
       ),
+      actions: [
+        ElixPrimaryButton(
+          label: 'Close',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+        ),
+      ],
     );
   }
 

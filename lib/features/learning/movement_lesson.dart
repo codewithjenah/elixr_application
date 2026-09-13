@@ -17,6 +17,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/movement.dart';
@@ -161,19 +162,11 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      'This assignment lesson is not available.',
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Button(
-                      onPressed: () => context.go(AppRoutePaths.teacherAccess),
-                      child: const Text('Back to Classroom'),
-                    ),
-                  ],
+                child: ElixStatusPanel(
+                  message: 'This assignment lesson is not available.',
+                  isError: true,
+                  actionLabel: 'Back to Classroom',
+                  onAction: () => context.go(AppRoutePaths.teacherAccess),
                 ),
               ),
             ),
@@ -204,19 +197,11 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      'This assignment lesson is not available.',
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Button(
-                      onPressed: () => context.go(AppRoutePaths.teacherAccess),
-                      child: const Text('Back to Classroom'),
-                    ),
-                  ],
+                child: ElixStatusPanel(
+                  message: 'This assignment lesson is not available.',
+                  isError: true,
+                  actionLabel: 'Back to Classroom',
+                  onAction: () => context.go(AppRoutePaths.teacherAccess),
                 ),
               ),
             ),
@@ -258,22 +243,13 @@ class _MovementLessonScreenState extends State<MovementLessonScreen> {
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      access == ProgressionAccessResult.personalLocked
-                          ? 'This lesson unlocks at Level $required.'
-                          : 'This lesson is not available.',
-                      textAlign: TextAlign.center,
-                      style: AppTheme.body,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Button(
-                      onPressed: () => context.go(AppRoutePaths.learn),
-                      child: const Text('Back to Learning Center'),
-                    ),
-                  ],
+                child: ElixStatusPanel(
+                  message: access == ProgressionAccessResult.personalLocked
+                      ? 'This lesson unlocks at Level $required.'
+                      : 'This lesson is not available.',
+                  isError: true,
+                  actionLabel: 'Back to Learning Center',
+                  onAction: () => context.go(AppRoutePaths.learn),
                 ),
               ),
             ),
@@ -651,22 +627,14 @@ class _Actions extends StatelessWidget {
       final back = SizedBox(
         width: stacked ? double.infinity : 220,
         height: 52,
-        child: Button(
+        child: ElixPrimaryButton(
+          label: assigned ? 'Back to assignment' : 'Back to tutorials',
+          icon: FluentIcons.back,
+          variant: ElixButtonVariant.outline,
           onPressed: () => context.go(
             assigned
                 ? AppRoutePaths.assignmentDetail(assignmentId!.trim())
                 : AppRoutePaths.learn,
-          ),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(FluentIcons.back, size: 16),
-                const SizedBox(width: AppSpacing.sm),
-                Text(assigned ? 'Back to assignment' : 'Back to tutorials'),
-              ],
-            ),
           ),
         ),
       );

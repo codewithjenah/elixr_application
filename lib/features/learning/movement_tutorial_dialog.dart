@@ -1,8 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
+import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/elix_panel_card.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/training_prop.dart';
@@ -25,115 +28,90 @@ class MovementTutorialDialog extends StatelessWidget {
   final bool sessionActive;
 
   @override
-  Widget build(BuildContext context) => ContentDialog(
-    constraints: const BoxConstraints(maxWidth: 760, maxHeight: 720),
-    title: Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: .15),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.primary.withValues(alpha: .3)),
-          ),
-          child: const Icon(FluentIcons.reading_mode, color: AppColors.primary),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
+  Widget build(BuildContext context) => ElixDialog(
+    title: movement.name,
+    subtitle: movement.difficulty,
+    icon: FluentIcons.reading_mode,
+    maxWidth: 760,
+    maxHeight: 720,
+    scrollableContent: true,
+    content: LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 560;
+        final hero = _TutorialHero(
+          movement: movement,
+          prop: prop,
+          lesson: lesson,
+        );
+        final technique = _TutorialPanel(
+          eyebrow: 'HOW TO PERFORM',
+          title: 'Build the movement',
+          icon: FluentIcons.number_sequence,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(movement.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 3),
-              _DifficultyBadge(label: movement.difficulty),
+              for (var i = 0; i < lesson.steps.length; i++)
+                _TutorialStep(number: i + 1, text: lesson.steps[i]),
             ],
           ),
-        ),
-      ],
-    ),
-    content: SingleChildScrollView(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 560;
-          final hero = _TutorialHero(
-            movement: movement,
-            prop: prop,
-            lesson: lesson,
-          );
-          final technique = _TutorialPanel(
-            eyebrow: 'HOW TO PERFORM',
-            title: 'Build the movement',
-            icon: FluentIcons.number_sequence,
-            child: Column(
-              children: [
-                for (var i = 0; i < lesson.steps.length; i++)
-                  _TutorialStep(number: i + 1, text: lesson.steps[i]),
-              ],
-            ),
-          );
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (sessionActive) ...[
-                const _ActiveSessionNotice(),
-                const SizedBox(height: AppSpacing.md),
-              ],
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 5, child: hero),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(flex: 6, child: technique),
-                  ],
-                )
-              else ...[
-                hero,
-                const SizedBox(height: AppSpacing.md),
-                technique,
-              ],
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (sessionActive) ...[
+              const _ActiveSessionNotice(),
               const SizedBox(height: AppSpacing.md),
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _TutorialPanel.success(lesson.successTarget),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: _TutorialPanel.mistake(lesson.commonMistake),
-                    ),
-                  ],
-                )
-              else ...[
-                _TutorialPanel.success(lesson.successTarget),
-                const SizedBox(height: AppSpacing.md),
-                _TutorialPanel.mistake(lesson.commonMistake),
-              ],
-              if (lesson.safetyNote != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                _TutorialPanel(
-                  eyebrow: 'SAFETY',
-                  title: 'Practice safely',
-                  icon: FluentIcons.shield,
-                  accent: AppColors.error,
-                  child: Text(
-                    lesson.safetyNote!,
-                    style: AppTheme.body.copyWith(height: 1.4),
-                  ),
-                ),
-              ],
             ],
-          );
-        },
-      ),
+            if (wide)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 5, child: hero),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(flex: 6, child: technique),
+                ],
+              )
+            else ...[
+              hero,
+              const SizedBox(height: AppSpacing.md),
+              technique,
+            ],
+            const SizedBox(height: AppSpacing.md),
+            if (wide)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _TutorialPanel.success(lesson.successTarget)),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: _TutorialPanel.mistake(lesson.commonMistake)),
+                ],
+              )
+            else ...[
+              _TutorialPanel.success(lesson.successTarget),
+              const SizedBox(height: AppSpacing.md),
+              _TutorialPanel.mistake(lesson.commonMistake),
+            ],
+            if (lesson.safetyNote != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              _TutorialPanel(
+                eyebrow: 'SAFETY',
+                title: 'Practice safely',
+                icon: FluentIcons.shield,
+                accent: context.elixColors.error,
+                child: Text(
+                  lesson.safetyNote!,
+                  style: AppTheme.body.copyWith(height: 1.4),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
     ),
     actions: [
-      FilledButton(
+      ElixPrimaryButton(
+        label: 'Back to Training',
+        expanded: false,
         onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-        child: const Text('Back to Training'),
       ),
     ],
   );
@@ -150,10 +128,10 @@ class _TutorialHero extends StatelessWidget {
   final MovementLesson lesson;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => ElixPanelCard(
     key: const ValueKey('tutorial-hero'),
+    variant: ElixPanelVariant.hero,
     padding: const EdgeInsets.all(AppSpacing.md),
-    decoration: AppTheme.panelDecoration(context, highlighted: true),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -176,7 +154,7 @@ class _TutorialHero extends StatelessWidget {
           width: double.infinity,
           decoration: BoxDecoration(
             color: context.elixBackground.withValues(alpha: .48),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(ElixRadius.card),
           ),
           child: Center(
             child: MovementImage(movementName: movement.name, size: 145),
@@ -201,75 +179,82 @@ class _TutorialPanel extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.child,
-    this.accent = AppColors.primary,
+    this.accent,
+    this.accentTone,
   });
   factory _TutorialPanel.success(String text) => _TutorialPanel(
     eyebrow: 'SUCCESS TARGET',
     title: 'What good looks like',
     icon: FluentIcons.completed,
-    accent: AppColors.success,
+    accentTone: ElixTone.success,
     child: Text(text, style: AppTheme.body.copyWith(height: 1.4)),
   );
   factory _TutorialPanel.mistake(String text) => _TutorialPanel(
     eyebrow: 'AVOID THIS',
     title: 'Common mistake',
     icon: FluentIcons.error_badge,
-    accent: AppColors.warning,
+    accentTone: ElixTone.warning,
     child: Text(text, style: AppTheme.body.copyWith(height: 1.4)),
   );
   final String eyebrow, title;
   final IconData icon;
   final Widget child;
-  final Color accent;
+  final Color? accent;
+  final ElixTone? accentTone;
+
   @override
-  Widget build(BuildContext context) => Container(
-    key: title == 'Build the movement'
-        ? const ValueKey('tutorial-technique-panel')
-        : null,
-    padding: const EdgeInsets.all(AppSpacing.md),
-    decoration: AppTheme.panelDecoration(context),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: .13),
-                borderRadius: BorderRadius.circular(9),
+  Widget build(BuildContext context) {
+    final tone = accentTone == null
+        ? (accent ?? context.elixColors.brandPrimary)
+        : ElixToneCues.color(context.elixColors, accentTone!);
+    return ElixPanelCard(
+      key: title == 'Build the movement'
+          ? const ValueKey('tutorial-technique-panel')
+          : null,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: .13),
+                  borderRadius: BorderRadius.circular(ElixRadius.control),
+                ),
+                child: Icon(icon, size: 15, color: tone),
               ),
-              child: Icon(icon, size: 15, color: accent),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    eyebrow,
-                    style: AppTheme.caption.copyWith(
-                      fontSize: 10,
-                      letterSpacing: .8,
-                      fontWeight: FontWeight.w700,
-                      color: context.elixTextSecondary,
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      eyebrow,
+                      style: AppTheme.caption.copyWith(
+                        fontSize: 10,
+                        letterSpacing: .8,
+                        fontWeight: FontWeight.w700,
+                        color: context.elixTextSecondary,
+                      ),
                     ),
-                  ),
-                  Text(
-                    title,
-                    style: AppTheme.headingMedium.copyWith(fontSize: 17),
-                  ),
-                ],
+                    Text(
+                      title,
+                      style: AppTheme.headingMedium.copyWith(fontSize: 17),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        child,
-      ],
-    ),
-  );
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          child,
+        ],
+      ),
+    );
+  }
 }
 
 class _TutorialStep extends StatelessWidget {
@@ -287,15 +272,15 @@ class _TutorialStep extends StatelessWidget {
           height: 22,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: .14),
+            color: context.elixColors.brandPrimary.withValues(alpha: .14),
             shape: BoxShape.circle,
           ),
           child: Text(
             '$number',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w800,
-              color: AppColors.primary,
+              color: context.elixColors.brandPrimary,
             ),
           ),
         ),
@@ -314,41 +299,25 @@ class _TutorialStep extends StatelessWidget {
   );
 }
 
-class _DifficultyBadge extends StatelessWidget {
-  const _DifficultyBadge({required this.label});
-  final String label;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-      color: AppColors.success.withValues(alpha: .12),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: AppColors.success.withValues(alpha: .3)),
-    ),
-    child: Text(
-      label,
-      style: const TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        color: AppColors.success,
-      ),
-    ),
-  );
-}
-
 class _ActiveSessionNotice extends StatelessWidget {
   const _ActiveSessionNotice();
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(AppSpacing.sm),
     decoration: BoxDecoration(
-      color: AppColors.primary.withValues(alpha: .1),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: AppColors.primary.withValues(alpha: .28)),
+      color: context.elixColors.brandPrimary.withValues(alpha: .1),
+      borderRadius: BorderRadius.circular(ElixRadius.control),
+      border: Border.all(
+        color: context.elixColors.brandPrimary.withValues(alpha: .28),
+      ),
     ),
     child: Row(
       children: [
-        const Icon(FluentIcons.info, size: 15, color: AppColors.primary),
+        Icon(
+          FluentIcons.info,
+          size: 15,
+          color: context.elixColors.brandPrimary,
+        ),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(

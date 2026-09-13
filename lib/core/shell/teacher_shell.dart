@@ -9,7 +9,6 @@ import '../theme/elix_design_tokens.dart';
 import '../router/app_route_paths.dart';
 import '../widgets/elix_editorial_header.dart';
 import '../widgets/elix_dialog.dart';
-import '../widgets/elix_primary_button.dart';
 import '../widgets/elix_scaffold_page.dart';
 import 'teacher_sidebar.dart';
 
@@ -28,29 +27,14 @@ class _TeacherShellState extends State<TeacherShell> {
   bool _sidebarCollapsed = false;
 
   Future<void> _confirmAndLogout() async {
-    final shouldLogout = await ElixDialog.show<bool>(
+    final shouldLogout = await ElixDialog.confirm(
       context,
       title: 'Log out?',
       subtitle: 'You can sign in again at any time.',
       icon: FluentIcons.sign_out,
-      content: Text(
-        'Are you sure you want to log out of your ELIXR Teacher account?',
-        style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-      ),
-      actions: [
-        ElixPrimaryButton(
-          label: 'Cancel',
-          expanded: false,
-          variant: ElixButtonVariant.secondary,
-          onPressed: () =>
-              Navigator.of(context, rootNavigator: true).pop(false),
-        ),
-        ElixPrimaryButton(
-          label: 'Log out',
-          expanded: false,
-          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-        ),
-      ],
+      message:
+          'Are you sure you want to log out of your ELIXR Teacher account?',
+      confirmLabel: 'Log out',
     );
 
     if (shouldLogout != true || !mounted) return;

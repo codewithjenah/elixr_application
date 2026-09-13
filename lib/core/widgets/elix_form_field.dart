@@ -90,6 +90,10 @@ class ElixTextField extends StatelessWidget {
     this.required = false,
     this.enabled = true,
     this.obscureText = false,
+    this.autofocus = false,
+    this.maxLength,
+    this.maxLines = 1,
+    this.minLines,
     this.keyboardType,
     this.onChanged,
     this.onSubmitted,
@@ -106,6 +110,10 @@ class ElixTextField extends StatelessWidget {
   final bool required;
   final bool enabled;
   final bool obscureText;
+  final bool autofocus;
+  final int? maxLength;
+  final int maxLines;
+  final int? minLines;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
@@ -113,28 +121,54 @@ class ElixTextField extends StatelessWidget {
   final Widget? trailing;
 
   @override
-  Widget build(BuildContext context) => ElixFieldFrame(
-    label: label,
-    helperText: helperText,
-    errorText: errorText,
-    required: required,
-    child: shad.ShadInput(
-      controller: controller,
-      focusNode: focusNode,
-      placeholder: placeholder == null ? null : Text(placeholder!),
-      enabled: enabled,
-      obscureText: obscureText,
-      keyboardType: keyboardType,
-      onChanged: onChanged,
-      onSubmitted: onSubmitted,
-      leading: leading,
-      trailing: trailing,
-      style: AppTheme.body.copyWith(color: context.elixTextPrimary),
-      placeholderStyle: AppTheme.body.copyWith(
-        color: context.elixColors.textMuted,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final useFluent =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null;
+    final field = useFluent
+        ? TextBox(
+            controller: controller,
+            focusNode: focusNode,
+            placeholder: placeholder,
+            enabled: enabled,
+            obscureText: obscureText,
+            autofocus: autofocus,
+            maxLength: maxLength,
+            maxLines: maxLines,
+            minLines: minLines,
+            keyboardType: keyboardType,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted,
+            prefix: leading,
+            suffix: trailing,
+          )
+        : shad.ShadInput(
+            controller: controller,
+            focusNode: focusNode,
+            placeholder: placeholder == null ? null : Text(placeholder!),
+            enabled: enabled,
+            obscureText: obscureText,
+            autofocus: autofocus,
+            maxLength: maxLength,
+            maxLines: maxLines,
+            minLines: minLines,
+            keyboardType: keyboardType,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted,
+            leading: leading,
+            trailing: trailing,
+            style: AppTheme.body.copyWith(color: context.elixTextPrimary),
+            placeholderStyle: AppTheme.body.copyWith(
+              color: context.elixColors.textMuted,
+            ),
+          );
+    return ElixFieldFrame(
+      label: label,
+      helperText: helperText,
+      errorText: errorText,
+      required: required,
+      child: field,
+    );
+  }
 }
 
 class ElixTextArea extends StatelessWidget {
@@ -150,6 +184,7 @@ class ElixTextArea extends StatelessWidget {
     this.enabled = true,
     this.minHeight = 96,
     this.maxHeight = 320,
+    this.maxLength,
     this.onChanged,
   });
 
@@ -163,28 +198,52 @@ class ElixTextArea extends StatelessWidget {
   final bool enabled;
   final double minHeight;
   final double maxHeight;
+  final int? maxLength;
   final ValueChanged<String>? onChanged;
 
   @override
-  Widget build(BuildContext context) => ElixFieldFrame(
-    label: label,
-    helperText: helperText,
-    errorText: errorText,
-    required: required,
-    child: shad.ShadTextarea(
-      controller: controller,
-      focusNode: focusNode,
-      placeholder: placeholder == null ? null : Text(placeholder!),
-      enabled: enabled,
-      minHeight: minHeight,
-      maxHeight: maxHeight,
-      onChanged: onChanged,
-      style: AppTheme.body.copyWith(color: context.elixTextPrimary),
-      placeholderStyle: AppTheme.body.copyWith(
-        color: context.elixColors.textMuted,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final useFluent =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null;
+    final field = useFluent
+        ? ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: minHeight,
+              maxHeight: maxHeight,
+            ),
+            child: TextBox(
+              controller: controller,
+              focusNode: focusNode,
+              placeholder: placeholder,
+              enabled: enabled,
+              maxLength: maxLength,
+              minLines: 4,
+              maxLines: 12,
+              onChanged: onChanged,
+            ),
+          )
+        : shad.ShadTextarea(
+            controller: controller,
+            focusNode: focusNode,
+            placeholder: placeholder == null ? null : Text(placeholder!),
+            enabled: enabled,
+            minHeight: minHeight,
+            maxHeight: maxHeight,
+            maxLength: maxLength,
+            onChanged: onChanged,
+            style: AppTheme.body.copyWith(color: context.elixTextPrimary),
+            placeholderStyle: AppTheme.body.copyWith(
+              color: context.elixColors.textMuted,
+            ),
+          );
+    return ElixFieldFrame(
+      label: label,
+      helperText: helperText,
+      errorText: errorText,
+      required: required,
+      child: field,
+    );
+  }
 }
 
 /// A semantic divider for card sections and dense desktop forms.
@@ -194,7 +253,14 @@ class ElixSeparator extends StatelessWidget {
   final bool vertical;
 
   @override
-  Widget build(BuildContext context) => vertical
-      ? shad.ShadSeparator.vertical(color: context.elixBorder)
-      : shad.ShadSeparator.horizontal(color: context.elixBorder);
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return vertical
+          ? Container(width: 1, color: context.elixBorder)
+          : Container(height: 1, color: context.elixBorder);
+    }
+    return vertical
+        ? shad.ShadSeparator.vertical(color: context.elixBorder)
+        : shad.ShadSeparator.horizontal(color: context.elixBorder);
+  }
 }

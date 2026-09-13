@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 
+import 'package:elixr_application/core/widgets/elix_form_field.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/activity_learning_material.dart';
 import 'package:elixr_application/data/repositories/activity_learning_material_repository.dart';
 import 'package:elixr_application/features/activity_learning_materials/activity_learning_materials_panel.dart';
@@ -357,9 +359,9 @@ void main() {
     await tester.pump();
     final checkStatus = find.ancestor(
       of: find.text('Check status'),
-      matching: find.byType(Button),
+      matching: find.byType(ElixPrimaryButton),
     );
-    expect(tester.widget<Button>(checkStatus).onPressed, isNull);
+    expect(tester.widget<ElixPrimaryButton>(checkStatus).onPressed, isNull);
     await tester.tap(checkStatus);
     await tester.pump();
     expect(repository.statusCalls, hasLength(2));
@@ -503,9 +505,9 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Link').last);
       await tester.pump();
-      await tester.enterText(find.byType(TextBox).at(0), 'Reference');
-      await tester.enterText(find.byType(TextBox).at(1), value);
-      await tester.tap(find.widgetWithText(FilledButton, 'Add link'));
+      await tester.enterText(find.byType(ElixTextField).at(0), 'Reference');
+      await tester.enterText(find.byType(ElixTextField).at(1), value);
+      await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Add link'));
       await tester.pump();
       expect(
         find.text('Enter a name and an HTTP or HTTPS URL.'),
@@ -522,9 +524,9 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Link').last);
       await tester.pump();
-      await tester.enterText(find.byType(TextBox).at(0), 'Reference');
-      await tester.enterText(find.byType(TextBox).at(1), value);
-      await tester.tap(find.widgetWithText(FilledButton, 'Add link'));
+      await tester.enterText(find.byType(ElixTextField).at(0), 'Reference');
+      await tester.enterText(find.byType(ElixTextField).at(1), value);
+      await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Add link'));
       await flush(tester);
     }
     expect(repository.linkCalls.map((call) => call.url.scheme), [

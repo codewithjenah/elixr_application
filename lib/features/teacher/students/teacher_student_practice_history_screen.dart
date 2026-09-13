@@ -12,7 +12,9 @@ import '../../../core/router/navigation_helpers.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_back_button.dart';
+import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/assessment_score_display.dart';
@@ -150,18 +152,21 @@ class _HistoryBody extends StatelessWidget {
           ),
         if (controller.paginationError != null)
           Center(
-            child: Button(
+            child: ElixPrimaryButton(
+              label: 'Retry load more',
+              expanded: false,
+              variant: ElixButtonVariant.outline,
               onPressed: controller.retryLoadMore,
-              child: const Text('Retry load more'),
             ),
           )
         else if (controller.hasMore)
           Center(
-            child: Button(
+            child: ElixPrimaryButton(
+              label: 'Load more',
+              expanded: false,
+              variant: ElixButtonVariant.outline,
+              isLoading: controller.loadingMore,
               onPressed: controller.loadingMore ? null : controller.loadMore,
-              child: controller.loadingMore
-                  ? const ProgressRing()
-                  : const Text('Load more'),
             ),
           ),
       ],
@@ -519,9 +524,12 @@ class _HistoryEvidence extends StatelessWidget {
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
         ),
-        Button(
+        ElixPrimaryButton(
+          label: 'Retry',
+          expanded: false,
+          dense: true,
+          variant: ElixButtonVariant.outline,
           onPressed: () => controller.retryEvidence(session),
-          child: const Text('Retry'),
         ),
       ],
     );
@@ -599,25 +607,26 @@ void _showEvidence(
   BuildContext context,
   PublicProfileSession session,
   Uint8List bytes,
-) => showDialog<void>(
-  context: context,
-  builder: (dialogContext) => ContentDialog(
-    title: Text('${session.movementName} · Saved image'),
-    content: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 720, maxHeight: 520),
-      child: Transform(
-        alignment: Alignment.center,
-        transform: Matrix4.diagonal3Values(-1, 1, 1),
-        child: Image.memory(bytes, fit: BoxFit.contain),
-      ),
+) => ElixDialog.show<void>(
+  context,
+  title: '${session.movementName} · Saved image',
+  maxWidth: 720,
+  content: ConstrainedBox(
+    constraints: const BoxConstraints(maxHeight: 520),
+    child: Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.diagonal3Values(-1, 1, 1),
+      child: Image.memory(bytes, fit: BoxFit.contain),
     ),
-    actions: [
-      Button(
-        onPressed: () => Navigator.of(dialogContext).pop(),
-        child: const Text('Close'),
-      ),
-    ],
   ),
+  actions: [
+    ElixPrimaryButton(
+      label: 'Close',
+      expanded: false,
+      variant: ElixButtonVariant.secondary,
+      onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+    ),
+  ],
 );
 String _historyDate(String? value) {
   final parsed = value == null ? null : DateTime.tryParse(value);

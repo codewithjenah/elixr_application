@@ -5,7 +5,6 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -14,6 +13,7 @@ import '../../core/progression/practice_variant.dart';
 import '../../core/progression/progression_catalog.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_back_button.dart';
@@ -540,7 +540,7 @@ class _MovementSummaryCard extends StatelessWidget {
               color: context.isHighContrast
                   ? context.elixCardSurface
                   : context.elixColors.surfaceInteractive,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(ElixRadius.card),
               border: Border.all(
                 color: context.isHighContrast
                     ? context.elixBorder
@@ -924,7 +924,7 @@ class _AccentIcon extends StatelessWidget {
       color: context.isHighContrast
           ? context.elixCardSurface
           : context.elixColors.surfaceInteractive,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(ElixRadius.card),
       border: Border.all(
         color: context.isHighContrast
             ? context.elixBorder
@@ -1257,11 +1257,10 @@ class _YourWork extends StatelessWidget {
               current?.hasAttachedDraftClip == true) ...[
             const SizedBox(height: AppSpacing.md),
             if (controller.turnInErrorMessage != null)
-              InfoBar(
-                title: const Text('Could not turn in recording'),
-                content: Text(controller.turnInErrorMessage!),
-                severity: InfoBarSeverity.error,
-                onClose: () {},
+              ElixStatusPanel(
+                title: 'Could not turn in recording',
+                message: controller.turnInErrorMessage!,
+                isError: true,
               ),
             const SizedBox(height: AppSpacing.sm),
             Text(
@@ -1357,11 +1356,10 @@ class _YourWork extends StatelessWidget {
               current?.status == AssignmentAttemptStatus.submitted) ...[
             const SizedBox(height: AppSpacing.md),
             if (controller.unsubmitErrorMessage != null)
-              InfoBar(
-                title: const Text('Could not withdraw the clip'),
-                content: Text(controller.unsubmitErrorMessage!),
-                severity: InfoBarSeverity.error,
-                onClose: () {},
+              ElixStatusPanel(
+                title: 'Could not withdraw the clip',
+                message: controller.unsubmitErrorMessage!,
+                isError: true,
               ),
             const SizedBox(height: AppSpacing.sm),
             Align(
@@ -1391,11 +1389,10 @@ class _YourWork extends StatelessWidget {
               current?.status == AssignmentAttemptStatus.unsubmitting) ...[
             const SizedBox(height: AppSpacing.md),
             if (controller.unsubmitErrorMessage != null)
-              InfoBar(
-                title: const Text('Clip withdrawal needs a retry'),
-                content: Text(controller.unsubmitErrorMessage!),
-                severity: InfoBarSeverity.error,
-                onClose: () {},
+              ElixStatusPanel(
+                title: 'Clip withdrawal needs a retry',
+                message: controller.unsubmitErrorMessage!,
+                isError: true,
               ),
             const SizedBox(height: AppSpacing.sm),
             Align(
@@ -1464,7 +1461,7 @@ class _EmptyWorkState extends StatelessWidget {
             color: context.isHighContrast
                 ? context.elixCardSurface
                 : context.elixColors.surfaceInteractive,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(ElixRadius.card),
             border: Border.all(
               color: context.isHighContrast
                   ? context.elixBorder
@@ -1554,56 +1551,13 @@ Future<bool> _confirmAssignmentAction(
   required String title,
   required String message,
   required String confirmLabel,
-}) async {
-  final useShad =
-      !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
-  if (!useShad) {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => ContentDialog(
-            title: Text(title),
-            content: Text(message),
-            actions: [
-              Button(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(confirmLabel),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
-  return await ElixDialog.show<bool>(
-        context,
-        title: title,
-        content: Text(
-          message,
-          style: AppTheme.body.copyWith(
-            fontSize: 14,
-            color: context.elixTextSecondary,
-            height: 1.45,
-          ),
-        ),
-        actions: [
-          Button(
-            onPressed: () =>
-                Navigator.of(context, rootNavigator: true).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElixPrimaryButton(
-            label: confirmLabel,
-            expanded: false,
-            onPressed: () =>
-                Navigator.of(context, rootNavigator: true).pop(true),
-          ),
-        ],
-        uniformActionSize: const Size(128, 56),
-      ) ??
-      false;
+}) {
+  return ElixDialog.confirm(
+    context,
+    title: title,
+    message: message,
+    confirmLabel: confirmLabel,
+  );
 }
 
 class _DetailOutlineButton extends StatelessWidget {
@@ -1614,13 +1568,11 @@ class _DetailOutlineButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
-      return Button(onPressed: onPressed, child: Text(label));
-    }
-    return shad.ShadButton.outline(
+    return ElixPrimaryButton(
+      label: label,
+      expanded: false,
+      variant: ElixButtonVariant.outline,
       onPressed: onPressed,
-      enabled: onPressed != null,
-      child: Text(label),
     );
   }
 }

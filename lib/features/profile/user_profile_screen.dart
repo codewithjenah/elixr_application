@@ -10,6 +10,7 @@ import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_status_panel.dart';
 import '../../data/models/profile_visit.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
@@ -563,18 +564,13 @@ class _NotFoundState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Profile not found.',
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Button(onPressed: onBack, child: const Text('Go Back')),
-        ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: ElixStatusPanel(
+          message: 'Profile not found.',
+          actionLabel: 'Go Back',
+          onAction: onBack,
+        ),
       ),
     );
   }
@@ -588,18 +584,14 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Could not load this profile.',
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          FilledButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: ElixStatusPanel(
+          message: 'Could not load this profile.',
+          isError: true,
+          actionLabel: 'Retry',
+          onAction: onRetry,
+        ),
       ),
     );
   }

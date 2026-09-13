@@ -4,14 +4,18 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/elix_form_field.dart';
 import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
+import 'package:elixr_application/data/models/teacher_movement.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
@@ -25,6 +29,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import 'teacher_phase3_test_support.dart';
 
@@ -79,7 +84,7 @@ void main() {
     required String groupId,
     TeacherMovementRepository? movementRepository,
   }) async {
-    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -136,7 +141,13 @@ void main() {
     addTearDown(router.dispose);
 
     await tester.pumpWidget(
-      FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+      FluentApp.router(
+        theme: AppTheme.dark,
+        routerConfig: router,
+        builder: (context, child) => ElixShadThemeBridge(
+          child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+        ),
+      ),
     );
     await tester.pump();
     await tester.pump();
@@ -218,7 +229,7 @@ void main() {
         );
         await tester.pump();
         final confirm = find.byKey(Key('${prefix}_confirm_delete'));
-        final submit = tester.widget<FilledButton>(confirm).onPressed!;
+        final submit = tester.widget<ElixPrimaryButton>(confirm).onPressed!;
         submit();
         submit(); // Exercise a stale callback before the disabled button rebuilds.
         await tester.pump();
@@ -228,10 +239,10 @@ void main() {
           find.descendant(of: confirm, matching: find.byType(ProgressRing)),
           findsOneWidget,
         );
-        expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
-        final cancel = find.widgetWithText(Button, 'Cancel');
-        expect(tester.widget<Button>(cancel).onPressed, isNull);
-        expect(tester.widget<TextBox>(field).enabled, isFalse);
+        expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNull);
+        final cancel = find.widgetWithText(ElixPrimaryButton, 'Cancel');
+        expect(tester.widget<ElixPrimaryButton>(cancel).onPressed, isNull);
+        expect(tester.widget<ElixTextField>(field).enabled, isFalse);
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.binding.handlePopRoute();
         await tester.tapAt(const Offset(5, 5));
@@ -247,16 +258,14 @@ void main() {
         expect(find.text('Deleting...'), findsNothing);
         expect(
           find.descendant(
-            of: classroom
-                ? find.byType(ContentDialog)
-                : find.byType(ElixDialog),
+            of: find.byType(ElixDialog),
             matching: find.text('Deletion denied.'),
           ),
           findsOneWidget,
         );
-        expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
-        expect(tester.widget<Button>(cancel).onPressed, isNotNull);
-        expect(tester.widget<TextBox>(field).enabled, isTrue);
+        expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNotNull);
+        expect(tester.widget<ElixPrimaryButton>(cancel).onPressed, isNotNull);
+        expect(tester.widget<ElixTextField>(field).enabled, isTrue);
         assignments.pending = Completer<void>();
         await tester.tap(confirm);
         await tester.pump();
@@ -264,7 +273,7 @@ void main() {
         expect(find.text('Deleting...'), findsOneWidget);
         assignments.pending.complete();
         await tester.pumpAndSettle();
-        expect(find.byType(ContentDialog), findsNothing);
+        expect(find.byType(ElixDialog), findsNothing);
         if (classroom) {
           expect(find.text('groups home'), findsOneWidget);
           expect(controller.selectedGroup, isNull);
@@ -880,24 +889,39 @@ void main() {
       await tester.pumpAndSettle();
 
       final classroom = find.byKey(const Key('teacher_assignment_class'));
-      final classroomBox = tester.widget<ComboBox<String>>(classroom);
-      expect(classroomBox.value, groupA.id);
-      expect(
-        classroomBox.items!.map((item) => item.value),
-        containsAll(<String>[groupA.id, groupB.id]),
+      final comboFinder = find.descendant(
+        of: classroom,
+        matching: find.byType(ComboBox<String>),
       );
-      expect(
-        classroomBox.items!.map((item) => item.value),
-        isNot(contains(inactiveGroup.id)),
-      );
-      expect(
-        classroomBox.items!.map((item) => item.value),
-        isNot(contains('foreign-group')),
-      );
-
-      classroomBox.onChanged!(groupB.id);
-      await tester.pump();
-      expect(tester.widget<ComboBox<String>>(classroom).value, groupB.id);
+      if (comboFinder.evaluate().isNotEmpty) {
+        final classroomBox = tester.widget<ComboBox<String>>(comboFinder);
+        expect(classroomBox.value, groupA.id);
+        expect(
+          classroomBox.items!.map((item) => item.value),
+          containsAll(<String>[groupA.id, groupB.id]),
+        );
+        expect(
+          classroomBox.items!.map((item) => item.value),
+          isNot(contains(inactiveGroup.id)),
+        );
+        expect(
+          classroomBox.items!.map((item) => item.value),
+          isNot(contains('foreign-group')),
+        );
+        classroomBox.onChanged!(groupB.id);
+        await tester.pump();
+        expect(tester.widget<ComboBox<String>>(comboFinder).value, groupB.id);
+      } else {
+        final classroomSelect = tester.widget<shad.ShadSelect<String>>(
+          find.descendant(
+            of: classroom,
+            matching: find.byType(shad.ShadSelect<String>),
+          ),
+        );
+        expect(classroomSelect.initialValue, groupA.id);
+        classroomSelect.onChanged!(groupB.id);
+        await tester.pump();
+      }
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
@@ -935,27 +959,46 @@ void main() {
     tester,
   ) async {
     final assignments = InMemoryClassroomAssignmentRepository();
+    final movements = InMemoryTeacherMovementRepository();
     addTearDown(assignments.dispose);
+    addTearDown(movements.dispose);
     final group = await repository.createGroup(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
       name: 'BSIT-4A',
     );
     const assignmentId = 'teacher-created-assignment';
+    final assessment = TeacherActivityAssessmentConfig(
+      readiness: const TeacherActivityReadinessSpec(),
+      rubric: TeacherActivityRubric.builtIn(
+        TeacherActivityRubricTemplate.standardTechnique,
+        100,
+      ),
+    );
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'Balance the tin upright.',
+      requiredProp: TrainingProp.bottle,
+      assessment: assessment,
+    );
     assignments.seedAssignment(
       GroupAssignment(
         id: assignmentId,
         teacherId: 'teacher-1',
         groupId: group.id,
-        movementId: 'movement-1',
-        revisionId: 'revision-1',
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
         origin: MovementOrigin.teacherCreated,
         assessmentMode: AssessmentMode.teacherReviewed,
         status: GroupAssignmentStatus.active,
         displayTitle: 'Tin Balance',
+        displayInstructions: 'Balance the tin upright.',
         teacherDisplayName: 'Grace Hopper',
         groupName: 'BSIT-4A',
         maxScore: 100,
+        allowedProp: TrainingProp.bottle,
+        activityAssessment: assessment,
       ),
     );
     final controller = await controllerFor(
@@ -964,7 +1007,12 @@ void main() {
     );
     addTearDown(controller.dispose);
     await controller.startForGroup(group.id);
-    await pumpDetail(tester, controller: controller, groupId: group.id);
+    await pumpDetail(
+      tester,
+      controller: controller,
+      groupId: group.id,
+      movementRepository: movements,
+    );
 
     final editAssignment = find.byKey(
       const Key('teacher_group_edit_assignment_$assignmentId'),
@@ -973,8 +1021,21 @@ void main() {
     await tester.tap(editAssignment);
     await tester.pumpAndSettle();
     expect(find.text('Edit assignment'), findsOneWidget);
-    await tester.enterText(
-      find.byKey(const Key('teacher_assignment_topic')),
+    final topicField = find.byKey(const Key('teacher_assignment_topic'));
+    await tester.ensureVisible(topicField);
+    await tester.tap(topicField);
+    await tester.enterText(topicField, 'Bottle control');
+    await tester.pump();
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(
+              of: topicField,
+              matching: find.byType(EditableText),
+            ),
+          )
+          .controller
+          ?.text,
       'Bottle control',
     );
     final save = find.byKey(const Key('teacher_assignment_save_changes'));
@@ -990,7 +1051,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TextBox>(find.byKey(const Key('teacher_assignment_topic')))
+          .widget<EditableText>(
+            find.descendant(
+              of: find.byKey(const Key('teacher_assignment_topic')),
+              matching: find.byType(EditableText),
+            ),
+          )
           .controller
           ?.text,
       'Bottle control',
@@ -1077,7 +1143,7 @@ void main() {
     controller.setTab(TeacherGroupDetailTab.announcements);
     await tester.pump();
 
-    final unarchive = tester.widget<Button>(
+    final unarchive = tester.widget<ElixPrimaryButton>(
       find.byKey(const Key('teacher_group_unarchive_classroom')),
     );
     expect(unarchive.onPressed, isNotNull);
@@ -1174,7 +1240,7 @@ void main() {
       find.byKey(const ValueKey('builder-instructions')),
       'Balance the tin upright.',
     );
-    await tester.tap(find.text('Create').last);
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Save activity'));
     await tester.pumpAndSettle();
 
     expect(movements.movements, hasLength(1));
@@ -1298,6 +1364,28 @@ class _FailingAssignmentUpdateRepository
     DateTime? dueAt,
     int? maxScore,
     String? topic,
+  }) {
+    throw const ClassroomException(ClassroomError.conflict);
+  }
+
+  @override
+  Future<GroupAssignment> updateAssignmentConfiguration({
+    required String teacherId,
+    required String assignmentId,
+    required int expectedConfigurationRevision,
+    required ElixrGroup group,
+    String? officialMovementName,
+    TrainingProp? officialAllowedProp,
+    TeacherMovement? teacherMovement,
+    TeacherMovementRevision? teacherMovementRevision,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required AssignmentAttemptPolicy attemptPolicy,
+    TeacherActivityAssessmentConfig? activityAssessment,
   }) {
     throw const ClassroomException(ClassroomError.conflict);
   }

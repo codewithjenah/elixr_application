@@ -7,7 +7,6 @@ import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
@@ -248,8 +247,13 @@ class _TeacherCommandHeader extends StatelessWidget {
                 expanded: false,
                 dense: true,
               ),
-              _TeacherClassroomsButton(
+              ElixPrimaryButton(
+                key: const Key('teacher_dashboard_open_classrooms'),
                 onPressed: () => context.go(AppRoutePaths.teacherGroups),
+                label: 'Classrooms',
+                expanded: false,
+                dense: true,
+                variant: ElixButtonVariant.outline,
               ),
             ],
           );
@@ -271,29 +275,6 @@ class _TeacherCommandHeader extends StatelessWidget {
                 );
         },
       ),
-    );
-  }
-}
-
-class _TeacherClassroomsButton extends StatelessWidget {
-  const _TeacherClassroomsButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    const key = Key('teacher_dashboard_open_classrooms');
-    if (shad.ShadTheme.maybeOf(context) == null) {
-      return Button(
-        key: key,
-        onPressed: onPressed,
-        child: const Text('Classrooms'),
-      );
-    }
-    return shad.ShadButton.outline(
-      key: key,
-      onPressed: onPressed,
-      child: const Text('Classrooms'),
     );
   }
 }
@@ -550,7 +531,13 @@ class _TeacherNotificationsEmptyState extends StatelessWidget {
         ),
         if (hasError) ...[
           const SizedBox(height: AppSpacing.sm),
-          Button(onPressed: onRetry, child: const Text('Retry')),
+          ElixPrimaryButton(
+            label: 'Retry',
+            expanded: false,
+            dense: true,
+            variant: ElixButtonVariant.outline,
+            onPressed: onRetry,
+          ),
         ],
       ],
     ),
@@ -827,15 +814,13 @@ class _DashboardContent extends StatelessWidget {
       heading: 'Your classrooms',
       eyebrow: 'CLASSROOMS',
       subtitle: 'Manage students and class activity.',
-      action: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-          ? Button(
-              onPressed: () => context.go(AppRoutePaths.teacherGroups),
-              child: const Text('View classrooms'),
-            )
-          : shad.ShadButton.outline(
-              onPressed: () => context.go(AppRoutePaths.teacherGroups),
-              child: const Text('View classrooms'),
-            ),
+      action: ElixPrimaryButton(
+        label: 'View classrooms',
+        expanded: false,
+        dense: true,
+        variant: ElixButtonVariant.outline,
+        onPressed: () => context.go(AppRoutePaths.teacherGroups),
+      ),
       child: controller.groupSummaries.isEmpty
           ? Text(
               'No active classrooms yet.',
@@ -911,15 +896,13 @@ class _NeedsAttentionCard extends StatelessWidget {
           : reviewCount > 0 || controller.pendingQueue.isNotEmpty
           ? 'Start with the work waiting on you.'
           : 'Nothing is waiting for a decision.',
-      action: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-          ? Button(
-              onPressed: () => context.go(AppRoutePaths.teacherToReview),
-              child: const Text('Review work'),
-            )
-          : shad.ShadButton.outline(
-              onPressed: () => context.go(AppRoutePaths.teacherToReview),
-              child: const Text('Review work'),
-            ),
+      action: ElixPrimaryButton(
+        label: 'Review work',
+        expanded: false,
+        dense: true,
+        variant: ElixButtonVariant.outline,
+        onPressed: () => context.go(AppRoutePaths.teacherToReview),
+      ),
       child: Column(
         children: [
           if (activityLoading)
@@ -992,15 +975,13 @@ class _ActivityPreview extends StatelessWidget {
           : controller == null
           ? 'Activity will appear as classrooms become active.'
           : '${controller.unreadCount} unread notification${controller.unreadCount == 1 ? '' : 's'}',
-      action: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-          ? Button(
-              onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
-              child: const Text('View all'),
-            )
-          : shad.ShadButton.outline(
-              onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
-              child: const Text('View all'),
-            ),
+      action: ElixPrimaryButton(
+        label: 'View all',
+        expanded: false,
+        dense: true,
+        variant: ElixButtonVariant.outline,
+        onPressed: () => context.go(AppRoutePaths.teacherActivityCenter),
+      ),
       child: loading
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
@@ -1235,9 +1216,12 @@ class _GroupOverviewRow extends StatelessWidget {
                   ? '${summary.pendingCount} waiting to join'
                   : 'No pending requests',
             );
-            final action = Button(
+            final action = ElixPrimaryButton(
+              label: 'Open classroom',
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.outline,
               onPressed: () => context.go(AppRoutePaths.teacherGroups),
-              child: const Text('Open classroom'),
             );
 
             if (compact) {
@@ -1284,9 +1268,12 @@ class _PendingRequestRow extends StatelessWidget {
         child: ListTile(
           title: Text(membership.traineeDisplayName),
           subtitle: const Text('Wants to join a class'),
-          trailing: Button(
+          trailing: ElixPrimaryButton(
+            label: 'Review request',
+            expanded: false,
+            dense: true,
+            variant: ElixButtonVariant.outline,
             onPressed: () => context.go(AppRoutePaths.teacherGroups),
-            child: const Text('Review request'),
           ),
         ),
       ),
@@ -1471,10 +1458,11 @@ class _GettingStartedCard extends StatelessWidget {
               ),
             ],
           );
-          final action = FilledButton(
+          final action = ElixPrimaryButton(
             key: const Key('teacher_getting_started_action'),
+            label: model.actionLabel,
+            expanded: false,
             onPressed: () => context.go(model.route),
-            child: Text(model.actionLabel),
           );
           final content = Row(
             crossAxisAlignment: CrossAxisAlignment.start,

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_summary_stat_card.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
@@ -397,12 +398,12 @@ void main() {
 
         await tester.tap(find.byKey(const Key('history-evidence-preview')));
         await tester.pumpAndSettle();
-        expect(find.byType(ContentDialog), findsOneWidget);
+        expect(find.byType(ElixDialog), findsOneWidget);
 
         await tester.tap(find.text('Close'));
         await tester.pumpAndSettle();
 
-        expect(find.byType(ContentDialog), findsNothing);
+        expect(find.byType(ElixDialog), findsNothing);
         expect(find.text('Confirmed movement image'), findsOneWidget);
         expect(find.text('Click to enlarge'), findsOneWidget);
         expect(

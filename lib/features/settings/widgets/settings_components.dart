@@ -560,10 +560,12 @@ class SettingsDiscardConfirm {
         ),
       ),
       actions: [
-        Button(
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
           onPressed: () =>
               Navigator.of(context, rootNavigator: true).pop(false),
-          child: const Text('Cancel'),
         ),
         ElixPrimaryButton(
           label: 'Discard',

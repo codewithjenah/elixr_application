@@ -6,6 +6,7 @@ import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/elix_design_tokens.dart';
 import 'elix_editorial_header.dart';
+import 'elix_form_field.dart';
 import 'elix_primary_button.dart';
 
 class ElixDialog extends StatelessWidget {
@@ -59,27 +60,34 @@ class ElixDialog extends StatelessWidget {
     bool barrierDismissible = true,
     bool scrollableContent = false,
   }) {
+    Widget dialog() => ElixDialog(
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      iconColor: iconColor,
+      headerAccentColor: headerAccentColor,
+      content: content,
+      actions: actions,
+      uniformActionSize: uniformActionSize,
+      maxWidth: maxWidth,
+      maxHeight: maxHeight,
+      scrollableContent: scrollableContent,
+    );
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return showDialog<T>(
+        context: context,
+        barrierDismissible: barrierDismissible,
+        barrierColor: context.isHighContrast
+            ? const Color(0xFF000000)
+            : const Color(0x8A000000),
+        builder: (_) => Center(child: dialog()),
+      );
+    }
     return shad.showShadDialog<T>(
       context: context,
       barrierDismissible: barrierDismissible,
-      barrierColor: context.isHighContrast
-          ? Colors.black
-          : const Color(0xCC000000),
-      builder: (ctx) => ElixShadThemeBridge(
-        child: ElixDialog(
-          title: title,
-          subtitle: subtitle,
-          icon: icon,
-          iconColor: iconColor,
-          headerAccentColor: headerAccentColor,
-          content: content,
-          actions: actions,
-          uniformActionSize: uniformActionSize,
-          maxWidth: maxWidth,
-          maxHeight: maxHeight,
-          scrollableContent: scrollableContent,
-        ),
-      ),
+      barrierColor: const Color(0xCC000000),
+      builder: (ctx) => ElixShadThemeBridge(child: dialog()),
     );
   }
 
@@ -91,6 +99,7 @@ class ElixDialog extends StatelessWidget {
     Color? iconColor,
     Color? headerAccentColor,
     String actionLabel = 'OK',
+    double maxWidth = 400,
   }) {
     return show<void>(
       context,
@@ -98,7 +107,7 @@ class ElixDialog extends StatelessWidget {
       icon: icon,
       iconColor: iconColor ?? context.elixColors.brandPrimary,
       headerAccentColor: headerAccentColor,
-      maxWidth: 400,
+      maxWidth: maxWidth,
       content: Text(
         message,
         style: AppTheme.body.copyWith(
@@ -115,6 +124,70 @@ class ElixDialog extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// Standard two-action confirmation. Returns true only when the confirm
+  /// action is pressed.
+  static Future<bool> confirm(
+    BuildContext context, {
+    required String title,
+    String? subtitle,
+    required String message,
+    IconData? icon,
+    Color? iconColor,
+    Color? headerAccentColor,
+    String cancelLabel = 'Cancel',
+    String confirmLabel = 'Confirm',
+    bool destructive = false,
+    Key? confirmKey,
+    Key? cancelKey,
+    Size? uniformActionSize = const Size(128, 56),
+    double maxWidth = 480,
+    bool barrierDismissible = false,
+  }) async {
+    final accent = destructive
+        ? context.elixColors.error
+        : context.elixColors.brandPrimary;
+    final result = await show<bool>(
+      context,
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      iconColor: iconColor ?? accent,
+      headerAccentColor: headerAccentColor ?? (destructive ? accent : null),
+      maxWidth: maxWidth,
+      barrierDismissible: barrierDismissible,
+      uniformActionSize: uniformActionSize,
+      content: Text(
+        message,
+        style: AppTheme.body.copyWith(
+          fontSize: 14,
+          color: context.elixTextSecondary,
+          height: 1.45,
+        ),
+      ),
+      actions: [
+        ElixPrimaryButton(
+          key: cancelKey,
+          label: cancelLabel,
+          expanded: false,
+          autofocus: destructive,
+          variant: ElixButtonVariant.secondary,
+          onPressed: () =>
+              Navigator.of(context, rootNavigator: true).pop(false),
+        ),
+        ElixPrimaryButton(
+          key: confirmKey,
+          label: confirmLabel,
+          expanded: false,
+          variant: destructive
+              ? ElixButtonVariant.destructive
+              : ElixButtonVariant.primary,
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+        ),
+      ],
+    );
+    return result == true;
   }
 
   static Future<void> success(BuildContext context, String message) {
@@ -159,19 +232,11 @@ class ElixDialog extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              Text(
-                'Current password',
-                style: AppTheme.caption.copyWith(color: ctx.elixTextSecondary),
-              ),
-              const SizedBox(height: 6),
-              shad.ShadInput(
+              ElixTextField(
                 controller: passwordController,
+                label: 'Current password',
                 obscureText: obscured,
                 autofocus: true,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: 11,
-                ),
                 trailing: IconButton(
                   icon: Icon(
                     obscured ? FluentIcons.view : FluentIcons.hide,
@@ -180,8 +245,7 @@ class ElixDialog extends StatelessWidget {
                   ),
                   onPressed: () => setState(() => obscured = !obscured),
                 ),
-                onSubmitted: (_) {
-                  final password = passwordController.text;
+                onSubmitted: (password) {
                   if (password.isNotEmpty) {
                     Navigator.of(ctx).pop(password);
                   }
@@ -192,9 +256,11 @@ class ElixDialog extends StatelessWidget {
         },
       ),
       actions: [
-        Button(
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-          child: const Text('Cancel'),
         ),
         ElixPrimaryButton(
           label: 'Confirm',
@@ -292,7 +358,7 @@ class ElixDialog extends StatelessWidget {
                         color: ctx.isHighContrast
                             ? ctx.elixCardSurface
                             : ctx.elixColors.success.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(ElixRadius.control),
                         border: ctx.isHighContrast
                             ? Border.all(color: ctx.elixBorder)
                             : null,
@@ -350,60 +416,46 @@ class ElixDialog extends StatelessWidget {
         ? context.elixTextPrimary
         : (iconColor ?? context.elixColors.brandPrimary);
 
-    final dialogContents = Column(
-      mainAxisSize: scrollableContent ? MainAxisSize.max : MainAxisSize.min,
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.xl,
+        AppSpacing.xl,
+        AppSpacing.md,
+      ),
+      child: ElixEditorialHeader(
+        heading: title,
+        subtitle: subtitle,
+        variant: ElixEditorialHeaderVariant.compact,
+        leading: icon == null
+            ? null
+            : Container(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                decoration: BoxDecoration(
+                  color: highContrast
+                      ? context.elixCardSurface
+                      : iconTone.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(ElixRadius.control),
+                  border: highContrast
+                      ? Border.all(color: context.elixBorder, width: 2)
+                      : null,
+                ),
+                child: Icon(icon, color: iconTone, size: 22),
+              ),
+      ),
+    );
+    const bodyPadding = EdgeInsets.fromLTRB(
+      AppSpacing.xl,
+      AppSpacing.sm,
+      AppSpacing.xl,
+      AppSpacing.md,
+    );
+    final stackedContents = Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl,
-            AppSpacing.xl,
-            AppSpacing.xl,
-            AppSpacing.md,
-          ),
-          child: ElixEditorialHeader(
-            heading: title,
-            subtitle: subtitle,
-            variant: ElixEditorialHeaderVariant.compact,
-            leading: icon == null
-                ? null
-                : Container(
-                    padding: const EdgeInsets.all(AppSpacing.sm),
-                    decoration: BoxDecoration(
-                      color: highContrast
-                          ? context.elixCardSurface
-                          : iconTone.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                      border: highContrast
-                          ? Border.all(color: context.elixBorder, width: 2)
-                          : null,
-                    ),
-                    child: Icon(icon, color: iconTone, size: 22),
-                  ),
-          ),
-        ),
-        if (scrollableContent)
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xl,
-                AppSpacing.sm,
-                AppSpacing.xl,
-                AppSpacing.md,
-              ),
-              child: content,
-            ),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl,
-              AppSpacing.sm,
-              AppSpacing.xl,
-              AppSpacing.md,
-            ),
-            child: content,
-          ),
+        header,
+        Padding(padding: bodyPadding, child: content),
       ],
     );
     final dialogActions = actions == null || actions!.isEmpty
@@ -420,7 +472,6 @@ class ElixDialog extends StatelessWidget {
         constraints: BoxConstraints(
           maxWidth: maxWidth,
           maxHeight: dialogMaxHeight,
-          minHeight: scrollableContent ? dialogMaxHeight : 0,
         ),
         margin: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
@@ -452,15 +503,19 @@ class ElixDialog extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(ElixRadius.dialog),
           child: Column(
-            mainAxisSize: scrollableContent
-                ? MainAxisSize.max
-                : MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (scrollableContent)
-                Expanded(child: _legacyContent(context, accent, dialogContents))
-              else
-                _legacyContent(context, accent, dialogContents),
+              if (scrollableContent) header,
+              Flexible(
+                fit: FlexFit.loose,
+                child: scrollableContent
+                    ? SingleChildScrollView(
+                        padding: bodyPadding,
+                        child: _legacyContent(context, accent, content),
+                      )
+                    : _legacyContent(context, accent, stackedContents),
+              ),
               if (dialogActions.isNotEmpty) dialogActions.single,
             ],
           ),
@@ -485,7 +540,7 @@ class ElixDialog extends StatelessWidget {
       expandActionsWhenTiny: false,
       actions: dialogActions,
       scrollable: scrollableContent,
-      child: dialogContents,
+      child: stackedContents,
     );
   }
 
@@ -494,15 +549,9 @@ class ElixDialog extends StatelessWidget {
     Color accent,
     Widget dialogContents,
   ) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.md,
-      ),
+    return DecoratedBox(
       decoration: context.isHighContrast
-          ? null
+          ? const BoxDecoration()
           : BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -538,14 +587,23 @@ class _ElixDialogFooter extends StatelessWidget {
         AppSpacing.xl,
         AppSpacing.xl,
       ),
-      child: actions.length == 1
-          ? SizedBox(width: double.infinity, child: actionWidgets.single)
-          : Wrap(
-              alignment: WrapAlignment.end,
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: actionWidgets,
-            ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (actions.length == 1) {
+            final action = actionWidgets.single;
+            if (constraints.hasBoundedWidth) {
+              return SizedBox(width: constraints.maxWidth, child: action);
+            }
+            return action;
+          }
+          return Wrap(
+            alignment: WrapAlignment.end,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: actionWidgets,
+          );
+        },
+      ),
     );
   }
 }

@@ -169,7 +169,11 @@ class _LegalDocumentPageState extends State<LegalDocumentPage> {
                         lastUpdated: widget.lastUpdated,
                         version: widget.version,
                       ),
-                      const SizedBox(height: AppSpacing.md),
+                      SizedBox(
+                        height: MediaQuery.sizeOf(context).height < 700
+                            ? AppSpacing.sm
+                            : AppSpacing.md,
+                      ),
                       Expanded(
                         child: Focus(
                           onKeyEvent: _handleDocumentKey,
@@ -753,9 +757,9 @@ class _LegalSectionCard extends StatelessWidget {
     return AuthFormCard(
       padding: EdgeInsets.fromLTRB(
         AppSpacing.lg,
-        compact ? AppSpacing.sm : AppSpacing.md,
+        compact ? 6 : AppSpacing.md,
         AppSpacing.lg,
-        compact ? AppSpacing.sm : AppSpacing.md,
+        compact ? 6 : AppSpacing.md,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

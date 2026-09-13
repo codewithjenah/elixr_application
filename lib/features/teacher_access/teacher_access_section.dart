@@ -8,6 +8,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_editorial_header.dart';
@@ -309,7 +310,7 @@ class _OverviewTile extends StatelessWidget {
                 color: highContrast
                     ? context.elixCardSurface
                     : accent.withValues(alpha: isDark ? 0.16 : 0.10),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(ElixRadius.card),
                 border: Border.all(
                   color: highContrast
                       ? context.elixBorder
@@ -731,8 +732,10 @@ class _JoinConfirmActions extends StatelessWidget {
               isLoading: controller.busy,
               onPressed: controller.busy ? null : controller.confirmJoin,
             ),
-            _AccessOutlineButton(
+            ElixPrimaryButton(
               label: 'Use a different code',
+              expanded: false,
+              variant: ElixButtonVariant.outline,
               onPressed: controller.busy ? null : controller.resetJoin,
             ),
           ],
@@ -756,7 +759,7 @@ class _JoinSharingSummary extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: highContrast ? colors.surfaceRaised : colors.surfaceTinted,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(ElixRadius.card),
         border: Border.all(
           color: highContrast ? colors.borderStrong : colors.borderSubtle,
           width: highContrast ? 2 : 1,
@@ -905,9 +908,11 @@ class _PendingJoinsCard extends StatelessWidget {
           subtitle:
               'Waiting for ${membership.teacherDisplayName} to accept you · '
               '${_formatTime(membership.createdAt)}',
-          trailing: _AccessOutlineButton(
+          trailing: ElixPrimaryButton(
             key: Key('teacher_access_cancel_group_${membership.id}'),
             label: 'Cancel',
+            expanded: false,
+            variant: ElixButtonVariant.outline,
             onPressed: controller.busy
                 ? null
                 : () => controller.cancelPendingGroup(membership),
@@ -943,7 +948,7 @@ class _WaitingEmptyState extends StatelessWidget {
             : context.elixColors.surfaceInteractive.withValues(
                 alpha: context.isDarkTheme ? 0.45 : 0.7,
               ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(ElixRadius.card),
         border: Border.all(
           color: context.elixBorder.withValues(
             alpha: context.isHighContrast ? 1 : 0.55,
@@ -1000,7 +1005,7 @@ class _EmptyClassesCard extends StatelessWidget {
               color: AppColors.primary.withValues(
                 alpha: context.isDarkTheme ? 0.14 : 0.10,
               ),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(ElixRadius.card),
               border: Border.all(
                 color: AppColors.primary.withValues(alpha: 0.28),
               ),
@@ -1288,7 +1293,7 @@ class _AccessListRow extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: context.elixBackground.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(ElixRadius.card),
         border: Border.all(color: context.elixBorder.withValues(alpha: 0.45)),
       ),
       child: Column(
@@ -1338,55 +1343,14 @@ Future<void> _confirmLeaveClass(
   const message =
       'You will no longer see this class or its assignments. You can ask '
       'to join again later with a current class code.';
-  final useShad =
-      !context.isHighContrast && shad.ShadTheme.maybeOf(context) != null;
-  final accepted = useShad
-      ? await ElixDialog.show<bool>(
-          context,
-          title: 'Leave $className?',
-          icon: FluentIcons.people,
-          content: Text(
-            message,
-            style: AppTheme.body.copyWith(
-              fontSize: 14,
-              color: context.elixTextSecondary,
-              height: 1.45,
-            ),
-          ),
-          actions: [
-            Button(
-              onPressed: () =>
-                  Navigator.of(context, rootNavigator: true).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElixPrimaryButton(
-              key: const Key('teacher_access_confirm_leave'),
-              label: 'Leave class',
-              expanded: false,
-              onPressed: () =>
-                  Navigator.of(context, rootNavigator: true).pop(true),
-            ),
-          ],
-          uniformActionSize: const Size(128, 56),
-        )
-      : await showDialog<bool>(
-          context: context,
-          builder: (context) => ContentDialog(
-            title: Text('Leave $className?'),
-            content: const Text(message),
-            actions: [
-              Button(
-                child: const Text('Cancel'),
-                onPressed: () => Navigator.pop(context, false),
-              ),
-              FilledButton(
-                key: const Key('teacher_access_confirm_leave'),
-                child: const Text('Leave class'),
-                onPressed: () => Navigator.pop(context, true),
-              ),
-            ],
-          ),
-        );
+  final accepted = await ElixDialog.confirm(
+    context,
+    title: 'Leave $className?',
+    icon: FluentIcons.people,
+    message: message,
+    confirmLabel: 'Leave class',
+    confirmKey: const Key('teacher_access_confirm_leave'),
+  );
   if (accepted == true) await controller.leaveApprovedGroup(membership);
 }
 
@@ -1421,25 +1385,6 @@ class _ClassSearchField extends StatelessWidget {
       placeholder: const Text('Search classes'),
       leading: icon,
       onChanged: onChanged,
-    );
-  }
-}
-
-class _AccessOutlineButton extends StatelessWidget {
-  const _AccessOutlineButton({super.key, required this.label, this.onPressed});
-
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
-      return Button(onPressed: onPressed, child: Text(label));
-    }
-    return shad.ShadButton.outline(
-      onPressed: onPressed,
-      enabled: onPressed != null,
-      child: Text(label),
     );
   }
 }

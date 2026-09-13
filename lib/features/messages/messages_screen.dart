@@ -8,9 +8,12 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_card.dart';
 import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/elix_form_field.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -43,31 +46,15 @@ Future<void> _confirmDeleteConversation(
   ChatConversation conversation,
   ChatUser user,
 ) async {
-  final confirmed = await ElixDialog.show<bool>(
+  final confirmed = await ElixDialog.confirm(
     context,
     title: 'Delete conversation?',
     icon: FluentIcons.delete,
-    iconColor: context.elixColors.error,
-    headerAccentColor: context.elixColors.error,
-    content: Text(
-      'This removes your conversation with ${user.displayName} from your '
-      'inbox. It does not delete their copy, and this cannot be undone.',
-      style: AppTheme.body.copyWith(
-        color: context.elixTextSecondary,
-        height: 1.45,
-      ),
-    ),
-    actions: [
-      _DialogActionButton(
-        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
-        child: const Text('Cancel'),
-      ),
-      _DialogActionButton(
-        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-        destructive: true,
-        child: const Text('Delete'),
-      ),
-    ],
+    destructive: true,
+    confirmLabel: 'Delete',
+    message:
+        'This removes your conversation with ${user.displayName} from your '
+        'inbox. It does not delete their copy, and this cannot be undone.',
   );
   if (confirmed == true) await controller.clearConversation(conversation);
 }
@@ -263,7 +250,7 @@ class _PeoplePane extends StatelessWidget {
                         : context.elixColors.brandPrimary.withValues(
                             alpha: 0.14,
                           ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(ElixRadius.card),
                     border: Border.all(
                       color: context.isHighContrast
                           ? context.elixBorder
@@ -863,11 +850,13 @@ class _ConversationPane extends StatelessWidget {
                 ),
               ),
               if (controller.selectedConversation?.isArchived != true)
-                _MessageButton(
+                ElixPrimaryButton(
+                  label: controller.blockState.blockedByMe
+                      ? 'Unblock'
+                      : 'Block',
+                  expanded: false,
+                  variant: ElixButtonVariant.outline,
                   onPressed: () => _confirmBlock(context),
-                  child: Text(
-                    controller.blockState.blockedByMe ? 'Unblock' : 'Block',
-                  ),
                 ),
             ],
           ),
@@ -908,15 +897,16 @@ class _ConversationPane extends StatelessWidget {
       children: [
         if (controller.hasOlder || controller.paginationError != null)
           Center(
-            child: _MessageButton(
+            child: ElixPrimaryButton(
+              label: controller.loadingOlder
+                  ? 'Loading…'
+                  : controller.paginationError != null
+                  ? 'Try loading older messages again'
+                  : 'Load older messages',
+              expanded: false,
+              variant: ElixButtonVariant.outline,
+              isLoading: controller.loadingOlder,
               onPressed: controller.loadingOlder ? null : controller.loadOlder,
-              child: Text(
-                controller.loadingOlder
-                    ? 'Loading…'
-                    : controller.paginationError != null
-                    ? 'Try loading older messages again'
-                    : 'Load older messages',
-              ),
             ),
           ),
         for (var index = 0; index < ascending.length; index++) ...[
@@ -942,32 +932,16 @@ class _ConversationPane extends StatelessWidget {
 
   Future<void> _confirmBlock(BuildContext context) async {
     final unblocking = controller.blockState.blockedByMe;
-    final confirmed = await ElixDialog.show<bool>(
+    final confirmed = await ElixDialog.confirm(
       context,
       title: unblocking ? 'Unblock this person?' : 'Block this person?',
       icon: unblocking ? FluentIcons.unlock : FluentIcons.blocked,
       iconColor: context.elixColors.warning,
       headerAccentColor: context.elixColors.warning,
-      content: Text(
-        unblocking
-            ? 'You will both be able to send messages again unless they have blocked you.'
-            : 'Neither person can send new messages while this block is active. Message history remains visible.',
-        style: AppTheme.body.copyWith(
-          color: context.elixTextSecondary,
-          height: 1.45,
-        ),
-      ),
-      actions: [
-        _DialogActionButton(
-          onPressed: () =>
-              Navigator.of(context, rootNavigator: true).pop(false),
-          child: const Text('Cancel'),
-        ),
-        _DialogActionButton(
-          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-          child: Text(unblocking ? 'Unblock' : 'Block'),
-        ),
-      ],
+      confirmLabel: unblocking ? 'Unblock' : 'Block',
+      message: unblocking
+          ? 'You will both be able to send messages again unless they have blocked you.'
+          : 'Neither person can send new messages while this block is active. Message history remains visible.',
     );
     if (confirmed == true) await controller.toggleBlock();
   }
@@ -981,21 +955,24 @@ class _ConversationPane extends StatelessWidget {
       context,
       title: 'Edit message',
       icon: FluentIcons.edit,
-      content: shad.ShadInput(
+      content: ElixTextArea(
         controller: text,
-        minLines: 2,
-        maxLines: 6,
+        minHeight: 72,
+        maxHeight: 180,
         maxLength: ChatMessage.maximumBodyLength,
       ),
       actions: [
-        _DialogActionButton(
+        ElixPrimaryButton(
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-          child: const Text('Cancel'),
         ),
-        _DialogActionButton(
+        ElixPrimaryButton(
+          label: 'Save',
+          expanded: false,
           onPressed: () =>
               Navigator.of(context, rootNavigator: true).pop(text.text),
-          child: const Text('Save'),
         ),
       ],
     );
@@ -1009,31 +986,13 @@ class _ConversationPane extends StatelessWidget {
     if (message.isDeleted || message.deliveryState != ChatDeliveryState.sent) {
       return;
     }
-    final confirmed = await ElixDialog.show<bool>(
+    final confirmed = await ElixDialog.confirm(
       context,
       title: 'Delete message?',
       icon: FluentIcons.delete,
-      iconColor: context.elixColors.error,
-      headerAccentColor: context.elixColors.error,
-      content: Text(
-        'The message body will be removed and replaced by a tombstone.',
-        style: AppTheme.body.copyWith(
-          color: context.elixTextSecondary,
-          height: 1.45,
-        ),
-      ),
-      actions: [
-        _DialogActionButton(
-          onPressed: () =>
-              Navigator.of(context, rootNavigator: true).pop(false),
-          child: const Text('Cancel'),
-        ),
-        _DialogActionButton(
-          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-          destructive: true,
-          child: const Text('Delete'),
-        ),
-      ],
+      destructive: true,
+      confirmLabel: 'Delete',
+      message: 'The message body will be removed and replaced by a tombstone.',
     );
     if (confirmed == true) await controller.deleteMessage(message);
   }
@@ -1187,40 +1146,6 @@ class _Composer extends StatelessWidget {
     final sent = await controller.send(body);
     if (!sent) textController.text = body;
   }
-}
-
-class _DialogActionButton extends StatelessWidget {
-  const _DialogActionButton({
-    required this.onPressed,
-    required this.child,
-    this.destructive = false,
-  });
-  final VoidCallback onPressed;
-  final Widget child;
-  final bool destructive;
-
-  @override
-  Widget build(BuildContext context) {
-    if (context.isHighContrast) {
-      return destructive
-          ? FilledButton(onPressed: onPressed, child: child)
-          : Button(onPressed: onPressed, child: child);
-    }
-    return destructive
-        ? shad.ShadButton.destructive(onPressed: onPressed, child: child)
-        : shad.ShadButton.outline(onPressed: onPressed, child: child);
-  }
-}
-
-class _MessageButton extends StatelessWidget {
-  const _MessageButton({required this.onPressed, required this.child});
-  final VoidCallback? onPressed;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? Button(onPressed: onPressed, child: child)
-      : shad.ShadButton.outline(onPressed: onPressed, child: child);
 }
 
 class _MessageIconAction extends StatelessWidget {

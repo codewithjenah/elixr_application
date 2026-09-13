@@ -4,12 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
@@ -427,10 +427,11 @@ class _LoadMoreFooter extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
-            _TeacherLeaderboardAction(
+            ElixPrimaryButton(
               label: 'Try again',
+              expanded: false,
+              variant: ElixButtonVariant.outline,
               onPressed: list.loadMore,
-              primary: false,
             ),
           ],
         ),
@@ -441,35 +442,14 @@ class _LoadMoreFooter extends StatelessWidget {
       padding: const EdgeInsets.only(top: AppSpacing.sm),
       child: Center(
         child: list.isLoadingMore
-            ? const ProgressRing(activeColor: AppColors.primary)
-            : _TeacherLeaderboardAction(
+            ? ProgressRing(activeColor: context.elixColors.brandPrimary)
+            : ElixPrimaryButton(
                 label: 'Load more',
+                expanded: false,
                 onPressed: list.loadMore,
               ),
       ),
     );
-  }
-}
-
-class _TeacherLeaderboardAction extends StatelessWidget {
-  const _TeacherLeaderboardAction({
-    required this.label,
-    required this.onPressed,
-    this.primary = true,
-  });
-
-  final String label;
-  final VoidCallback onPressed;
-  final bool primary;
-
-  @override
-  Widget build(BuildContext context) {
-    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
-      return Button(onPressed: onPressed, child: Text(label));
-    }
-    return primary
-        ? shad.ShadButton(onPressed: onPressed, child: Text(label))
-        : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
   }
 }
 

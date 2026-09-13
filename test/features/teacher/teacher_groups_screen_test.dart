@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_dialog.dart';
+import 'package:elixr_application/core/widgets/elix_form_field.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
@@ -14,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import 'teacher_phase3_test_support.dart';
 
@@ -84,7 +88,13 @@ void main() {
           Provider<GroupRepository>.value(value: repository),
           Provider<ClassroomAssignmentRepository>.value(value: assignments),
         ],
-        child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        child: FluentApp.router(
+          theme: AppTheme.dark,
+          routerConfig: router,
+          builder: (context, child) => ElixShadThemeBridge(
+            child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+          ),
+        ),
       ),
     );
     await tester.pump();
@@ -187,10 +197,13 @@ void main() {
     await controller.start();
     await pumpGroups(tester, controller: controller);
 
-    final filter = tester.widget<ComboBox<bool>>(
-      find.byKey(const Key('teacher_groups_status_filter')),
-    );
-    filter.onChanged!(true);
+    final filterFinder = find.byKey(const Key('teacher_groups_status_filter'));
+    final filterWidget = tester.widget(filterFinder);
+    if (filterWidget is ComboBox<bool>) {
+      filterWidget.onChanged!(true);
+    } else {
+      tester.widget<shad.ShadSelect<bool>>(filterFinder).onChanged!(true);
+    }
     await tester.pump();
 
     final more = find.byKey(Key('class_card_more_${group.id}'));
@@ -243,9 +256,9 @@ void main() {
       final confirm = find.byKey(const Key('teacher_groups_confirm_delete'));
       await tester.enterText(field, 'DELETE CLASSROOM');
       await tester.pump();
-      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+      expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNotNull);
 
-      final submit = tester.widget<FilledButton>(confirm).onPressed!;
+      final submit = tester.widget<ElixPrimaryButton>(confirm).onPressed!;
       submit();
       submit(); // Exercise a stale callback before the disabled button rebuilds.
       await tester.pump();
@@ -255,10 +268,10 @@ void main() {
         find.descendant(of: confirm, matching: find.byType(ProgressRing)),
         findsOneWidget,
       );
-      expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
-      final cancel = find.widgetWithText(Button, 'Cancel');
-      expect(tester.widget<Button>(cancel).onPressed, isNull);
-      expect(tester.widget<TextBox>(field).enabled, isFalse);
+      expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNull);
+      final cancel = find.widgetWithText(ElixPrimaryButton, 'Cancel');
+      expect(tester.widget<ElixPrimaryButton>(cancel).onPressed, isNull);
+      expect(tester.widget<ElixTextField>(field).enabled, isFalse);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.binding.handlePopRoute();
@@ -273,14 +286,14 @@ void main() {
       expect(find.text('Deleting...'), findsNothing);
       expect(
         find.descendant(
-          of: find.byType(ContentDialog),
+          of: find.byType(ElixDialog),
           matching: find.text('Deletion denied.'),
         ),
         findsOneWidget,
       );
-      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
-      expect(tester.widget<Button>(cancel).onPressed, isNotNull);
-      expect(tester.widget<TextBox>(field).enabled, isTrue);
+      expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNotNull);
+      expect(tester.widget<ElixPrimaryButton>(cancel).onPressed, isNotNull);
+      expect(tester.widget<ElixTextField>(field).enabled, isTrue);
 
       pendingAssignments.pending = Completer<void>();
       await tester.tap(confirm);
@@ -290,7 +303,7 @@ void main() {
       pendingAssignments.pending.complete();
       await tester.pumpAndSettle();
 
-      expect(find.byType(ContentDialog), findsNothing);
+      expect(find.byType(ElixDialog), findsNothing);
       expect(find.byKey(Key('teacher_group_card_${group.id}')), findsNothing);
       expect(find.byKey(const Key('elix_toast')), findsOneWidget);
       expect(
@@ -319,7 +332,7 @@ void main() {
       find.byKey(const Key('teacher_groups_create_name')),
       'BSIT-4A',
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Create'));
     await tester.pumpAndSettle();
 
     expect(find.text('detail:group-0'), findsOneWidget);

@@ -12,6 +12,7 @@ import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/rubric_assessment.dart';
@@ -884,7 +885,7 @@ class PracticeScreenState extends State<PracticeScreen>
         final preference = await sessionService.sessionEvidenceEnabled(userId);
         if (_leaving || !mounted) return;
         if (preference == null) {
-          saveEvidence = await _askEvidenceConsent() ?? false;
+          saveEvidence = await _askEvidenceConsent();
           if (_leaving || !mounted) return;
           await sessionService.setSessionEvidenceEnabled(
             userId: userId,
@@ -1009,22 +1010,16 @@ class PracticeScreenState extends State<PracticeScreen>
   }) {
     final previous = widget.previousChallengeBest;
     final isNewBest = previous == null || score > previous;
-    return showDialog<void>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: Text(isNewBest ? 'New personal best!' : 'Challenge complete'),
-        content: Text(
+    return ElixDialog.alert(
+      context,
+      title: isNewBest ? 'New personal best!' : 'Challenge complete',
+      message:
           'Final score: $score/12\n'
           '${previous == null ? 'Previous best: —' : 'Previous best: $previous/12'}\n'
           'Current class rank: ${receipt.rank == null ? '—' : '#${receipt.rank}'}',
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('View Class Leaderboard'),
-          ),
-        ],
-      ),
+      icon: isNewBest ? FluentIcons.trophy2 : FluentIcons.completed_solid,
+      actionLabel: 'View Class Leaderboard',
+      maxWidth: 420,
     );
   }
 
@@ -1038,69 +1033,21 @@ class PracticeScreenState extends State<PracticeScreen>
     }
   }
 
-  Future<bool?> _askEvidenceConsent() {
-    return showDialog<bool>(
-      context: context,
+  Future<bool> _askEvidenceConsent() {
+    return ElixDialog.confirm(
+      context,
+      title: 'Save your confirmed movement?',
+      icon: FluentIcons.camera,
+      maxWidth: 500,
       barrierDismissible: false,
-      builder: (context) => ContentDialog(
-        constraints: const BoxConstraints(maxWidth: 500),
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(FluentIcons.camera, size: 19),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            const Expanded(child: Text('Save your confirmed movement?')),
-          ],
-        ),
-        content: Container(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: context.elixBackground,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: context.elixBorder),
-          ),
-          child: const Text(
-            'We captured one annotated image from the exact frame that '
-            'confirmed your movement. It is private to your account, never '
-            'shared to profiles or leaderboards, and can be deleted anytime '
-            'in Settings → Privacy.',
-            style: TextStyle(fontSize: 15, height: 1.45),
-          ),
-        ),
-        actions: [
-          SizedBox(
-            width: 198,
-            height: 56,
-            child: Button(
-              onPressed: () =>
-                  Navigator.of(context, rootNavigator: true).pop(false),
-              child: const Text(
-                'Save without image',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-          SizedBox(
-            width: 198,
-            height: 56,
-            child: FilledButton(
-              onPressed: () =>
-                  Navigator.of(context, rootNavigator: true).pop(true),
-              child: const Text(
-                'Enable & save image',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-        ],
-      ),
+      uniformActionSize: const Size(198, 56),
+      cancelLabel: 'Save without image',
+      confirmLabel: 'Enable & save image',
+      message:
+          'We captured one annotated image from the exact frame that '
+          'confirmed your movement. It is private to your account, never '
+          'shared to profiles or leaderboards, and can be deleted anytime '
+          'in Settings → Privacy.',
     );
   }
 

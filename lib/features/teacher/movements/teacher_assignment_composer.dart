@@ -14,6 +14,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_panel_card.dart';
@@ -3880,6 +3881,9 @@ class _ComposerSurface extends StatelessWidget {
 
 /// Keeps the composer on the shared Shad treatment in normal mode while
 /// retaining Fluent's stronger native controls for high-contrast users.
+bool _composerUsesFluent(BuildContext context) =>
+    context.isHighContrast || shad.ShadTheme.maybeOf(context) == null;
+
 class _ComposerSelect<T> extends StatelessWidget {
   const _ComposerSelect({
     super.key,
@@ -3895,7 +3899,7 @@ class _ComposerSelect<T> extends StatelessWidget {
   final bool isExpanded;
 
   @override
-  Widget build(BuildContext context) => context.isHighContrast
+  Widget build(BuildContext context) => _composerUsesFluent(context)
       ? ComboBox<T>(
           value: value,
           isExpanded: isExpanded,
@@ -3942,7 +3946,7 @@ class _ComposerInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final multiline = (maxLines ?? 1) > 1 || (minLines ?? 1) > 1;
-    if (context.isHighContrast) {
+    if (_composerUsesFluent(context)) {
       return TextBox(
         controller: controller,
         enabled: enabled,
@@ -3990,7 +3994,7 @@ class _ComposerSwitch extends StatelessWidget {
   final ValueChanged<bool>? onChanged;
 
   @override
-  Widget build(BuildContext context) => context.isHighContrast
+  Widget build(BuildContext context) => _composerUsesFluent(context)
       ? ToggleSwitch(checked: value, content: label, onChanged: onChanged)
       : shad.ShadSwitch(
           value: value,
@@ -4015,7 +4019,7 @@ class _ComposerCheckbox extends StatelessWidget {
   final ValueChanged<bool>? onChanged;
 
   @override
-  Widget build(BuildContext context) => context.isHighContrast
+  Widget build(BuildContext context) => _composerUsesFluent(context)
       ? Checkbox(
           checked: value,
           content: label,
@@ -4044,7 +4048,7 @@ class _ComposerSecondaryButton extends StatelessWidget {
   final bool expands;
 
   @override
-  Widget build(BuildContext context) => context.isHighContrast
+  Widget build(BuildContext context) => _composerUsesFluent(context)
       ? Button(onPressed: onPressed, child: child)
       : shad.ShadButton.outline(
           onPressed: onPressed,
@@ -4068,7 +4072,7 @@ class _ComposerAlert extends StatelessWidget {
   final InfoBarSeverity severity;
 
   @override
-  Widget build(BuildContext context) => context.isHighContrast
+  Widget build(BuildContext context) => _composerUsesFluent(context)
       ? InfoBar(
           severity: severity,
           title: title,
@@ -4381,43 +4385,38 @@ class _TeacherActivityDetailsDialogState
     final revision = _revision;
     final spec = revision?.spec;
     final activity = spec is TeacherReviewedMovementSpec ? spec : null;
-    return ContentDialog(
-      constraints: BoxConstraints(maxWidth: width),
-      title: Row(
-        children: [
-          Expanded(child: Text(widget.movement.title)),
-          if (widget.isInitiallySelected)
-            const Padding(
-              padding: EdgeInsets.only(left: AppSpacing.sm),
-              child: Text('Selected'),
-            ),
-        ],
-      ),
-      content: SizedBox(
-        width: width,
-        height: (screen.height * 0.64).clamp(260.0, 680.0).toDouble(),
-        child: _loading
-            ? const Center(child: ProgressRing())
-            : _error != null && activity == null
-            ? Center(child: Text(_error!))
-            : SingleChildScrollView(
-                key: const Key('teacher_assignment_activity_details_scroll'),
-                child: _TeacherActivityDetailsContent(
-                  movement: widget.movement,
-                  spec: activity!,
-                ),
+    return ElixDialog(
+      title: widget.movement.title,
+      subtitle: widget.isInitiallySelected ? 'Selected' : null,
+      icon: FluentIcons.book_answers,
+      maxWidth: width,
+      maxHeight: (screen.height * 0.85).clamp(320.0, 760.0).toDouble(),
+      scrollableContent: true,
+      content: _loading
+          ? const SizedBox(height: 180, child: Center(child: ProgressRing()))
+          : _error != null && activity == null
+          ? Center(child: Text(_error!))
+          : KeyedSubtree(
+              key: const Key('teacher_assignment_activity_details_scroll'),
+              child: _TeacherActivityDetailsContent(
+                movement: widget.movement,
+                spec: activity!,
               ),
-      ),
+            ),
       actions: [
-        _ComposerSecondaryButton(
+        ElixPrimaryButton(
           key: const Key('teacher_assignment_activity_details_close'),
+          label: 'Close',
+          expanded: false,
+          variant: ElixButtonVariant.outline,
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
         ),
-        FilledButton(
+        ElixPrimaryButton(
           key: const Key('teacher_assignment_activity_details_use'),
+          label: 'Use this activity',
+          expanded: false,
+          isLoading: _using,
           onPressed: activity == null || _using ? null : _use,
-          child: const Text('Use this activity'),
         ),
       ],
     );
@@ -4964,22 +4963,19 @@ class _DueDateField extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 360),
-            child: shad.ShadDatePicker(
+            child: _composerDatePicker(
+              context: context,
               key: const Key('teacher_assignment_due_date'),
               selected: _manilaCivilDate(dueAt!),
-              formatDate: _formatScheduleDate,
               enabled: enabled,
-              onChanged: enabled
-                  ? (value) {
-                      if (value != null) onDateChanged(value);
-                    }
-                  : null,
+              onDateChanged: onDateChanged,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text('Time', style: AppTheme.bodySecondary),
           const SizedBox(height: AppSpacing.xs),
           _scheduleTimePicker(
+            context: context,
             key: const Key('teacher_assignment_due_time'),
             hour24: _manilaCivilHour(dueAt!),
             minute: _manilaCivilMinute(dueAt!),
@@ -5408,22 +5404,19 @@ class _PublicationScheduleField extends StatelessWidget {
         const SizedBox(height: AppSpacing.xs),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 360),
-          child: shad.ShadDatePicker(
+          child: _composerDatePicker(
+            context: context,
             key: const Key('teacher_assignment_publish_date'),
             selected: date,
-            formatDate: _formatScheduleDate,
             enabled: enabled,
-            onChanged: enabled
-                ? (value) {
-                    if (value != null) onDateChanged(value);
-                  }
-                : null,
+            onDateChanged: onDateChanged,
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
         Text('Time', style: AppTheme.bodySecondary),
         const SizedBox(height: AppSpacing.xs),
         _scheduleTimePicker(
+          context: context,
           key: const Key('teacher_assignment_publish_time'),
           hour24: hour24,
           minute: minute,
@@ -5439,13 +5432,62 @@ class _PublicationScheduleField extends StatelessWidget {
   }
 }
 
+Widget _composerDatePicker({
+  required BuildContext context,
+  required Key key,
+  required DateTime selected,
+  required bool enabled,
+  required ValueChanged<DateTime> onDateChanged,
+}) {
+  if (_composerUsesFluent(context)) {
+    return DatePicker(
+      key: key,
+      selected: selected,
+      onChanged: enabled ? onDateChanged : null,
+    );
+  }
+  return shad.ShadDatePicker(
+    key: key,
+    selected: selected,
+    formatDate: _formatScheduleDate,
+    enabled: enabled,
+    onChanged: enabled
+        ? (value) {
+            if (value != null) onDateChanged(value);
+          }
+        : null,
+  );
+}
+
 Widget _scheduleTimePicker({
+  required BuildContext context,
   required Key key,
   required int hour24,
   required int minute,
   required bool enabled,
   required ValueChanged<shad.ShadTimeOfDay> onChanged,
 }) {
+  if (_composerUsesFluent(context)) {
+    return TimePicker(
+      key: key,
+      selected: DateTime(1970, 1, 1, hour24, minute),
+      hourFormat: HourFormat.h,
+      onChanged: enabled
+          ? (value) {
+              onChanged(
+                shad.ShadTimeOfDay(
+                  hour: _hour12From24(value.hour),
+                  minute: value.minute,
+                  second: 0,
+                  period: _periodForHour24(value.hour) == 'AM'
+                      ? shad.ShadDayPeriod.am
+                      : shad.ShadDayPeriod.pm,
+                ),
+              );
+            }
+          : null,
+    );
+  }
   final hour12 = _hour12From24(hour24);
   final period = _periodForHour24(hour24) == 'AM'
       ? shad.ShadDayPeriod.am

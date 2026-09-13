@@ -8,7 +8,6 @@ import '../../services/settings_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../theme/app_theme.dart';
 import 'elix_dialog.dart';
-import 'elix_primary_button.dart';
 import 'elix_sidebar.dart';
 
 class AppShell extends StatefulWidget {
@@ -25,31 +24,12 @@ class _AppShellState extends State<AppShell> {
   bool _onboardingShown = false;
 
   Future<void> _confirmAndLogout() async {
-    final shouldLogout = await ElixDialog.show<bool>(
+    final shouldLogout = await ElixDialog.confirm(
       context,
       title: 'Log out?',
       icon: FluentIcons.sign_out,
-      content: Text(
-        'Are you sure you want to log out of your ELIXR account?',
-        style: AppTheme.body.copyWith(
-          fontSize: 14,
-          color: context.elixTextSecondary,
-          height: 1.45,
-        ),
-      ),
-      actions: [
-        Button(
-          onPressed: () =>
-              Navigator.of(context, rootNavigator: true).pop(false),
-          child: const Text('Cancel'),
-        ),
-        ElixPrimaryButton(
-          label: 'Log out',
-          expanded: false,
-          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
-        ),
-      ],
-      uniformActionSize: const Size(128, 56),
+      message: 'Are you sure you want to log out of your ELIXR account?',
+      confirmLabel: 'Log out',
     );
 
     if (shouldLogout != true || !mounted) return;

@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../core/constants/app_spacing.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_dialog.dart';
 
 /// Trainee-facing copy and actions for an interrupted camera attempt.
 ///
@@ -73,23 +72,12 @@ class CameraRecoveryPresentation {
 }
 
 Future<void> showCameraRecoverySetupHelp(BuildContext context) {
-  return showDialog<void>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Camera setup help'),
-      content: Text(
+  return ElixDialog.alert(
+    context,
+    title: 'Camera setup help',
+    message:
         'Reconnect the camera, make sure Windows allows camera access, and close any other app using it. Then confirm the intended camera in Settings and retry.',
-        style: AppTheme.body,
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-            child: Text('Close'),
-          ),
-        ),
-      ],
-    ),
+    icon: FluentIcons.camera,
+    actionLabel: 'Close',
   );
 }

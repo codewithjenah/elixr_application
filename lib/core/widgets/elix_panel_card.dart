@@ -202,7 +202,7 @@ class ElixPill extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(ElixRadius.pill),
         border: Border.all(color: context.elixBorder, width: 2),
       ),
       child: Text(
@@ -223,7 +223,7 @@ class ElixHoverSurface extends StatefulWidget {
     super.key,
     required this.child,
     required this.onTap,
-    this.borderRadius = 12,
+    this.borderRadius = ElixRadius.card,
     this.enabled = true,
     this.semanticLabel,
   });
@@ -281,6 +281,11 @@ class _ElixHoverSurfaceState extends State<ElixHoverSurface> {
                     : (_hovered && enabled
                           ? context.elixColors.interactiveHover
                           : Colors.transparent),
+                borderRadius: BorderRadius.circular(widget.borderRadius),
+              ),
+              // Paint hover/focus chrome without insetting dense children.
+              // A layout border here overflowed gradebook header cells by 1px.
+              foregroundDecoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(widget.borderRadius),
                 border: Border.all(
                   color: _focused

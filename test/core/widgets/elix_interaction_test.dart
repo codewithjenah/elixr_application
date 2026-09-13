@@ -476,7 +476,7 @@ void main() {
                         .widget<AnimatedContainer>(
                           find.byType(AnimatedContainer),
                         )
-                        .decoration
+                        .foregroundDecoration
                     as BoxDecoration)
                 .border!
             as Border;
