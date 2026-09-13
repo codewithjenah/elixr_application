@@ -249,6 +249,17 @@ abstract final class ElixFocus {
   static const ringWidthHighContrast = 4.0;
 }
 
+/// Shared geometry for controls and surfaces. Keeping these values here lets
+/// future screen work inherit a cohesive desktop rhythm without hard-coding
+/// radii in feature widgets.
+abstract final class ElixRadius {
+  static const control = 10.0;
+  static const card = 12.0;
+  static const panel = 16.0;
+  static const dialog = 20.0;
+  static const pill = 999.0;
+}
+
 /// Role-level tuning for the shared ELIXR visual system.
 ///
 /// Both workspaces resolve the same semantic colours and components. Teacher

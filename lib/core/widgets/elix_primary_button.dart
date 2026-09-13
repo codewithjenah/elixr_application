@@ -4,7 +4,12 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 
-/// The shared primary action. Normal themes render a real [shad.ShadButton].
+/// Standard action treatments. Use a semantic treatment instead of supplying
+/// ad-hoc button colours from a feature screen.
+enum ElixButtonVariant { primary, secondary, outline, ghost, destructive }
+
+/// The shared ELIXR action control. Normal themes render a Shadcn primitive;
+/// high contrast retains Fluent's system-native focus and contrast behavior.
 class ElixPrimaryButton extends StatelessWidget {
   const ElixPrimaryButton({
     super.key,
@@ -15,6 +20,7 @@ class ElixPrimaryButton extends StatelessWidget {
     this.expanded = true,
     this.dense = false,
     this.padding,
+    this.variant = ElixButtonVariant.primary,
   });
   final String label;
   final VoidCallback? onPressed;
@@ -23,6 +29,7 @@ class ElixPrimaryButton extends StatelessWidget {
   final bool expanded;
   final bool dense;
   final EdgeInsetsGeometry? padding;
+  final ElixButtonVariant variant;
 
   @override
   Widget build(BuildContext context) {
@@ -50,27 +57,51 @@ class ElixPrimaryButton extends StatelessWidget {
         );
     Widget button;
     if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
-      button = FilledButton(
-        onPressed: disabled ? null : onPressed,
-        style: ButtonStyle(padding: WidgetStatePropertyAll(effectivePadding)),
-        child: isLoading
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  loadingIndicator,
-                  const SizedBox(width: AppSpacing.sm),
-                  Flexible(child: labelChild),
-                ],
-              )
-            : labelChild,
-      );
+      final style = switch (variant) {
+        ElixButtonVariant.primary => ButtonStyle(
+          padding: WidgetStatePropertyAll(effectivePadding),
+        ),
+        ElixButtonVariant.destructive => ButtonStyle(
+          backgroundColor: WidgetStatePropertyAll(context.elixColors.error),
+          foregroundColor: WidgetStatePropertyAll(context.elixColors.onBrand),
+          padding: WidgetStatePropertyAll(effectivePadding),
+        ),
+        _ => ButtonStyle(padding: WidgetStatePropertyAll(effectivePadding)),
+      };
+      button = variant == ElixButtonVariant.outline
+          ? Button(
+              onPressed: disabled ? null : onPressed,
+              style: style,
+              child: isLoading ? loadingIndicator : labelChild,
+            )
+          : FilledButton(
+              onPressed: disabled ? null : onPressed,
+              style: style,
+              child: isLoading
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        loadingIndicator,
+                        const SizedBox(width: AppSpacing.sm),
+                        Flexible(child: labelChild),
+                      ],
+                    )
+                  : labelChild,
+            );
     } else {
       final resolvedPadding = effectivePadding.resolve(
         Directionality.of(context),
       );
       final scaledLineHeight = MediaQuery.textScalerOf(context).scale(20);
-      button = shad.ShadButton(
+      button = shad.ShadButton.raw(
         key: const ValueKey('elix-primary-shad-button'),
+        variant: switch (variant) {
+          ElixButtonVariant.primary => shad.ShadButtonVariant.primary,
+          ElixButtonVariant.secondary => shad.ShadButtonVariant.secondary,
+          ElixButtonVariant.outline => shad.ShadButtonVariant.outline,
+          ElixButtonVariant.ghost => shad.ShadButtonVariant.ghost,
+          ElixButtonVariant.destructive => shad.ShadButtonVariant.destructive,
+        },
         onPressed: disabled ? null : onPressed,
         enabled: !disabled,
         expands: expanded,

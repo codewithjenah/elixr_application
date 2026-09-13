@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import 'elix_panel_card.dart';
+import 'elix_primary_button.dart';
 
 /// Shared loading / empty / error copy on an [ElixPanelCard] surface.
 class ElixStatusPanel extends StatelessWidget {
@@ -66,7 +67,14 @@ class ElixStatusPanel extends StatelessWidget {
             ),
             if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: AppSpacing.md),
-              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+              ElixPrimaryButton(
+                label: actionLabel!,
+                onPressed: onAction,
+                expanded: false,
+                variant: isError
+                    ? ElixButtonVariant.outline
+                    : ElixButtonVariant.primary,
+              ),
             ],
           ],
         ),
