@@ -975,12 +975,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                       child: SelectableText(
                         _requiredPhrase,
                         key: const ValueKey('delete-required-phrase'),
-                        style: AppTheme.body.copyWith(
+                        style: AppTheme.technical(
                           color: context.elixTextPrimary,
-                          fontFamily: 'Consolas',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.15,
                         ),
                       ),
                     ),
@@ -1021,11 +1017,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             placeholder: 'Type the phrase shown above',
             autocorrect: false,
             enableSuggestions: false,
-            style: AppTheme.body.copyWith(
-              fontFamily: 'Consolas',
-              fontSize: 14,
-              letterSpacing: 0.15,
-            ),
+            style: AppTheme.technical(),
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
               vertical: 11,

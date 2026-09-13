@@ -86,7 +86,7 @@ void main() {
     expect(editorial.variant, ElixEditorialHeaderVariant.compact);
 
     final title = tester.widget<Text>(find.text('Messages'));
-    expect(title.style!.fontSize, 24);
+    expect(title.style!.fontSize, 18);
     expect(title.style!.fontFamily, ElixTypography.fontFamily);
     expect(title.style!.fontFamily, isNot(AppTheme.brandFontFamily));
     expect(find.text('Find a Teacher or Trainee'), findsOneWidget);
@@ -98,7 +98,7 @@ void main() {
     );
   });
 
-  testWidgets('messages pane compact breakpoint uses 22px title', (
+  testWidgets('messages pane compact breakpoint uses 16px title', (
     tester,
   ) async {
     final auth = phase3TeacherAuth();
@@ -121,7 +121,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(tester.widget<Text>(find.text('Messages')).style!.fontSize, 22);
+    expect(tester.widget<Text>(find.text('Messages')).style!.fontSize, 16);
   });
 
   testWidgets('profile header uses compact editorial name', (tester) async {
@@ -146,14 +146,14 @@ void main() {
     expect(editorial.variant, ElixEditorialHeaderVariant.compact);
 
     final name = tester.widget<Text>(find.text('Ada Lovelace'));
-    expect(name.style!.fontSize, 24);
+    expect(name.style!.fontSize, 18);
     expect(name.style!.fontFamily, ElixTypography.fontFamily);
     expect(find.text('Edit Profile'), findsOneWidget);
     expect(find.text('Preview as Visitor'), findsOneWidget);
     expect(find.text('Privacy'), findsOneWidget);
   });
 
-  testWidgets('profile header compact breakpoint uses 22px name', (
+  testWidgets('profile header compact breakpoint uses 16px name', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 640));
@@ -165,7 +165,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(tester.widget<Text>(find.text('Ada Lovelace')).style!.fontSize, 22);
+    expect(tester.widget<Text>(find.text('Ada Lovelace')).style!.fontSize, 16);
   });
 
   testWidgets('profile rank 1 and best score use milestone gold', (
@@ -211,7 +211,7 @@ void main() {
       final title = tester.widget<Text>(
         find.text(ElixrLegalDocuments.privacyPolicyTitle),
       );
-      expect(title.style!.fontSize, 36);
+      expect(title.style!.fontSize, 24);
       expect(title.style!.fontFamily, ElixTypography.fontFamily);
       expect(title.style!.fontFamily, isNot(AppTheme.brandFontFamily));
       expect(title.maxLines, 3);
@@ -226,7 +226,7 @@ void main() {
     },
   );
 
-  testWidgets('privacy policy compact breakpoint uses 30px document title', (
+  testWidgets('privacy policy compact breakpoint uses 22px document title', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 900));
@@ -240,7 +240,7 @@ void main() {
           .widget<Text>(find.text(ElixrLegalDocuments.privacyPolicyTitle))
           .style!
           .fontSize,
-      30,
+      22,
     );
     expect(
       tester
@@ -327,7 +327,7 @@ void settingsChromeTests() {
     expect(settingsHeaders.first.variant, ElixEditorialHeaderVariant.compact);
 
     final title = tester.widget<Text>(find.text('Settings'));
-    expect(title.style!.fontSize, 24);
+    expect(title.style!.fontSize, 18);
     expect(title.style!.fontFamily, ElixTypography.fontFamily);
     expect(find.text('Manage your Elixr experience'), findsOneWidget);
     expect(find.text('Dark mode'), findsOneWidget);

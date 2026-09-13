@@ -37,10 +37,7 @@ class ElixPrimaryButton extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTheme.body.copyWith(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
+            style: AppTheme.action(),
           );
     final effectivePadding =
         padding ??
@@ -63,7 +60,7 @@ class ElixPrimaryButton extends StatelessWidget {
         expands: expanded,
         padding: effectivePadding,
         leading: icon == null ? null : Icon(icon, size: 16),
-        child: child,
+        child: expanded || isLoading ? child : Flexible(child: child),
       );
     }
     if (expanded && context.isHighContrast) {

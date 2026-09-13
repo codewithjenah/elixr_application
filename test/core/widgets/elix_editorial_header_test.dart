@@ -75,18 +75,18 @@ void main() {
       return heading.textSpan!.style!;
     }
 
-    expect((await headingStyle(ElixEditorialHeaderVariant.hero)).fontSize, 52);
+    expect((await headingStyle(ElixEditorialHeaderVariant.hero)).fontSize, 32);
     expect(
       (await headingStyle(ElixEditorialHeaderVariant.standard)).fontSize,
-      36,
-    );
-    expect(
-      (await headingStyle(ElixEditorialHeaderVariant.compact)).fontSize,
       24,
     );
     expect(
+      (await headingStyle(ElixEditorialHeaderVariant.compact)).fontSize,
+      18,
+    );
+    expect(
       (await headingStyle(ElixEditorialHeaderVariant.document)).fontSize,
-      36,
+      24,
     );
 
     await tester.pumpWidget(

@@ -13,7 +13,7 @@ void main() {
     expect(theme.colorScheme.primary, ElixSemanticColors.light.brandPrimary);
     expect(theme.colorScheme.card, ElixSemanticColors.light.surfaceRaised);
     expect(theme.colorScheme.ring, ElixSemanticColors.light.focusRing);
-    expect(theme.textTheme.family, 'Manrope');
+    expect(theme.textTheme.family, 'Geist Sans');
   });
 
   test('maps ELIXR high-contrast colors without changing brightness', () {

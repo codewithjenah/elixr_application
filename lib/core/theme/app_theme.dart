@@ -192,33 +192,40 @@ abstract final class AppTheme {
           fontFamily: ElixTypography.fontFamily,
           fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textPrimary,
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
+          fontSize: 24,
+          height: 30 / 24,
+          fontWeight: FontWeight.w600,
         ),
         subtitle: TextStyle(
           fontFamily: ElixTypography.fontFamily,
           fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textPrimary,
-          fontSize: 20,
+          fontSize: 18,
+          height: 24 / 18,
           fontWeight: FontWeight.w600,
         ),
         body: TextStyle(
           fontFamily: ElixTypography.fontFamily,
           fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textPrimary,
-          fontSize: 16,
+          fontSize: 15,
+          height: 22 / 15,
+          fontWeight: FontWeight.w400,
         ),
         bodyLarge: TextStyle(
           fontFamily: ElixTypography.fontFamily,
           fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textSecondary,
           fontSize: 14,
+          height: 20 / 14,
+          fontWeight: FontWeight.w400,
         ),
         bodyStrong: TextStyle(
           fontFamily: ElixTypography.fontFamily,
           fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textPrimary,
-          fontSize: 16,
+          fontSize: 15,
+          height: 22 / 15,
           fontWeight: FontWeight.w600,
         ),
         caption: TextStyle(
@@ -226,6 +233,8 @@ abstract final class AppTheme {
           fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textSecondary,
           fontSize: 12,
+          height: 16 / 12,
+          fontWeight: FontWeight.w400,
         ),
       ),
     );
@@ -345,6 +354,7 @@ abstract final class AppTheme {
 
     return ButtonThemeData(
       defaultButtonStyle: ButtonStyle(
+        textStyle: WidgetStatePropertyAll(ElixTypography.action()),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) {
             return colors.disabledSurface;
@@ -365,6 +375,7 @@ abstract final class AppTheme {
         shape: WidgetStateProperty.resolveWith(shapeFor),
       ),
       filledButtonStyle: ButtonStyle(
+        textStyle: WidgetStatePropertyAll(ElixTypography.action()),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) {
             return colors.disabledSurface;
@@ -555,33 +566,23 @@ abstract final class AppTheme {
     fontFamily: ElixTypography.fontFamily,
     fontFamilyFallback: ElixTypography.fontFallbacks,
     fontSize: 28,
-    fontWeight: FontWeight.bold,
+    height: 32 / 28,
+    fontWeight: FontWeight.w600,
   );
 
   static TextStyle get headingMedium => const TextStyle(
     fontFamily: ElixTypography.fontFamily,
     fontFamilyFallback: ElixTypography.fontFallbacks,
-    fontSize: 20,
+    fontSize: 18,
+    height: 24 / 18,
     fontWeight: FontWeight.w600,
   );
 
-  static TextStyle get body => const TextStyle(
-    fontFamily: ElixTypography.fontFamily,
-    fontFamilyFallback: ElixTypography.fontFallbacks,
-    fontSize: 16,
-  );
+  static TextStyle get body => ElixTypography.body();
 
-  static TextStyle get bodySecondary => const TextStyle(
-    fontFamily: ElixTypography.fontFamily,
-    fontFamilyFallback: ElixTypography.fontFallbacks,
-    fontSize: 14,
-  );
+  static TextStyle get bodySecondary => ElixTypography.supporting();
 
-  static TextStyle get caption => const TextStyle(
-    fontFamily: ElixTypography.fontFamily,
-    fontFamilyFallback: ElixTypography.fontFallbacks,
-    fontSize: 12,
-  );
+  static TextStyle get caption => ElixTypography.caption();
 
   static TextStyle displayHero(BuildContext context, {Color? color}) =>
       ElixTypography.displayHero(context, color: color);
@@ -605,6 +606,15 @@ abstract final class AppTheme {
       ElixTypography.metric(context, color: color);
 
   static TextStyle label({Color? color}) => ElixTypography.label(color: color);
+
+  static TextStyle action({Color? color}) =>
+      ElixTypography.action(color: color);
+
+  static TextStyle compactMetric({Color? color}) =>
+      ElixTypography.compactMetric(color: color);
+
+  static TextStyle technical({Color? color}) =>
+      ElixTypography.technical(color: color);
 
   /// Subtle ambient wash used behind every primary ELIXR page.
   static BoxDecoration ambientPageBackground(BuildContext context) {

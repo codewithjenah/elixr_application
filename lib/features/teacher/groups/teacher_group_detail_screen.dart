@@ -2155,11 +2155,8 @@ Future<void> _confirmPermanentlyDeleteAssignment(
                               Expanded(
                                 child: SelectableText(
                                   'DELETE ASSIGNMENT',
-                                  style: AppTheme.body.copyWith(
+                                  style: AppTheme.technical(
                                     color: context.elixTextPrimary,
-                                    fontFamily: 'Consolas',
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.4,
                                   ),
                                 ),
                               ),

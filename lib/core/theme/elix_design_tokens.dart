@@ -326,9 +326,11 @@ abstract final class ElixToneCues {
 /// ELIXR's semantic type scale. It is intentionally separate from Fluent's
 /// typography slots so later screen migration can be incremental.
 abstract final class ElixTypography {
-  static const fontFamily = 'Manrope';
+  static const fontFamily = 'Geist Sans';
+  static const monoFontFamily = 'Geist Mono';
   static const wordmarkFamily = 'Bahnschrift';
   static const fontFallbacks = ['Segoe UI Variable Text', 'Segoe UI'];
+  static const monoFontFallbacks = ['Cascadia Mono', 'Consolas'];
   static const wordmarkFallbacks = ['Segoe UI Variable Display', 'Segoe UI'];
   static const compactBreakpoint = 900.0;
 
@@ -336,39 +338,38 @@ abstract final class ElixTypography {
       MediaQuery.sizeOf(context).width < compactBreakpoint;
 
   static TextStyle displayHero(BuildContext context, {Color? color}) => _style(
-    fontSize: isCompact(context) ? 40 : 52,
-    lineHeight: isCompact(context) ? 43 : 53,
-    fontWeight: FontWeight.w800,
-    letterSpacing: isCompact(context) ? -0.7 : -1.2,
+    fontSize: isCompact(context) ? 28 : 32,
+    lineHeight: isCompact(context) ? 32 : 36,
+    fontWeight: FontWeight.w600,
+    letterSpacing: isCompact(context) ? -0.2 : -0.4,
     color: color,
   );
 
   static TextStyle pageTitle(BuildContext context, {Color? color}) => _style(
-    fontSize: isCompact(context) ? 30 : 36,
-    lineHeight: isCompact(context) ? 34 : 40,
-    fontWeight: FontWeight.w800,
-    letterSpacing: isCompact(context) ? -0.3 : -0.6,
-    color: color,
-  );
-
-  static TextStyle sectionTitle(BuildContext context, {Color? color}) => _style(
     fontSize: isCompact(context) ? 22 : 24,
-    lineHeight: isCompact(context) ? 27 : 29,
-    fontWeight: FontWeight.w700,
+    lineHeight: isCompact(context) ? 28 : 30,
+    fontWeight: FontWeight.w600,
     letterSpacing: -0.2,
     color: color,
   );
 
+  static TextStyle sectionTitle(BuildContext context, {Color? color}) => _style(
+    fontSize: isCompact(context) ? 16 : 18,
+    lineHeight: isCompact(context) ? 22 : 24,
+    fontWeight: FontWeight.w600,
+    color: color,
+  );
+
   static TextStyle cardTitle({Color? color}) => _style(
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: FontWeight.w700,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: FontWeight.w600,
     color: color,
   );
 
   static TextStyle body({Color? color}) => _style(
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 22,
     fontWeight: FontWeight.w400,
     color: color,
   );
@@ -382,26 +383,56 @@ abstract final class ElixTypography {
 
   static TextStyle eyebrow({Color? color}) => _style(
     fontSize: 12,
-    lineHeight: 15,
-    fontWeight: FontWeight.w700,
-    letterSpacing: 1.4,
+    lineHeight: 16,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 1.2,
     color: color,
   );
 
   static TextStyle metric(BuildContext context, {Color? color}) => _style(
-    fontSize: isCompact(context) ? 36 : 44,
-    lineHeight: isCompact(context) ? 38 : 44,
-    fontWeight: FontWeight.w800,
-    letterSpacing: -0.5,
+    fontSize: isCompact(context) ? 24 : 32,
+    lineHeight: isCompact(context) ? 28 : 36,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.3,
     color: color,
   );
 
   static TextStyle label({Color? color}) => _style(
     fontSize: 13,
-    lineHeight: 17,
+    lineHeight: 18,
+    fontWeight: FontWeight.w500,
+    color: color,
+  );
+
+  static TextStyle action({Color? color}) => _style(
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: FontWeight.w600,
     color: color,
   );
+
+  static TextStyle caption({Color? color}) => _style(
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: FontWeight.w400,
+    color: color,
+  );
+
+  static TextStyle compactMetric({Color? color}) => _style(
+    fontSize: 20,
+    lineHeight: 22,
+    fontWeight: FontWeight.w600,
+    color: color,
+  );
+
+  static TextStyle technical({Color? color}) => const TextStyle(
+    fontFamily: monoFontFamily,
+    fontFamilyFallback: monoFontFallbacks,
+    fontSize: 14,
+    height: 20 / 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0.1,
+  ).copyWith(color: color);
 
   static TextStyle _style({
     required double fontSize,

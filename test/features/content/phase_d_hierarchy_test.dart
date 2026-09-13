@@ -156,9 +156,11 @@ Widget _app(
     ],
     child: FluentApp(
       theme: theme ?? AppTheme.dark,
-      home: MediaQuery(
-        data: MediaQueryData(size: size),
-        child: ScaffoldPage(content: child),
+      home: ElixShadThemeBridge(
+        child: MediaQuery(
+          data: MediaQueryData(size: size),
+          child: ScaffoldPage(content: child),
+        ),
       ),
     ),
   );
@@ -200,7 +202,7 @@ LeaderboardEntry _entry({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('learning hero uses Manrope page title, not Bahnschrift', (
+  testWidgets('learning hero uses Geist Sans page title, not Bahnschrift', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -213,7 +215,7 @@ void main() {
     expect(find.byType(ElixEyebrow), findsWidgets);
 
     final heading = tester.widget<Text>(find.text('Help & Tutorials'));
-    expect(heading.style!.fontSize, 36);
+    expect(heading.style!.fontSize, 24);
     expect(heading.style!.fontFamily, isNot(AppTheme.brandFontFamily));
     expect(heading.style!.fontFamily, ElixTypography.fontFamily);
 
@@ -233,10 +235,10 @@ void main() {
           )
           .first,
     );
-    expect(metric.style!.fontSize, 44);
+    expect(metric.style!.fontSize, 32);
   });
 
-  testWidgets('learning hero uses compact 30px title under 900px', (
+  testWidgets('learning hero uses compact 22px title under 900px', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 800));
@@ -246,7 +248,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final heading = tester.widget<Text>(find.text('Help & Tutorials'));
-    expect(heading.style!.fontSize, 30);
+    expect(heading.style!.fontSize, 22);
   });
 
   testWidgets('high contrast learning hero drops icon gradient and glow', (
@@ -284,11 +286,11 @@ void main() {
     expect(find.text('MOVEMENT LESSON'), findsOneWidget);
     expect(find.byType(ElixEyebrow), findsWidgets);
     final heading = tester.widget<Text>(find.text('Claw Grip'));
-    expect(heading.style!.fontSize, 24);
+    expect(heading.style!.fontSize, 18);
     expect(find.text('Back to tutorials'), findsOneWidget);
   });
 
-  testWidgets('assigned movements list uses standard editorial title', (
+  testWidgets('assigned movements list uses compact editorial title', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -311,13 +313,13 @@ void main() {
     expect(find.text('Assigned Movements'), findsOneWidget);
     expect(
       find.text(
-        'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.',
+        'Classroom work from your approved groups, split into Official ELIXR and Teacher-created.',
       ),
       findsOneWidget,
     );
     expect(find.byType(ElixEditorialHeader), findsOneWidget);
     final heading = tester.widget<Text>(find.text('Assigned Movements'));
-    expect(heading.style!.fontSize, 36);
+    expect(heading.style!.fontSize, 18);
   });
 
   testWidgets('assignment detail uses compact editorial title', (tester) async {
@@ -366,7 +368,7 @@ void main() {
     expect(find.text('Grace Hopper'), findsOneWidget);
     expect(find.text('BSHM 4A'), findsOneWidget);
     final heading = tester.widget<Text>(find.text('Hand Stall').first);
-    expect(heading.style!.fontSize, 24);
+    expect(heading.style!.fontSize, 18);
   });
 
   testWidgets(
@@ -427,7 +429,7 @@ void main() {
     );
 
     final practiced = tester.widget<Text>(find.text('4 / 10'));
-    expect(practiced.style!.fontSize, 44);
+    expect(practiced.style!.fontSize, 32);
   });
 
   testWidgets(
@@ -533,7 +535,7 @@ void main() {
     expect(rank.style!.color, isNot(AppColors.warning));
 
     final xp = tester.widget<Text>(find.text('300 XP'));
-    expect(xp.style!.fontSize, 44);
+    expect(xp.style!.fontSize, 32);
     expect(xp.style!.color, ElixSemanticColors.dark.milestone);
   });
 
@@ -557,10 +559,10 @@ void main() {
 
     expect(find.byType(ElixStatCard), findsWidgets);
     final best = tester.widget<Text>(find.text('11 / 12'));
-    expect(best.style!.fontSize, 44);
+    expect(best.style!.fontSize, 32);
     expect(best.style!.color, ElixSemanticColors.dark.milestone);
     final sessions = tester.widget<Text>(find.text('12'));
-    expect(sessions.style!.fontSize, 44);
+    expect(sessions.style!.fontSize, 32);
     expect(find.text('Overall Performance'), findsOneWidget);
     expect(find.text('Most Practiced'), findsOneWidget);
   });
@@ -616,6 +618,6 @@ void main() {
     );
     expect(header.variant, ElixEditorialHeaderVariant.compact);
     final heading = tester.widget<Text>(find.text('Student'));
-    expect(heading.style!.fontSize, 24);
+    expect(heading.style!.fontSize, 18);
   });
 }

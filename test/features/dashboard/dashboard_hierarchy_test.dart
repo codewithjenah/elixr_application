@@ -629,7 +629,7 @@ void main() {
       ),
     );
     final style = sessions.style ?? sessions.textSpan!.style!;
-    expect(style.fontSize, 44);
+    expect(style.fontSize, 32);
   });
 
   testWidgets('training overview shows neutral copy for unavailable growth', (
@@ -755,7 +755,7 @@ void main() {
       ),
     );
     final span = record.text as TextSpan;
-    expect(span.style!.fontSize, 44);
+    expect(span.style!.fontSize, 32);
     expect(span.style!.color, ElixSemanticColors.dark.milestone);
   });
 
@@ -784,7 +784,7 @@ void main() {
     expect(find.byKey(ElixEyebrow.ruleKey), findsOneWidget);
     expect(find.text('Teacher command center'), findsNothing);
     final heading = tester.widget<Text>(find.text('Dashboard'));
-    expect(heading.style!.fontSize, lessThan(52));
+    expect(heading.style!.fontSize, lessThanOrEqualTo(32));
   });
 
   testWidgets(

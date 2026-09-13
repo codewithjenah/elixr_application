@@ -496,17 +496,19 @@ void main() {
   testWidgets('metric cards use the large metric type scale', (tester) async {
     await tester.pumpWidget(
       host(
-        const ElixStatCard(
-          label: 'Sessions',
-          value: '12',
-          icon: FluentIcons.history,
+        const ElixShadThemeBridge(
+          child: ElixStatCard(
+            label: 'Sessions',
+            value: '12',
+            icon: FluentIcons.history,
+          ),
         ),
       ),
     );
 
     final value = tester.widget<Text>(find.text('12'));
-    expect(value.style?.fontSize, 44);
-    expect(value.style?.fontWeight, FontWeight.w800);
+    expect(value.style?.fontSize, 32);
+    expect(value.style?.fontWeight, FontWeight.w600);
   });
 
   testWidgets('summary stat cards use compact type and accent wash', (
@@ -514,19 +516,21 @@ void main() {
   ) async {
     await tester.pumpWidget(
       host(
-        const ElixSummaryStatCard(
-          label: 'Planned Days',
-          value: '4',
-          detail: 'Training days this month',
-          icon: FluentIcons.calendar,
-          accent: Color(0xFF7C5CFF),
+        const ElixShadThemeBridge(
+          child: ElixSummaryStatCard(
+            label: 'Planned Days',
+            value: '4',
+            detail: 'Training days this month',
+            icon: FluentIcons.calendar,
+            accent: Color(0xFF7C5CFF),
+          ),
         ),
       ),
     );
 
     final value = tester.widget<Text>(find.text('4'));
     expect(value.style?.fontSize, 20);
-    expect(value.style?.fontWeight, FontWeight.w800);
+    expect(value.style?.fontWeight, FontWeight.w600);
     expect(find.text('Training days this month'), findsOneWidget);
 
     final chrome = tester.widget<AnimatedContainer>(

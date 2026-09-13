@@ -60,7 +60,7 @@ void main() {
       expect(editorial.headingColor, AppColors.textPrimary);
 
       final title = tester.widget<Text>(find.text('Hand Stall'));
-      expect(title.style!.fontSize, 24);
+      expect(title.style!.fontSize, 18);
       expect(title.style!.fontFamily, ElixTypography.fontFamily);
       expect(title.style!.fontFamily, isNot(AppTheme.brandFontFamily));
       expect(title.style!.color, AppColors.textPrimary);
@@ -73,7 +73,7 @@ void main() {
     },
   );
 
-  testWidgets('practice session header compact breakpoint uses 22px title', (
+  testWidgets('practice session header compact breakpoint uses 16px title', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 640));
@@ -81,7 +81,7 @@ void main() {
     await tester.pump();
 
     final title = tester.widget<Text>(find.text('Hand Stall'));
-    expect(title.style!.fontSize, 22);
+    expect(title.style!.fontSize, 16);
     expect(
       find.text('Balance the bottle on your palm and hold it steady.'),
       findsOneWidget,
@@ -104,11 +104,11 @@ void main() {
 
     expect(find.text('ELAPSED'), findsOneWidget);
     final elapsed = tester.widget<Text>(find.text('00:42'));
-    expect(elapsed.style!.fontSize, 24);
+    expect(elapsed.style!.fontSize, 18);
     expect(elapsed.style!.fontFamily, ElixTypography.fontFamily);
   });
 
-  testWidgets('guided session elapsed metric compact breakpoint uses 22px', (
+  testWidgets('guided session elapsed metric compact breakpoint uses 16px', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 640));
@@ -123,7 +123,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(tester.widget<Text>(find.text('00:42')).style!.fontSize, 22);
+    expect(tester.widget<Text>(find.text('00:42')).style!.fontSize, 16);
   });
 
   testWidgets('mastered rank badge uses milestone gold', (tester) async {
@@ -175,12 +175,12 @@ void main() {
 
     expect(find.text('ELAPSED'), findsOneWidget);
     final elapsed = tester.widget<Text>(find.text('01:05'));
-    expect(elapsed.style!.fontSize, 44);
+    expect(elapsed.style!.fontSize, 32);
     expect(elapsed.style!.fontFamily, ElixTypography.fontFamily);
     expect(elapsed.style!.fontFamily, isNot(AppTheme.brandFontFamily));
   });
 
-  testWidgets('live practice elapsed readout compact breakpoint uses 36px', (
+  testWidgets('live practice elapsed readout compact breakpoint uses 24px', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 640));
@@ -192,6 +192,6 @@ void main() {
     );
     await tester.pump();
 
-    expect(tester.widget<Text>(find.text('01:05')).style!.fontSize, 36);
+    expect(tester.widget<Text>(find.text('01:05')).style!.fontSize, 24);
   });
 }

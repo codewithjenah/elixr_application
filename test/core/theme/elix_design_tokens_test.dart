@@ -168,24 +168,25 @@ void main() {
     }
 
     final desktop = await stylesFor(900);
-    expect(desktop.$1.fontFamily, 'Manrope');
+    expect(desktop.$1.fontFamily, 'Geist Sans');
     expect(desktop.$1.fontFamilyFallback, [
       'Segoe UI Variable Text',
       'Segoe UI',
     ]);
-    expect(desktop.$1.fontSize, 52);
-    expect(desktop.$1.height, closeTo(53 / 52, 0.0001));
-    expect(desktop.$1.fontWeight, FontWeight.w800);
-    expect(desktop.$1.letterSpacing, -1.2);
-    expect(desktop.$2.fontSize, 44);
-    expect(desktop.$2.letterSpacing, -0.5);
+    expect(desktop.$1.fontSize, 32);
+    expect(desktop.$1.height, closeTo(36 / 32, 0.0001));
+    expect(desktop.$1.fontWeight, FontWeight.w600);
+    expect(desktop.$1.letterSpacing, -0.4);
+    expect(desktop.$2.fontSize, 32);
+    expect(desktop.$2.fontWeight, FontWeight.w600);
+    expect(desktop.$2.letterSpacing, -0.3);
 
     final compact = await stylesFor(899);
-    expect(compact.$1.fontSize, 40);
-    expect(compact.$1.height, closeTo(43 / 40, 0.0001));
-    expect(compact.$1.letterSpacing, -0.7);
-    expect(compact.$2.fontSize, 36);
-    expect(ElixTypography.eyebrow().letterSpacing, 1.4);
+    expect(compact.$1.fontSize, 28);
+    expect(compact.$1.height, closeTo(32 / 28, 0.0001));
+    expect(compact.$1.letterSpacing, -0.2);
+    expect(compact.$2.fontSize, 24);
+    expect(ElixTypography.eyebrow().letterSpacing, 1.2);
   });
 
   test('milestone is warm gold, not a second brand colour', () {
@@ -204,12 +205,43 @@ void main() {
     }
   });
 
-  test('wordmark family stays Bahnschrift and UI family stays Manrope', () {
-    expect(ElixTypography.fontFamily, 'Manrope');
+  test('wordmark stays Bahnschrift while UI and technical faces use Geist', () {
+    expect(ElixTypography.fontFamily, 'Geist Sans');
+    expect(ElixTypography.monoFontFamily, 'Geist Mono');
     expect(ElixTypography.wordmarkFamily, 'Bahnschrift');
     expect(AppTheme.brandFontFamily, ElixTypography.wordmarkFamily);
     expect(AppTheme.brandTitle().fontFamily, 'Bahnschrift');
-    expect(ElixTypography.body().fontFamily, 'Manrope');
+    expect(ElixTypography.body().fontFamily, 'Geist Sans');
+    expect(ElixTypography.technical().fontFamily, 'Geist Mono');
+  });
+
+  test('semantic roles use the modern UI hierarchy', () {
+    expect(ElixTypography.cardTitle().fontWeight, FontWeight.w600);
+    expect(ElixTypography.body().fontSize, 15);
+    expect(ElixTypography.body().fontWeight, FontWeight.w400);
+    expect(ElixTypography.supporting().fontSize, 14);
+    expect(ElixTypography.action().fontSize, 14);
+    expect(ElixTypography.action().fontWeight, FontWeight.w600);
+    expect(ElixTypography.label().fontSize, 13);
+    expect(ElixTypography.label().fontWeight, FontWeight.w500);
+    expect(ElixTypography.caption().fontSize, 12);
+    expect(ElixTypography.caption().fontWeight, FontWeight.w400);
+    expect(ElixTypography.compactMetric().fontWeight, FontWeight.w600);
+  });
+
+  test('all Fluent appearance modes keep the Geist Sans hierarchy', () {
+    for (final theme in [
+      AppTheme.light,
+      AppTheme.dark,
+      AppTheme.highContrastLight,
+      AppTheme.highContrastDark,
+    ]) {
+      expect(theme.typography.body?.fontFamily, 'Geist Sans');
+      expect(theme.typography.body?.fontSize, 15);
+      expect(theme.typography.title?.fontFamily, 'Geist Sans');
+      expect(theme.typography.title?.fontSize, 24);
+      expect(theme.typography.title?.fontWeight, FontWeight.w600);
+    }
   });
 
   test('motion tokens match the Midnight Pour durations', () {
@@ -264,10 +296,10 @@ void main() {
       ),
     );
 
-    expect(title.fontSize, 36);
+    expect(title.fontSize, 24);
     final paragraph = tester.renderObject<RenderParagraph>(
       find.text('Progress'),
     );
-    expect(paragraph.textScaler.scale(36), closeTo(46.8, 0.001));
+    expect(paragraph.textScaler.scale(24), closeTo(31.2, 0.001));
   });
 }

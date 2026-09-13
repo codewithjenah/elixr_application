@@ -114,12 +114,7 @@ class _ElixSummaryStatCardState extends State<ElixSummaryStatCard> {
                   const SizedBox(height: 3),
                   Text(
                     widget.value,
-                    style: TextStyle(
-                      fontFamily: ElixTypography.fontFamily,
-                      fontFamilyFallback: ElixTypography.fontFallbacks,
-                      fontSize: 20,
-                      height: 1.1,
-                      fontWeight: FontWeight.w800,
+                    style: AppTheme.compactMetric(
                       color: context.elixTextPrimary,
                     ),
                     maxLines: 1,

@@ -256,7 +256,7 @@ void main() {
         ),
       );
       final brandSpan = brandHeading.textSpan! as TextSpan;
-      expect(brandSpan.style!.fontSize, 36);
+      expect(brandSpan.style!.fontSize, 24);
       expect(
         (brandSpan.children!.last as TextSpan).style!.color,
         ElixSemanticColors.dark.brandPrimary,
