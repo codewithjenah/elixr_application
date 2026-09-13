@@ -83,48 +83,48 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
       builder: (context, _) {
         return ElixShadThemeBridge(
           child: TeacherScaffoldPage(
-          header: const ElixEditorialPageHeader(
-            heading: 'Students',
-            eyebrow: 'TEACHER WORKSPACE',
-            subtitle: 'Review students in your active classes.',
-          ),
-          scrollable: false,
-          contentPadding: EdgeInsets.zero,
-          content: controller.loading
-              ? const Center(child: ProgressRing())
-              : controller.errorMessage != null
-              ? _ErrorState(
-                  message: controller.errorMessage!,
-                  onRetry: controller.retry,
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.lg,
-                        AppSpacing.lg,
-                        AppSpacing.lg,
-                        0,
-                      ),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: _Toolbar(
-                          controller: controller,
-                          searchController: _searchController,
+            header: const ElixEditorialPageHeader(
+              heading: 'Students',
+              eyebrow: 'TEACHER WORKSPACE',
+              subtitle: 'Review students in your active classes.',
+            ),
+            scrollable: false,
+            contentPadding: EdgeInsets.zero,
+            content: controller.loading
+                ? const Center(child: ProgressRing())
+                : controller.errorMessage != null
+                ? _ErrorState(
+                    message: controller.errorMessage!,
+                    onRetry: controller.retry,
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                          0,
+                        ),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: _Toolbar(
+                            controller: controller,
+                            searchController: _searchController,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    Expanded(
-                      child: controller.groups.isEmpty
-                          ? _EmptyStudents(controller: controller)
-                          : controller.visibleGroupRosters.isEmpty
-                          ? _EmptyStudents(controller: controller)
-                          : _GroupedStudentRoster(controller: controller),
-                    ),
-                  ],
-                ),
+                      const SizedBox(height: AppSpacing.lg),
+                      Expanded(
+                        child: controller.groups.isEmpty
+                            ? _EmptyStudents(controller: controller)
+                            : controller.visibleGroupRosters.isEmpty
+                            ? _EmptyStudents(controller: controller)
+                            : _GroupedStudentRoster(controller: controller),
+                      ),
+                    ],
+                  ),
           ),
         );
       },
@@ -175,14 +175,12 @@ class _Toolbar extends StatelessWidget {
               value == null
                   ? 'All classes'
                   : controller.groups
-                        .where((group) => group.id == value)
-                        .map((group) => group.name)
-                        .firstOrNull ??
-                    'All classes',
+                            .where((group) => group.id == value)
+                            .map((group) => group.name)
+                            .firstOrNull ??
+                        'All classes',
             ),
-            onChanged: (value) => controller.setGroupFilter(
-              value,
-            ),
+            onChanged: (value) => controller.setGroupFilter(value),
           ),
           shad.ShadSelect<TeacherStudentStatusFilter>(
             key: const Key('teacher_students_status_filter'),
@@ -208,14 +206,12 @@ class _Toolbar extends StatelessWidget {
             onChanged: (value) {
               if (value != null) controller.setStatusFilter(value);
             },
-            selectedOptionBuilder: (context, value) => Text(
-              switch (value) {
-                TeacherStudentStatusFilter.approved => 'Approved',
-                TeacherStudentStatusFilter.all => 'All statuses',
-                TeacherStudentStatusFilter.pending => 'Pending',
-                TeacherStudentStatusFilter.inactive => 'Removed / inactive',
-              },
-            ),
+            selectedOptionBuilder: (context, value) => Text(switch (value) {
+              TeacherStudentStatusFilter.approved => 'Approved',
+              TeacherStudentStatusFilter.all => 'All statuses',
+              TeacherStudentStatusFilter.pending => 'Pending',
+              TeacherStudentStatusFilter.inactive => 'Removed / inactive',
+            }),
           ),
         ],
       ),

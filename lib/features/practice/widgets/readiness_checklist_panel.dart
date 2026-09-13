@@ -135,21 +135,21 @@ class ReadinessChecklistPanel extends StatelessWidget {
           const Spacer(),
           if (stable)
             Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: AppColors.success.withValues(alpha: 0.45),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: AppColors.success.withValues(alpha: 0.45),
+                ),
               ),
-            ),
-            child: Text(
-              'Ready',
-              style: AppTheme.caption.copyWith(
-                color: AppColors.success,
-                fontWeight: FontWeight.w700,
+              child: Text(
+                'Ready',
+                style: AppTheme.caption.copyWith(
+                  color: AppColors.success,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
             ),
         ],
       ),
@@ -213,7 +213,10 @@ class _StaleWarning extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: 6,
+      ),
       decoration: BoxDecoration(
         color: AppColors.warning.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(6),

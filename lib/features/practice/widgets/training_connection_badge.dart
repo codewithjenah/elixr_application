@@ -51,7 +51,9 @@ class TrainingConnectionBadge extends StatelessWidget {
     return Semantics(
       label: 'Connection status: $label',
       child: AnimatedContainer(
-        duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 200),
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.sm + 2,
@@ -71,7 +73,9 @@ class TrainingConnectionBadge extends StatelessWidget {
           ),
         ),
         child: AnimatedSwitcher(
-          duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 180),
+          duration: reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
           child: Row(
             key: ValueKey<String>(label),
             mainAxisSize: MainAxisSize.min,

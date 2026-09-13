@@ -533,7 +533,7 @@ Future<void> _pumpTeacherPane(
   tester.view.physicalSize = size;
   await tester.pumpWidget(
     FluentApp(
-        theme: AppTheme.dark,
+      theme: AppTheme.dark,
       home: ScaffoldPage(
         content: ClassChallengesPane(
           repository: repository ?? _FakeClassChallengeRepository(),

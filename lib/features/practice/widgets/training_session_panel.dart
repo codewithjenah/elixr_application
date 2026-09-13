@@ -154,7 +154,9 @@ class TrainingSessionPanel extends StatelessWidget {
           key: const ValueKey('practice-session-panel'),
           decoration: BoxDecoration(
             color: context.elixCardSurface,
-            borderRadius: BorderRadius.circular(AppSpacing.practiceSurfaceRadius),
+            borderRadius: BorderRadius.circular(
+              AppSpacing.practiceSurfaceRadius,
+            ),
             border: Border.all(
               color: context.isHighContrast
                   ? context.elixBorder
@@ -174,9 +176,7 @@ class TrainingSessionPanel extends StatelessWidget {
               Container(
                 decoration: BoxDecoration(
                   color: context.elixCardSurface,
-                  border: Border(
-                    top: BorderSide(color: context.elixBorder),
-                  ),
+                  border: Border(top: BorderSide(color: context.elixBorder)),
                 ),
                 padding: const EdgeInsets.fromLTRB(14, AppSpacing.md, 14, 14),
                 child: actionArea,
@@ -287,7 +287,8 @@ class _TutorialAction extends StatelessWidget {
         Text('View Tutorial'),
       ],
     );
-    final button = context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+    final button =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
         ? Button(
             key: const ValueKey('view-tutorial-action'),
             onPressed: onPressed,
@@ -303,7 +304,10 @@ class _TutorialAction extends StatelessWidget {
       width: double.infinity,
       child: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
           ? Tooltip(message: tooltip, child: button)
-          : shad.ShadTooltip(builder: (context) => const Text(tooltip), child: button),
+          : shad.ShadTooltip(
+              builder: (context) => const Text(tooltip),
+              child: button,
+            ),
     );
   }
 }
