@@ -322,10 +322,10 @@ class _MovementCardState extends State<MovementCard>
                   final t = Curves.easeOutCubic.transform(
                     _interactionController.value,
                   );
-                  final lift = reduceMotion ? 0.0 : 7 * t;
-                  final scale = reduceMotion
-                      ? 1.0
-                      : (_pressed ? 0.992 : 1 + (0.015 * t));
+                  // Keep the catalog calm: hover confirms interactivity
+                  // without moving neighboring cards or adding a glow stack.
+                  final lift = reduceMotion ? 0.0 : 2 * t;
+                  final scale = _pressed && !reduceMotion ? 0.996 : 1.0;
                   final baseSurface = context.elixCardSurface;
                   final highContrastSurface = Color.alphaBlend(
                     _accent.withValues(alpha: isDark ? 0.20 : 0.14),
@@ -342,33 +342,27 @@ class _MovementCardState extends State<MovementCard>
                       ..translateByDouble(0, -lift, 0, 1)
                       ..scaleByDouble(scale, scale, scale, 1),
                     decoration: BoxDecoration(
-                      color: highContrast ? highContrastSurface : null,
+                      color: highContrast
+                          ? highContrastSurface
+                          : Color.alphaBlend(
+                              _accent.withValues(
+                                alpha: (isDark ? 0.07 : 0.035) * t,
+                              ),
+                              baseSurface,
+                            ),
                       gradient: highContrast
                           ? null
                           : LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
                               colors: [
-                                Color.alphaBlend(
-                                  _accent.withValues(
-                                    alpha: (isDark ? 0.18 : 0.11) + (0.04 * t),
-                                  ),
-                                  baseSurface,
+                                _accent.withValues(
+                                  alpha: isDark ? 0.055 : 0.03,
                                 ),
-                                Color.alphaBlend(
-                                  AppColors.accent.withValues(
-                                    alpha: isDark ? 0.08 : 0.045,
-                                  ),
-                                  baseSurface,
-                                ),
-                                Color.alphaBlend(
-                                  _accent.withValues(
-                                    alpha: isDark ? 0.10 : 0.06,
-                                  ),
-                                  baseSurface,
+                                _accent.withValues(
+                                  alpha: isDark ? 0.018 : 0.01,
                                 ),
                               ],
-                              stops: const [0, 0.55, 1],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
                       borderRadius: BorderRadius.circular(_kCardRadius),
                       border: Border.all(
@@ -379,27 +373,21 @@ class _MovementCardState extends State<MovementCard>
                             : Color.lerp(
                                 context.elixBorder,
                                 _accent,
-                                0.22 + (0.48 * t),
+                                0.18 + (0.20 * t),
                               )!,
                         width: highContrast || _focused ? 2 : 1,
                       ),
                       boxShadow: highContrast
                           ? const []
                           : [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF000000,
-                                ).withValues(alpha: isDark ? 0.42 : 0.12),
-                                blurRadius: 14 + (10 * t),
-                                offset: Offset(0, 7 + (4 * t)),
-                              ),
-                              BoxShadow(
-                                color: _accent.withValues(
-                                  alpha: (isDark ? 0.22 : 0.13) * t,
+                              if (t > 0)
+                                BoxShadow(
+                                  color: const Color(0xFF000000).withValues(
+                                    alpha: isDark ? 0.20 * t : 0.08 * t,
+                                  ),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
                                 ),
-                                blurRadius: 28,
-                                spreadRadius: -6,
-                              ),
                             ],
                     ),
                     child: ClipRRect(
@@ -509,6 +497,7 @@ class _MovementCardState extends State<MovementCard>
         children: [
           DecoratedBox(
             decoration: BoxDecoration(
+              gradient: null,
               color: highContrast
                   ? Color.alphaBlend(
                       _accent.withValues(
@@ -516,17 +505,8 @@ class _MovementCardState extends State<MovementCard>
                       ),
                       context.elixCardSurface,
                     )
-                  : null,
-              gradient: highContrast
-                  ? null
-                  : LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        _accent.withValues(alpha: 0.44),
-                        AppColors.accent.withValues(alpha: 0.16),
-                        _accent.withValues(alpha: 0.08),
-                      ],
+                  : _accent.withValues(
+                      alpha: context.isDarkTheme ? 0.14 : 0.08,
                     ),
               border: Border(
                 bottom: BorderSide(color: _accent.withValues(alpha: 0.18)),
@@ -573,25 +553,6 @@ class _MovementCardState extends State<MovementCard>
                       ),
                     ),
                   ],
-                ),
-              ),
-            ),
-          if (!highContrast && !reduceMotion)
-            IgnorePointer(
-              child: Opacity(
-                opacity: interactionValue * 0.28,
-                child: Transform.translate(
-                  offset: Offset(150 * (interactionValue - 0.5), 0),
-                  child: Transform.rotate(
-                    angle: -0.32,
-                    child: Align(
-                      alignment: Alignment.center,
-                      child: Container(
-                        width: 42,
-                        color: Colors.white.withValues(alpha: 0.28),
-                      ),
-                    ),
-                  ),
                 ),
               ),
             ),
@@ -903,14 +864,7 @@ class _StatusBadge extends StatelessWidget {
         ),
       ),
     );
-    if (context.isHighContrast) return badge;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-        child: badge,
-      ),
-    );
+    return badge;
   }
 }
 
@@ -984,14 +938,14 @@ class _ActionButton extends StatelessWidget {
       constraints: fullWidth ? null : const BoxConstraints(minWidth: 120),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
+        gradient: null,
         color: !enabled
             ? context.elixBorder.withValues(alpha: highContrast ? 1 : 0.35)
+            : active && !highContrast
+            ? accent.withValues(alpha: context.isDarkTheme ? 0.20 : 0.12)
             : highContrast
             ? context.elixCardSurface
-            : null,
-        gradient: enabled && active && !highContrast
-            ? LinearGradient(colors: [accent, AppColors.accent])
-            : null,
+            : context.elixCardSurface,
         borderRadius: BorderRadius.circular(11),
         border: Border.all(
           color: enabled ? accent : context.elixBorder,
@@ -1009,9 +963,7 @@ class _ActionButton extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: enabled
-                    ? (active && !highContrast
-                          ? Colors.white
-                          : context.elixTextPrimary)
+                    ? context.elixTextPrimary
                     : context.elixTextSecondary,
               ),
               maxLines: 1,
@@ -1029,9 +981,7 @@ class _ActionButton extends StatelessWidget {
               child: Icon(
                 FluentIcons.chrome_back_mirrored,
                 size: 10,
-                color: active && !highContrast
-                    ? Colors.white
-                    : context.elixTextPrimary,
+                color: context.elixTextPrimary,
               ),
             ),
           ],

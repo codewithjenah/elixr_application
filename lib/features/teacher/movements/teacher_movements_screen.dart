@@ -1,6 +1,7 @@
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -10,6 +11,7 @@ import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
@@ -184,23 +186,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
             eyebrow: 'TEACHER WORKSPACE',
             subtitle:
                 'Choose official ELIXR activities or manage activities you create.',
-            commandBar: controller.tab == TeacherMovementsTab.mine
-                ? CommandBar(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    primaryItems: [
-                      CommandBarButton(
-                        icon: const Icon(FluentIcons.add),
-                        label: const Text('Create activity'),
-                        onPressed: controller.busy
-                            ? null
-                            : () => _showCreateOrEditMovement(
-                                context,
-                                controller,
-                              ),
-                      ),
-                    ],
-                  )
-                : null,
+            commandBar: null,
           ),
           scrollable: false,
           contentPadding: EdgeInsets.zero,
@@ -225,10 +211,10 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
                         runSpacing: AppSpacing.sm,
                         children: [
                           for (final tab in TeacherMovementsTab.values)
-                            ToggleButton(
-                              checked: controller.tab == tab,
-                              onChanged: (_) => controller.setTab(tab),
-                              child: Text(_tabLabel(tab)),
+                            _LibraryTabButton(
+                              label: _tabLabel(tab),
+                              selected: controller.tab == tab,
+                              onPressed: () => controller.setTab(tab),
                             ),
                           Text(
                             controller.tab == TeacherMovementsTab.official
@@ -238,17 +224,25 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
                               color: context.elixTextSecondary,
                             ),
                           ),
+                          if (controller.tab == TeacherMovementsTab.mine)
+                            ElixPrimaryButton(
+                              label: 'Create activity',
+                              icon: FluentIcons.add,
+                              expanded: false,
+                              dense: true,
+                              onPressed: controller.busy
+                                  ? null
+                                  : () => _showCreateOrEditMovement(
+                                      context,
+                                      controller,
+                                    ),
+                            ),
                         ],
                       ),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     if (controller.errorMessage != null) ...[
-                      InfoBar(
-                        title: const Text('Could not complete that action'),
-                        content: Text(controller.errorMessage!),
-                        severity: InfoBarSeverity.error,
-                        onClose: () {},
-                      ),
+                      _ActivityLibraryError(message: controller.errorMessage!),
                       const SizedBox(height: AppSpacing.md),
                     ],
                   ],
@@ -297,6 +291,64 @@ class _TabBody extends StatelessWidget {
       TeacherMovementsTab.official => _OfficialList(controller: controller),
       TeacherMovementsTab.mine => _MyMovementsList(controller: controller),
     };
+  }
+}
+
+/// Controller-owned segmented navigation; this deliberately has no local tab
+/// state so deep links, retries, and controller updates remain authoritative.
+class _LibraryTabButton extends StatelessWidget {
+  const _LibraryTabButton({
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return ToggleButton(
+        checked: selected,
+        onChanged: (_) => onPressed(),
+        child: Text(label),
+      );
+    }
+    return selected
+        ? shad.ShadButton(
+            onPressed: onPressed,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(label),
+          )
+        : shad.ShadButton.outline(
+            onPressed: onPressed,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(label),
+          );
+  }
+}
+
+class _ActivityLibraryError extends StatelessWidget {
+  const _ActivityLibraryError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return InfoBar(
+        title: const Text('Could not complete that action'),
+        content: Text(message),
+        severity: InfoBarSeverity.error,
+        onClose: () {},
+      );
+    }
+    return shad.ShadAlert.destructive(
+      title: const Text('Could not complete that action'),
+      description: Text(message),
+    );
   }
 }
 
@@ -662,10 +714,11 @@ class _OfficialMovementActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final variantKey = _officialVariantKey(movement.name, prop);
-    return FilledButton(
+    return ElixPrimaryButton(
       key: Key('teacher_movement_assign_official_$variantKey'),
+      label: 'Assign to class',
       onPressed: busy ? null : onAssign,
-      child: const Text('Assign to class'),
+      dense: true,
     );
   }
 }
@@ -807,7 +860,8 @@ class _CustomMovementActions extends StatelessWidget {
       children: [
         Row(
           children: [
-            Button(
+            _TeacherSecondaryButton(
+              label: 'Edit',
               onPressed: controller.busy
                   ? null
                   : () => _showCreateOrEditMovement(
@@ -815,19 +869,18 @@ class _CustomMovementActions extends StatelessWidget {
                       controller,
                       existing: movement,
                     ),
-              child: const Text('Edit'),
             ),
             const SizedBox(width: AppSpacing.sm),
             Tooltip(
               message: canDelete
                   ? 'Permanently delete this unused movement.'
                   : 'This movement is used by an assignment and cannot be deleted.',
-              child: Button(
+              child: _TeacherDestructiveButton(
+                label: 'Delete',
                 onPressed: controller.busy || !canDelete
                     ? null
                     : () =>
                           _confirmDeleteMovement(context, controller, movement),
-                child: const Text('Delete'),
               ),
             ),
           ],
@@ -835,18 +888,48 @@ class _CustomMovementActions extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(
+          child: ElixPrimaryButton(
             key: Key('teacher_movement_assign_custom_${movement.id}'),
+            label: 'Assign to class',
             onPressed: controller.busy
                 ? null
                 : () =>
                       _showAssignToClass(context, controller, custom: movement),
-            child: const Text('Assign to class'),
+            dense: true,
           ),
         ),
       ],
     );
   }
+}
+
+class _TeacherSecondaryButton extends StatelessWidget {
+  const _TeacherSecondaryButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: Text(label))
+      : shad.ShadButton.outline(onPressed: onPressed, child: Text(label));
+}
+
+class _TeacherDestructiveButton extends StatelessWidget {
+  const _TeacherDestructiveButton({
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: Text(label))
+      : shad.ShadButton.destructive(onPressed: onPressed, child: Text(label));
 }
 
 class _MovementCardVisual extends StatelessWidget {
@@ -966,13 +1049,13 @@ Future<void> _confirmDeleteMovement(
         'This cannot be undone.',
       ),
       actions: [
-        Button(
+        _TeacherSecondaryButton(
+          label: 'Cancel',
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
         ),
-        FilledButton(
+        _TeacherDestructiveButton(
+          label: 'Delete',
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('Delete'),
         ),
       ],
     ),
@@ -1539,13 +1622,14 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
                   boxShadow: highContrast
                       ? const []
                       : [
-                          BoxShadow(
-                            color: const Color(
-                              0xFF000000,
-                            ).withValues(alpha: isDark ? 0.42 : 0.12),
-                            blurRadius: 14,
-                            offset: const Offset(0, 7),
-                          ),
+                          if (t > 0)
+                            BoxShadow(
+                              color: const Color(
+                                0xFF000000,
+                              ).withValues(alpha: isDark ? 0.18 * t : 0.07 * t),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
                         ],
                 ),
                 child: ClipRRect(

@@ -131,21 +131,10 @@ class TrainingPerformanceBar extends StatelessWidget {
                 builder: (context, v, _) => FractionallySizedBox(
                   alignment: Alignment.centerLeft,
                   widthFactor: hasTotal && v > 0 ? v : 0.001,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: hasTotal
-                            ? [
-                                AppColors.primary,
-                                AppColors.accent,
-                                AppColors.primarySoft,
-                              ]
-                            : [
-                                context.elixBorder.withValues(alpha: 0.25),
-                                context.elixBorder.withValues(alpha: 0.25),
-                              ],
-                      ),
-                    ),
+                  child: ColoredBox(
+                    color: hasTotal
+                        ? AppColors.primary
+                        : context.elixBorder.withValues(alpha: 0.25),
                   ),
                 ),
               ),

@@ -30,9 +30,8 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
   // Sized for the densest card variant (two prop actions) so every card keeps
   // the same footprint without clipping or moving neighboring content.
   static const _cardHeight = 448.0;
-  // Keeps the next row clear even while the card above is lifted on hover.
+  // Keeps cards visually distinct at desktop density. Card hover is minimal.
   static const _cardRowGap = 32.0;
-  // Leaves visual separation below the level banner after a card lifts on hover.
   static const _sectionToGridGap = 32.0;
 
   late final AnimationController _controller;

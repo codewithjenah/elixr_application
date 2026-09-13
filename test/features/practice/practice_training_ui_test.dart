@@ -415,7 +415,7 @@ void main() {
       }
     });
 
-    testWidgets('session panel gradient remains opaque in light mode', (
+    testWidgets('session panel uses a neutral opaque surface in light mode', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -448,10 +448,9 @@ void main() {
         find.byKey(const ValueKey('practice-session-panel')),
       );
       final decoration = panel.decoration! as BoxDecoration;
-      final gradient = decoration.gradient! as LinearGradient;
 
-      expect(gradient.colors, isNotEmpty);
-      expect(gradient.colors.every((color) => color.a == 1.0), isTrue);
+      expect(decoration.gradient, isNull);
+      expect(decoration.color?.a, 1.0);
     });
 
     testWidgets('session setup values share one right-aligned column', (

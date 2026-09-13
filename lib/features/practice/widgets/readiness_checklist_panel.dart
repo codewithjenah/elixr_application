@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -120,21 +121,20 @@ class ReadinessChecklistPanel extends StatelessWidget {
       );
     }
 
-    return Row(
-      children: [
-        Semantics(
-          label: 'Visibility check only — not scored',
-          child: Text(
+    return Semantics(
+      label: 'Setup Check. Visibility check only — not scored',
+      child: Row(
+        children: [
+          Text(
             'Setup Check',
             style: AppTheme.bodySecondary.copyWith(
               color: context.elixTextSecondary,
               fontWeight: FontWeight.w600,
             ),
           ),
-        ),
-        const Spacer(),
-        if (stable)
-          Container(
+          const Spacer(),
+          if (stable)
+            Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: AppColors.success.withValues(alpha: 0.15),
@@ -150,8 +150,9 @@ class ReadinessChecklistPanel extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-          ),
-      ],
+            ),
+        ],
+      ),
     );
   }
 }
@@ -179,6 +180,12 @@ class _StabilityBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fraction = progress.clamp(0.0, 1.0);
+    if (!context.isHighContrast && shad.ShadTheme.maybeOf(context) != null) {
+      return Semantics(
+        label: 'Stability progress ${(fraction * 100).round()} percent',
+        child: shad.ShadProgress(value: fraction),
+      );
+    }
     return Semantics(
       label: 'Stability progress ${(fraction * 100).round()} percent',
       child: Container(
@@ -205,17 +212,25 @@ class _StabilityBar extends StatelessWidget {
 class _StaleWarning extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(FluentIcons.warning, size: 12, color: AppColors.warning),
-        const SizedBox(width: AppSpacing.xs),
-        Expanded(
-          child: Text(
-            'Waiting for a fresh camera reading\u2026',
-            style: AppTheme.caption.copyWith(color: AppColors.warning),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Icon(FluentIcons.warning, size: 12, color: AppColors.warning),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Text(
+              'Waiting for a fresh camera reading\u2026',
+              style: AppTheme.caption.copyWith(color: AppColors.warning),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

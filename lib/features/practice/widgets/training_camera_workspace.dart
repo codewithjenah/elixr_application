@@ -124,18 +124,9 @@ class TrainingCameraWorkspace extends StatelessWidget {
               ? const []
               : [
                   BoxShadow(
-                    color: accent.withValues(
-                      alpha: readyAura
-                          ? 0.22
-                          : (isSessionActive || countdownActive ? 0.16 : 0.1),
-                    ),
-                    blurRadius: readyAura ? 36 : 28,
-                    spreadRadius: 1,
-                  ),
-                  BoxShadow(
-                    color: colors.shadow.withValues(alpha: 0.38),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+                    color: colors.shadow.withValues(alpha: 0.24),
+                    blurRadius: 14,
+                    offset: const Offset(0, 5),
                   ),
                 ],
         ),

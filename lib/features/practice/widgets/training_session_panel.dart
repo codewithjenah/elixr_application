@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -44,7 +45,7 @@ String trainingStatusSectionTitle(TrainingSessionPhase phase) {
   };
 }
 
-/// Slot-based session panel shell with a premium training-dashboard layout.
+/// Slot-based session panel shell for the focused real-time training workspace.
 class TrainingSessionPanel extends StatelessWidget {
   const TrainingSessionPanel({
     super.key,
@@ -107,24 +108,7 @@ class TrainingSessionPanel extends StatelessWidget {
         ],
         if (onViewTutorial != null) ...[
           const SizedBox(height: 10),
-          Tooltip(
-            message: 'Review this movement without leaving training',
-            child: SizedBox(
-              width: double.infinity,
-              child: Button(
-                key: const ValueKey('view-tutorial-action'),
-                onPressed: onViewTutorial,
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(FluentIcons.reading_mode, size: 15),
-                    SizedBox(width: 8),
-                    Text('View Tutorial'),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          _TutorialAction(onPressed: onViewTutorial!),
         ],
         if (compactStatusNote != null) ...[
           const SizedBox(height: 12),
@@ -168,7 +152,16 @@ class TrainingSessionPanel extends StatelessWidget {
         final fillHeight = expandVertically || constraints.hasBoundedHeight;
         return Container(
           key: const ValueKey('practice-session-panel'),
-          decoration: AppTheme.practicePanelDecoration(context, accent: accent),
+          decoration: BoxDecoration(
+            color: context.elixCardSurface,
+            borderRadius: BorderRadius.circular(AppSpacing.practiceSurfaceRadius),
+            border: Border.all(
+              color: context.isHighContrast
+                  ? context.elixBorder
+                  : accent.withValues(alpha: 0.24),
+              width: context.isHighContrast ? 2 : 1,
+            ),
+          ),
           clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -180,16 +173,9 @@ class TrainingSessionPanel extends StatelessWidget {
                 paddedContent,
               Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      accent.withValues(alpha: 0.14),
-                      Colors.transparent,
-                    ],
-                  ),
+                  color: context.elixCardSurface,
                   border: Border(
-                    top: BorderSide(color: accent.withValues(alpha: 0.38)),
+                    top: BorderSide(color: context.elixBorder),
                   ),
                 ),
                 padding: const EdgeInsets.fromLTRB(14, AppSpacing.md, 14, 14),
@@ -264,27 +250,60 @@ class _PhaseChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: AppTheme.caption.copyWith(
+          color: accent,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _TutorialAction extends StatelessWidget {
+  const _TutorialAction({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    const tooltip = 'Review this movement without leaving training';
+    const child = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.caption.copyWith(
-              color: accent,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
+        Icon(FluentIcons.reading_mode, size: 15),
+        SizedBox(width: 8),
+        Text('View Tutorial'),
       ],
+    );
+    final button = context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? Button(
+            key: const ValueKey('view-tutorial-action'),
+            onPressed: onPressed,
+            child: child,
+          )
+        : shad.ShadButton.outline(
+            key: const ValueKey('view-tutorial-action'),
+            onPressed: onPressed,
+            expands: true,
+            child: child,
+          );
+    return SizedBox(
+      width: double.infinity,
+      child: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+          ? Tooltip(message: tooltip, child: button)
+          : shad.ShadTooltip(builder: (context) => const Text(tooltip), child: button),
     );
   }
 }

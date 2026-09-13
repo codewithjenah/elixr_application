@@ -47,10 +47,11 @@ class TrainingConnectionBadge extends StatelessWidget {
       ),
     };
 
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return Semantics(
       label: 'Connection status: $label',
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.sm + 2,
@@ -70,7 +71,7 @@ class TrainingConnectionBadge extends StatelessWidget {
           ),
         ),
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
+          duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 180),
           child: Row(
             key: ValueKey<String>(label),
             mainAxisSize: MainAxisSize.min,
@@ -87,15 +88,6 @@ class TrainingConnectionBadge extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: color,
                             shape: BoxShape.circle,
-                            boxShadow:
-                                state == WebSocketConnectionState.connected
-                                ? [
-                                    BoxShadow(
-                                      color: color.withValues(alpha: 0.45),
-                                      blurRadius: 6,
-                                    ),
-                                  ]
-                                : null,
                           ),
                         ),
                       ),
