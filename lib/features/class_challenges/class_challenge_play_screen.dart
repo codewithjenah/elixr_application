@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
@@ -222,11 +223,18 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
                                   ),
                                   if (_error != null) ...[
                                     const SizedBox(height: AppSpacing.sm),
-                                    InfoBar(
-                                      title: const Text('Cannot start'),
-                                      content: Text(_error!),
-                                      severity: InfoBarSeverity.error,
-                                    ),
+                                    context.isHighContrast ||
+                                            shad.ShadTheme.maybeOf(context) ==
+                                                null
+                                        ? InfoBar(
+                                            title: const Text('Cannot start'),
+                                            content: Text(_error!),
+                                            severity: InfoBarSeverity.error,
+                                          )
+                                        : shad.ShadAlert.destructive(
+                                            title: const Text('Cannot start'),
+                                            description: Text(_error!),
+                                          ),
                                   ],
                                   const SizedBox(height: AppSpacing.lg),
                                   Wrap(
@@ -247,11 +255,23 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
                                             ? _begin
                                             : null,
                                       ),
-                                      Button(
-                                        onPressed: () =>
-                                            _showTutorial(challenge),
-                                        child: const Text('View Tutorial'),
-                                      ),
+                                      context.isHighContrast ||
+                                              shad.ShadTheme.maybeOf(context) ==
+                                                  null
+                                          ? Button(
+                                              onPressed: () =>
+                                                  _showTutorial(challenge),
+                                              child: const Text(
+                                                'View Tutorial',
+                                              ),
+                                            )
+                                          : shad.ShadButton.outline(
+                                              onPressed: () =>
+                                                  _showTutorial(challenge),
+                                              child: const Text(
+                                                'View Tutorial',
+                                              ),
+                                            ),
                                     ],
                                   ),
                                 ],

@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
@@ -232,7 +233,8 @@ class ClassChallengesPane extends StatelessWidget {
                                           repository: repository,
                                           groupId: groupId,
                                           teacherId: teacherId,
-                                        teacherDisplayName: teacherDisplayName,
+                                          teacherDisplayName:
+                                              teacherDisplayName,
                                           existing: challenge,
                                         ),
                                   onArchive:
@@ -353,12 +355,12 @@ class _ChallengeCard extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              FilledButton(
+              _ChallengeOutlineButton(
                 onPressed: onOpenLeaderboard,
                 child: const Text('View Leaderboard'),
               ),
               if (!isTeacher)
-                Button(
+                _ChallengePrimaryButton(
                   key: Key('class_challenge_start_${challenge.id}'),
                   onPressed: canStart ? onStart : null,
                   child: Text(
@@ -370,16 +372,18 @@ class _ChallengeCard extends StatelessWidget {
                   ),
                 ),
               if (onEdit != null)
-                IconButton(
+                _ChallengeIconAction(
                   key: Key('class_challenge_edit_${challenge.id}'),
                   icon: const Icon(FluentIcons.edit),
                   onPressed: onEdit,
+                  tooltip: 'Edit challenge',
                 ),
               if (onArchive != null)
-                IconButton(
+                _ChallengeIconAction(
                   key: Key('class_challenge_archive_${challenge.id}'),
                   icon: const Icon(FluentIcons.archive),
                   onPressed: onArchive,
+                  tooltip: 'Archive challenge',
                 ),
             ],
           ),
@@ -406,15 +410,86 @@ class _StatusPill extends StatelessWidget {
       ClassChallengeStatus.upcoming => const Color(0xFFF4B84A),
       _ => const Color(0xFFAAA5B8),
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .14),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(label, style: TextStyle(color: color, fontSize: 12)),
+    return Semantics(
+      label: 'Challenge status: $label',
+      child: ElixPill(text: label, color: color, compact: true),
     );
   }
+}
+
+class _ChallengePrimaryButton extends StatelessWidget {
+  const _ChallengePrimaryButton({
+    super.key,
+    required this.child,
+    this.onPressed,
+  });
+  final Widget child;
+  final VoidCallback? onPressed;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? FilledButton(onPressed: onPressed, child: child)
+      : shad.ShadButton(
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          child: child,
+        );
+}
+
+class _ChallengeOutlineButton extends StatelessWidget {
+  const _ChallengeOutlineButton({required this.child, this.onPressed});
+  final Widget child;
+  final VoidCallback? onPressed;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.outline(
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          child: child,
+        );
+}
+
+class _ChallengeIconAction extends StatelessWidget {
+  const _ChallengeIconAction({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+  });
+  final Widget icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  @override
+  Widget build(BuildContext context) {
+    final button =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? IconButton(icon: icon, onPressed: onPressed)
+        : shad.ShadIconButton.ghost(
+            icon: icon,
+            onPressed: onPressed,
+            enabled: onPressed != null,
+          );
+    return shad.ShadTheme.maybeOf(context) == null
+        ? Tooltip(message: tooltip, child: button)
+        : shad.ShadTooltip(builder: (context) => Text(tooltip), child: button);
+  }
+}
+
+class _ChallengeDestructiveButton extends StatelessWidget {
+  const _ChallengeDestructiveButton({required this.child, this.onPressed});
+  final Widget child;
+  final VoidCallback? onPressed;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? FilledButton(onPressed: onPressed, child: child)
+      : shad.ShadButton.destructive(
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          child: child,
+        );
 }
 
 String _deadlineLabel(ClassChallenge challenge, ClassChallengeStatus status) {
@@ -441,7 +516,8 @@ Future<void> _archiveChallenge(
     builder: (context) => ElixDialog(
       key: const Key('class_challenge_archive_confirmation'),
       title: 'Archive challenge?',
-      subtitle: 'Keep the results while taking this challenge out of the class.',
+      subtitle:
+          'Keep the results while taking this challenge out of the class.',
       icon: FluentIcons.archive,
       iconColor: context.elixColors.error,
       headerAccentColor: context.elixColors.error,
@@ -455,23 +531,11 @@ Future<void> _archiveChallenge(
         ),
       ),
       actions: [
-        Button(
+        _ChallengeOutlineButton(
           onPressed: () => Navigator.pop(context, false),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          style: ButtonStyle(
-            backgroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.pressed)) {
-                return context.elixColors.error.withValues(alpha: 0.82);
-              }
-              if (states.contains(WidgetState.hovered)) {
-                return context.elixColors.error.withValues(alpha: 0.92);
-              }
-              return context.elixColors.error;
-            }),
-            foregroundColor: WidgetStatePropertyAll(context.elixColors.onBrand),
-          ),
+        _ChallengeDestructiveButton(
           onPressed: () => Navigator.pop(context, true),
           child: const Text('Archive'),
         ),
@@ -667,7 +731,7 @@ Future<void> _showChallengeEditor(
                             helperText:
                                 'Choose a name your class will recognize.',
                             errorText: titleError,
-                            child: TextBox(
+                            child: _ChallengeInput(
                               key: const Key('class_challenge_title'),
                               controller: title,
                               autofocus: true,
@@ -686,19 +750,15 @@ Future<void> _showChallengeEditor(
                             helperText:
                                 'Tell trainees what to practice and submit.',
                             errorText: descriptionError,
-                            child: TextBox(
+                            child: _ChallengeTextArea(
                               key: const Key('class_challenge_description'),
                               controller: description,
                               placeholder:
                                   'Add a short description of the challenge.',
                               maxLength: ClassChallenge.maxDescriptionLength,
-                              minLines: 2,
-                              maxLines: 4,
                               onChanged: (_) {
                                 if (descriptionError != null) {
-                                    setDialogState(
-                                      () => descriptionError = null,
-                                    );
+                                  setDialogState(() => descriptionError = null);
                                 }
                               },
                             ),
@@ -753,7 +813,7 @@ Future<void> _showChallengeEditor(
                     const SizedBox(height: AppSpacing.lg),
                     _EditorSection(
                       icon: FluentIcons.settings,
-                      title: 'Challenge settings',
+                      title: 'Attempts',
                       description:
                           'Make the challenge fit the way your class practices.',
                       child: _ResponsivePair(
@@ -762,7 +822,7 @@ Future<void> _showChallengeEditor(
                           label: 'Attempts per trainee',
                           helperText: 'Leave blank for unlimited attempts.',
                           errorText: attemptsError,
-                          child: TextBox(
+                          child: _ChallengeInput(
                             key: const Key('class_challenge_attempts'),
                             controller: attempts,
                             keyboardType: TextInputType.number,
@@ -778,7 +838,7 @@ Future<void> _showChallengeEditor(
                           helperText:
                               'Optional. Set a score trainees can aim for.',
                           errorText: targetError,
-                          child: TextBox(
+                          child: _ChallengeInput(
                             key: const Key('class_challenge_target'),
                             controller: target,
                             keyboardType: TextInputType.number,
@@ -812,9 +872,10 @@ Future<void> _showChallengeEditor(
                   SizedBox(
                     key: const Key('class_challenge_cancel_action'),
                     height: 56,
-                    child: Button(
-                      onPressed:
-                          saving ? null : () => Navigator.pop(dialogContext),
+                    child: _ChallengeOutlineButton(
+                      onPressed: saving
+                          ? null
+                          : () => Navigator.pop(dialogContext),
                       child: const Text('Cancel'),
                     ),
                   ),
@@ -957,6 +1018,77 @@ class _ChallengeField extends StatelessWidget {
       ],
     );
   }
+}
+
+class _ChallengeInput extends StatelessWidget {
+  const _ChallengeInput({
+    super.key,
+    required this.controller,
+    this.placeholder,
+    this.autofocus = false,
+    this.maxLength,
+    this.keyboardType,
+    this.onChanged,
+  });
+  final TextEditingController controller;
+  final String? placeholder;
+  final bool autofocus;
+  final int? maxLength;
+  final TextInputType? keyboardType;
+  final ValueChanged<String>? onChanged;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? TextBox(
+          controller: controller,
+          placeholder: placeholder,
+          autofocus: autofocus,
+          maxLength: maxLength,
+          keyboardType: keyboardType,
+          onChanged: onChanged,
+        )
+      : shad.ShadInput(
+          controller: controller,
+          placeholder: placeholder == null ? null : Text(placeholder!),
+          autofocus: autofocus,
+          maxLength: maxLength,
+          keyboardType: keyboardType,
+          onChanged: onChanged,
+        );
+}
+
+class _ChallengeTextArea extends StatelessWidget {
+  const _ChallengeTextArea({
+    super.key,
+    required this.controller,
+    this.placeholder,
+    this.maxLength,
+    this.onChanged,
+  });
+  final TextEditingController controller;
+  final String? placeholder;
+  final int? maxLength;
+  final ValueChanged<String>? onChanged;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? TextBox(
+          controller: controller,
+          placeholder: placeholder,
+          maxLength: maxLength,
+          minLines: 2,
+          maxLines: 4,
+          onChanged: onChanged,
+        )
+      : shad.ShadTextarea(
+          controller: controller,
+          placeholder: placeholder == null ? null : Text(placeholder!),
+          maxLength: maxLength,
+          minHeight: 88,
+          maxHeight: 150,
+          resizable: false,
+          onChanged: onChanged,
+        );
 }
 
 class _EditorErrorNotice extends StatelessWidget {
@@ -1322,27 +1454,83 @@ class _DateTimeField extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
-        DatePicker(
-          key: Key('class_challenge_${fieldKey}_date'),
-          selected: value,
-          onChanged: (date) => onChanged(
-            DateTime(date.year, date.month, date.day, value.hour, value.minute),
-          ),
-        ),
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+            ? DatePicker(
+                key: Key('class_challenge_${fieldKey}_date'),
+                selected: value,
+                onChanged: (date) => onChanged(
+                  DateTime(
+                    date.year,
+                    date.month,
+                    date.day,
+                    value.hour,
+                    value.minute,
+                  ),
+                ),
+              )
+            : shad.ShadDatePicker(
+                key: Key('class_challenge_${fieldKey}_date'),
+                selected: value,
+                formatDate: (date) => DateFormat('MMM d, y').format(date),
+                onChanged: (date) {
+                  if (date != null) {
+                    onChanged(
+                      DateTime(
+                        date.year,
+                        date.month,
+                        date.day,
+                        value.hour,
+                        value.minute,
+                      ),
+                    );
+                  }
+                },
+              ),
         const SizedBox(height: AppSpacing.md),
-        Row(
-          children: [
-            Icon(
-              FluentIcons.clock,
-              size: 14,
-              color: context.isHighContrast
-                  ? context.elixTextPrimary
-                  : context.elixColors.brandSecondary,
-            ),
-            const SizedBox(width: AppSpacing.xs),
-            Text('Time', style: AppTheme.label(color: context.elixTextPrimary)),
-          ],
-        ),
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+            ? Row(
+                children: [
+                  Icon(
+                    FluentIcons.clock,
+                    size: 14,
+                    color: context.isHighContrast
+                        ? context.elixTextPrimary
+                        : context.elixColors.brandSecondary,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'Time',
+                    style: AppTheme.label(color: context.elixTextPrimary),
+                  ),
+                ],
+              )
+            : shad.ShadTimePicker.period(
+                key: Key('class_challenge_${fieldKey}_time'),
+                initialValue: shad.ShadTimeOfDay(
+                  hour: displayHour,
+                  minute: value.minute,
+                  second: 0,
+                  period: displayPeriod == 'AM'
+                      ? shad.ShadDayPeriod.am
+                      : shad.ShadDayPeriod.pm,
+                ),
+                initialDayPeriod: displayPeriod == 'AM'
+                    ? shad.ShadDayPeriod.am
+                    : shad.ShadDayPeriod.pm,
+                minHour: 1,
+                maxHour: 12,
+                showHours: true,
+                showMinutes: true,
+                showSeconds: false,
+                onChanged: (time) => onChanged(
+                  classChallengeDateTimeFrom12Hour(
+                    value,
+                    hour: time.hour,
+                    minute: time.minute,
+                    period: time.period == shad.ShadDayPeriod.am ? 'AM' : 'PM',
+                  ),
+                ),
+              ),
         const SizedBox(height: AppSpacing.xs),
         Row(
           children: [

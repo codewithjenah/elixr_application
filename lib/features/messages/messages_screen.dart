@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
@@ -57,12 +58,13 @@ Future<void> _confirmDeleteConversation(
       ),
     ),
     actions: [
-      Button(
+      _DialogActionButton(
         onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
         child: const Text('Cancel'),
       ),
-      FilledButton(
+      _DialogActionButton(
         onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+        destructive: true,
         child: const Text('Delete'),
       ),
     ],
@@ -157,58 +159,60 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) => ElixScaffoldPage(
-        padding: EdgeInsets.zero,
-        content: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            AppSpacing.pageTopInset,
-            AppSpacing.lg,
-            AppSpacing.lg,
-          ),
-          child: Container(
-            decoration: AppTheme.panelDecoration(context),
-            clipBehavior: Clip.antiAlias,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final narrow = constraints.maxWidth < 840;
-                if (narrow) {
-                  return controller.selectedUser == null
-                      ? _PeoplePane(
+      builder: (context, _) => ElixShadThemeBridge(
+        child: ElixScaffoldPage(
+          padding: EdgeInsets.zero,
+          content: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.pageTopInset,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            child: Container(
+              decoration: AppTheme.panelDecoration(context),
+              clipBehavior: Clip.antiAlias,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 840;
+                  if (narrow) {
+                    return controller.selectedUser == null
+                        ? _PeoplePane(
+                            controller: controller,
+                            searchController: _searchController,
+                          )
+                        : _ConversationPane(
+                            controller: controller,
+                            composerController: _composerController,
+                            scrollController: _messageScrollController,
+                            showBack: true,
+                          );
+                  }
+                  return Row(
+                    children: [
+                      SizedBox(
+                        width: 370,
+                        child: _PeoplePane(
                           controller: controller,
                           searchController: _searchController,
-                        )
-                      : _ConversationPane(
+                        ),
+                      ),
+                      Container(
+                        width: 1,
+                        color: context.elixBorder.withValues(alpha: 0.5),
+                      ),
+                      Expanded(
+                        child: _ConversationPane(
                           controller: controller,
                           composerController: _composerController,
                           scrollController: _messageScrollController,
-                          showBack: true,
-                        );
-                }
-                return Row(
-                  children: [
-                    SizedBox(
-                      width: 370,
-                      child: _PeoplePane(
-                        controller: controller,
-                        searchController: _searchController,
+                          showBack: false,
+                        ),
                       ),
-                    ),
-                    Container(
-                      width: 1,
-                      color: context.elixBorder.withValues(alpha: 0.5),
-                    ),
-                    Expanded(
-                      child: _ConversationPane(
-                        controller: controller,
-                        composerController: _composerController,
-                        scrollController: _messageScrollController,
-                        showBack: false,
-                      ),
-                    ),
-                  ],
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -277,20 +281,25 @@ class _PeoplePane extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              TextBox(
+              shad.ShadInput(
+                key: const Key('messages-people-search'),
                 controller: searchController,
-                placeholder: 'Find a Teacher or Trainee',
-                prefix: const Padding(
-                  padding: EdgeInsets.only(left: AppSpacing.sm),
-                  child: Icon(FluentIcons.search, size: 16),
-                ),
-                suffix: searching
-                    ? IconButton(
-                        icon: const Icon(FluentIcons.clear, size: 14),
-                        onPressed: () {
-                          searchController.clear();
-                          controller.updateSearch('');
-                        },
+                placeholder: const Text('Find a Teacher or Trainee'),
+                leading: const Icon(FluentIcons.search, size: 16),
+                trailing: searching
+                    ? shad.ShadTooltip(
+                        builder: (context) => const Text('Clear search'),
+                        child: Semantics(
+                          button: true,
+                          label: 'Clear search',
+                          child: shad.ShadIconButton.ghost(
+                            icon: const Icon(FluentIcons.clear, size: 14),
+                            onPressed: () {
+                              searchController.clear();
+                              controller.updateSearch('');
+                            },
+                          ),
+                        ),
                       )
                     : null,
                 onChanged: controller.updateSearch,
@@ -343,8 +352,6 @@ class _InlineMessageAlert extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    final accent = context.elixColors.brandPrimary;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
@@ -354,57 +361,27 @@ class _InlineMessageAlert extends StatelessWidget {
       ),
       child: Semantics(
         liveRegion: true,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-          decoration: BoxDecoration(
-            color: highContrast
-                ? context.elixCardSurface
-                : Color.alphaBlend(
-                    accent.withValues(alpha: 0.1),
-                    context.elixCardSurface,
-                  ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: highContrast
-                  ? context.elixBorder
-                  : accent.withValues(alpha: 0.34),
-              width: highContrast ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: highContrast
-                      ? context.elixCardSurface
-                      : accent.withValues(alpha: 0.14),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(FluentIcons.chat, size: 15, color: accent),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  message,
-                  style: AppTheme.body.copyWith(
-                    color: context.elixTextPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Tooltip(
-                message: 'Dismiss notification',
-                child: IconButton(
-                  icon: const Icon(FluentIcons.clear, size: 12),
+        child: context.isHighContrast
+            ? InfoBar(
+                title: const Text('New message'),
+                content: Text(message),
+                action: IconButton(
+                  icon: const Icon(FluentIcons.clear),
                   onPressed: onDismiss,
                 ),
+              )
+            : shad.ShadAlert(
+                icon: const Icon(FluentIcons.chat),
+                title: const Text('New message'),
+                description: Text(message),
+                trailing: shad.ShadTooltip(
+                  builder: (context) => const Text('Dismiss notification'),
+                  child: shad.ShadIconButton.ghost(
+                    icon: const Icon(FluentIcons.clear, size: 14),
+                    onPressed: onDismiss,
+                  ),
+                ),
               ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -755,21 +732,35 @@ class _PersonTileState extends State<_PersonTile> {
                 Semantics(
                   button: true,
                   label: 'Conversation actions',
-                  child: Tooltip(
-                    message: 'Conversation actions',
+                  child: shad.ShadTooltip(
+                    builder: (context) => const Text('Conversation actions'),
                     child: FlyoutTarget(
                       controller: _menuController,
-                      child: IconButton(
-                        key: ValueKey('conversation-menu-${widget.user.id}'),
-                        icon: Icon(
-                          FluentIcons.more_vertical,
-                          size: 16,
-                          color: highContrast
-                              ? context.elixTextPrimary
-                              : context.elixTextSecondary,
-                        ),
-                        onPressed: _showMenu,
-                      ),
+                      child: context.isHighContrast
+                          ? IconButton(
+                              key: ValueKey(
+                                'conversation-menu-${widget.user.id}',
+                              ),
+                              icon: Icon(
+                                FluentIcons.more_vertical,
+                                size: 16,
+                                color: highContrast
+                                    ? context.elixTextPrimary
+                                    : context.elixTextSecondary,
+                              ),
+                              onPressed: _showMenu,
+                            )
+                          : shad.ShadIconButton.ghost(
+                              key: ValueKey(
+                                'conversation-menu-${widget.user.id}',
+                              ),
+                              icon: Icon(
+                                FluentIcons.more_vertical,
+                                size: 16,
+                                color: context.elixTextSecondary,
+                              ),
+                              onPressed: _showMenu,
+                            ),
                     ),
                   ),
                 ),
@@ -824,8 +815,9 @@ class _ConversationPane extends StatelessWidget {
           child: Row(
             children: [
               if (showBack) ...[
-                IconButton(
-                  icon: const Icon(FluentIcons.back),
+                _MessageIconAction(
+                  icon: FluentIcons.back,
+                  tooltip: 'Back to inbox',
                   onPressed: controller.showInboxPane,
                 ),
                 const SizedBox(width: AppSpacing.xs),
@@ -871,7 +863,7 @@ class _ConversationPane extends StatelessWidget {
                 ),
               ),
               if (controller.selectedConversation?.isArchived != true)
-                Button(
+                _MessageButton(
                   onPressed: () => _confirmBlock(context),
                   child: Text(
                     controller.blockState.blockedByMe ? 'Unblock' : 'Block',
@@ -916,7 +908,7 @@ class _ConversationPane extends StatelessWidget {
       children: [
         if (controller.hasOlder || controller.paginationError != null)
           Center(
-            child: Button(
+            child: _MessageButton(
               onPressed: controller.loadingOlder ? null : controller.loadOlder,
               child: Text(
                 controller.loadingOlder
@@ -966,12 +958,12 @@ class _ConversationPane extends StatelessWidget {
         ),
       ),
       actions: [
-        Button(
+        _DialogActionButton(
           onPressed: () =>
               Navigator.of(context, rootNavigator: true).pop(false),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        _DialogActionButton(
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
           child: Text(unblocking ? 'Unblock' : 'Block'),
         ),
@@ -989,18 +981,18 @@ class _ConversationPane extends StatelessWidget {
       context,
       title: 'Edit message',
       icon: FluentIcons.edit,
-      content: TextBox(
+      content: shad.ShadInput(
         controller: text,
         minLines: 2,
         maxLines: 6,
         maxLength: ChatMessage.maximumBodyLength,
       ),
       actions: [
-        Button(
+        _DialogActionButton(
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        _DialogActionButton(
           onPressed: () =>
               Navigator.of(context, rootNavigator: true).pop(text.text),
           child: const Text('Save'),
@@ -1031,13 +1023,14 @@ class _ConversationPane extends StatelessWidget {
         ),
       ),
       actions: [
-        Button(
+        _DialogActionButton(
           onPressed: () =>
               Navigator.of(context, rootNavigator: true).pop(false),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        _DialogActionButton(
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+          destructive: true,
           child: const Text('Delete'),
         ),
       ],
@@ -1115,50 +1108,63 @@ class _Composer extends StatelessWidget {
                     }
                     return KeyEventResult.ignored;
                   },
-                  child: TextBox(
+                  child: shad.ShadInput(
+                    key: const Key('messages-composer'),
                     controller: textController,
                     enabled: !disabled,
                     minLines: 1,
                     maxLines: 5,
                     maxLength: ChatMessage.maximumBodyLength,
-                    placeholder: 'Write a message...',
-                    padding: const EdgeInsets.all(12),
-                    suffix: Padding(
-                      padding: const EdgeInsets.only(
-                        right: 6,
-                        bottom: 4,
-                        top: 4,
-                      ),
-                      child: IconButton(
-                        icon: controller.sending
-                            ? Semantics(
-                                label: 'Sending message',
-                                child: SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: ProgressRing(strokeWidth: 2),
-                                ),
-                              )
-                            : const Icon(FluentIcons.send, size: 14),
-                        style: ButtonStyle(
-                          backgroundColor: disabled
-                              ? null
-                              : WidgetStatePropertyAll(
-                                  context.elixColors.brandPrimary,
-                                ),
-                          foregroundColor: disabled
-                              ? null
-                              : WidgetStatePropertyAll(
-                                  context.elixColors.onBrand,
-                                ),
-                          shape: const WidgetStatePropertyAll(CircleBorder()),
-                          padding: const WidgetStatePropertyAll(
-                            EdgeInsets.all(10),
+                    placeholder: const Text('Write a message...'),
+                    trailing: context.isHighContrast
+                        ? IconButton(
+                            icon: controller.sending
+                                ? Semantics(
+                                    label: 'Sending message',
+                                    child: SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: ProgressRing(strokeWidth: 2),
+                                    ),
+                                  )
+                                : const Icon(FluentIcons.send, size: 14),
+                            style: ButtonStyle(
+                              backgroundColor: disabled
+                                  ? null
+                                  : WidgetStatePropertyAll(
+                                      context.elixColors.brandPrimary,
+                                    ),
+                              foregroundColor: disabled
+                                  ? null
+                                  : WidgetStatePropertyAll(
+                                      context.elixColors.onBrand,
+                                    ),
+                              shape: const WidgetStatePropertyAll(
+                                CircleBorder(),
+                              ),
+                              padding: const WidgetStatePropertyAll(
+                                EdgeInsets.all(10),
+                              ),
+                            ),
+                            onPressed: disabled ? null : _send,
+                          )
+                        : shad.ShadTooltip(
+                            builder: (context) => Text(
+                              controller.sending
+                                  ? 'Sending message'
+                                  : 'Send message',
+                            ),
+                            child: shad.ShadIconButton(
+                              icon: controller.sending
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: ProgressRing(strokeWidth: 2),
+                                    )
+                                  : const Icon(FluentIcons.send, size: 14),
+                              onPressed: disabled ? null : _send,
+                            ),
                           ),
-                        ),
-                        onPressed: disabled ? null : _send,
-                      ),
-                    ),
                   ),
                 ),
               ),
@@ -1181,6 +1187,65 @@ class _Composer extends StatelessWidget {
     final sent = await controller.send(body);
     if (!sent) textController.text = body;
   }
+}
+
+class _DialogActionButton extends StatelessWidget {
+  const _DialogActionButton({
+    required this.onPressed,
+    required this.child,
+    this.destructive = false,
+  });
+  final VoidCallback onPressed;
+  final Widget child;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast) {
+      return destructive
+          ? FilledButton(onPressed: onPressed, child: child)
+          : Button(onPressed: onPressed, child: child);
+    }
+    return destructive
+        ? shad.ShadButton.destructive(onPressed: onPressed, child: child)
+        : shad.ShadButton.outline(onPressed: onPressed, child: child);
+  }
+}
+
+class _MessageButton extends StatelessWidget {
+  const _MessageButton({required this.onPressed, required this.child});
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.outline(onPressed: onPressed, child: child);
+}
+
+class _MessageIconAction extends StatelessWidget {
+  const _MessageIconAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Tooltip(
+          message: tooltip,
+          child: IconButton(icon: Icon(icon), onPressed: onPressed),
+        )
+      : shad.ShadTooltip(
+          builder: (context) => Text(tooltip),
+          child: shad.ShadIconButton.ghost(
+            icon: Icon(icon),
+            onPressed: onPressed,
+          ),
+        );
 }
 
 class _MessageBubble extends StatelessWidget {

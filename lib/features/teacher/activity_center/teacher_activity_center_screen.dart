@@ -2,6 +2,7 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
@@ -57,101 +58,98 @@ class _TeacherActivityCenterScreenState
       ),
       scrollable: false,
       contentPadding: EdgeInsets.zero,
-      content: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1160),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.lg,
-                  AppSpacing.lg,
-                  0,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    showPending
-                        ? _ReviewQueueIntro(
-                            count: controller.pendingReviewCount,
-                          )
-                        : _ActivityInboxToolbar(
-                            loading: controller.loading,
-                            unreadCount: controller.unreadCount,
-                            unreadOnly: _unreadOnly,
-                            onFilterChanged: () =>
-                                setState(() => _unreadOnly = !_unreadOnly),
-                            onMarkAllRead: controller.unreadCount == 0
-                                ? null
-                                : () async {
-                                    final saved = await controller
-                                        .markAllRead();
-                                    if (saved && context.mounted) {
-                                      ElixToast.showSuccess(
-                                        context,
-                                        message: 'Marked all activity as read.',
-                                      );
-                                    }
-                                  },
-                          ),
-                    if (relevantStreamError ||
-                        controller.persistenceMessage != null) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      InfoBar(
-                        severity: relevantStreamError
-                            ? InfoBarSeverity.warning
-                            : InfoBarSeverity.info,
-                        title: Text(
-                          relevantStreamError
+      content: ElixShadThemeBridge(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1160),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      showPending
+                          ? _ReviewQueueIntro(
+                              count: controller.pendingReviewCount,
+                            )
+                          : _ActivityInboxToolbar(
+                              loading: controller.loading,
+                              unreadCount: controller.unreadCount,
+                              unreadOnly: _unreadOnly,
+                              onFilterChanged: () =>
+                                  setState(() => _unreadOnly = !_unreadOnly),
+                              onMarkAllRead: controller.unreadCount == 0
+                                  ? null
+                                  : () async {
+                                      final saved = await controller
+                                          .markAllRead();
+                                      if (saved && context.mounted) {
+                                        ElixToast.showSuccess(
+                                          context,
+                                          message:
+                                              'Marked all activity as read.',
+                                        );
+                                      }
+                                    },
+                            ),
+                      if (relevantStreamError ||
+                          controller.persistenceMessage != null) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        _TeacherActivityFeedback(
+                          isError: relevantStreamError,
+                          title: relevantStreamError
                               ? showPending
                                     ? 'Pending work could not be refreshed'
                                     : 'Some activity could not be refreshed'
                               : 'Activity read state is temporary',
-                        ),
-                        content: Text(
-                          controller.persistenceMessage ??
+                          message:
+                              controller.persistenceMessage ??
                               'Some information may be missing. Try refreshing.',
+                          onRetry: relevantStreamError
+                              ? controller.retry
+                              : null,
                         ),
-                        action: relevantStreamError
-                            ? Button(
-                                onPressed: controller.retry,
-                                child: const Text('Retry'),
-                              )
-                            : null,
-                      ),
+                      ],
+                      const SizedBox(height: AppSpacing.md),
                     ],
-                    const SizedBox(height: AppSpacing.md),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-          Expanded(
-            child: controller.loading
-                ? const Center(child: ProgressRing())
-                : showPending
-                ? _PendingReviewList(controller: controller)
-                : visible.isEmpty
-                ? _EmptyActivityState(
-                    unreadOnly: _unreadOnly,
-                    isError: controller.hasStreamError,
-                    onRetry: controller.retry,
-                  )
-                : _CenteredActivityList(
-                    itemCount: visible.length,
-                    itemBuilder: (context, index) => _ActivityRow(
-                      activity: visible[index],
-                      onOpen: () async {
-                        final activity = visible[index];
-                        await controller.markRead(activity);
-                        if (context.mounted) context.push(activity.destination);
-                      },
+            Expanded(
+              child: controller.loading
+                  ? const Center(child: ProgressRing())
+                  : showPending
+                  ? _PendingReviewList(controller: controller)
+                  : visible.isEmpty
+                  ? _EmptyActivityState(
+                      unreadOnly: _unreadOnly,
+                      isError: controller.hasStreamError,
+                      onRetry: controller.retry,
+                    )
+                  : _CenteredActivityList(
+                      itemCount: visible.length,
+                      itemBuilder: (context, index) => _ActivityRow(
+                        activity: visible[index],
+                        onOpen: () async {
+                          final activity = visible[index];
+                          await controller.markRead(activity);
+                          if (context.mounted) {
+                            context.push(activity.destination);
+                          }
+                        },
+                      ),
                     ),
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -215,7 +213,7 @@ class _ActivityInboxToolbar extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              Button(
+              _TeacherActivityButton(
                 key: const Key('teacher_activity_unread_filter'),
                 onPressed: loading ? null : onFilterChanged,
                 child: Row(
@@ -232,9 +230,10 @@ class _ActivityInboxToolbar extends StatelessWidget {
                   ],
                 ),
               ),
-              FilledButton(
+              _TeacherActivityButton(
                 key: const Key('teacher_activity_mark_all_read'),
                 onPressed: loading ? null : onMarkAllRead,
+                primary: true,
                 child: const Text('Mark all read'),
               ),
             ],
@@ -259,6 +258,64 @@ class _ActivityInboxToolbar extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TeacherActivityButton extends StatelessWidget {
+  const _TeacherActivityButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+    this.primary = false,
+  });
+  final VoidCallback? onPressed;
+  final Widget child;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast) {
+      return primary
+          ? FilledButton(onPressed: onPressed, child: child)
+          : Button(onPressed: onPressed, child: child);
+    }
+    return primary
+        ? shad.ShadButton(onPressed: onPressed, child: child)
+        : shad.ShadButton.outline(onPressed: onPressed, child: child);
+  }
+}
+
+class _TeacherActivityFeedback extends StatelessWidget {
+  const _TeacherActivityFeedback({
+    required this.isError,
+    required this.title,
+    required this.message,
+    this.onRetry,
+  });
+  final bool isError;
+  final String title;
+  final String message;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? InfoBar(
+          severity: isError ? InfoBarSeverity.warning : InfoBarSeverity.info,
+          title: Text(title),
+          content: Text(message),
+          action: onRetry == null
+              ? null
+              : Button(onPressed: onRetry, child: const Text('Retry')),
+        )
+      : shad.ShadAlert(
+          title: Text(title),
+          description: Text(message),
+          trailing: onRetry == null
+              ? null
+              : shad.ShadButton.outline(
+                  onPressed: onRetry,
+                  child: const Text('Retry'),
+                ),
+        );
 }
 
 class _ReviewQueueIntro extends StatelessWidget {

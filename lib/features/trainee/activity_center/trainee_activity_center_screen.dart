@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -36,117 +37,105 @@ class _TraineeActivityCenterScreenState
         heading: 'Notifications',
         eyebrow: 'TRAINEE WORKSPACE',
         subtitle: 'Assignments, deadlines, grades, and classroom updates.',
-        commandBar: CommandBar(
-          mainAxisAlignment: MainAxisAlignment.end,
-          primaryItems: [
-            CommandBarButton(
-              icon: const Icon(FluentIcons.check_mark),
-              label: const Text('Mark all read'),
-              onPressed: controller.unreadCount == 0
-                  ? null
-                  : () => _markAllRead(controller),
-            ),
-          ],
-        ),
+        commandBar: null,
       ),
       content: Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1120),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.md,
-                  AppSpacing.lg,
-                  0,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Checkbox(
-                          checked: _unreadOnly,
-                          onChanged: (value) {
-                            setState(() => _unreadOnly = value ?? false);
-                          },
-                          content: const Text('Unread only'),
-                        ),
-                        const Spacer(),
-                        if (controller.unreadCount > 0)
-                          ElixPill(
-                            text: '${controller.unreadCount} unread',
-                            color: AppColors.accent,
-                            compact: true,
+          child: ElixShadThemeBridge(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.md,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.sm,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          _UnreadOnlyControl(
+                            value: _unreadOnly,
+                            onChanged: (value) =>
+                                setState(() => _unreadOnly = value),
                           ),
-                      ],
-                    ),
-                    if (controller.hasStreamError ||
-                        controller.persistenceMessage != null) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      InfoBar(
-                        severity: controller.hasStreamError
-                            ? InfoBarSeverity.warning
-                            : InfoBarSeverity.info,
-                        title: Text(
-                          controller.hasStreamError
-                              ? 'Some activity could not be refreshed'
-                              : 'Read status is temporary',
-                        ),
-                        content: Text(
-                          controller.persistenceMessage ??
+                          if (controller.unreadCount > 0)
+                            ElixPill(
+                              text: '${controller.unreadCount} unread',
+                              color: AppColors.accent,
+                              compact: true,
+                            ),
+                          _ShadActionButton(
+                            key: const Key('trainee_activity_mark_all_read'),
+                            icon: FluentIcons.check_mark,
+                            label: 'Mark all read',
+                            onPressed: controller.unreadCount == 0
+                                ? null
+                                : () => _markAllRead(controller),
+                          ),
+                        ],
+                      ),
+                      if (controller.hasStreamError ||
+                          controller.persistenceMessage != null) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        _ActivityFeedback(
+                          isError: controller.hasStreamError,
+                          message:
+                              controller.persistenceMessage ??
                               'Some classroom updates may be missing. Try again.',
+                          onRetry: controller.hasStreamError
+                              ? controller.retry
+                              : null,
                         ),
-                        action: controller.hasStreamError
-                            ? Button(
-                                onPressed: controller.retry,
-                                child: const Text('Try again'),
-                              )
-                            : null,
-                      ),
+                      ],
+                      const SizedBox(height: AppSpacing.md),
                     ],
-                    const SizedBox(height: AppSpacing.md),
-                  ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: controller.loading
-                    ? const Center(child: ProgressRing())
-                    : visible.isEmpty
-                    ? _EmptyState(
-                        unreadOnly: _unreadOnly,
-                        hasError: controller.hasStreamError,
-                        onRetry: controller.retry,
-                      )
-                    : ListView.separated(
-                        key: const Key('trainee_activity_list'),
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          0,
-                          AppSpacing.lg,
-                          AppSpacing.lg,
+                Expanded(
+                  child: controller.loading
+                      ? const Center(child: ProgressRing())
+                      : visible.isEmpty
+                      ? _EmptyState(
+                          unreadOnly: _unreadOnly,
+                          hasError: controller.hasStreamError,
+                          onRetry: controller.retry,
+                        )
+                      : ListView.separated(
+                          key: const Key('trainee_activity_list'),
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            0,
+                            AppSpacing.lg,
+                            AppSpacing.lg,
+                          ),
+                          itemCount: visible.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: AppSpacing.sm),
+                          itemBuilder: (context, index) {
+                            final activity = visible[index];
+                            return _ActivityRow(
+                              activity: activity,
+                              onOpen: () async {
+                                await controller.markRead(activity);
+                                if (context.mounted) {
+                                  context.push(activity.destination);
+                                }
+                              },
+                            );
+                          },
                         ),
-                        itemCount: visible.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: AppSpacing.sm),
-                        itemBuilder: (context, index) {
-                          final activity = visible[index];
-                          return _ActivityRow(
-                            activity: activity,
-                            onOpen: () async {
-                              await controller.markRead(activity);
-                              if (context.mounted) {
-                                context.push(activity.destination);
-                              }
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -159,6 +148,102 @@ class _TraineeActivityCenterScreenState
       ElixToast.showSuccess(context, message: 'Marked all activity as read.');
     }
   }
+}
+
+class _UnreadOnlyControl extends StatelessWidget {
+  const _UnreadOnlyControl({required this.value, required this.onChanged});
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Checkbox(
+          checked: value,
+          onChanged: (next) => onChanged(next ?? false),
+          content: const Text('Unread only'),
+        )
+      : shad.ShadCheckbox(
+          value: value,
+          onChanged: onChanged,
+          label: const Text('Unread only'),
+        );
+}
+
+class _ShadActionButton extends StatelessWidget {
+  const _ShadActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? Button(
+          onPressed: onPressed,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14),
+              const SizedBox(width: AppSpacing.xs),
+              Text(label),
+            ],
+          ),
+        )
+      : shad.ShadButton.outline(
+          onPressed: onPressed,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14),
+              const SizedBox(width: AppSpacing.xs),
+              Text(label),
+            ],
+          ),
+        );
+}
+
+class _ActivityFeedback extends StatelessWidget {
+  const _ActivityFeedback({
+    required this.isError,
+    required this.message,
+    this.onRetry,
+  });
+  final bool isError;
+  final String message;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) => context.isHighContrast
+      ? InfoBar(
+          severity: isError ? InfoBarSeverity.warning : InfoBarSeverity.info,
+          title: Text(
+            isError
+                ? 'Some activity could not be refreshed'
+                : 'Read status is temporary',
+          ),
+          content: Text(message),
+          action: onRetry == null
+              ? null
+              : Button(onPressed: onRetry, child: const Text('Try again')),
+        )
+      : shad.ShadAlert(
+          title: Text(
+            isError
+                ? 'Some activity could not be refreshed'
+                : 'Read status is temporary',
+          ),
+          description: Text(message),
+          trailing: onRetry == null
+              ? null
+              : shad.ShadButton.outline(
+                  onPressed: onRetry,
+                  child: const Text('Try again'),
+                ),
+        );
 }
 
 class _EmptyState extends StatelessWidget {

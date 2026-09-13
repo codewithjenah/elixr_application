@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../teacher/teacher_phase3_test_support.dart';
 
@@ -259,7 +260,7 @@ void main() {
       expect(find.text('Delete conversation?'), findsOneWidget);
       expect(find.textContaining('does not delete their copy'), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(shad.ShadButton, 'Delete'));
       await tester.pumpAndSettle();
 
       expect(find.text('SEARCH RESULTS'), findsOneWidget);
@@ -560,16 +561,9 @@ void main() {
   });
 }
 
-Finder _composerFinder() => find.byWidgetPredicate(
-  (widget) => widget is TextBox && widget.placeholder == 'Write a message...',
-  description: 'message composer',
-);
+Finder _composerFinder() => find.byKey(const Key('messages-composer'));
 
-Finder _peopleSearchFinder() => find.byWidgetPredicate(
-  (widget) =>
-      widget is TextBox && widget.placeholder == 'Find a Teacher or Trainee',
-  description: 'people search',
-);
+Finder _peopleSearchFinder() => find.byKey(const Key('messages-people-search'));
 
 Future<void> _searchPeople(WidgetTester tester, String query) async {
   await tester.enterText(_peopleSearchFinder(), query);

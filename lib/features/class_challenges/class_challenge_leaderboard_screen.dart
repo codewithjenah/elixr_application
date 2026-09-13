@@ -213,9 +213,13 @@ class _Podium extends StatelessWidget {
                     style: AppTheme.headingMedium,
                   ),
                   if (entries[index].traineeId == userId)
-                    const Text(
-                      'You',
-                      style: TextStyle(color: Color(0xFFFF2FA8)),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: ElixPill(
+                        text: 'YOU',
+                        color: context.elixColors.brandSecondary,
+                        compact: true,
+                      ),
                     ),
                   Text(
                     '${entries[index].score}/12',
@@ -242,45 +246,83 @@ class _RankRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      key: Key('class_challenge_rank_$rank'),
-      color: isYou ? const Color(0x18FF2FA8) : null,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 44,
-            child: Text('#$rank', style: AppTheme.headingMedium),
-          ),
-          ProfileAvatarWidget(
-            initials: userInitials(entry.displayName),
-            networkImageUrl: entry.profilePictureUrl,
-            radius: 18,
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              '${entry.displayName}${isYou ? '  ·  You' : ''}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          SizedBox(
-            width: 90,
-            child: Text('Attempt ${entry.bestAttemptNumber}'),
-          ),
-          SizedBox(
-            width: 64,
-            child: Text(
-              '${entry.score}/12',
-              textAlign: TextAlign.end,
-              style: AppTheme.headingMedium,
-            ),
-          ),
-        ],
+    return LayoutBuilder(
+      builder: (context, constraints) => Container(
+        key: Key('class_challenge_rank_$rank'),
+        color: isYou ? const Color(0x18FF2FA8) : null,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        child: constraints.maxWidth < 520
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 38,
+                    child: Text('#$rank', style: AppTheme.headingMedium),
+                  ),
+                  ProfileAvatarWidget(
+                    initials: userInitials(entry.displayName),
+                    networkImageUrl: entry.profilePictureUrl,
+                    radius: 18,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${entry.displayName}${isYou ? ' · You' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Attempt ${entry.bestAttemptNumber}',
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text('${entry.score}/12', style: AppTheme.headingMedium),
+                ],
+              )
+            : Row(
+                children: [
+                  SizedBox(
+                    width: 44,
+                    child: Text('#$rank', style: AppTheme.headingMedium),
+                  ),
+                  ProfileAvatarWidget(
+                    initials: userInitials(entry.displayName),
+                    networkImageUrl: entry.profilePictureUrl,
+                    radius: 18,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      '${entry.displayName}${isYou ? '  ·  You' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  SizedBox(
+                    width: 90,
+                    child: Text('Attempt ${entry.bestAttemptNumber}'),
+                  ),
+                  SizedBox(
+                    width: 64,
+                    child: Text(
+                      '${entry.score}/12',
+                      textAlign: TextAlign.end,
+                      style: AppTheme.headingMedium,
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }

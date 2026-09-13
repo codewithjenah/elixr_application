@@ -115,7 +115,7 @@ void main() {
     expect(find.text('Challenge details'), findsOneWidget);
     expect(find.text('Movement'), findsWidgets);
     expect(find.text('Schedule'), findsOneWidget);
-    expect(find.text('Challenge settings'), findsOneWidget);
+    expect(find.text('Attempts'), findsOneWidget);
     expect(
       find.text('Highest score wins. Scores range from 0 to 12.'),
       findsOneWidget,
@@ -129,12 +129,12 @@ void main() {
       findsOneWidget,
     );
     expect(
-      tester.getSize(
-        find.byKey(const Key('class_challenge_cancel_action')),
-      ).height,
-      tester.getSize(
-        find.byKey(const Key('class_challenge_primary_action')),
-      ).height,
+      tester
+          .getSize(find.byKey(const Key('class_challenge_cancel_action')))
+          .height,
+      tester
+          .getSize(find.byKey(const Key('class_challenge_primary_action')))
+          .height,
     );
 
     final dialog = tester.widget<ElixDialog>(
@@ -258,7 +258,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Create Class Challenge'), findsOneWidget);
-    expect(find.byKey(const Key('class_challenge_movement_preview')), findsOneWidget);
+    expect(
+      find.byKey(const Key('class_challenge_movement_preview')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -315,9 +318,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final startDate = tester
-        .widget<DatePicker>(
-          find.byKey(const Key('class_challenge_start_date')),
-        )
+        .widget<DatePicker>(find.byKey(const Key('class_challenge_start_date')))
         .selected!;
     final deadline = tester
         .widget<DatePicker>(
@@ -358,13 +359,7 @@ void main() {
     expect(repository.createdChallenge, isNotNull);
     expect(
       repository.createdChallenge!.startAt,
-      DateTime(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-        17,
-        23,
-      ).toUtc(),
+      DateTime(startDate.year, startDate.month, startDate.day, 17, 23).toUtc(),
     );
     expect(repository.createdChallenge!.deadline, deadline.toUtc());
   });
@@ -456,9 +451,7 @@ void main() {
       startAt: DateTime.utc(2026, 9, 10, 9),
       deadline: DateTime.utc(2026, 9, 18, 17),
     );
-    final repository = _FakeClassChallengeRepository(
-      challenges: [challenge],
-    );
+    final repository = _FakeClassChallengeRepository(challenges: [challenge]);
     await _pumpTeacherPane(
       tester,
       const Size(1440, 900),
@@ -472,7 +465,9 @@ void main() {
 
     expect(find.text('Archive challenge?'), findsOneWidget);
     expect(
-      find.textContaining('Existing attempts and leaderboard results will be kept.'),
+      find.textContaining(
+        'Existing attempts and leaderboard results will be kept.',
+      ),
       findsOneWidget,
     );
     expect(find.textContaining('Assessment V2'), findsNothing);
@@ -538,7 +533,7 @@ Future<void> _pumpTeacherPane(
   tester.view.physicalSize = size;
   await tester.pumpWidget(
     FluentApp(
-      theme: AppTheme.dark,
+        theme: AppTheme.dark,
       home: ScaffoldPage(
         content: ClassChallengesPane(
           repository: repository ?? _FakeClassChallengeRepository(),
