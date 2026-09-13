@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
@@ -86,7 +87,11 @@ class _SummaryHeader extends StatelessWidget {
               height: 32,
               decoration: BoxDecoration(
                 color: context.elixColors.brandSecondary.withValues(
-                  alpha: context.isHighContrast ? 0 : 0.16,
+                  alpha:
+                      context.isHighContrast ||
+                          shad.ShadTheme.maybeOf(context) == null
+                      ? 0
+                      : 0.16,
                 ),
                 borderRadius: BorderRadius.circular(10),
               ),
@@ -143,7 +148,7 @@ class _AnalyticsChartPanel extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(AppSpacing.md),
     decoration: BoxDecoration(
-      color: context.isHighContrast
+      color: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
           ? context.elixCardSurface
           : context.elixCardSurface.withValues(alpha: 0.55),
       borderRadius: BorderRadius.circular(12),
@@ -229,7 +234,9 @@ class _ScoreProgressChart extends StatelessWidget {
                 ),
               ),
               belowBarData: BarAreaData(
-                show: !context.isHighContrast,
+                show:
+                    !context.isHighContrast ||
+                    shad.ShadTheme.maybeOf(context) == null,
                 color: context.elixColors.brandSecondary.withValues(alpha: 0.1),
               ),
             ),
@@ -331,23 +338,39 @@ class _SummaryFooter extends StatelessWidget {
       runSpacing: AppSpacing.sm,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Tooltip(
-          message: 'Refresh analytics',
-          child: Semantics(
-            label: 'Refresh analytics',
-            button: true,
-            child: IconButton(
-              key: const Key('teacher_analytics_refresh'),
-              icon: const Icon(FluentIcons.refresh),
-              onPressed: controller.sessionLoading ? null : controller.refresh,
-            ),
-          ),
-        ),
-        FilledButton(
-          key: const Key('teacher_analytics_view_analytics'),
-          onPressed: () => context.go(AppRoutePaths.teacherAnalytics),
-          child: const Text('View analytics'),
-        ),
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+            ? Tooltip(
+                message: 'Refresh analytics',
+                child: IconButton(
+                  key: const Key('teacher_analytics_refresh'),
+                  icon: const Icon(FluentIcons.refresh),
+                  onPressed: controller.sessionLoading
+                      ? null
+                      : controller.refresh,
+                ),
+              )
+            : shad.ShadTooltip(
+                builder: (context) => const Text('Refresh analytics'),
+                child: shad.ShadIconButton.ghost(
+                  key: const Key('teacher_analytics_refresh'),
+                  icon: const Icon(FluentIcons.refresh, size: 16),
+                  enabled: !controller.sessionLoading,
+                  onPressed: controller.sessionLoading
+                      ? null
+                      : controller.refresh,
+                ),
+              ),
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+            ? Button(
+                key: const Key('teacher_analytics_view_analytics'),
+                onPressed: () => context.go(AppRoutePaths.teacherAnalytics),
+                child: const Text('View analytics'),
+              )
+            : shad.ShadButton.outline(
+                key: const Key('teacher_analytics_view_analytics'),
+                onPressed: () => context.go(AppRoutePaths.teacherAnalytics),
+                child: const Text('View analytics'),
+              ),
       ],
     );
     return LayoutBuilder(
@@ -440,7 +463,8 @@ class _SummaryMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
+    final highContrast =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null;
     return Container(
       constraints: const BoxConstraints(minHeight: 72),
       padding: const EdgeInsets.all(AppSpacing.sm),

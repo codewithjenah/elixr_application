@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -13,8 +14,11 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/elix_toast.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
 import '../export/teacher_csv_export.dart';
@@ -108,38 +112,13 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
             heading: 'Analytics',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle: 'See how your class is practicing and completing work.',
-            commandBar: CommandBar(
-              mainAxisAlignment: MainAxisAlignment.end,
-              primaryItems: [
-                CommandBarButton(
-                  key: const Key('teacher_progress_student_rankings'),
-                  icon: const Icon(FluentIcons.trophy2_solid),
-                  label: const Text('Student rankings'),
-                  onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
-                ),
-                CommandBarButton(
-                  key: const Key('teacher_analytics_export'),
-                  icon: const Icon(FluentIcons.download),
-                  label: Text(_exporting ? 'Exporting…' : 'Export'),
-                  onPressed:
-                      _exporting ||
-                          controller.sessionLoading ||
-                          controller.snapshot == null ||
-                          !(controller.snapshot!.hasActivity ||
-                              controller.snapshot!.hasExpectedWork)
-                      ? null
-                      : () => _export(controller),
-                ),
-                CommandBarButton(
-                  key: const Key('teacher_analytics_refresh'),
-                  icon: const Icon(FluentIcons.refresh),
-                  label: const Text('Refresh'),
-                  onPressed: controller.sessionLoading
-                      ? null
-                      : controller.refresh,
-                ),
-              ],
-            ),
+            actions: [
+              _AnalyticsActions(
+                exporting: _exporting,
+                controller: controller,
+                onExport: () => _export(controller),
+              ),
+            ],
           ),
           content: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -149,25 +128,19 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
               if (controller.filterError != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                  child: InfoBar(
-                    severity: InfoBarSeverity.warning,
-                    title: const Text('Choose another date range'),
-                    content: Text(controller.filterError!),
+                  child: _AnalyticsAlert(
+                    title: 'Choose another date range',
+                    message: controller.filterError!,
                   ),
                 ),
               if (controller.hasStreamError)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                  child: InfoBar(
-                    severity: InfoBarSeverity.warning,
-                    title: const Text('Some class data could not be loaded'),
-                    content: const Text(
-                      'Some numbers may be incomplete. Try refreshing.',
-                    ),
-                    action: Button(
-                      onPressed: controller.refresh,
-                      child: const Text('Retry'),
-                    ),
+                  child: _AnalyticsAlert(
+                    title: 'Some class data could not be loaded',
+                    message: 'Some numbers may be incomplete. Try refreshing.',
+                    actionLabel: 'Retry',
+                    onAction: controller.refresh,
                   ),
                 ),
               if (controller.loading && controller.snapshot == null)
@@ -226,27 +199,92 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
         csv: csv,
       );
       if (!mounted || path == null) return;
-      displayInfoBar(
-        context,
-        builder: (context, close) => InfoBar(
-          severity: InfoBarSeverity.success,
-          title: const Text('Analytics exported'),
-          content: Text('Saved $filename to $path'),
-        ),
-      );
+      ElixToast.showSuccess(context, message: 'Analytics exported: $filename');
     } on Object {
       if (!mounted) return;
-      displayInfoBar(
+      await ElixDialog.alert(
         context,
-        builder: (context, close) => InfoBar(
-          severity: InfoBarSeverity.error,
-          title: const Text('Could not export analytics'),
-          content: const Text('Choose another location and try again.'),
-        ),
+        title: 'Could not export analytics',
+        message: 'Choose another location and try again.',
+        icon: FluentIcons.error,
+        iconColor: context.elixColors.error,
       );
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
+  }
+}
+
+class _AnalyticsActions extends StatelessWidget {
+  const _AnalyticsActions({
+    required this.exporting,
+    required this.controller,
+    required this.onExport,
+  });
+
+  final bool exporting;
+  final TeacherAnalyticsController controller;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    final exportEnabled =
+        !exporting &&
+        !controller.sessionLoading &&
+        controller.snapshot != null &&
+        (controller.snapshot!.hasActivity ||
+            controller.snapshot!.hasExpectedWork);
+    final actions =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? [
+            Button(
+              key: const Key('teacher_progress_student_rankings'),
+              onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
+              child: const Text('Student rankings'),
+            ),
+            Button(
+              key: const Key('teacher_analytics_export'),
+              onPressed: exportEnabled ? onExport : null,
+              child: Text(exporting ? 'Exporting…' : 'Export'),
+            ),
+            Button(
+              key: const Key('teacher_analytics_refresh'),
+              onPressed: controller.sessionLoading ? null : controller.refresh,
+              child: const Text('Refresh'),
+            ),
+          ]
+        : [
+            shad.ShadButton.outline(
+              key: const Key('teacher_progress_student_rankings'),
+              onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
+              leading: const Icon(FluentIcons.trophy2_solid, size: 15),
+              child: const Text('Student rankings'),
+            ),
+            shad.ShadButton.outline(
+              key: const Key('teacher_analytics_export'),
+              enabled: exportEnabled,
+              onPressed: exportEnabled ? onExport : null,
+              leading: const Icon(FluentIcons.download, size: 15),
+              child: Text(exporting ? 'Exporting…' : 'Export'),
+            ),
+            shad.ShadTooltip(
+              builder: (context) => const Text('Refresh analytics'),
+              child: shad.ShadIconButton.ghost(
+                key: const Key('teacher_analytics_refresh'),
+                icon: const Icon(FluentIcons.refresh, size: 16),
+                enabled: !controller.sessionLoading,
+                onPressed: controller.sessionLoading
+                    ? null
+                    : controller.refresh,
+              ),
+            ),
+          ];
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: actions,
+    );
   }
 }
 
@@ -273,16 +311,23 @@ class _AnalyticsFilters extends StatelessWidget {
               _FilterField(
                 label: 'Class',
                 tooltip: 'Choose a class or view all classes together.',
-                child: ComboBox<String>(
+                child: _AnalyticsSelect<String>(
                   value: controller.selectedGroupId ?? _allClassesValue,
-                  items: [
-                    const ComboBoxItem(
+                  options: [
+                    const shad.ShadOption(
                       value: _allClassesValue,
                       child: Text('All Classes'),
                     ),
                     for (final group in activeGroups)
-                      ComboBoxItem(value: group.id, child: Text(group.name)),
+                      shad.ShadOption(value: group.id, child: Text(group.name)),
                   ],
+                  selectedLabel: (value) => value == _allClassesValue
+                      ? 'All Classes'
+                      : activeGroups
+                                .where((group) => group.id == value)
+                                .map((group) => group.name)
+                                .firstOrNull ??
+                            'All Classes',
                   onChanged: (value) => controller.setSelectedGroupId(
                     value == _allClassesValue ? null : value,
                   ),
@@ -291,34 +336,40 @@ class _AnalyticsFilters extends StatelessWidget {
               _FilterField(
                 label: 'Time period',
                 tooltip: 'Choose which dates to view.',
-                child: Wrap(
-                  spacing: AppSpacing.xs,
-                  runSpacing: AppSpacing.xs,
-                  children: [
+                child: _AnalyticsSelect<AnalyticsPeriod>(
+                  value: controller.period,
+                  options: [
                     for (final value in AnalyticsPeriod.values)
-                      ToggleButton(
-                        checked: controller.period == value,
-                        onChanged: (_) {
-                          if (value == AnalyticsPeriod.custom) {
-                            _showCustomRangePicker(context, controller);
-                          } else {
-                            controller.setPeriod(value);
-                          }
-                        },
-                        child: Text(value.label),
-                      ),
+                      shad.ShadOption(value: value, child: Text(value.label)),
                   ],
+                  selectedLabel: (value) => value.label,
+                  onChanged: (value) {
+                    if (value == null) return;
+                    if (value == AnalyticsPeriod.custom) {
+                      _showCustomRangePicker(context, controller);
+                    } else {
+                      controller.setPeriod(value);
+                    }
+                  },
                 ),
               ),
               if (controller.period == AnalyticsPeriod.custom)
                 _FilterField(
                   label: 'Date range',
                   tooltip: 'Choose dates from the last 90 days.',
-                  child: Button(
-                    onPressed: () =>
-                        _showCustomRangePicker(context, controller),
-                    child: Text(_customRangeLabel(controller)),
-                  ),
+                  child:
+                      context.isHighContrast ||
+                          shad.ShadTheme.maybeOf(context) == null
+                      ? Button(
+                          onPressed: () =>
+                              _showCustomRangePicker(context, controller),
+                          child: Text(_customRangeLabel(controller)),
+                        )
+                      : shad.ShadButton.outline(
+                          onPressed: () =>
+                              _showCustomRangePicker(context, controller),
+                          child: Text(_customRangeLabel(controller)),
+                        ),
                 ),
             ],
           );
@@ -350,7 +401,7 @@ class _FilterField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return _AnalyticsTooltip(
       message: tooltip,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,6 +421,90 @@ class _FilterField extends StatelessWidget {
           child,
         ],
       ),
+    );
+  }
+}
+
+class _AnalyticsSelect<T> extends StatelessWidget {
+  const _AnalyticsSelect({
+    required this.value,
+    required this.options,
+    required this.selectedLabel,
+    required this.onChanged,
+  });
+
+  final T value;
+  final List<shad.ShadOption<T>> options;
+  final String Function(T value) selectedLabel;
+  final ValueChanged<T?> onChanged;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? ComboBox<T>(
+          value: value,
+          items: [
+            for (final option in options)
+              ComboBoxItem(value: option.value, child: option.child),
+          ],
+          onChanged: onChanged,
+        )
+      : shad.ShadSelect<T>(
+          initialValue: value,
+          options: options,
+          selectedOptionBuilder: (context, selected) =>
+              Text(selected == null ? '' : selectedLabel(selected)),
+          onChanged: onChanged,
+        );
+}
+
+class _AnalyticsTooltip extends StatelessWidget {
+  const _AnalyticsTooltip({required this.message, required this.child});
+
+  final String message;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Tooltip(message: message, child: child)
+      : shad.ShadTooltip(builder: (context) => Text(message), child: child);
+}
+
+class _AnalyticsAlert extends StatelessWidget {
+  const _AnalyticsAlert({
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
+      return InfoBar(
+        severity: InfoBarSeverity.warning,
+        title: Text(title),
+        content: Text(message),
+        action: actionLabel == null
+            ? null
+            : Button(onPressed: onAction, child: Text(actionLabel!)),
+      );
+    }
+    return shad.ShadAlert(
+      title: Text(title),
+      description: Text(message),
+      trailing: actionLabel == null
+          ? null
+          : shad.ShadButton.outline(
+              onPressed: onAction,
+              child: Text(actionLabel!),
+            ),
     );
   }
 }
@@ -400,10 +535,9 @@ class _AnalyticsBody extends StatelessWidget {
         if (controller.partialDataWarning != null)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.md),
-            child: InfoBar(
-              severity: InfoBarSeverity.warning,
-              title: const Text('Some data is missing'),
-              content: Text(controller.partialDataWarning!),
+            child: _AnalyticsAlert(
+              title: 'Some data is missing',
+              message: controller.partialDataWarning!,
             ),
           ),
         _MetricGrid(snapshot: snapshot),
@@ -537,7 +671,7 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return _AnalyticsTooltip(
       message: tooltip,
       child: ElixPanelCard(
         child: Column(
@@ -1082,34 +1216,42 @@ class _GroupComparisonRow extends StatelessWidget {
       alignment: column == _GroupSort.group
           ? Alignment.centerLeft
           : Alignment.center,
-      child: Button(
-        onPressed: () => onSort!(column),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 160),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  value,
-                  style: style,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (selected) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  ascending ? FluentIcons.chevron_up : FluentIcons.chevron_down,
-                  size: 10,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
+      child: context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+          ? Button(
+              onPressed: () => onSort!(column),
+              child: _sortContents(value, style, selected),
+            )
+          : shad.ShadButton.ghost(
+              onPressed: () => onSort!(column),
+              child: _sortContents(value, style, selected),
+            ),
     );
   }
+
+  Widget _sortContents(String value, TextStyle style, bool selected) =>
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 160),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                value,
+                style: style,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (selected) ...[
+              const SizedBox(width: 4),
+              Icon(
+                ascending ? FluentIcons.chevron_up : FluentIcons.chevron_down,
+                size: 10,
+              ),
+            ],
+          ],
+        ),
+      );
 }
 
 class _NarrowGroupComparison extends StatelessWidget {
@@ -1316,7 +1458,7 @@ class _SectionTitle extends StatelessWidget {
   final String tooltip;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
+  Widget build(BuildContext context) => _AnalyticsTooltip(
     message: tooltip,
     child: Row(
       mainAxisSize: MainAxisSize.min,
@@ -1375,57 +1517,54 @@ Future<void> _showCustomRangePicker(
       controller.customStartDate ?? today.subtract(const Duration(days: 6));
   var end = controller.customEndDate ?? today;
   if (start.isAfter(end)) start = end;
-  final selection = await showDialog<_CustomDateSelection>(
-    context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setState) => ContentDialog(
-        title: const Text('Choose a Manila date range'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Up to 90 days. Future dates are not available.',
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                'Start date',
-                style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
-              ),
-              DatePicker(
-                selected: start,
-                endDate: today,
-                onChanged: (value) => setState(() => start = value),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                'End date',
-                style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
-              ),
-              DatePicker(
-                selected: end,
-                endDate: today,
-                onChanged: (value) => setState(() => end = value),
-              ),
-            ],
-          ),
+  final selection = await ElixDialog.show<_CustomDateSelection>(
+    context,
+    title: 'Choose a Manila date range',
+    subtitle: 'Up to 90 days. Future dates are not available.',
+    icon: FluentIcons.calendar,
+    maxWidth: 560,
+    content: StatefulBuilder(
+      builder: (dialogContext, setState) => SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Start date',
+              style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
+            ),
+            _AnalyticsDatePicker(
+              selected: start,
+              lastDate: today,
+              onChanged: (value) => setState(() => start = value),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'End date',
+              style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
+            ),
+            _AnalyticsDatePicker(
+              selected: end,
+              lastDate: today,
+              onChanged: (value) => setState(() => end = value),
+            ),
+          ],
         ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, _CustomDateSelection(start, end)),
-            child: const Text('Apply'),
-          ),
-        ],
       ),
     ),
+    actions: [
+      shad.ShadButton.outline(
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+        child: const Text('Cancel'),
+      ),
+      ElixPrimaryButton(
+        label: 'Apply',
+        expanded: false,
+        onPressed: () => Navigator.of(
+          context,
+          rootNavigator: true,
+        ).pop(_CustomDateSelection(start, end)),
+      ),
+    ],
   );
   if (selection != null && context.mounted) {
     await controller.setCustomRange(
@@ -1433,6 +1572,30 @@ Future<void> _showCustomRangePicker(
       endDate: selection.end,
     );
   }
+}
+
+class _AnalyticsDatePicker extends StatelessWidget {
+  const _AnalyticsDatePicker({
+    required this.selected,
+    required this.lastDate,
+    required this.onChanged,
+  });
+
+  final DateTime selected;
+  final DateTime lastDate;
+  final ValueChanged<DateTime> onChanged;
+
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? DatePicker(selected: selected, endDate: lastDate, onChanged: onChanged)
+      : shad.ShadDatePicker(
+          selected: selected,
+          toMonth: lastDate,
+          onChanged: (value) {
+            if (value != null) onChanged(value);
+          },
+        );
 }
 
 T? _tryRead<T extends Object>(BuildContext context) {

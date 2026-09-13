@@ -19,6 +19,7 @@ class ElixEditorialPageHeader extends StatelessWidget {
     this.variant = ElixEditorialHeaderVariant.standard,
     this.commandBar,
     this.leading,
+    this.actions = const [],
   });
 
   final String heading;
@@ -27,6 +28,7 @@ class ElixEditorialPageHeader extends StatelessWidget {
   final ElixEditorialHeaderVariant variant;
   final CommandBar? commandBar;
   final Widget? leading;
+  final List<Widget> actions;
 
   @override
   Widget build(BuildContext context) => PageHeader(
@@ -36,6 +38,7 @@ class ElixEditorialPageHeader extends StatelessWidget {
       subtitle: subtitle,
       variant: variant,
       leading: leading,
+      actions: actions,
     ),
     commandBar: commandBar,
   );

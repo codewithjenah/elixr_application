@@ -131,7 +131,7 @@ void main() {
     );
     expect(
       tester.getRect(find.byKey(const Key('teacher_analytics_refresh'))).right,
-      greaterThan(1200),
+      greaterThan(1000),
     );
     expect(tester.takeException(), isNull);
   });
