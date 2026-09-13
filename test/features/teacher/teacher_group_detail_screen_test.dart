@@ -1035,7 +1035,7 @@ void main() {
             ),
           )
           .controller
-          ?.text,
+          .text,
       'Bottle control',
     );
     final save = find.byKey(const Key('teacher_assignment_save_changes'));
@@ -1058,7 +1058,7 @@ void main() {
             ),
           )
           .controller
-          ?.text,
+          .text,
       'Bottle control',
     );
   });
