@@ -12,6 +12,7 @@ import 'package:elixr_application/core/widgets/elix_tone_label.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 void main() {
   Widget host(
@@ -83,76 +84,127 @@ void main() {
     );
   });
 
-  testWidgets('reduced motion makes shared decorative animations immediate', (
+  void expectLabelFitsAndIsCentered(WidgetTester tester, String label) {
+    final buttonRect = tester.getRect(
+      find.byKey(const ValueKey('elix-primary-shad-button')),
+    );
+    final labelRect = tester.getRect(find.text(label));
+    expect(buttonRect.contains(labelRect.topLeft), isTrue);
+    expect(buttonRect.contains(labelRect.bottomRight), isTrue);
+    expect((buttonRect.center.dy - labelRect.center.dy).abs(), lessThan(1));
+  }
+
+  testWidgets('Shad primary labels fit and center in expanded variants', (
     tester,
   ) async {
-    await tester.pumpWidget(
-      host(
-        ElixPrimaryButton(label: 'Save', onPressed: () {}),
-        reducedMotion: true,
-      ),
-    );
-
-    final surface = tester.widget<AnimatedContainer>(
-      find.byKey(const ValueKey('elix-primary-button-surface')),
-    );
-    expect(surface.duration, Duration.zero);
-    final innerTheme = tester
-        .widgetList<FluentTheme>(find.byType(FluentTheme))
-        .where(
-          (theme) =>
-              theme.data.fasterAnimationDuration == Duration.zero &&
-              theme.data.fastAnimationDuration == Duration.zero,
-        );
-    expect(innerTheme, isNotEmpty);
-  });
-
-  testWidgets('primary button renders an accessible gradient surface', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      host(ElixPrimaryButton(label: 'Save', onPressed: () {})),
-    );
-
-    final button = tester.widget<FilledButton>(find.byType(FilledButton));
-    final foreground = button.style!.foregroundColor!;
-    final surface = tester.widget<AnimatedContainer>(
-      find.byKey(const ValueKey('elix-primary-button-surface')),
-    );
-    final decoration = surface.decoration! as BoxDecoration;
-
-    expect(decoration.gradient, isA<LinearGradient>());
-    expect((decoration.gradient! as LinearGradient).colors, [
-      ElixSemanticColors.dark.brandPrimary,
-      ElixSemanticColors.dark.brandSecondary,
-    ]);
-    expect(decoration.borderRadius, BorderRadius.circular(12));
-    expect(foreground.resolve({}), ElixSemanticColors.dark.onBrand);
-  });
-
-  testWidgets('primary button exposes its pressed surface from the keyboard', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      host(ElixPrimaryButton(label: 'Save', onPressed: () {})),
-    );
-
-    LinearGradient gradient() {
-      final surface = tester.widget<AnimatedContainer>(
-        find.byKey(const ValueKey('elix-primary-button-surface')),
+    for (final label in ['Sign in', 'Continue']) {
+      await tester.pumpWidget(
+        host(
+          ElixShadThemeBridge(
+            child: SizedBox(
+              width: 320,
+              child: ElixPrimaryButton(label: label, onPressed: () {}),
+            ),
+          ),
+        ),
       );
-      return (surface.decoration! as BoxDecoration).gradient! as LinearGradient;
+
+      expect(
+        tester.widget<shad.ShadButton>(find.byType(shad.ShadButton)).expands,
+        isTrue,
+      );
+      expectLabelFitsAndIsCentered(tester, label);
+      expect(tester.takeException(), isNull);
     }
-
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
-    await tester.pump();
-    expect(gradient().colors.first, ElixSemanticColors.dark.brandPressed);
-
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
-    await tester.pump(const Duration(milliseconds: 150));
-    expect(gradient().colors.first, ElixSemanticColors.dark.brandPrimary);
   });
+
+  testWidgets(
+    'Shad primary button supports disabled, loading, dense, icon, and compact variants',
+    (tester) async {
+      await tester.pumpWidget(
+        host(
+          const ElixShadThemeBridge(
+            child: SizedBox(
+              width: 320,
+              child: ElixPrimaryButton(label: 'Continue', onPressed: null),
+            ),
+          ),
+        ),
+      );
+      expectLabelFitsAndIsCentered(tester, 'Continue');
+
+      await tester.pumpWidget(
+        host(
+          const ElixShadThemeBridge(
+            child: SizedBox(
+              width: 320,
+              child: ElixPrimaryButton(
+                label: 'Continue',
+                onPressed: null,
+                isLoading: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      final loadingButton = tester.getRect(
+        find.byKey(const ValueKey('elix-primary-shad-button')),
+      );
+      final progress = tester.getRect(find.byType(ProgressRing));
+      expect(loadingButton.contains(progress.topLeft), isTrue);
+      expect(loadingButton.contains(progress.bottomRight), isTrue);
+
+      await tester.pumpWidget(
+        host(
+          ElixShadThemeBridge(
+            child: ElixPrimaryButton(
+              label: 'Next',
+              onPressed: () {},
+              icon: FluentIcons.next,
+              dense: true,
+              expanded: false,
+            ),
+          ),
+        ),
+      );
+      final compact = tester.widget<shad.ShadButton>(
+        find.byType(shad.ShadButton),
+      );
+      expect(compact.expands, isFalse);
+      expect(find.byIcon(FluentIcons.next), findsOneWidget);
+      expectLabelFitsAndIsCentered(tester, 'Next');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Shad primary label remains visible with accessible text scaling in light and dark themes',
+    (tester) async {
+      for (final theme in [AppTheme.light, AppTheme.dark]) {
+        await tester.pumpWidget(
+          FluentApp(
+            theme: theme,
+            home: MediaQuery(
+              data: const MediaQueryData(
+                size: Size(1100, 700),
+                textScaler: TextScaler.linear(1.4),
+              ),
+              child: ElixShadThemeBridge(
+                child: Center(
+                  child: const SizedBox(
+                    width: 320,
+                    child: ElixPrimaryButton(label: 'Sign in', onPressed: null),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        expectLabelFitsAndIsCentered(tester, 'Sign in');
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
 
   testWidgets('sidebar destination activates from keyboard and shows focus', (
     tester,

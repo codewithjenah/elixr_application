@@ -43,7 +43,11 @@ class ElixPrimaryButton extends StatelessWidget {
         padding ??
         EdgeInsets.symmetric(
           horizontal: AppSpacing.sm,
-          vertical: dense ? AppSpacing.sm : AppSpacing.md,
+          // ShadButton's regular height is 40px. The Geist action line box is
+          // 20px, so the default Shad vertical inset must leave room for it.
+          // The previous non-dense 16px inset produced a 52px child inside
+          // that 40px constraint and clipped the label.
+          vertical: AppSpacing.sm,
         );
     Widget button;
     if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
@@ -53,11 +57,20 @@ class ElixPrimaryButton extends StatelessWidget {
         child: child,
       );
     } else {
+      final resolvedPadding = effectivePadding.resolve(
+        Directionality.of(context),
+      );
+      final scaledLineHeight = MediaQuery.textScalerOf(context).scale(20);
       button = shad.ShadButton(
         key: const ValueKey('elix-primary-shad-button'),
         onPressed: disabled ? null : onPressed,
         enabled: !disabled,
         expands: expanded,
+        // Keep the standard 40px Shad height at normal scaling, while making
+        // room for the complete Geist line box at accessible text scales.
+        height: (scaledLineHeight + resolvedPadding.vertical)
+            .clamp(40, double.infinity)
+            .toDouble(),
         padding: effectivePadding,
         leading: icon == null ? null : Icon(icon, size: 16),
         child: expanded || isLoading ? child : Flexible(child: child),
