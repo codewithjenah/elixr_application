@@ -1,5 +1,7 @@
 import 'package:elixr_core/models/classroom_announcement.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:intl/intl.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -7,6 +9,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_time_format.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/elix_toast.dart';
+import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/elix_panel_card.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/group_assignment.dart';
 import 'package:elixr_core/utils/user_name.dart';
@@ -53,12 +58,15 @@ class ClassroomAnnouncementsPane extends StatelessWidget {
               ),
             ),
             if (canManage)
-              FilledButton(
+              ElixPrimaryButton(
                 key: const Key('classroom_announcements_new'),
                 onPressed: controller.busy || !groupIsActive
                     ? null
                     : () => _showEditor(context, controller),
-                child: const Text('New announcement'),
+                label: 'New announcement',
+                icon: FluentIcons.add,
+                expanded: false,
+                dense: true,
               ),
           ],
         ),
@@ -137,7 +145,7 @@ class ClassroomAnnouncementsPane extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             Align(
               alignment: Alignment.center,
-              child: Button(
+              child: _AnnouncementOutlineButton(
                 key: const Key('classroom_announcements_load_more'),
                 onPressed: controller.loadingMore ? null : controller.loadMore,
                 child: controller.loadingMore
@@ -168,17 +176,11 @@ class _AssignmentStreamCard extends StatelessWidget {
   final VoidCallback? onOpen;
 
   @override
-  Widget build(BuildContext context) => HoverButton(
-    onPressed: onOpen,
-    cursor: onOpen == null ? MouseCursor.defer : SystemMouseCursors.click,
-    builder: (context, states) => Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.8)),
-      ),
+  Widget build(BuildContext context) {
+    final card = ElixPanelCard(
+      accent: AppColors.primary,
+      showAccentBar: true,
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -220,8 +222,14 @@ class _AssignmentStreamCard extends StatelessWidget {
           ),
         ],
       ),
-    ),
-  );
+    );
+    if (onOpen == null) return card;
+    return ElixHoverSurface(
+      onTap: onOpen!,
+      semanticLabel: 'Open assignment ${assignment.displayTitle}',
+      child: card,
+    );
+  }
 }
 
 class _AnnouncementCard extends StatelessWidget {
@@ -248,14 +256,10 @@ class _AnnouncementCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(AppSpacing.lg),
-    decoration: BoxDecoration(
-      color: context.elixCardSurface,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: context.elixBorder.withValues(alpha: 0.8)),
-    ),
+  Widget build(BuildContext context) => ElixPanelCard(
+    accent: announcement.isPinned ? AppColors.accent : null,
+    showAccentBar: announcement.isPinned,
+    padding: const EdgeInsets.all(AppSpacing.md),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -276,24 +280,21 @@ class _AnnouncementCard extends StatelessWidget {
                     ),
                   ),
                   if (announcement.isPinned)
-                    Text(
-                      'Pinned',
+                    ElixPill(
+                      text: 'Pinned',
                       key: Key(
                         'classroom_announcement_pinned_${announcement.id}',
                       ),
-                      style: AppTheme.caption.copyWith(
-                        color: AppColors.accent,
-                        fontWeight: FontWeight.w700,
-                      ),
+                      color: AppColors.accent,
+                      compact: true,
                     ),
                   if (canManage &&
                       !announcement.isPublishedAt(DateTime.now().toUtc()))
-                    Text(
-                      'Scheduled ${formatElixrDateTime(announcement.publishAt!.toLocal())}',
-                      style: AppTheme.caption.copyWith(
-                        color: AppColors.accent,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    ElixPill(
+                      text:
+                          'Scheduled ${_formatManilaDateTime(announcement.publishAt!)}',
+                      color: AppColors.primary,
+                      compact: true,
                     ),
                 ],
               ),
@@ -302,7 +303,7 @@ class _AnnouncementCard extends StatelessWidget {
               Wrap(
                 spacing: AppSpacing.xs,
                 children: [
-                  Button(
+                  _AnnouncementIconAction(
                     key: Key('classroom_announcement_pin_${announcement.id}'),
                     onPressed:
                         busy ||
@@ -310,23 +311,27 @@ class _AnnouncementCard extends StatelessWidget {
                             !announcement.isPublishedAt(DateTime.now().toUtc())
                         ? null
                         : onPinToggle,
-                    child: Text(
-                      announcement.isPinned
-                          ? 'Unpin announcement'
-                          : 'Pin announcement',
-                    ),
+                    icon: announcement.isPinned
+                        ? FluentIcons.pinned_solid
+                        : FluentIcons.pinned,
+                    tooltip: announcement.isPinned
+                        ? 'Unpin announcement'
+                        : 'Pin announcement',
                   ),
-                  Button(
+                  _AnnouncementIconAction(
                     key: Key('classroom_announcement_edit_${announcement.id}'),
                     onPressed: busy || !groupIsActive ? null : onEdit,
-                    child: const Text('Edit'),
+                    icon: FluentIcons.edit,
+                    tooltip: 'Edit announcement',
                   ),
-                  Button(
+                  _AnnouncementIconAction(
                     key: Key(
                       'classroom_announcement_delete_${announcement.id}',
                     ),
                     onPressed: busy ? null : onDelete,
-                    child: const Text('Delete'),
+                    icon: FluentIcons.delete,
+                    tooltip: 'Delete announcement',
+                    destructive: true,
                   ),
                 ],
               ),
@@ -419,152 +424,207 @@ Future<void> _showEditor(
   String? validationMessage;
   final result = await showDialog<_AnnouncementDraft>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => ContentDialog(
-        title: Text(
-          announcement == null ? 'New announcement' : 'Edit announcement',
-        ),
-        content: SizedBox(
-          width: 460,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextBox(
-                key: const Key('classroom_announcement_title'),
-                controller: titleController,
-                placeholder: 'Title',
-                autofocus: true,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Checkbox(
-                checked: schedule,
-                content: const Text('Schedule for later'),
-                onChanged: (value) =>
-                    setDialogState(() => schedule = value ?? false),
-              ),
-              if (schedule) ...[
-                const SizedBox(height: AppSpacing.sm),
-                DatePicker(
-                  selected: publishDate,
-                  onChanged: (value) => setDialogState(() {
-                    publishDate = value;
-                  }),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text('Publication time (Manila)', style: AppTheme.caption),
-                const SizedBox(height: AppSpacing.xs),
-                Row(
-                  children: [
-                    SizedBox(
-                      width: 130,
-                      child: ComboBox<int>(
-                        key: const Key('classroom_announcement_publish_hour'),
-                        value: publishHour,
-                        items: [
-                          for (var value = 0; value < 24; value++)
-                            ComboBoxItem(
-                              value: value,
-                              child: Text(value.toString().padLeft(2, '0')),
-                            ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() => publishHour = value);
-                          }
-                        },
+    builder: (dialogContext) => ElixShadThemeBridge(
+      child: StatefulBuilder(
+        builder: (context, setDialogState) => ElixDialog(
+          title: announcement == null
+              ? 'New announcement'
+              : 'Edit announcement',
+          maxWidth: 540,
+          maxHeight: MediaQuery.sizeOf(context).height * .85,
+          // Keep the field area independently scrollable at large text scales
+          // and on short desktop windows without nesting ElixDialog's flexible
+          // Shad viewport.
+          scrollableContent: false,
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .52,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Title',
+                    style: AppTheme.label(color: context.elixTextPrimary),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  _AnnouncementInput(
+                    key: const Key('classroom_announcement_title'),
+                    controller: titleController,
+                    placeholder: 'Title',
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _AnnouncementCheckbox(
+                    value: schedule,
+                    onChanged: (value) =>
+                        setDialogState(() => schedule = value),
+                  ),
+                  if (schedule) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    _AnnouncementDatePicker(
+                      selected: publishDate,
+                      onChanged: (value) => setDialogState(() {
+                        publishDate = value;
+                      }),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Publication time',
+                      style: AppTheme.label(color: context.elixTextPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Manila time',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    SizedBox(
-                      width: 130,
-                      child: ComboBox<int>(
-                        key: const Key('classroom_announcement_publish_minute'),
-                        value: publishMinute,
-                        items: const [
-                          ComboBoxItem(value: 0, child: Text('00')),
-                          ComboBoxItem(value: 15, child: Text('15')),
-                          ComboBoxItem(value: 30, child: Text('30')),
-                          ComboBoxItem(value: 45, child: Text('45')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() => publishMinute = value);
-                          }
-                        },
-                      ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        SizedBox(
+                          width: 116,
+                          child: _AnnouncementSelect<int>(
+                            key: const Key(
+                              'classroom_announcement_publish_hour',
+                            ),
+                            value: _to12Hour(publishHour),
+                            values: [
+                              for (var value = 1; value <= 12; value++) value,
+                            ],
+                            label: (value) => value.toString(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setDialogState(
+                                  () => publishHour = _from12Hour(
+                                    value,
+                                    _periodForHour(publishHour),
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        SizedBox(
+                          width: 130,
+                          child: _AnnouncementSelect<int>(
+                            key: const Key(
+                              'classroom_announcement_publish_minute',
+                            ),
+                            value: publishMinute,
+                            values: const [0, 15, 30, 45],
+                            label: (value) => value.toString().padLeft(2, '0'),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setDialogState(() => publishMinute = value);
+                              }
+                            },
+                          ),
+                        ),
+                        SizedBox(
+                          width: 100,
+                          child: _AnnouncementSelect<String>(
+                            key: const Key(
+                              'classroom_announcement_publish_period',
+                            ),
+                            value: _periodForHour(publishHour),
+                            values: const ['AM', 'PM'],
+                            label: (value) => value,
+                            onChanged: (value) {
+                              if (value != null) {
+                                setDialogState(
+                                  () => publishHour = _from12Hour(
+                                    _to12Hour(publishHour),
+                                    value,
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              ],
-              const SizedBox(height: AppSpacing.md),
-              TextBox(
-                key: const Key('classroom_announcement_body'),
-                controller: bodyController,
-                placeholder: 'Write your announcement',
-                minLines: 5,
-                maxLines: 8,
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'Announcement',
+                    style: AppTheme.label(color: context.elixTextPrimary),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  _AnnouncementTextarea(
+                    key: const Key('classroom_announcement_body'),
+                    controller: bodyController,
+                    placeholder: 'Write your announcement',
+                    minLines: 5,
+                    maxLines: 8,
+                  ),
+                  if (validationMessage != null) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      validationMessage!,
+                      style: AppTheme.caption.copyWith(color: AppColors.error),
+                    ),
+                  ],
+                ],
               ),
-              if (validationMessage != null) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  validationMessage!,
-                  style: AppTheme.caption.copyWith(color: AppColors.error),
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('classroom_announcement_save'),
-            onPressed: () {
-              final titleError = ClassroomAnnouncement.validateTitle(
-                titleController.text,
-              );
-              final bodyError = ClassroomAnnouncement.validateBody(
-                bodyController.text,
-              );
-              if (titleError != null || bodyError != null) {
-                setDialogState(
-                  () => validationMessage = titleError ?? bodyError,
-                );
-                return;
-              }
-              final publishAt = DateTime.utc(
-                publishDate.year,
-                publishDate.month,
-                publishDate.day,
-                publishHour - 8,
-                publishMinute,
-              );
-              if (schedule && !publishAt.isAfter(DateTime.now().toUtc())) {
-                setDialogState(
-                  () => validationMessage =
-                      'Choose a future Manila publication date and time.',
-                );
-                return;
-              }
-              Navigator.pop(
-                dialogContext,
-                _AnnouncementDraft(
-                  title: titleController.text,
-                  body: bodyController.text,
-                  publishAt: schedule ? publishAt : null,
-                ),
-              );
-            },
-            child: Text(
-              schedule
-                  ? 'Schedule'
-                  : (announcement == null ? 'Publish' : 'Save changes'),
             ),
           ),
-        ],
+          actions: [
+            _AnnouncementOutlineButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElixPrimaryButton(
+              key: const Key('classroom_announcement_save'),
+              label: schedule
+                  ? 'Schedule'
+                  : (announcement == null ? 'Publish' : 'Save changes'),
+              expanded: false,
+              onPressed: () {
+                final titleError = ClassroomAnnouncement.validateTitle(
+                  titleController.text,
+                );
+                final bodyError = ClassroomAnnouncement.validateBody(
+                  bodyController.text,
+                );
+                if (titleError != null || bodyError != null) {
+                  setDialogState(
+                    () => validationMessage = titleError ?? bodyError,
+                  );
+                  return;
+                }
+                final publishAt = DateTime.utc(
+                  publishDate.year,
+                  publishDate.month,
+                  publishDate.day,
+                  publishHour - 8,
+                  publishMinute,
+                );
+                if (schedule && !publishAt.isAfter(DateTime.now().toUtc())) {
+                  setDialogState(
+                    () => validationMessage =
+                        'Choose a future Manila publication date and time.',
+                  );
+                  return;
+                }
+                Navigator.pop(
+                  dialogContext,
+                  _AnnouncementDraft(
+                    title: titleController.text,
+                    body: bodyController.text,
+                    publishAt: schedule ? publishAt : null,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -588,30 +648,245 @@ Future<void> _showEditor(
   if (message != null) ElixToast.showSuccess(context, message: message);
 }
 
+String _formatManilaDateTime(DateTime utc) => DateFormat(
+  'MMM d, y · h:mm a',
+).format(utc.toUtc().add(const Duration(hours: 8)));
+
+int _to12Hour(int hour) => hour % 12 == 0 ? 12 : hour % 12;
+
+String _periodForHour(int hour) => hour < 12 ? 'AM' : 'PM';
+
+int _from12Hour(int hour, String period) {
+  final normalized = hour == 12 ? 0 : hour;
+  return period == 'PM' ? normalized + 12 : normalized;
+}
+
+class _AnnouncementOutlineButton extends StatelessWidget {
+  const _AnnouncementOutlineButton({
+    super.key,
+    this.onPressed,
+    required this.child,
+  });
+  final VoidCallback? onPressed;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Button(onPressed: onPressed, child: child)
+      : shad.ShadButton.outline(
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          child: child,
+        );
+}
+
+class _AnnouncementDestructiveButton extends StatelessWidget {
+  const _AnnouncementDestructiveButton({
+    super.key,
+    this.onPressed,
+    required this.child,
+  });
+  final VoidCallback? onPressed;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? FilledButton(onPressed: onPressed, child: child)
+      : shad.ShadButton.destructive(
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          child: child,
+        );
+}
+
+class _AnnouncementIconAction extends StatelessWidget {
+  const _AnnouncementIconAction({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+    this.destructive = false,
+  });
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final bool destructive;
+  @override
+  Widget build(BuildContext context) {
+    final button =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? IconButton(
+            icon: Icon(
+              icon,
+              color: destructive ? context.elixColors.error : null,
+            ),
+            onPressed: onPressed,
+          )
+        : shad.ShadIconButton.ghost(
+            icon: Icon(
+              icon,
+              color: destructive ? context.elixColors.error : null,
+            ),
+            onPressed: onPressed,
+            enabled: onPressed != null,
+          );
+    return shad.ShadTheme.maybeOf(context) == null
+        ? Tooltip(message: tooltip, child: button)
+        : shad.ShadTooltip(builder: (_) => Text(tooltip), child: button);
+  }
+}
+
+class _AnnouncementInput extends StatelessWidget {
+  const _AnnouncementInput({
+    super.key,
+    required this.controller,
+    this.placeholder,
+    this.autofocus = false,
+  });
+  final TextEditingController controller;
+  final String? placeholder;
+  final bool autofocus;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? TextBox(
+          controller: controller,
+          placeholder: placeholder,
+          autofocus: autofocus,
+        )
+      : shad.ShadInput(
+          controller: controller,
+          placeholder: placeholder == null ? null : Text(placeholder!),
+          autofocus: autofocus,
+        );
+}
+
+class _AnnouncementTextarea extends StatelessWidget {
+  const _AnnouncementTextarea({
+    super.key,
+    required this.controller,
+    this.placeholder,
+    this.minLines = 5,
+    this.maxLines = 8,
+  });
+  final TextEditingController controller;
+  final String? placeholder;
+  final int minLines;
+  final int maxLines;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? TextBox(
+          controller: controller,
+          placeholder: placeholder,
+          minLines: minLines,
+          maxLines: maxLines,
+        )
+      : shad.ShadTextarea(
+          controller: controller,
+          placeholder: placeholder == null ? null : Text(placeholder!),
+          minHeight: 120,
+          maxHeight: 190,
+          resizable: false,
+        );
+}
+
+class _AnnouncementCheckbox extends StatelessWidget {
+  const _AnnouncementCheckbox({required this.value, required this.onChanged});
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? Checkbox(
+          checked: value,
+          content: const Text('Schedule for later'),
+          onChanged: (value) => onChanged(value ?? false),
+        )
+      : shad.ShadCheckbox(
+          value: value,
+          label: const Text('Schedule for later'),
+          onChanged: onChanged,
+        );
+}
+
+class _AnnouncementDatePicker extends StatelessWidget {
+  const _AnnouncementDatePicker({
+    required this.selected,
+    required this.onChanged,
+  });
+  final DateTime selected;
+  final ValueChanged<DateTime> onChanged;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? DatePicker(selected: selected, onChanged: onChanged)
+      : shad.ShadDatePicker(
+          selected: selected,
+          formatDate: (date) => DateFormat('MMM d, y').format(date),
+          onChanged: (date) {
+            if (date != null) onChanged(date);
+          },
+        );
+}
+
+class _AnnouncementSelect<T> extends StatelessWidget {
+  const _AnnouncementSelect({
+    super.key,
+    required this.value,
+    required this.values,
+    required this.label,
+    required this.onChanged,
+  });
+  final T value;
+  final List<T> values;
+  final String Function(T) label;
+  final ValueChanged<T?> onChanged;
+  @override
+  Widget build(BuildContext context) =>
+      context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+      ? ComboBox<T>(
+          value: value,
+          items: [
+            for (final item in values)
+              ComboBoxItem(value: item, child: Text(label(item))),
+          ],
+          onChanged: onChanged,
+        )
+      : shad.ShadSelect<T>(
+          initialValue: value,
+          options: [
+            for (final item in values)
+              shad.ShadOption(value: item, child: Text(label(item))),
+          ],
+          selectedOptionBuilder: (context, item) => Text(label(item)),
+          onChanged: onChanged,
+        );
+}
+
 Future<void> _confirmDelete(
   BuildContext context,
   ClassroomAnnouncement announcement,
   ClassroomAnnouncementsController controller,
 ) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => ContentDialog(
-      title: const Text('Delete announcement?'),
-      content: const Text(
-        'This announcement will be removed for the whole class.',
-      ),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const Key('classroom_announcement_confirm_delete'),
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Delete'),
-        ),
-      ],
+  final accepted = await ElixDialog.show<bool>(
+    context,
+    title: 'Delete announcement?',
+    maxWidth: 440,
+    content: const Text(
+      'This announcement will be removed for the whole class.',
     ),
+    actions: [
+      _AnnouncementOutlineButton(
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
+        child: const Text('Cancel'),
+      ),
+      _AnnouncementDestructiveButton(
+        key: const Key('classroom_announcement_confirm_delete'),
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+        child: const Text('Delete'),
+      ),
+    ],
   );
   if (accepted != true) return;
   final success = await controller.delete(announcement);

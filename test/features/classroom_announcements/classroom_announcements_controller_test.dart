@@ -4,6 +4,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _FailingPinRepository extends InMemoryClassroomAnnouncementRepository {
   @override
@@ -133,6 +134,8 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
+        builder: (context, child) =>
+            ElixShadThemeBridge(child: shad.ShadToaster(child: child!)),
         home: ScaffoldPage(
           content: ClassroomAnnouncementsPane(
             controller: controller,
@@ -173,6 +176,8 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
+        builder: (context, child) =>
+            ElixShadThemeBridge(child: shad.ShadToaster(child: child!)),
         home: ScaffoldPage(
           content: AnimatedBuilder(
             animation: controller,
@@ -258,6 +263,8 @@ void main() {
       await tester.pumpWidget(
         FluentApp(
           theme: AppTheme.dark,
+          builder: (context, child) =>
+              ElixShadThemeBridge(child: shad.ShadToaster(child: child!)),
           home: ScaffoldPage(
             content: ClassroomAnnouncementsPane(
               controller: controller,
