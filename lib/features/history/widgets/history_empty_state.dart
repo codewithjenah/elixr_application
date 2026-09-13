@@ -1,9 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 
 class HistoryEmptyState extends StatelessWidget {
   const HistoryEmptyState({super.key});
@@ -11,56 +14,45 @@ class HistoryEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Container(
+      child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        decoration: AppTheme.cardDecoration(context),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              decoration: BoxDecoration(
-                color: AppColors.accent.withValues(
-                  alpha: context.isDarkTheme ? 0.2 : 0.12,
-                ),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
+        child: ElixPanelCard(
+          expand: false,
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
                 FluentIcons.history,
-                size: 36,
+                size: 32,
                 color: AppColors.accentSoft,
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'No training sessions yet',
-              style: AppTheme.headingMedium.copyWith(
-                color: context.elixTextPrimary,
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'No training sessions yet',
+                style: AppTheme.headingMedium.copyWith(
+                  color: context.elixTextPrimary,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Sessions appear here after you complete practice.',
-              style: AppTheme.bodySecondary.copyWith(
-                color: context.elixTextSecondary,
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Sessions appear here after you complete practice.',
+                style: AppTheme.bodySecondary.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            FilledButton(
-              onPressed: () => context.go('/movements'),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(FluentIcons.grid_view_medium, size: 14),
-                  SizedBox(width: 8),
-                  Text('Browse Movements'),
-                ],
+              const SizedBox(height: AppSpacing.lg),
+              ElixPrimaryButton(
+                onPressed: () => context.go('/movements'),
+                label: 'Browse Movements',
+                icon: FluentIcons.grid_view_medium,
+                expanded: false,
+                dense: true,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -75,43 +67,59 @@ class HistoryNoResultsState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Container(
+      child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        decoration: AppTheme.cardDecoration(context),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              FluentIcons.filter,
-              size: 32,
-              color: context.elixTextSecondary.withValues(alpha: 0.7),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'No sessions found',
-              style: AppTheme.headingMedium.copyWith(
-                color: context.elixTextPrimary,
+        child: ElixPanelCard(
+          expand: false,
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                FluentIcons.filter,
+                size: 32,
+                color: context.elixTextSecondary.withValues(alpha: 0.7),
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Try a different difficulty, search term, or sort order.',
-              style: AppTheme.bodySecondary.copyWith(
-                color: context.elixTextSecondary,
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'No sessions found',
+                style: AppTheme.headingMedium.copyWith(
+                  color: context.elixTextPrimary,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Button(
-              onPressed: onClearFilters,
-              child: const Text('Clear Filters'),
-            ),
-          ],
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Try a different difficulty, search term, or sort order.',
+                style: AppTheme.bodySecondary.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _ClearFiltersButton(onPressed: onClearFilters),
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+class _ClearFiltersButton extends StatelessWidget {
+  const _ClearFiltersButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!context.isHighContrast && shad.ShadTheme.maybeOf(context) != null) {
+      return shad.ShadButton.outline(
+        onPressed: onPressed,
+        child: const Text('Clear Filters'),
+      );
+    }
+    return Button(onPressed: onPressed, child: const Text('Clear Filters'));
   }
 }
 

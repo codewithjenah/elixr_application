@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -129,34 +130,32 @@ class _FeedbackBlock extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.sm),
         if (loading)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            child: Row(
-              children: [
-                const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: ProgressRing(strokeWidth: 2),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  'Loading feedback…',
-                  style: AppTheme.bodySecondary.copyWith(
-                    color: context.elixTextSecondary,
-                    fontSize: 13,
+          Semantics(
+            liveRegion: true,
+            label: 'Loading feedback',
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: ProgressRing(strokeWidth: 2),
                   ),
-                ),
-              ],
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    'Loading feedback…',
+                    style: AppTheme.bodySecondary.copyWith(
+                      color: context.elixTextSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
             ),
           )
         else if (errorMessage != null)
-          Text(
-            errorMessage!,
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-              fontSize: 13,
-            ),
-          )
+          _FeedbackError(message: errorMessage!)
         else if (feedbacks == null || feedbacks!.isEmpty)
           Text(
             'No feedback recorded',
@@ -278,9 +277,8 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
               if (snapshot.hasError || image == null) {
                 return _StillFrame(
                   child: Center(
-                    child: Button(
+                    child: _EvidenceRetryButton(
                       onPressed: () => setState(() => _image = _download(path)),
-                      child: const Text('Image unavailable — Retry'),
                     ),
                   ),
                 );
@@ -366,6 +364,49 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _FeedbackError extends StatelessWidget {
+  const _FeedbackError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!context.isHighContrast && shad.ShadTheme.maybeOf(context) != null) {
+      return shad.ShadAlert.destructive(
+        title: const Text('Feedback unavailable'),
+        description: Text(message),
+      );
+    }
+    return Text(
+      message,
+      style: AppTheme.bodySecondary.copyWith(
+        color: context.elixColors.error,
+        fontSize: 13,
+      ),
+    );
+  }
+}
+
+class _EvidenceRetryButton extends StatelessWidget {
+  const _EvidenceRetryButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!context.isHighContrast && shad.ShadTheme.maybeOf(context) != null) {
+      return shad.ShadButton.outline(
+        onPressed: onPressed,
+        child: const Text('Image unavailable — Retry'),
+      );
+    }
+    return Button(
+      onPressed: onPressed,
+      child: const Text('Image unavailable — Retry'),
     );
   }
 }

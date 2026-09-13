@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/services.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
@@ -48,7 +48,7 @@ class HistoryHeader extends StatelessWidget {
   }
 }
 
-class HistoryRefreshButton extends StatefulWidget {
+class HistoryRefreshButton extends StatelessWidget {
   const HistoryRefreshButton({
     super.key,
     required this.loading,
@@ -59,76 +59,36 @@ class HistoryRefreshButton extends StatefulWidget {
   final VoidCallback onPressed;
 
   @override
-  State<HistoryRefreshButton> createState() => _HistoryRefreshButtonState();
-}
-
-class _HistoryRefreshButtonState extends State<HistoryRefreshButton> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    return Tooltip(
-      message: 'Refresh sessions',
-      child: FocusableActionDetector(
-        enabled: !widget.loading,
-        mouseCursor: widget.loading
-            ? SystemMouseCursors.basic
-            : SystemMouseCursors.click,
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-        },
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              if (!widget.loading) widget.onPressed();
-              return null;
-            },
-          ),
-        },
-        onShowHoverHighlight: (value) {
-          if (_hovered != value) setState(() => _hovered = value);
-        },
-        onShowFocusHighlight: (value) {
-          if (_focused != value) setState(() => _focused = value);
-        },
-        child: GestureDetector(
-          onTap: widget.loading ? null : widget.onPressed,
-          child: AnimatedContainer(
-            duration: ElixMotion.duration(context, ElixMotion.micro),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: context.elixCardSurface,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: _focused
-                    ? context.elixColors.focusRing
-                    : (_hovered
-                          ? AppColors.accent.withValues(alpha: 0.55)
-                          : context.elixBorder),
-                width: _focused
-                    ? (highContrast
-                          ? ElixFocus.ringWidthHighContrast
-                          : ElixFocus.ringWidth)
-                    : 1,
-              ),
-            ),
-            child: AnimatedRotation(
-              turns: widget.loading ? 1 : 0,
-              duration: ElixMotion.duration(context, ElixMotion.intro),
-              child: Icon(
-                FluentIcons.refresh,
-                size: 16,
-                color: widget.loading
-                    ? context.elixTextSecondary
-                    : AppColors.accentSoft,
-              ),
-            ),
-          ),
-        ),
+    final icon = AnimatedRotation(
+      turns: loading ? 1 : 0,
+      duration: ElixMotion.duration(context, ElixMotion.micro),
+      child: Icon(
+        FluentIcons.refresh,
+        size: 16,
+        color: loading ? context.elixTextSecondary : AppColors.accentSoft,
       ),
+    );
+    final enabled = !loading;
+    final button =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? IconButton(icon: icon, onPressed: enabled ? onPressed : null)
+        : shad.ShadIconButton.ghost(
+            icon: icon,
+            onPressed: enabled ? onPressed : null,
+          );
+    final tooltip =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? Tooltip(message: 'Refresh sessions', child: button)
+        : shad.ShadTooltip(
+            builder: (context) => const Text('Refresh sessions'),
+            child: button,
+          );
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: 'Refresh sessions',
+      child: tooltip,
     );
   }
 }
