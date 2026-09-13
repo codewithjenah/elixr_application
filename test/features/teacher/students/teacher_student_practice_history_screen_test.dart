@@ -103,9 +103,14 @@ void main() {
       await tester.scrollUntilVisible(
         find.text('Load more'),
         400,
-        scrollable: find.byType(Scrollable),
+        scrollable: find.descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        ),
       );
       expect(find.text('Load more'), findsOneWidget);
+      await tester.drag(find.byType(ListView), const Offset(0, -100));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Load more'));
       await tester.pumpAndSettle();
       expect(progress.sessionFetches, ['trainee', 'trainee']);

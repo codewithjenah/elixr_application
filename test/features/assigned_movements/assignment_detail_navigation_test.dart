@@ -366,6 +366,14 @@ void main() {
       expect(find.text('Checked'), findsOneWidget);
       expect(find.text('Try again'), findsOneWidget);
 
+      await tester.scrollUntilVisible(
+        find.text('Checked'),
+        200,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('assignment_detail_work_scroll')),
+          matching: find.byType(Scrollable),
+        ),
+      );
       await tester.tap(find.text('Checked'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_app_logo.dart';
+import 'package:elixr_application/features/auth/auth_text_field.dart';
 import 'package:elixr_application/features/auth/teacher_register_screen.dart';
 import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -135,6 +136,19 @@ class _TeacherRegisterRepository
   }) async => PendingEmailChangeRecoveryResult.pending();
 }
 
+Finder _authField(String placeholder) {
+  return find.descendant(
+    of: _authFieldContainer(placeholder),
+    matching: find.byType(EditableText),
+  );
+}
+
+Finder _authFieldContainer(String placeholder) {
+  return find.byWidgetPredicate(
+    (widget) => widget is AuthTextField && widget.placeholder == placeholder,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -167,22 +181,11 @@ void main() {
 
     expect(find.text('Step 1 of 4'), findsOneWidget);
     expect(find.text('Teacher access code'), findsOneWidget);
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is TextBox && widget.placeholder == 'XXXX-XXXX-XXXX',
-      ),
-      findsOneWidget,
-    );
+    expect(_authFieldContainer('XXXX-XXXX-XXXX'), findsOneWidget);
     expect(find.text('Email address'), findsNothing);
     expect(find.text('Continue with Google'), findsNothing);
 
-    await tester.enterText(
-      find.descendant(
-        of: find.byKey(const Key('teacher_register_access_code_field')),
-        matching: find.byType(TextBox),
-      ),
-      '7kpm-xr4d-q2wt',
-    );
+    await tester.enterText(_authField('XXXX-XXXX-XXXX'), '7kpm-xr4d-q2wt');
     await tester.tap(find.text('Continue'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -256,7 +259,7 @@ void main() {
     fixture.repository.accessCodeError =
         'That Teacher access code is invalid or has already been used.';
 
-    await tester.enterText(find.byType(TextBox).first, '7KPM-XR4D-Q2WT');
+    await tester.enterText(_authField('XXXX-XXXX-XXXX'), '7KPM-XR4D-Q2WT');
     await tester.tap(find.text('Continue'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -276,7 +279,7 @@ void main() {
     final repository = fixture.repository;
     final auth = fixture.auth;
 
-    await tester.enterText(find.byType(TextBox).first, '7KPM-XR4D-Q2WT');
+    await tester.enterText(_authField('XXXX-XXXX-XXXX'), '7KPM-XR4D-Q2WT');
     await tester.pump();
     await tester.tap(find.text('Continue'));
     await tester.pump();
@@ -287,26 +290,11 @@ void main() {
 
     expect(find.text('Step 3 of 4'), findsOneWidget);
     expect(find.byKey(const Key('teacher_register_email_field')), findsNothing);
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is TextBox && widget.placeholder == 'e.g. Jane',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is TextBox && widget.placeholder == 'e.g. Marie',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is TextBox && widget.placeholder == 'e.g. Santos',
-      ),
-      findsOneWidget,
-    );
-    await tester.enterText(find.byType(TextBox).at(0), 'Jane');
-    await tester.enterText(find.byType(TextBox).at(2), 'Doe');
+    expect(_authFieldContainer('e.g. Jane'), findsOneWidget);
+    expect(_authFieldContainer('e.g. Marie'), findsOneWidget);
+    expect(_authFieldContainer('e.g. Santos'), findsOneWidget);
+    await tester.enterText(_authField('e.g. Jane'), 'Jane');
+    await tester.enterText(_authField('e.g. Santos'), 'Doe');
     await tester.pump();
     await tester.tap(find.text('Continue'));
     await tester.pump();
@@ -316,29 +304,12 @@ void main() {
       find.byKey(const Key('teacher_register_email_field')),
       findsOneWidget,
     );
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is TextBox && widget.placeholder == 'you@school.edu',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is TextBox && widget.placeholder == 'Create a password',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is TextBox && widget.placeholder == 'Re-enter your password',
-      ),
-      findsOneWidget,
-    );
-    await tester.enterText(find.byType(TextBox).at(0), 'jane@school.edu');
-    await tester.enterText(find.byType(TextBox).at(1), 'secret12');
-    await tester.enterText(find.byType(TextBox).at(2), 'secret12');
+    expect(_authFieldContainer('you@school.edu'), findsOneWidget);
+    expect(_authFieldContainer('Create a password'), findsOneWidget);
+    expect(_authFieldContainer('Re-enter your password'), findsOneWidget);
+    await tester.enterText(_authField('you@school.edu'), 'jane@school.edu');
+    await tester.enterText(_authField('Create a password'), 'secret12');
+    await tester.enterText(_authField('Re-enter your password'), 'secret12');
     await tester.tap(find.byKey(const Key('teacher_register_privacy_consent')));
     await tester.pump();
     await tester.tap(find.text('Create Teacher account'));

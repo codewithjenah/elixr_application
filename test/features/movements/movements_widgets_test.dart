@@ -1365,26 +1365,28 @@ void main() {
       await tester.pumpWidget(
         wrap(
           brightness: Brightness.light,
-          Column(
-            children: const [
-              MovementsHeader(
-                summary: MovementsSummary(
-                  practicedCount: 1,
-                  totalMovements: 9,
-                  totalSessions: 2,
-                  rubricSessionCount: 2,
-                  overallAverageRubric: 9,
+          SingleChildScrollView(
+            child: Column(
+              children: const [
+                MovementsHeader(
+                  summary: MovementsSummary(
+                    practicedCount: 1,
+                    totalMovements: 9,
+                    totalSessions: 2,
+                    rubricSessionCount: 2,
+                    overallAverageRubric: 9,
+                  ),
                 ),
-              ),
-              SizedBox(
-                width: 900,
-                child: MovementCard(
-                  movement: easyMovement,
-                  sessionCount: 2,
-                  averageRubricTotal: 9,
+                SizedBox(
+                  width: 900,
+                  child: MovementCard(
+                    movement: easyMovement,
+                    sessionCount: 2,
+                    averageRubricTotal: 9,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
@@ -1397,26 +1399,28 @@ void main() {
       await tester.pumpWidget(
         wrap(
           brightness: Brightness.dark,
-          Column(
-            children: const [
-              MovementsHeader(
-                summary: MovementsSummary(
-                  practicedCount: 1,
-                  totalMovements: 9,
-                  totalSessions: 2,
-                  rubricSessionCount: 2,
-                  overallAverageRubric: 9,
+          SingleChildScrollView(
+            child: Column(
+              children: const [
+                MovementsHeader(
+                  summary: MovementsSummary(
+                    practicedCount: 1,
+                    totalMovements: 9,
+                    totalSessions: 2,
+                    rubricSessionCount: 2,
+                    overallAverageRubric: 9,
+                  ),
                 ),
-              ),
-              SizedBox(
-                width: 900,
-                child: MovementCard(
-                  movement: easyMovement,
-                  sessionCount: 2,
-                  averageRubricTotal: 9,
+                SizedBox(
+                  width: 900,
+                  child: MovementCard(
+                    movement: easyMovement,
+                    sessionCount: 2,
+                    averageRubricTotal: 9,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );

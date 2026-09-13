@@ -10,6 +10,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../teacher_phase3_test_support.dart';
 
@@ -100,10 +101,14 @@ void main() {
       await pumpStudents(tester);
 
       expectNoUnboundedFlex(tester);
-      expect(find.widgetWithText(TextBox, 'Search by name'), findsOneWidget);
-      expect(find.byType(ComboBox<String?>), findsOneWidget);
+      expect(find.text('Search by name'), findsOneWidget);
+      expect(find.byType(EditableText), findsOneWidget);
+      expect(find.byType(shad.ShadSelect<String?>), findsOneWidget);
       expect(find.text('All classes'), findsWidgets);
-      expect(find.byType(ComboBox<TeacherStudentStatusFilter>), findsOneWidget);
+      expect(
+        find.byType(shad.ShadSelect<TeacherStudentStatusFilter>),
+        findsOneWidget,
+      );
       expect(find.text('Approved'), findsWidgets);
       expect(find.text('Ada Lovelace'), findsOneWidget);
       expect(find.text('Alan Turing'), findsOneWidget);
@@ -209,13 +214,13 @@ void main() {
     );
     await pumpStudents(tester);
 
-    await tester.enterText(find.byType(TextBox), 'ada');
+    await tester.enterText(find.byType(EditableText), 'ada');
     await tester.pump();
 
     expect(find.text('Ada Lovelace'), findsOneWidget);
     expect(find.text('Alan Turing'), findsNothing);
 
-    await tester.enterText(find.byType(TextBox), '');
+    await tester.enterText(find.byType(EditableText), '');
     await tester.pump();
     await tester.tap(find.text('Approved').first);
     await tester.pumpAndSettle();
@@ -269,7 +274,7 @@ void main() {
     seedApprovedPair();
     await pumpStudents(tester);
 
-    await tester.enterText(find.byType(TextBox), 'no-such-student');
+    await tester.enterText(find.byType(EditableText), 'no-such-student');
     await tester.pump();
 
     expectNoUnboundedFlex(tester);
@@ -283,7 +288,7 @@ void main() {
     seedApprovedPair();
     await pumpStudents(tester);
 
-    await tester.tap(find.widgetWithText(Button, 'Open details').first);
+    await tester.tap(find.text('Open details').first);
     await tester.pumpAndSettle();
 
     expect(find.text('detail:t1:group-1'), findsOneWidget);

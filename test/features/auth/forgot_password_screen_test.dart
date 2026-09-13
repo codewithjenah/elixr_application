@@ -6,6 +6,7 @@ import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/features/auth/forgot_password_screen.dart';
 import 'package:elixr_application/features/auth/login_screen.dart';
+import 'package:elixr_application/features/auth/auth_text_field.dart';
 import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -119,8 +120,15 @@ Future<void> _setSurface(
 }
 
 Finder _authField(String placeholder) {
+  return find.descendant(
+    of: _authFieldContainer(placeholder),
+    matching: find.byType(EditableText),
+  );
+}
+
+Finder _authFieldContainer(String placeholder) {
   return find.byWidgetPredicate(
-    (widget) => widget is TextBox && widget.placeholder == placeholder,
+    (widget) => widget is AuthTextField && widget.placeholder == placeholder,
   );
 }
 
@@ -233,7 +241,7 @@ void main() {
         find.text(TeacherAuthMessages.passwordResetCompleted),
         findsOneWidget,
       );
-      expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
+      expect(find.widgetWithText(ElixPrimaryButton, 'Sign in'), findsOneWidget);
     });
 
     testWidgets('shows AuthErrorBanner when the reset request fails', (

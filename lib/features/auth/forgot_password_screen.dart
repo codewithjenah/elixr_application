@@ -248,5 +248,8 @@ class _ForgotSecondaryButton extends StatelessWidget {
   Widget build(BuildContext context) =>
       context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
       ? Button(onPressed: onPressed, child: child)
-      : shad.ShadButton.outline(onPressed: onPressed, child: child);
+      : shad.ShadButton.outline(
+          onPressed: onPressed,
+          child: Flexible(child: child),
+        );
 }

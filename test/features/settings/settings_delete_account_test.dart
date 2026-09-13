@@ -283,7 +283,7 @@ void main() {
     expect(dialogRect.top, greaterThanOrEqualTo(0));
     expect(dialogRect.bottom, lessThanOrEqualTo(768));
     final cancelRect = tester.getRect(
-      find.widgetWithText(Button, 'Cancel').first,
+      find.widgetWithText(ElixPrimaryButton, 'Cancel').first,
     );
     final continueRect = tester.getRect(
       find.widgetWithText(ElixPrimaryButton, 'Continue'),
@@ -325,8 +325,8 @@ void main() {
     expect(copiedPhrase, 'delete user@example.com');
     expect(find.text('Copied'), findsOneWidget);
 
-    final continueAction = find.widgetWithText(FilledButton, 'Continue');
-    expect(tester.widget<FilledButton>(continueAction).onPressed, isNull);
+    final continueAction = find.widgetWithText(ElixPrimaryButton, 'Continue');
+    expect(tester.widget<ElixPrimaryButton>(continueAction).onPressed, isNull);
 
     await tester.enterText(
       find.byKey(const ValueKey('delete-phrase-field')),
@@ -335,7 +335,10 @@ void main() {
     await tester.pump();
 
     expect(find.text('Phrase matches.'), findsOneWidget);
-    expect(tester.widget<FilledButton>(continueAction).onPressed, isNotNull);
+    expect(
+      tester.widget<ElixPrimaryButton>(continueAction).onPressed,
+      isNotNull,
+    );
     expect(find.byKey(const ValueKey('delete-password-field')), findsNothing);
 
     await tester.tap(continueAction);
@@ -350,16 +353,16 @@ void main() {
     );
 
     final deleteAction = find.widgetWithText(
-      FilledButton,
+      ElixPrimaryButton,
       'Delete permanently',
     );
-    expect(tester.widget<FilledButton>(deleteAction).onPressed, isNull);
+    expect(tester.widget<ElixPrimaryButton>(deleteAction).onPressed, isNull);
     await tester.enterText(
       find.byKey(const ValueKey('delete-password-field')),
       'secret',
     );
     await tester.pump();
-    expect(tester.widget<FilledButton>(deleteAction).onPressed, isNotNull);
+    expect(tester.widget<ElixPrimaryButton>(deleteAction).onPressed, isNotNull);
     await tester.tap(deleteAction);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -408,14 +411,14 @@ void main() {
     expect(find.text('Delete account permanently?'), findsOneWidget);
     expect(repository.deleteAccountCallCount, 0);
     expect(authService.isAuthenticated, isTrue);
-    final continueAction = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Continue'),
+    final continueAction = tester.widget<ElixPrimaryButton>(
+      find.widgetWithText(ElixPrimaryButton, 'Continue'),
     );
     expect(continueAction.onPressed, isNull);
     expect(find.text('Confirm your identity'), findsNothing);
     expect(find.byKey(const ValueKey('delete-password-field')), findsNothing);
 
-    await tester.tap(find.widgetWithText(Button, 'Cancel'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Cancel'));
     await tester.pumpAndSettle();
   });
 
@@ -446,7 +449,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Phrase matches.'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Continue'));
     await tester.pumpAndSettle();
 
     expect(find.text('Confirm your identity'), findsOneWidget);
@@ -454,8 +457,8 @@ void main() {
       find.text('Required to verify that this is your account.'),
       findsOneWidget,
     );
-    final deleteAction = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Delete permanently'),
+    final deleteAction = tester.widget<ElixPrimaryButton>(
+      find.widgetWithText(ElixPrimaryButton, 'Delete permanently'),
     );
     expect(deleteAction.onPressed, isNull);
     expect(repository.deleteAccountCallCount, 0);

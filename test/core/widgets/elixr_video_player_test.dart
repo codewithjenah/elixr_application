@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/elixr_video_player.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -173,11 +174,11 @@ void main() {
     await tester.pump();
 
     expect(find.text('Video unavailable'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Retry'), findsOneWidget);
+    expect(find.widgetWithText(ElixPrimaryButton, 'Retry'), findsOneWidget);
     expect(fakePlatform.openCalls, 1);
 
     fakePlatform.failOpen = false;
-    await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Retry'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 

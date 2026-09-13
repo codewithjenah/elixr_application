@@ -3044,7 +3044,7 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
     assert.equal(after.data().equipped_border_id, 'starter_glow');
     assert.equal(after.data().quest_xp, 0);
     assert.equal(after.data().total_xp, 25);
-    assert.equal(after.data().last_claim_id, '');
+    assert.equal(Object.hasOwn(after.data(), 'last_claim_id'), false);
   });
 
   test('21 public profile metadata update preserves equipped_border_id', async () => {

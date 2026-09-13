@@ -131,12 +131,8 @@ void main() {
 
       sessions.error = null;
       sessions.sessions = _nSessions(11);
-      final retry = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Retry'),
-      );
-      retry.onPressed!();
-      await tester.pump();
-      await tester.pump();
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
 
       expect(find.textContaining('11 session'), findsOneWidget);
       expect(find.text('Retry'), findsNothing);

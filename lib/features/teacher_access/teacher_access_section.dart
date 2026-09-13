@@ -546,7 +546,7 @@ class _JoinCodeEntry extends StatelessWidget {
     required this.focused,
   });
 
-  /// Keeps Continue at Fluent TextBox min height (32) beside the code field.
+  /// Keeps Continue aligned with the active Fluent or Shad input height.
   static const _continuePadding = EdgeInsets.symmetric(
     horizontal: 16,
     vertical: 5.5,
@@ -570,7 +570,7 @@ class _JoinCodeEntry extends StatelessWidget {
     );
     final action = SizedBox(
       key: const Key('teacher_access_resolve_code'),
-      height: 32,
+      height: 33,
       child: ElixPrimaryButton(
         label: 'Continue',
         expanded: compact,

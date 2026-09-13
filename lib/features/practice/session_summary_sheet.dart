@@ -557,6 +557,7 @@ class _EvidenceThumbnail extends StatelessWidget {
       context,
       title: 'Confirmed movement frame',
       maxWidth: 760,
+      scrollableContent: true,
       content: AspectRatio(
         aspectRatio: 4 / 3,
         child: ColoredBox(

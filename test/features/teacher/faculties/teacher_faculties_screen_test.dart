@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
+import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/features/profile/profile_route_args.dart';
 import 'package:elixr_application/features/teacher/faculties/teacher_faculties_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -8,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../teacher_phase3_test_support.dart';
 
@@ -82,7 +84,13 @@ void main() {
           ),
           Provider<TeacherAccessCodeRepository>.value(value: accessCodes),
         ],
-        child: FluentApp.router(routerConfig: router),
+        child: FluentApp.router(
+          theme: AppTheme.dark,
+          routerConfig: router,
+          builder: (context, child) => ElixShadThemeBridge(
+            child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+          ),
+        ),
       ),
     );
     await tester.pump();
@@ -191,16 +199,15 @@ void main() {
     expect(find.text('Revoke'), findsOneWidget);
 
     await tester.tap(find.text('Revoke'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pumpAndSettle();
     expect(find.text('Pending access codes'), findsOneWidget);
     expect(
       find.byKey(const Key('teacher_faculties_pending_empty')),
       findsOneWidget,
     );
+    expect(find.text('Access code revoked.'), findsOneWidget);
     await tester.tap(find.byKey(const Key('elix_toast_close')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('always shows pending empty state when no unused codes exist', (
@@ -246,12 +253,10 @@ void main() {
     );
     await pumpFaculties(tester);
     await tester.tap(find.text('Copy'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pumpAndSettle();
     expect(find.text('Access code copied.'), findsOneWidget);
     await tester.tap(find.byKey(const Key('elix_toast_close')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('invite mints a code and shows it in a dialog', (tester) async {
