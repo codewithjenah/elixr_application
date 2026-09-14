@@ -89,6 +89,19 @@ void main() {
     expect(find.text('Total Sessions'), findsNothing);
   });
 
+  testWidgets('dashboard greeting uses the first profile-name segment', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      user: _user('user-a', '  Jenah Anne B. Ambagan  '),
+      sessions: _FakeSessionRepository(_nSessions(7)),
+    );
+
+    expect(find.textContaining(', Jenah!'), findsOneWidget);
+    expect(find.textContaining('👋'), findsNothing);
+  });
+
   testWidgets(
     'transient refresh failure keeps previous values and shows Retry',
     (tester) async {

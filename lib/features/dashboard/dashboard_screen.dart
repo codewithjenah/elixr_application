@@ -171,10 +171,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
     final userId = user?.id;
-    final normalizedFirstName = normalizeNamePart(user?.firstName ?? '');
-    final firstName = normalizedFirstName.isNotEmpty
-        ? normalizedFirstName
-        : 'Trainee';
+    final profileFirstName = parseLegacyFullName(
+      user?.firstName ?? '',
+    ).firstName;
+    final firstName = profileFirstName.isNotEmpty ? profileFirstName : 'Trainee';
 
     final firstLoadErrorForUser =
         _loader.showFullPageError && _loader.requestedUserId == userId;

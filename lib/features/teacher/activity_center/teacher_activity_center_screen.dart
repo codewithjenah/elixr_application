@@ -63,66 +63,55 @@ class _TeacherActivityCenterScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1160),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    AppSpacing.lg,
-                    AppSpacing.lg,
-                    0,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      showPending
-                          ? _ReviewQueueIntro(
-                              count: controller.pendingReviewCount,
-                            )
-                          : _ActivityInboxToolbar(
-                              loading: controller.loading,
-                              unreadCount: controller.unreadCount,
-                              unreadOnly: _unreadOnly,
-                              onFilterChanged: () =>
-                                  setState(() => _unreadOnly = !_unreadOnly),
-                              onMarkAllRead: controller.unreadCount == 0
-                                  ? null
-                                  : () async {
-                                      final saved = await controller
-                                          .markAllRead();
-                                      if (saved && context.mounted) {
-                                        ElixToast.showSuccess(
-                                          context,
-                                          message:
-                                              'Marked all activity as read.',
-                                        );
-                                      }
-                                    },
-                            ),
-                      if (relevantStreamError ||
-                          controller.persistenceMessage != null) ...[
-                        const SizedBox(height: AppSpacing.sm),
-                        ElixStatusPanel(
-                          isError: relevantStreamError,
-                          title: relevantStreamError
-                              ? showPending
-                                    ? 'Pending work could not be refreshed'
-                                    : 'Some activity could not be refreshed'
-                              : 'Activity read state is temporary',
-                          message:
-                              controller.persistenceMessage ??
-                              'Some information may be missing. Try refreshing.',
-                          actionLabel: relevantStreamError ? 'Retry' : null,
-                          onAction: relevantStreamError
-                              ? controller.retry
-                              : null,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.lg,
+                AppSpacing.lg,
+                0,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  showPending
+                      ? _ReviewQueueIntro(count: controller.pendingReviewCount)
+                      : _ActivityInboxToolbar(
+                          loading: controller.loading,
+                          unreadCount: controller.unreadCount,
+                          unreadOnly: _unreadOnly,
+                          onFilterChanged: () =>
+                              setState(() => _unreadOnly = !_unreadOnly),
+                          onMarkAllRead: controller.unreadCount == 0
+                              ? null
+                              : () async {
+                                  final saved = await controller.markAllRead();
+                                  if (saved && context.mounted) {
+                                    ElixToast.showSuccess(
+                                      context,
+                                      message: 'Marked all activity as read.',
+                                    );
+                                  }
+                                },
                         ),
-                      ],
-                      const SizedBox(height: AppSpacing.md),
-                    ],
-                  ),
-                ),
+                  if (relevantStreamError ||
+                      controller.persistenceMessage != null) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    ElixStatusPanel(
+                      isError: relevantStreamError,
+                      title: relevantStreamError
+                          ? showPending
+                                ? 'Pending work could not be refreshed'
+                                : 'Some activity could not be refreshed'
+                          : 'Activity read state is temporary',
+                      message:
+                          controller.persistenceMessage ??
+                          'Some information may be missing. Try refreshing.',
+                      actionLabel: relevantStreamError ? 'Retry' : null,
+                      onAction: relevantStreamError ? controller.retry : null,
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.md),
+                ],
               ),
             ),
             Expanded(
@@ -136,7 +125,7 @@ class _TeacherActivityCenterScreenState
                       isError: controller.hasStreamError,
                       onRetry: controller.retry,
                     )
-                  : _CenteredActivityList(
+                  : _ActivityList(
                       itemCount: visible.length,
                       itemBuilder: (context, index) => _ActivityRow(
                         activity: visible[index],
@@ -289,11 +278,8 @@ class _ReviewQueueIntro extends StatelessWidget {
   );
 }
 
-class _CenteredActivityList extends StatelessWidget {
-  const _CenteredActivityList({
-    required this.itemCount,
-    required this.itemBuilder,
-  });
+class _ActivityList extends StatelessWidget {
+  const _ActivityList({required this.itemCount, required this.itemBuilder});
 
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
@@ -308,12 +294,7 @@ class _CenteredActivityList extends StatelessWidget {
     ),
     itemCount: itemCount,
     separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-    itemBuilder: (context, index) => Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1160),
-        child: itemBuilder(context, index),
-      ),
-    ),
+    itemBuilder: itemBuilder,
   );
 }
 

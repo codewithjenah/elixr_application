@@ -30,10 +30,14 @@ class SettingsGroup extends StatelessWidget {
     required this.child,
     this.padding,
     this.showAccentBar = false,
+    this.surfaceColor,
+    this.borderColor,
   });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
+  final Color? surfaceColor;
+  final Color? borderColor;
 
   /// Reserve the brand rail for an important, single section—not every card.
   /// This keeps dense desktop settings surfaces calm and easy to scan.
@@ -43,6 +47,8 @@ class SettingsGroup extends StatelessWidget {
   Widget build(BuildContext context) {
     final card = ElixPanelCard(
       padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
+      surfaceColor: surfaceColor,
+      borderColor: borderColor,
       child: child,
     );
     if (!showAccentBar || context.isHighContrast) return card;

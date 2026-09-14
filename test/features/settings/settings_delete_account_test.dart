@@ -229,6 +229,12 @@ void main() {
     expect(find.byType(SecuritySection), findsOneWidget);
     expect(find.text('Delete account'), findsWidgets);
     expect(find.text('Change password'), findsOneWidget);
+    expect(
+      find.byKey(const Key('delete_account_section_icon')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('delete_account_button')), findsOneWidget);
+    expect(find.byKey(const Key('delete_account_button_icon')), findsOneWidget);
   });
 
   testWidgets('Delete account separates phrase and password confirmation', (

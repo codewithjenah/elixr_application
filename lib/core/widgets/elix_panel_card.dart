@@ -21,6 +21,8 @@ class ElixPanelCard extends StatelessWidget {
     this.showAccentBar = false,
     this.expand = true,
     this.variant = ElixPanelVariant.normal,
+    this.surfaceColor,
+    this.borderColor,
   });
 
   final Widget child;
@@ -28,6 +30,11 @@ class ElixPanelCard extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final bool showAccentBar;
   final ElixPanelVariant variant;
+
+  /// Optional semantic surface overrides for a context-specific panel, such
+  /// as a restrained destructive-action zone.
+  final Color? surfaceColor;
+  final Color? borderColor;
 
   /// When true, the panel stretches to the parent's width. Set false inside
   /// a [Wrap] so the card can size to its content.
@@ -37,14 +44,18 @@ class ElixPanelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     final colors = context.elixColors;
-    final surface = variant == ElixPanelVariant.normal
+    final defaultSurface = variant == ElixPanelVariant.normal
         ? colors.surfaceRaised
         : colors.surfaceTinted;
-    final borderColor = highContrast
+    final surface = highContrast
+        ? defaultSurface
+        : surfaceColor ?? defaultSurface;
+    final effectiveBorderColor = highContrast
         ? colors.borderStrong
-        : showAccentBar && accent != null
-        ? accent!.withValues(alpha: 0.46)
-        : colors.borderSubtle;
+        : borderColor ??
+              (showAccentBar && accent != null
+                  ? accent!.withValues(alpha: 0.46)
+                  : colors.borderSubtle);
     final accentColor = accent;
     final highlighted = variant == ElixPanelVariant.hero;
     final workspaceVisuals = context.elixWorkspaceVisuals;
@@ -79,7 +90,10 @@ class ElixPanelCard extends StatelessWidget {
                       ],
               ),
         borderRadius: BorderRadius.circular(ElixRadius.panel),
-        border: Border.all(color: borderColor, width: highContrast ? 2 : 1),
+        border: Border.all(
+          color: effectiveBorderColor,
+          width: highContrast ? 2 : 1,
+        ),
         boxShadow: highContrast || flattenSurface
             ? const []
             : [
@@ -137,7 +151,7 @@ class ElixPanelCard extends StatelessWidget {
       width: expand ? double.infinity : null,
       padding: EdgeInsets.zero,
       radius: BorderRadius.circular(ElixRadius.panel),
-      border: shad.ShadBorder.all(color: borderColor),
+      border: shad.ShadBorder.all(color: effectiveBorderColor),
       shadows: flattenSurface ? const [] : null,
       backgroundColor: surface,
       child: showAccentBar && accentColor != null

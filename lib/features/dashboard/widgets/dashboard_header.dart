@@ -68,7 +68,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${widget.greeting}, ${widget.firstName} 👋',
+                    '${widget.greeting}, ${widget.firstName}!',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTheme.sectionTitle(

@@ -368,15 +368,26 @@ class SecuritySectionState extends State<SecuritySection> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: settingsMaxBodyWidth),
               child: SettingsGroup(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                surfaceColor: context.isHighContrast
+                    ? null
+                    : Color.alphaBlend(
+                        context.elixColors.error.withValues(alpha: 0.055),
+                        context.elixColors.surfaceRaised,
+                      ),
+                borderColor: context.isHighContrast
+                    ? null
+                    : context.elixColors.error.withValues(alpha: 0.38),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 520;
+                    final details = Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          width: 32,
-                          height: 32,
+                          key: const Key('delete_account_section_icon'),
+                          width: 38,
+                          height: 38,
                           decoration: BoxDecoration(
                             color: context.isHighContrast
                                 ? context.elixCardSurface
@@ -384,21 +395,21 @@ class SecuritySectionState extends State<SecuritySection> {
                                     alpha: 0.14,
                                   ),
                             borderRadius: BorderRadius.circular(
-                              settingsRadiusSm,
+                              settingsRadiusMd,
                             ),
                             border: context.isHighContrast
                                 ? Border.all(color: context.elixBorder)
                                 : null,
                           ),
                           child: Icon(
-                            FluentIcons.delete,
-                            size: 16,
+                            FluentIcons.warning,
+                            size: 18,
                             color: context.isHighContrast
                                 ? context.elixTextPrimary
                                 : context.elixColors.error,
                           ),
                         ),
-                        const SizedBox(width: AppSpacing.sm + 4),
+                        const SizedBox(width: AppSpacing.sm),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -422,24 +433,49 @@ class SecuritySectionState extends State<SecuritySection> {
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    Button(
+                    );
+                    final action = Button(
+                      key: const Key('delete_account_button'),
                       onPressed: _deletingAccount || _savingPassword
                           ? null
                           : _confirmAndDeleteAccount,
                       style: ButtonStyle(
-                        backgroundColor: WidgetStatePropertyAll(
-                          context.isHighContrast
-                              ? context.elixCardSurface
-                              : context.elixColors.error.withValues(
-                                  alpha: 0.12,
-                                ),
-                        ),
-                        foregroundColor: WidgetStatePropertyAll(
-                          context.isHighContrast
+                        backgroundColor: WidgetStateProperty.resolveWith((
+                          states,
+                        ) {
+                          if (states.contains(WidgetState.disabled)) {
+                            return context.elixColors.disabledSurface;
+                          }
+                          if (context.isHighContrast) {
+                            return context.elixCardSurface;
+                          }
+                          if (states.contains(WidgetState.pressed)) {
+                            return context.elixColors.error.withValues(
+                              alpha: 0.78,
+                            );
+                          }
+                          if (states.contains(WidgetState.hovered)) {
+                            return context.elixColors.error.withValues(
+                              alpha: 0.9,
+                            );
+                          }
+                          return context.elixColors.error;
+                        }),
+                        foregroundColor: WidgetStateProperty.resolveWith((
+                          states,
+                        ) {
+                          if (states.contains(WidgetState.disabled)) {
+                            return context.elixColors.disabledText;
+                          }
+                          return context.isHighContrast
                               ? context.elixTextPrimary
-                              : context.elixColors.error,
+                              : context.elixColors.onBrand;
+                        }),
+                        padding: const WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.sm,
+                          ),
                         ),
                       ),
                       child: _deletingAccount
@@ -457,13 +493,34 @@ class SecuritySectionState extends State<SecuritySection> {
                           : const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(FluentIcons.delete, size: 14),
+                                Icon(
+                                  FluentIcons.delete,
+                                  key: Key('delete_account_button_icon'),
+                                  size: 16,
+                                ),
                                 SizedBox(width: AppSpacing.sm),
                                 Text('Delete account'),
                               ],
                             ),
-                    ),
-                  ],
+                    );
+                    return compact
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              details,
+                              const SizedBox(height: AppSpacing.md),
+                              action,
+                            ],
+                          )
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(child: details),
+                              const SizedBox(width: AppSpacing.md),
+                              action,
+                            ],
+                          );
+                  },
                 ),
               ),
             ),

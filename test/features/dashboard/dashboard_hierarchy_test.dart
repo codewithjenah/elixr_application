@@ -434,7 +434,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Good Morning, Ada 👋'), findsOneWidget);
+    expect(find.text('Good Morning, Ada!'), findsOneWidget);
     expect(
       find.text('Keep going. Every pour builds a better you.'),
       findsOneWidget,
