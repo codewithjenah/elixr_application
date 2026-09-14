@@ -5,6 +5,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/layout/balanced_card_grid.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_time_format.dart';
@@ -19,8 +20,6 @@ import '../../data/models/group_assignment.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import 'assigned_movements_controller.dart';
 
-const double _classworkWideBreakpoint = 1080;
-const double _classworkCompactBreakpoint = 720;
 // Keep Classwork artwork visually aligned with the main Movements cards. The
 // hero must grow with the contained PNG so tall movement silhouettes remain
 // complete rather than being constrained to an icon-sized strip.
@@ -47,12 +46,6 @@ double _assignmentTextSlotHeight({
 
 /// Learner-facing label for assignments with a null or empty stored topic.
 const String classworkUncategorizedTopicLabel = 'General';
-
-int _classworkColumnCount(double width) {
-  if (width >= _classworkWideBreakpoint) return 3;
-  if (width >= _classworkCompactBreakpoint) return 2;
-  return 1;
-}
 
 /// Shared assignment cards for Assigned Movements and the class detail page.
 class AssignedMovementList extends StatelessWidget {
@@ -113,10 +106,17 @@ class AssignedMovementContent extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final columns = _classworkColumnCount(width);
-        final cardWidth = (width - (AppSpacing.md * (columns - 1))) / columns;
 
         Widget cardGrid(List<AssignedMovementItem> sectionItems) {
+          final columns = elixrActivityGridColumnsFor(
+            availableWidth: width,
+            itemCount: sectionItems.length,
+            spacing: AppSpacing.md,
+            // Classwork badges need slightly more room than the catalog's
+            // assignment-picker cards at compact widths.
+            minCardWidth: 200,
+          );
+          final cardWidth = (width - (AppSpacing.md * (columns - 1))) / columns;
           return Padding(
             padding: const EdgeInsets.only(top: AppSpacing.sm),
             child: Wrap(
@@ -142,7 +142,7 @@ class AssignedMovementContent extends StatelessWidget {
             if (official.isNotEmpty) ...[
               _OriginSectionHeader(
                 sectionKey: const Key('assigned_movements_official_section'),
-                icon: FluentIcons.education,
+                eyebrow: 'ELIXR GUIDED PRACTICE',
                 title: 'Official ELIXR',
                 subtitle:
                     'Live guided practice. ELIXR scores your form. No submission clip.',
@@ -156,7 +156,7 @@ class AssignedMovementContent extends StatelessWidget {
             if (teacherCreated.isNotEmpty) ...[
               _OriginSectionHeader(
                 sectionKey: const Key('assigned_movements_teacher_section'),
-                icon: FluentIcons.assign,
+                eyebrow: 'TEACHER REVIEW WORKFLOW',
                 title: 'Teacher-created',
                 subtitle:
                     'Record a clip for your teacher to review. Preview it after you submit.',
@@ -241,7 +241,7 @@ class _TopicSectionHeader extends StatelessWidget {
 class _OriginSectionHeader extends StatelessWidget {
   const _OriginSectionHeader({
     required this.sectionKey,
-    required this.icon,
+    required this.eyebrow,
     required this.title,
     required this.subtitle,
     required this.accent,
@@ -249,7 +249,7 @@ class _OriginSectionHeader extends StatelessWidget {
   });
 
   final Key sectionKey;
-  final IconData icon;
+  final String eyebrow;
   final String title;
   final String subtitle;
   final Color accent;
@@ -257,7 +257,6 @@ class _OriginSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
     final countLabel =
         '$assignmentCount ${assignmentCount == 1 ? 'assignment' : 'assignments'}';
     return KeyedSubtree(
@@ -265,56 +264,46 @@ class _OriginSectionHeader extends StatelessWidget {
       child: ElixPanelCard(
         accent: accent,
         showAccentBar: true,
-        padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-        child: Row(
+        variant: ElixPanelVariant.elevated,
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: highContrast
-                    ? context.elixCardSurface
-                    : context.elixColors.surfaceInteractive,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: highContrast
-                      ? context.elixBorder
-                      : context.elixColors.borderSubtle,
-                  width: highContrast ? 2 : 1,
-                ),
-              ),
-              child: Icon(icon, size: 20, color: accent),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    eyebrow,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTheme.headingMedium.copyWith(
-                      color: context.elixTextPrimary,
-                    ),
+                    style: AppTheme.eyebrow(
+                      color: accent,
+                    ).copyWith(fontSize: 10, letterSpacing: 1.15),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
+                ),
+                const SizedBox(width: AppSpacing.md),
+                ElixPill(text: countLabel, color: accent, compact: true),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.headingMedium.copyWith(
+                color: context.elixTextPrimary,
               ),
             ),
-            const SizedBox(width: AppSpacing.sm),
-            ElixPill(text: countLabel, color: accent, compact: true),
+            const SizedBox(height: 3),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+                height: 1.35,
+              ),
+            ),
           ],
         ),
       ),

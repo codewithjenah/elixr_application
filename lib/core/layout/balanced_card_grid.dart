@@ -1,5 +1,24 @@
 import 'package:flutter/rendering.dart';
 
+/// The desktop Activity Library uses five compact 180px tracks. Keep every
+/// activity surface on this geometry so teacher selection and trainee
+/// Classwork reduce columns at the same points as the catalog.
+const double elixrActivityGridMinCardWidth = 180;
+const int elixrActivityGridMaxColumns = 5;
+
+int elixrActivityGridColumnsFor({
+  required double availableWidth,
+  required int itemCount,
+  required double spacing,
+  double minCardWidth = elixrActivityGridMinCardWidth,
+}) => BalancedCardGrid.columnsFor(
+  availableWidth: availableWidth,
+  itemCount: itemCount,
+  minCardWidth: minCardWidth,
+  maxColumns: elixrActivityGridMaxColumns,
+  spacing: spacing,
+);
+
 /// Chooses a compact catalog grid without leaving a single card in its last
 /// row when a smaller, still comfortable column count is available.
 ///

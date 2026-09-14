@@ -218,6 +218,50 @@ void main() {
     expect(find.text('detail:asg-a'), findsOneWidget);
   });
 
+  testWidgets(
+    'trainee classroom Classwork keeps five assignment cards in a row',
+    (tester) async {
+      final group = await approvedClass(name: 'BSHM 4A');
+      for (var index = 1; index <= 5; index++) {
+        assignmentRepository.seedAssignment(
+          _assignment(
+            id: 'asg-$index',
+            groupId: group.id,
+            title: 'Movement $index',
+          ),
+        );
+      }
+      final controller = TraineeClassDetailController(
+        groupId: group.id,
+        traineeId: 'trainee-1',
+        groupRepository: groupRepository,
+        assignmentRepository: assignmentRepository,
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+
+      await pumpClassDetail(
+        tester,
+        controller: controller,
+        groupRepository: groupRepository,
+        assignmentRepository: assignmentRepository,
+        viewSize: const Size(1280, 900),
+      );
+
+      final firstRow = tester
+          .getTopLeft(find.byKey(const Key('assigned_movement_card_asg-1')))
+          .dy;
+      for (var index = 2; index <= 5; index++) {
+        expect(
+          tester
+              .getTopLeft(find.byKey(Key('assigned_movement_card_asg-$index')))
+              .dy,
+          closeTo(firstRow, 0.5),
+        );
+      }
+    },
+  );
+
   testWidgets('back returns to the trainee classes list', (tester) async {
     final group = await approvedClass(name: 'BSHM 4A');
     final controller = TraineeClassDetailController(

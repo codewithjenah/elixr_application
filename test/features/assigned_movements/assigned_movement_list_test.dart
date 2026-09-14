@@ -506,8 +506,20 @@ void main() {
       ),
       findsNothing,
     );
-    expect(find.byIcon(FluentIcons.education), findsWidgets);
-    expect(find.byIcon(FluentIcons.assign), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('assigned_movements_official_section')),
+        matching: find.byType(Icon),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('assigned_movements_teacher_section')),
+        matching: find.byType(Icon),
+      ),
+      findsNothing,
+    );
     _expectNoOverflow(tester);
 
     await tester.tap(find.text('Start practice').first);
@@ -947,7 +959,7 @@ void main() {
     },
   );
 
-  testWidgets('3-column teacher cards stay equal height and aligned', (
+  testWidgets('wide Classwork uses five equal-height activity cards per row', (
     tester,
   ) async {
     await _pumpList(
@@ -967,12 +979,20 @@ void main() {
           assessmentMode: AssessmentMode.templateScored,
           attempt: _historicalAttempt('c'),
         ),
+        _teacherItem(id: 'd', title: 'Fourth activity'),
+        _teacherItem(id: 'e', title: 'Fifth activity'),
       ],
     );
 
     final heightA = _cardSize(tester, 'a').height;
     expect(_cardSize(tester, 'b').height, heightA);
     expect(_cardSize(tester, 'c').height, heightA);
+    expect(_cardSize(tester, 'd').height, heightA);
+    expect(_cardSize(tester, 'e').height, heightA);
+    final firstRow = tester.getTopLeft(_card('a')).dy;
+    for (final id in ['b', 'c', 'd', 'e']) {
+      expect(tester.getTopLeft(_card(id)).dy, closeTo(firstRow, 0.5));
+    }
     expect(
       _actionBottom(tester, 'a'),
       closeTo(_actionBottom(tester, 'c'), 0.5),

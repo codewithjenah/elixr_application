@@ -220,6 +220,8 @@ class _ContactIcon extends StatelessWidget {
 }
 
 class _ContactActionCard extends StatelessWidget {
+  static const _actionButtonWidth = 160.0;
+
   const _ContactActionCard({
     required this.icon,
     required this.title,
@@ -270,13 +272,16 @@ class _ContactActionCard extends StatelessWidget {
               ),
             ],
           );
-          final button = ElixPrimaryButton(
-            label: buttonLabel,
-            icon: icon,
-            expanded: compact,
-            dense: true,
-            isLoading: loading,
-            onPressed: loading ? null : onPressed,
+          final button = SizedBox(
+            width: compact ? double.infinity : _actionButtonWidth,
+            child: ElixPrimaryButton(
+              label: buttonLabel,
+              icon: icon,
+              expanded: true,
+              dense: true,
+              isLoading: loading,
+              onPressed: loading ? null : onPressed,
+            ),
           );
           return compact
               ? Column(

@@ -2586,6 +2586,28 @@ void main() {
     expect(find.text('Edit'), findsNothing);
   });
 
+  testWidgets(
+    'wide assignment activity picker keeps five official cards in a row',
+    (tester) async {
+      await pumpComposer(tester, creationService: service());
+
+      Finder cardTitle(String name) => find.descendant(
+        of: find.byKey(Key('teacher_assignment_official_$name')),
+        matching: find.text(name),
+      );
+
+      final firstRow = tester.getTopLeft(cardTitle('Body Grip')).dy;
+      for (final name in [
+        'Normal Grip',
+        "Bartender's Grip",
+        'Reverse Grip',
+        'Claw Grip',
+      ]) {
+        expect(tester.getTopLeft(cardTitle(name)).dy, closeTo(firstRow, 1));
+      }
+    },
+  );
+
   testWidgets('Teacher Activity can create and select a new activity', (
     tester,
   ) async {

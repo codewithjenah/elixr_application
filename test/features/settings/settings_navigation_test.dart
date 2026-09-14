@@ -443,6 +443,42 @@ void main() {
     expect(find.text('Email copied'), findsOneWidget);
   });
 
+  testWidgets('Contact & Feedback action buttons share a visual size', (
+    tester,
+  ) async {
+    for (final size in [const Size(1400, 900), const Size(360, 900)]) {
+      await setSurface(tester, size);
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: ScaffoldPage(
+            content: SingleChildScrollView(
+              child: ContactFeedbackSection(
+                launchEmail: (_) async => true,
+                copyToClipboard: (_) async {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final bugReportButton = find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics && widget.properties.label == 'Report a bug',
+      );
+      final feedbackButton = find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics && widget.properties.label == 'Send feedback',
+      );
+
+      expect(bugReportButton, findsOneWidget);
+      expect(feedbackButton, findsOneWidget);
+      expect(tester.getSize(bugReportButton), tester.getSize(feedbackButton));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   test('Contact & Feedback email actions build safe mailto destinations', () {
     expect(ContactFeedbackActions.bugReportUri.scheme, 'mailto');
     expect(

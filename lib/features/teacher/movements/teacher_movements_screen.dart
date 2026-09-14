@@ -514,14 +514,9 @@ class _MyMovementsList extends StatelessWidget {
 }
 
 int _gridColumnsFor(double availableWidth, int itemCount) =>
-    BalancedCardGrid.columnsFor(
+    elixrActivityGridColumnsFor(
       availableWidth: availableWidth,
       itemCount: itemCount,
-      // Teacher cards use a compact vertical composition below 760px, so a
-      // 180px track keeps the five-card desktop catalog in one clean row
-      // after the teacher shell reserves its sidebar.
-      minCardWidth: 180,
-      maxColumns: 5,
       spacing: AppSpacing.md,
     );
 

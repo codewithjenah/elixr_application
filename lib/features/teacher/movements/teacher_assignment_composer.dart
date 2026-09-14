@@ -12,6 +12,7 @@ import '../../../core/auth/teacher_auth_messages.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
+import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
@@ -4291,13 +4292,21 @@ class _MovementChoiceList extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         LayoutBuilder(
           builder: (context, constraints) {
-            final columns = constraints.maxWidth >= 680 ? 2 : 1;
-            final itemWidth = columns == 2
-                ? (constraints.maxWidth - AppSpacing.sm) / 2
-                : constraints.maxWidth;
+            final columns = elixrActivityGridColumnsFor(
+              availableWidth: constraints.maxWidth,
+              itemCount: children.length,
+              spacing: AppSpacing.md,
+              // The composer reserves room for its assignment controls, so
+              // its compact selectable cards use the same five-column desktop
+              // density within a narrower content pane.
+              minCardWidth: 140,
+            );
+            final itemWidth =
+                (constraints.maxWidth - (AppSpacing.md * (columns - 1))) /
+                columns;
             return Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.md,
               children: [
                 for (final child in children)
                   SizedBox(width: itemWidth, child: child),
