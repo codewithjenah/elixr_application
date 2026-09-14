@@ -21,8 +21,11 @@ import 'assigned_movements_controller.dart';
 
 const double _classworkWideBreakpoint = 1080;
 const double _classworkCompactBreakpoint = 720;
-const double _assignmentHeroHeight = 72;
-const double _assignmentArtworkSize = 82;
+// Keep Classwork artwork visually aligned with the main Movements cards. The
+// hero must grow with the contained PNG so tall movement silhouettes remain
+// complete rather than being constrained to an icon-sized strip.
+const double _assignmentHeroHeight = 176;
+const double _assignmentArtworkSize = 154;
 const double _assignmentTeacherAvatarOuter = 28;
 const double _assignmentActionHeight = 40;
 const double _assignmentDueRowHeight = 20;

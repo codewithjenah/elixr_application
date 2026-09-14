@@ -183,11 +183,20 @@ class _ProgressScreenState extends State<ProgressScreen> {
       padding: EdgeInsets.zero,
       content: SafeArea(
         child: _loading
-            ? const Center(
-                child: ElixStatusPanel(
-                  isLoading: true,
-                  title: 'Loading your progress',
-                  message: 'Preparing your training summary.',
+            ? const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.pageTopInset,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElixStatusPanel(
+                    isLoading: true,
+                    title: 'Loading your progress',
+                    message: 'Preparing your training summary.',
+                  ),
                 ),
               )
             : _loadError != null && _stats == null

@@ -195,13 +195,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     if (userId != null && !_loader.hasDataFor(userId)) {
-      return const ElixScaffoldPage(
+      return ElixScaffoldPage(
         padding: EdgeInsets.zero,
-        content: Center(
-          child: ElixStatusPanel(
-            isLoading: true,
-            title: 'Loading your dashboard',
-            message: 'Getting your latest training activity.',
+        content: Padding(
+          padding: EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.pageTopInset,
+            AppSpacing.lg,
+            AppSpacing.lg,
+          ),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: _maxContentWidth),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElixStatusPanel(
+                  isLoading: true,
+                  title: 'Loading your dashboard',
+                  message: 'Getting your latest training activity.',
+                ),
+              ),
+            ),
           ),
         ),
       );

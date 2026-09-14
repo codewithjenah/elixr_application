@@ -535,6 +535,14 @@ void main() {
 
       expect(_movementImage('Normal Grip'), findsOneWidget);
       expect(_movementImage('Elbow Stall'), findsOneWidget);
+      for (final movementName in ['Normal Grip', 'Elbow Stall']) {
+        final artwork = tester.widget<MovementImage>(
+          _movementImage(movementName),
+        );
+        expect(artwork.size, 154);
+        expect(artwork.paddingFactor, 0.01);
+        expect(artwork.alignment, Alignment.bottomCenter);
+      }
       expect(
         find.descendant(
           of: _card('asg-ng'),
