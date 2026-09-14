@@ -48,12 +48,16 @@ void main() {
           Provider<ChatRepository>.value(value: repository),
         ],
         child: FluentApp(
-          home: MessagesScreen(
-            initialUserId: initialConversation ? trainee.id : null,
-            initialDisplayName: initialConversation
-                ? trainee.displayName
-                : null,
-            initialRole: initialConversation ? trainee.role : null,
+          home: ElixShadThemeBridge(
+            child: shad.ShadToaster(
+              child: MessagesScreen(
+                initialUserId: initialConversation ? trainee.id : null,
+                initialDisplayName: initialConversation
+                    ? trainee.displayName
+                    : null,
+                initialRole: initialConversation ? trainee.role : null,
+              ),
+            ),
           ),
         ),
       ),
@@ -149,6 +153,7 @@ void main() {
       find.text('Messages could not connect. Check your connection.'),
       findsOneWidget,
     );
+    expect(find.text('Message could not be sent. Try again.'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 100));
   });
@@ -263,6 +268,8 @@ void main() {
       await tester.tap(find.widgetWithText(shad.ShadButton, 'Delete'));
       await tester.pumpAndSettle();
 
+      expect(find.text('Conversation deleted.'), findsOneWidget);
+
       expect(find.text('SEARCH RESULTS'), findsOneWidget);
       expect(find.text('Terry Trainee'), findsOneWidget);
       expect(
@@ -320,6 +327,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Mark as unread'));
     await tester.pumpAndSettle();
+
+    expect(find.text('Conversation marked as unread.'), findsOneWidget);
 
     final conversationId = ChatRepository.conversationIdFor(
       authUser.id!,

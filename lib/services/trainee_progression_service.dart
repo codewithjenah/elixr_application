@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/constants/gamification_rules.dart';
+import '../core/progression/matrix_test_access.dart';
+import '../core/progression/progression_catalog.dart';
 import '../data/models/leaderboard_entry.dart';
 import '../data/repositories/leaderboard_repository.dart';
 
@@ -11,16 +13,25 @@ import '../data/repositories/leaderboard_repository.dart';
 /// Does not evaluate access policy itself. Router and UI call
 /// [evaluatePersonal] with these values.
 class TraineeProgressionService extends ChangeNotifier {
-  TraineeProgressionService({LeaderboardRepository? leaderboardRepository})
-    : _leaderboardRepository = leaderboardRepository;
+  TraineeProgressionService({
+    LeaderboardRepository? leaderboardRepository,
+    MatrixTestAccessPolicy matrixTestAccessPolicy =
+        const MatrixTestAccessPolicy(),
+  }) : _leaderboardRepository = leaderboardRepository,
+       _matrixTestAccessPolicy = matrixTestAccessPolicy;
 
   /// Test/harness constructor with an already-known XP total.
-  TraineeProgressionService.ready({int totalXp = 0})
-    : _leaderboardRepository = null,
-      _ready = true,
-      _totalXp = totalXp;
+  TraineeProgressionService.ready({
+    int totalXp = 0,
+    MatrixTestAccessPolicy matrixTestAccessPolicy =
+        const MatrixTestAccessPolicy(),
+  }) : _leaderboardRepository = null,
+       _matrixTestAccessPolicy = matrixTestAccessPolicy,
+       _ready = true,
+       _totalXp = totalXp;
 
   final LeaderboardRepository? _leaderboardRepository;
+  final MatrixTestAccessPolicy _matrixTestAccessPolicy;
   StreamSubscription<LeaderboardEntry?>? _sub;
   String? _userId;
   bool _ready = false;
@@ -32,8 +43,15 @@ class TraineeProgressionService extends ChangeNotifier {
   int get totalXp => _totalXp;
   int get level => GamificationRules.levelForXp(_totalXp);
 
+  /// Personal-access level, which can be Level 20 only for the local debug
+  /// matrix-test account. [level] and [totalXp] always remain the real values.
+  int get effectivePersonalAccessLevel =>
+      _matrixTestAccessPolicy.isEnabledFor(_userId)
+      ? progressionMilestones.last.requiredLevel
+      : level;
+
   /// Null while XP has not been resolved for the current trainee.
-  int? get currentLevelOrNull => _ready ? level : null;
+  int? get currentLevelOrNull => _ready ? effectivePersonalAccessLevel : null;
 
   Future<void> setUser(String? userId) async {
     final normalized = userId?.trim();

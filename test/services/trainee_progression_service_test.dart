@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:elixr_application/core/progression/matrix_test_access.dart';
+import 'package:elixr_application/core/progression/progression_access.dart';
+import 'package:elixr_application/core/progression/progression_catalog.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/services/trainee_progression_service.dart';
@@ -72,5 +75,67 @@ void main() {
     expect(repository.controllers['trainee-a']!.hasListener, isFalse);
     expect(service.isReady, isTrue);
     expect(service.totalXp, 0);
+  });
+
+  test(
+    'matrix account gets Level 20 access without changing real XP',
+    () async {
+      final repository = _WatchRepository();
+      final service = TraineeProgressionService(
+        leaderboardRepository: repository,
+        matrixTestAccessPolicy: const MatrixTestAccessPolicy(
+          configuredUid: 'matrix-uid',
+        ),
+      );
+      addTearDown(service.dispose);
+      addTearDown(repository.close);
+
+      await service.setUser(' matrix-uid ');
+      repository.controllers['matrix-uid']!.add(_entry('matrix-uid', 125));
+      await pumpEventQueue();
+
+      expect(service.totalXp, 125);
+      expect(service.level, 1);
+      expect(service.currentLevelOrNull, 20);
+      for (final milestone in progressionMilestones) {
+        expect(
+          evaluatePersonal(
+            variant: milestone.variant,
+            currentLevel: service.currentLevelOrNull,
+            tutorialCompleted: true,
+          ),
+          ProgressionAccessResult.personalReady,
+          reason: milestone.variant.persistenceKey,
+        );
+      }
+    },
+  );
+
+  test('ordinary account keeps its actual progression level', () async {
+    final repository = _WatchRepository();
+    final service = TraineeProgressionService(
+      leaderboardRepository: repository,
+      matrixTestAccessPolicy: const MatrixTestAccessPolicy(
+        configuredUid: 'matrix-uid',
+      ),
+    );
+    addTearDown(service.dispose);
+    addTearDown(repository.close);
+
+    await service.setUser('ordinary-uid');
+    repository.controllers['ordinary-uid']!.add(_entry('ordinary-uid', 125));
+    await pumpEventQueue();
+
+    expect(service.totalXp, 125);
+    expect(service.level, 1);
+    expect(service.currentLevelOrNull, 1);
+    expect(
+      evaluatePersonal(
+        variant: progressionMilestones.last.variant,
+        currentLevel: service.currentLevelOrNull,
+        tutorialCompleted: true,
+      ),
+      ProgressionAccessResult.personalLocked,
+    );
   });
 }

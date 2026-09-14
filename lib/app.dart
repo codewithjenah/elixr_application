@@ -25,6 +25,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/incoming_event_toast_coordinator.dart';
 import 'data/repositories/leaderboard_repository.dart';
 import 'data/repositories/public_profile_repository.dart';
 import 'data/repositories/classroom_assignment_repository.dart';
@@ -307,38 +308,40 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
             builder: (context, child) {
               return ElixShadThemeBridge(
                 child: shad.ShadToaster(
-                  child: MediaQuery(
-                    data: MediaQuery.of(context).copyWith(
-                      textScaler: TextScaler.linear(settings.textScale),
-                    ),
-                    child: Consumer<AuthService>(
-                      builder: (context, auth, _) {
-                        final startupFailed =
-                            auth.initializationState ==
-                            AuthInitializationState.failed;
-                        if (!_splashFinished ||
-                            auth.isLoading ||
-                            startupFailed) {
-                          return SplashScreen(
-                            authReady:
-                                auth.initializationState ==
-                                AuthInitializationState.ready,
-                            startupError: auth.initializationFailure?.message,
-                            onRetry: startupFailed
-                                ? () => unawaited(auth.initialize())
-                                : null,
-                            onFinished: () {
-                              if (mounted) {
-                                setState(() => _splashFinished = true);
-                              }
-                            },
+                  child: IncomingEventToastCoordinator(
+                    child: MediaQuery(
+                      data: MediaQuery.of(context).copyWith(
+                        textScaler: TextScaler.linear(settings.textScale),
+                      ),
+                      child: Consumer<AuthService>(
+                        builder: (context, auth, _) {
+                          final startupFailed =
+                              auth.initializationState ==
+                              AuthInitializationState.failed;
+                          if (!_splashFinished ||
+                              auth.isLoading ||
+                              startupFailed) {
+                            return SplashScreen(
+                              authReady:
+                                  auth.initializationState ==
+                                  AuthInitializationState.ready,
+                              startupError: auth.initializationFailure?.message,
+                              onRetry: startupFailed
+                                  ? () => unawaited(auth.initialize())
+                                  : null,
+                              onFinished: () {
+                                if (mounted) {
+                                  setState(() => _splashFinished = true);
+                                }
+                              },
+                            );
+                          }
+                          return KeyedSubtree(
+                            key: ValueKey(auth.accountSessionGeneration),
+                            child: child ?? const SizedBox.shrink(),
                           );
-                        }
-                        return KeyedSubtree(
-                          key: ValueKey(auth.accountSessionGeneration),
-                          child: child ?? const SizedBox.shrink(),
-                        );
-                      },
+                        },
+                      ),
                     ),
                   ),
                 ),

@@ -202,12 +202,10 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
       ElixToast.showSuccess(context, message: 'Analytics exported: $filename');
     } on Object {
       if (!mounted) return;
-      await ElixDialog.alert(
+      ElixToast.showError(
         context,
-        title: 'Could not export analytics',
-        message: 'Choose another location and try again.',
-        icon: FluentIcons.error,
-        iconColor: context.elixColors.error,
+        message:
+            'Could not export analytics. Choose another location and try again.',
       );
     } finally {
       if (mounted) setState(() => _exporting = false);

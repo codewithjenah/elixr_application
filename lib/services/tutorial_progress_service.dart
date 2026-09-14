@@ -5,17 +5,25 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/constants/movements.dart';
+import '../core/progression/matrix_test_access.dart';
 import '../core/progression/practice_variant.dart';
+import '../core/progression/progression_catalog.dart';
 import '../data/models/movement.dart';
 import '../data/models/training_prop.dart';
 
 /// Local, account-scoped progress for ELIXR's optional learning support.
 /// It deliberately never writes tutorial state to Firestore.
 class TutorialProgressService extends ChangeNotifier {
-  TutorialProgressService({File? file}) : _fileOverride = file;
+  TutorialProgressService({
+    File? file,
+    MatrixTestAccessPolicy matrixTestAccessPolicy =
+        const MatrixTestAccessPolicy(),
+  }) : _fileOverride = file,
+       _matrixTestAccessPolicy = matrixTestAccessPolicy;
 
   static const onboardingVersion = 2;
   final File? _fileOverride;
+  final MatrixTestAccessPolicy _matrixTestAccessPolicy;
   String? _userId;
   bool _initialized = false;
   int _completedOnboardingVersion = 0;
@@ -32,10 +40,13 @@ class TutorialProgressService extends ChangeNotifier {
   bool get firstSessionGuidanceComplete => _firstSessionGuidanceComplete;
 
   bool hasCompletedLesson(String movement, TrainingProp prop) {
-    final key = PracticeVariant(
-      movementName: movement,
-      trainingProp: prop,
-    ).persistenceKey;
+    final variant = PracticeVariant(movementName: movement, trainingProp: prop);
+    if (_matrixTestAccessPolicy.isEnabledFor(_userId)) {
+      // The debug override exposes only real, exact catalog variants; it never
+      // makes arbitrary route inputs or unsupported prop combinations valid.
+      return resolvePracticeVariant(variant) != null;
+    }
+    final key = variant.persistenceKey;
     return _completedLessons.contains(key);
   }
 

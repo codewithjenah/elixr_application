@@ -149,6 +149,11 @@ class _TraineeActivityCenterScreenState
     final saved = await controller.markAllRead();
     if (saved && mounted) {
       ElixToast.showSuccess(context, message: 'Marked all activity as read.');
+    } else if (mounted) {
+      ElixToast.showError(
+        context,
+        message: 'Could not mark all activity as read. Try again.',
+      );
     }
   }
 }

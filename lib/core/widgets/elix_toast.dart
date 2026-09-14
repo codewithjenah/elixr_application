@@ -7,7 +7,12 @@ import '../theme/app_theme.dart';
 /// showing the next one instead of relying on replacement implementation.
 abstract final class ElixToast {
   static void showSuccess(BuildContext context, {required String message}) {
-    _show(context, title: 'Success', message: message, isError: false);
+    _show(
+      context,
+      title: 'Success',
+      message: message,
+      severity: InfoBarSeverity.success,
+    );
   }
 
   static void showError(BuildContext context, {required String message}) {
@@ -15,7 +20,16 @@ abstract final class ElixToast {
       context,
       title: 'Something went wrong',
       message: message,
-      isError: true,
+      severity: InfoBarSeverity.error,
+    );
+  }
+
+  static void showInfo(BuildContext context, {required String message}) {
+    _show(
+      context,
+      title: 'Update',
+      message: message,
+      severity: InfoBarSeverity.info,
     );
   }
 
@@ -23,7 +37,7 @@ abstract final class ElixToast {
     BuildContext context, {
     required String title,
     required String message,
-    required bool isError,
+    required InfoBarSeverity severity,
   }) {
     final toaster = shad.ShadToaster.maybeOf(context);
     if (toaster == null) {
@@ -34,7 +48,7 @@ abstract final class ElixToast {
           child: InfoBar(
             title: Text(title),
             content: Text(message),
-            severity: isError ? InfoBarSeverity.error : InfoBarSeverity.success,
+            severity: severity,
           ),
         ),
       );

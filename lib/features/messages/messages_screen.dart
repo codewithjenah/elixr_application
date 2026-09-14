@@ -17,6 +17,7 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_toast.dart';
 import '../../services/auth_service.dart';
 import '../profile/profile_route_args.dart';
 import 'messages_controller.dart';
@@ -56,7 +57,40 @@ Future<void> _confirmDeleteConversation(
         'This removes your conversation with ${user.displayName} from your '
         'inbox. It does not delete their copy, and this cannot be undone.',
   );
-  if (confirmed == true) await controller.clearConversation(conversation);
+  if (confirmed != true || !context.mounted) return;
+  try {
+    await controller.clearConversation(conversation);
+    if (context.mounted) {
+      ElixToast.showSuccess(context, message: 'Conversation deleted.');
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ElixToast.showError(
+        context,
+        message: 'Could not delete the conversation. Try again.',
+      );
+    }
+  }
+}
+
+Future<void> _markConversationUnread(
+  BuildContext context,
+  MessagesController controller,
+  ChatConversation conversation,
+) async {
+  try {
+    await controller.markConversationUnread(conversation);
+    if (context.mounted) {
+      ElixToast.showSuccess(context, message: 'Conversation marked as unread.');
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ElixToast.showError(
+        context,
+        message: 'Could not mark the conversation as unread. Try again.',
+      );
+    }
+  }
 }
 
 class MessagesScreen extends StatefulWidget {
@@ -468,7 +502,11 @@ class _SearchResults extends StatelessWidget {
             onViewProfile: () => _openChatUserProfile(context, user),
             onMarkUnread: conversation == null
                 ? null
-                : () => controller.markConversationUnread(conversation),
+                : () => _markConversationUnread(
+                    context,
+                    controller,
+                    conversation,
+                  ),
             onDelete: conversation == null
                 ? null
                 : () => _confirmDeleteConversation(
@@ -520,7 +558,8 @@ class _InboxList extends StatelessWidget {
           unread: conversation.unreadFor(controller.currentUser.id),
           selected: controller.selectedConversation?.id == conversation.id,
           onPressed: () => controller.openConversation(conversation),
-          onMarkUnread: () => controller.markConversationUnread(conversation),
+          onMarkUnread: () =>
+              _markConversationUnread(context, controller, conversation),
           onViewProfile: () => _openChatUserProfile(context, user),
           onDelete: () => _confirmDeleteConversation(
             context,
@@ -921,7 +960,7 @@ class _ConversationPane extends StatelessWidget {
             mine: ascending[index].senderId == controller.currentUser.id,
             sender: controller.selectedUser!,
             seen: controller.isLatestOutgoingSeen(ascending[index]),
-            onRetry: () => controller.retryMessage(ascending[index]),
+            onRetry: () => _retryMessage(context, ascending[index]),
             onEdit: () => _editMessage(context, ascending[index]),
             onDelete: () => _deleteMessage(context, ascending[index]),
           ),
@@ -943,7 +982,27 @@ class _ConversationPane extends StatelessWidget {
           ? 'You will both be able to send messages again unless they have blocked you.'
           : 'Neither person can send new messages while this block is active. Message history remains visible.',
     );
-    if (confirmed == true) await controller.toggleBlock();
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await controller.toggleBlock();
+      if (context.mounted) {
+        ElixToast.showSuccess(
+          context,
+          message: unblocking
+              ? '${controller.selectedUser?.displayName ?? 'User'} has been unblocked.'
+              : '${controller.selectedUser?.displayName ?? 'User'} has been blocked.',
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ElixToast.showError(
+          context,
+          message: unblocking
+              ? 'Could not unblock this person. Try again.'
+              : 'Could not block this person. Try again.',
+        );
+      }
+    }
   }
 
   Future<void> _editMessage(BuildContext context, ChatMessage message) async {
@@ -978,7 +1037,20 @@ class _ConversationPane extends StatelessWidget {
     );
     text.dispose();
     if (value != null && value.trim() != message.body) {
-      await controller.editMessage(message, value);
+      if (!context.mounted) return;
+      try {
+        await controller.editMessage(message, value);
+        if (context.mounted) {
+          ElixToast.showSuccess(context, message: 'Message edited.');
+        }
+      } catch (_) {
+        if (context.mounted) {
+          ElixToast.showError(
+            context,
+            message: 'Could not update the message. Try again.',
+          );
+        }
+      }
     }
   }
 
@@ -994,7 +1066,30 @@ class _ConversationPane extends StatelessWidget {
       confirmLabel: 'Delete',
       message: 'The message body will be removed and replaced by a tombstone.',
     );
-    if (confirmed == true) await controller.deleteMessage(message);
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await controller.deleteMessage(message);
+      if (context.mounted) {
+        ElixToast.showSuccess(context, message: 'Message deleted.');
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ElixToast.showError(
+          context,
+          message: 'Could not delete the message. Try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _retryMessage(BuildContext context, ChatMessage message) async {
+    final sent = await controller.retryMessage(message);
+    if (!sent && context.mounted) {
+      ElixToast.showError(
+        context,
+        message: 'Message could not be sent. Try again.',
+      );
+    }
   }
 }
 
@@ -1062,7 +1157,7 @@ class _Composer extends StatelessWidget {
                         event is KeyDownEvent &&
                         event.logicalKey == LogicalKeyboardKey.enter &&
                         !HardwareKeyboard.instance.isShiftPressed) {
-                      _send();
+                      _send(context);
                       return KeyEventResult.handled;
                     }
                     return KeyEventResult.ignored;
@@ -1105,7 +1200,7 @@ class _Composer extends StatelessWidget {
                                 EdgeInsets.all(10),
                               ),
                             ),
-                            onPressed: disabled ? null : _send,
+                            onPressed: disabled ? null : () => _send(context),
                           )
                         : shad.ShadTooltip(
                             builder: (context) => Text(
@@ -1121,7 +1216,7 @@ class _Composer extends StatelessWidget {
                                       child: ProgressRing(strokeWidth: 2),
                                     )
                                   : const Icon(FluentIcons.send, size: 14),
-                              onPressed: disabled ? null : _send,
+                              onPressed: disabled ? null : () => _send(context),
                             ),
                           ),
                   ),
@@ -1139,12 +1234,20 @@ class _Composer extends StatelessWidget {
     );
   }
 
-  Future<void> _send() async {
+  Future<void> _send(BuildContext context) async {
     final body = textController.text;
     if (body.trim().isEmpty) return;
     textController.clear();
     final sent = await controller.send(body);
-    if (!sent) textController.text = body;
+    if (!sent) {
+      textController.text = body;
+      if (context.mounted) {
+        ElixToast.showError(
+          context,
+          message: 'Message could not be sent. Try again.',
+        );
+      }
+    }
   }
 }
 

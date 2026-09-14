@@ -4,8 +4,8 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_primary_button.dart';
+import '../../../core/widgets/elix_toast.dart';
 import '../../../services/camera_device_service.dart';
 import '../../../services/settings_service.dart';
 import '../widgets/practice_preferences_controller.dart';
@@ -118,7 +118,10 @@ class _PracticeSectionState extends State<PracticeSection> {
               'Could not save Live Practice preferences. Try again.';
         });
       } else if (outcome == SettingsWriteOutcome.saved) {
-        await ElixDialog.success(context, 'Live Practice preferences saved.');
+        ElixToast.showSuccess(
+          context,
+          message: 'Live Practice preferences saved.',
+        );
       }
     } on ArgumentError catch (e) {
       if (mounted) {

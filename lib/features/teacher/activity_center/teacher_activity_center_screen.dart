@@ -90,6 +90,12 @@ class _TeacherActivityCenterScreenState
                                       context,
                                       message: 'Marked all activity as read.',
                                     );
+                                  } else if (context.mounted) {
+                                    ElixToast.showError(
+                                      context,
+                                      message:
+                                          'Could not mark all activity as read. Try again.',
+                                    );
                                   }
                                 },
                         ),

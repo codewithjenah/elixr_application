@@ -676,6 +676,11 @@ Future<void> _revokeCode(
   if (!context.mounted) return;
   if (controller.errorMessage == null) {
     ElixToast.showSuccess(context, message: 'Access code revoked.');
+  } else {
+    ElixToast.showError(
+      context,
+      message: 'Could not revoke the access code. Try again.',
+    );
   }
 }
 
@@ -687,24 +692,9 @@ Future<void> _inviteFaculty(
   if (!context.mounted) return;
 
   if (minted == null) {
-    await ElixDialog.show<void>(
+    ElixToast.showError(
       context,
-      title: 'Could not create access code',
-      icon: FluentIcons.status_circle_error_x,
-      iconColor: context.elixColors.error,
-      headerAccentColor: context.elixColors.error,
-      content: Text(
-        controller.errorMessage ?? 'Try again in a moment.',
-        style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-      ),
-      actions: [
-        ElixPrimaryButton(
-          label: 'Close',
-          expanded: false,
-          variant: ElixButtonVariant.secondary,
-          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-        ),
-      ],
+      message: 'Could not create an access code. Try again.',
     );
     return;
   }

@@ -376,14 +376,14 @@ class MessagesController extends ChangeNotifier {
     }
   }
 
-  Future<void> retryMessage(ChatMessage message) async {
+  Future<bool> retryMessage(ChatMessage message) async {
     if (message.deliveryState != ChatDeliveryState.error ||
         message.body == null) {
-      return;
+      return false;
     }
     messages = messages.where((item) => item.id != message.id).toList();
     _notify();
-    await send(message.body!, idempotencyKey: message.id);
+    return send(message.body!, idempotencyKey: message.id);
   }
 
   Future<void> editMessage(ChatMessage message, String body) async {
@@ -436,26 +436,18 @@ class MessagesController extends ChangeNotifier {
   Future<void> markConversationUnread(ChatConversation conversation) async {
     if (conversation.unreadFor(currentUser.id) > 0) return;
     if (selectedConversation?.id == conversation.id) showInboxPane();
-    try {
-      await repository.markUnread(
-        conversationId: conversation.id,
-        currentUserId: currentUser.id,
-      );
-    } catch (_) {
-      _showAlert('Could not mark the conversation as unread.');
-    }
+    await repository.markUnread(
+      conversationId: conversation.id,
+      currentUserId: currentUser.id,
+    );
   }
 
   Future<void> clearConversation(ChatConversation conversation) async {
     if (selectedConversation?.id == conversation.id) showInboxPane();
-    try {
-      await repository.clearConversation(
-        conversationId: conversation.id,
-        currentUserId: currentUser.id,
-      );
-    } catch (_) {
-      _showAlert('Could not delete the conversation.');
-    }
+    await repository.clearConversation(
+      conversationId: conversation.id,
+      currentUserId: currentUser.id,
+    );
   }
 
   bool isLatestOutgoingSeen(ChatMessage message) {
