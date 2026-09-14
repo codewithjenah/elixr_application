@@ -35,6 +35,13 @@ class ElixPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          _buildButton(context, expanded && constraints.hasBoundedWidth),
+    );
+  }
+
+  Widget _buildButton(BuildContext context, bool effectiveExpanded) {
     final disabled = isLoading || onPressed == null;
     final labelChild = Text(
       label,
@@ -129,7 +136,7 @@ class ElixPrimaryButton extends StatelessWidget {
         autofocus: autofocus,
         onPressed: disabled ? null : onPressed,
         enabled: !disabled,
-        expands: expanded,
+        expands: effectiveExpanded,
         // Keep the standard 40px Shad height at normal scaling, while making
         // room for the complete Geist line box at accessible text scales.
         height: (scaledLineHeight + resolvedPadding.vertical)
@@ -142,10 +149,10 @@ class ElixPrimaryButton extends StatelessWidget {
         leading: isLoading
             ? loadingIndicator
             : (icon == null ? null : Icon(icon, size: 16)),
-        child: expanded ? labelChild : Flexible(child: labelChild),
+        child: effectiveExpanded ? labelChild : Flexible(child: labelChild),
       );
     }
-    if (expanded && context.isHighContrast) {
+    if (effectiveExpanded && context.isHighContrast) {
       button = SizedBox(width: double.infinity, child: button);
     }
     return Semantics(

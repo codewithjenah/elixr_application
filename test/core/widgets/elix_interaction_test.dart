@@ -119,6 +119,78 @@ void main() {
   });
 
   testWidgets(
+    'expanded primary button shrink-wraps under unbounded horizontal constraints',
+    (tester) async {
+      await tester.pumpWidget(
+        host(
+          ElixShadThemeBridge(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElixPrimaryButton(label: 'Continue', onPressed: () {}),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final button = tester.widget<shad.ShadButton>(
+        find.byType(shad.ShadButton),
+      );
+      expect(button.expands, isFalse);
+      expect(find.text('Continue'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('expanded primary button fills a bounded width', (tester) async {
+    await tester.pumpWidget(
+      host(
+        ElixShadThemeBridge(
+          child: SizedBox(
+            width: 320,
+            child: ElixPrimaryButton(label: 'Continue', onPressed: () {}),
+          ),
+        ),
+      ),
+    );
+
+    final button = tester.widget<shad.ShadButton>(find.byType(shad.ShadButton));
+    expect(button.expands, isTrue);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('elix-primary-shad-button'))),
+      const Size(320, 40),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'high-contrast expanded primary button shrink-wraps under unbounded width',
+    (tester) async {
+      await tester.pumpWidget(
+        host(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ElixPrimaryButton(label: 'Continue', onPressed: () {}),
+              ],
+            ),
+          ),
+          theme: AppTheme.highContrastDark,
+        ),
+      );
+
+      expect(find.text('Continue'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Shad primary button supports disabled, loading, dense, icon, and compact variants',
     (tester) async {
       await tester.pumpWidget(
