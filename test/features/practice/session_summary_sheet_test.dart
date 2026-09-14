@@ -254,7 +254,6 @@ Future<void> _openSummary(
   TrainingProp? nextProp,
   Uint8List? evidenceJpegBytes,
   String? initialSessionId,
-  bool showSavedAcknowledgment = false,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -273,7 +272,6 @@ Future<void> _openSummary(
                   assessment: assessment,
                   onSave: onSave,
                   initialSessionId: initialSessionId,
-                  showSavedAcknowledgment: showSavedAcknowledgment,
                   nextMovement: nextMovement,
                   nextProp: nextProp,
                   evidenceJpegBytes: evidenceJpegBytes,
@@ -983,7 +981,7 @@ void main() {
     expect(_primaryButton, findsOneWidget);
   });
 
-  testWidgets('guided flow acknowledges a saved session before finishing', (
+  testWidgets('reserved ID Finish saves and returns after one tap', (
     tester,
   ) async {
     SessionSummaryResult? result;
@@ -1001,7 +999,6 @@ void main() {
                 durationSeconds: 45,
                 assessment: _standardSummaryAssessment(),
                 initialSessionId: 'reserved-summary-id',
-                showSavedAcknowledgment: true,
                 onSave: (sessionId) async => sessionId!,
               );
             },
@@ -1015,11 +1012,8 @@ void main() {
     await tester.tap(_primaryButtonLabeled('Finish'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Saved to your practice history.'), findsOneWidget);
-    expect(result, isNull);
-    await tester.tap(_primaryButtonLabeled('Finish'));
-    await tester.pumpAndSettle();
     expect(result, SessionSummaryResult.saved);
+    expect(find.byKey(const Key('session-summary-dialog')), findsNothing);
   });
 
   testWidgets('successful retry closes the dialog once', (tester) async {

@@ -919,7 +919,6 @@ class PracticeScreenState extends State<PracticeScreen>
           nextProp: nextStep?.prop,
           evidenceJpegBytes: evidence,
           initialSessionId: reservedSessionId,
-          showSavedAcknowledgment: true,
           onSave: (existingSessionId) async {
             final sessionId = await sessionService.saveCompletedSession(
               existingSessionId: existingSessionId,
