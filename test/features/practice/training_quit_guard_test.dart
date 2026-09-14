@@ -79,19 +79,21 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: ScaffoldPage(
-          content: Builder(
-            builder: (context) {
-              return Button(
-                child: const Text('Open quit'),
-                onPressed: () async {
-                  confirmed = await showTrainingQuitDialog(
-                    context,
-                    copy: TrainingQuitCopy.practice,
-                  );
-                },
-              );
-            },
+        home: ElixShadThemeBridge(
+          child: ScaffoldPage(
+            content: Builder(
+              builder: (context) {
+                return Button(
+                  child: const Text('Open quit'),
+                  onPressed: () async {
+                    confirmed = await showTrainingQuitDialog(
+                      context,
+                      copy: TrainingQuitCopy.practice,
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -117,21 +119,23 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
-        home: ScaffoldPage(
-          content: Builder(
-            builder: (context) {
-              return Button(
-                child: const Text('Open quit'),
-                onPressed: () async {
-                  if (await showTrainingQuitDialog(
-                    context,
-                    copy: TrainingQuitCopy.practice,
-                  )) {
-                    confirmedCount += 1;
-                  }
-                },
-              );
-            },
+        home: ElixShadThemeBridge(
+          child: ScaffoldPage(
+            content: Builder(
+              builder: (context) {
+                return Button(
+                  child: const Text('Open quit'),
+                  onPressed: () async {
+                    if (await showTrainingQuitDialog(
+                      context,
+                      copy: TrainingQuitCopy.practice,
+                    )) {
+                      confirmedCount += 1;
+                    }
+                  },
+                );
+              },
+            ),
           ),
         ),
       ),

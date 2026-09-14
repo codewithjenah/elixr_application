@@ -142,47 +142,62 @@ class _QuitConfirmActionsState extends State<_QuitConfirmActions> {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      key: const ValueKey('training-quit-dialog'),
-      children: [
-        Expanded(
-          child: SizedBox(
-            height: 48,
-            child: Button(
-              key: const ValueKey('training-quit-confirm'),
-              onPressed: _busy ? null : () => _pop(true),
-              style: ButtonStyle(
-                backgroundColor: WidgetStateProperty.resolveWith((states) {
-                  if (states.isDisabled) {
-                    return AppColors.error.withValues(alpha: 0.08);
-                  }
-                  if (states.isPressed) {
-                    return AppColors.error.withValues(alpha: 0.22);
-                  }
-                  if (states.isHovered) {
-                    return AppColors.error.withValues(alpha: 0.16);
-                  }
-                  return AppColors.error.withValues(alpha: 0.12);
-                }),
-                foregroundColor: WidgetStateProperty.all(AppColors.error),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // ShadDialog measures a single footer action without a horizontal
+        // bound. The inner Row uses Expanded for equal-width actions, which
+        // needs a finite width even during that intrinsic measurement.
+        final width = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 364.0;
+        return SizedBox(
+          width: width,
+          child: Row(
+            key: const ValueKey('training-quit-dialog'),
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: Button(
+                    key: const ValueKey('training-quit-confirm'),
+                    onPressed: _busy ? null : () => _pop(true),
+                    style: ButtonStyle(
+                      backgroundColor: WidgetStateProperty.resolveWith((
+                        states,
+                      ) {
+                        if (states.isDisabled) {
+                          return AppColors.error.withValues(alpha: 0.08);
+                        }
+                        if (states.isPressed) {
+                          return AppColors.error.withValues(alpha: 0.22);
+                        }
+                        if (states.isHovered) {
+                          return AppColors.error.withValues(alpha: 0.16);
+                        }
+                        return AppColors.error.withValues(alpha: 0.12);
+                      }),
+                      foregroundColor: WidgetStateProperty.all(AppColors.error),
+                    ),
+                    child: Text(widget.copy.quitLabel),
+                  ),
+                ),
               ),
-              child: Text(widget.copy.quitLabel),
-            ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElixPrimaryButton(
+                    key: const ValueKey('training-quit-keep'),
+                    label: widget.copy.keepLabel,
+                    expanded: true,
+                    onPressed: _busy ? null : () => _pop(false),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: SizedBox(
-            height: 48,
-            child: ElixPrimaryButton(
-              key: const ValueKey('training-quit-keep'),
-              label: widget.copy.keepLabel,
-              expanded: true,
-              onPressed: _busy ? null : () => _pop(false),
-            ),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
