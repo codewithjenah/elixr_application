@@ -102,6 +102,28 @@ void main() {
     expect(find.textContaining('👋'), findsNothing);
   });
 
+  testWidgets('dashboard reflows cleanly across desktop widths', (
+    tester,
+  ) async {
+    for (final size in [
+      const Size(1440, 900),
+      const Size(1100, 800),
+      const Size(800, 800),
+    ]) {
+      await _pumpDashboard(
+        tester,
+        user: _user('user-${size.width}', 'Ada'),
+        sessions: _FakeSessionRepository(_nSessions(2)),
+        size: size,
+      );
+
+      expect(find.text('Training Overview'), findsOneWidget);
+      expect(find.text("Today's Quests"), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'size $size');
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
   testWidgets(
     'transient refresh failure keeps previous values and shows Retry',
     (tester) async {
@@ -230,8 +252,9 @@ Future<void> _pumpDashboard(
   required _FakeSessionRepository sessions,
   AuthService? auth,
   SessionService? sessionService,
+  Size size = const Size(1280, 900),
 }) async {
-  tester.view.physicalSize = const Size(1280, 900);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);

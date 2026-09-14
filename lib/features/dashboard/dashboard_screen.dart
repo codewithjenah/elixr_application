@@ -63,7 +63,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   AuthService? _authService;
 
   static const _maxContentWidth = 1440.0;
-  static const _wideBreakpoint = 1080.0;
+  // The page has 48px horizontal chrome at its narrowest desktop size. This
+  // keeps the two-column composition available around a 1100px window without
+  // forcing either column below its useful content width.
+  static const _wideBreakpoint = 1040.0;
   static const _railWidth = 350.0;
 
   @override
@@ -174,7 +177,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final profileFirstName = parseLegacyFullName(
       user?.firstName ?? '',
     ).firstName;
-    final firstName = profileFirstName.isNotEmpty ? profileFirstName : 'Trainee';
+    final firstName = profileFirstName.isNotEmpty
+        ? profileFirstName
+        : 'Trainee';
 
     final firstLoadErrorForUser =
         _loader.showFullPageError && _loader.requestedUserId == userId;
@@ -276,6 +281,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       greeting: _timeGreeting(),
                     ),
                     const SizedBox(height: AppSpacing.mdPlus),
+                    DashboardHero(
+                      sessionCount: _loader.stats?.totalSessions ?? 0,
+                      recommendation: _loader.trainingRecommendation,
+                    ),
+                    const SizedBox(height: AppSpacing.mdPlus),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final wide = constraints.maxWidth >= _wideBreakpoint;
@@ -337,26 +347,21 @@ class _MainColumn extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        DashboardHero(
-          sessionCount: stats?.totalSessions ?? 0,
-          recommendation: trainingRecommendation,
-        ),
-        const SizedBox(height: 18),
         if (stats?.totalSessions == 0) ...[
           const _QuickStartCard(),
-          const SizedBox(height: 18),
+          const SizedBox(height: AppSpacing.mdPlus),
         ],
         RecommendedPracticeCard(
           recommendation: trainingRecommendation,
           loading: recommendationLoading,
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.mdPlus),
         DashboardTrainingOverview(
           stats: stats,
           sessionsThisWeek: sessionsThisWeek,
           weeklyComparison: weeklyComparison,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: AppSpacing.mdPlus),
         DashboardLeaderboard(
           currentUserId: currentUserId,
           displayName: displayName,
@@ -528,7 +533,7 @@ class _RightRail extends StatelessWidget {
             streakDays: streakDays,
             repository: gamificationRepository,
           ),
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.mdPlus),
         DashboardCalendarCard(
           practicedDays: practicedDays,
           classroomDays: classroomDays,
@@ -543,7 +548,7 @@ class _RightRail extends StatelessWidget {
             );
           },
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.mdPlus),
         DashboardTopPerformance(bestSession: bestSession),
       ],
     );

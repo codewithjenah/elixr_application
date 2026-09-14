@@ -111,12 +111,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Practice this'), findsOneWidget);
-      final quote = tester.widget<Text>(
-        find.text('“Small steps create big progress.”'),
-      );
-      expect(quote.maxLines, 1);
-      expect(quote.softWrap, isFalse);
-      expect(quote.overflow, TextOverflow.ellipsis);
+      expect(find.text('“Small steps create big progress.”'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 

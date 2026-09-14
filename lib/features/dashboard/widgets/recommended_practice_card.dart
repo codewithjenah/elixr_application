@@ -80,7 +80,7 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
           const SizedBox(height: 6),
           LayoutBuilder(
             builder: (context, constraints) {
-              final compact = constraints.maxWidth < 520;
+              final compact = constraints.maxWidth < 620;
               final recommendationCopy = Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -180,28 +180,6 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
                 children: [
                   Expanded(child: recommendationCopy),
                   const SizedBox(width: AppSpacing.md),
-                  if (constraints.maxWidth >= 760) ...[
-                    Container(
-                      width: 1,
-                      height: 72,
-                      color: context.elixBorder.withValues(alpha: 0.65),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: 236,
-                      child: Text(
-                        '“Small steps create big progress.”',
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.supporting(
-                          color: context.elixTextSecondary,
-                        ).copyWith(fontStyle: FontStyle.italic),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                  ],
                   action,
                 ],
               );

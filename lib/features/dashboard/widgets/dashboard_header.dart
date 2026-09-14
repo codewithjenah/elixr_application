@@ -57,10 +57,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         context.watch<TraineeActivityController?>()?.unreadCount ?? 0;
     return LayoutBuilder(
       builder: (context, constraints) {
-        // The header slogan is a persistent piece of dashboard chrome. Text
-        // yields space before it does, so sidebar state never makes the slogan
-        // disappear.
-        const showSlogan = true;
+        // Preserve the brand artwork where it has room to breathe. At compact
+        // widths the greeting gets the full header rather than competing with
+        // a decorative element.
+        final showSlogan =
+            constraints.maxWidth >= 760 && !context.isHighContrast;
         return Row(
           children: [
             Expanded(
@@ -101,7 +102,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 onPressed: _showNotifications,
               ),
             ),
-            if (showSlogan && !context.isHighContrast) ...[
+            if (showSlogan) ...[
               const SizedBox(width: 18),
               const _HeaderSlogan(),
             ],

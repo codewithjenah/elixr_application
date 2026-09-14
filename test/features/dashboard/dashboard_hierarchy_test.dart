@@ -572,27 +572,28 @@ void main() {
     },
   );
 
-  testWidgets('dashboard header keeps the slogan in a narrowed workspace', (
-    tester,
-  ) async {
-    await _setSurface(tester, const Size(420, 600));
-    await tester.pumpWidget(
-      _app(
-        const SizedBox(
-          width: 420,
-          child: DashboardHeader(firstName: 'Ada', greeting: 'Good Morning'),
+  testWidgets(
+    'dashboard header gives the greeting priority in a narrow workspace',
+    (tester) async {
+      await _setSurface(tester, const Size(420, 600));
+      await tester.pumpWidget(
+        _app(
+          const SizedBox(
+            width: 420,
+            child: DashboardHeader(firstName: 'Ada', greeting: 'Good Morning'),
+          ),
+          size: const Size(420, 600),
         ),
-        size: const Size(420, 600),
-      ),
-    );
+      );
 
-    expect(
-      find.byKey(const ValueKey('dashboard-header-slogan')),
-      findsOneWidget,
-    );
-    expect(find.text('Search movements or lessons…'), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+      expect(
+        find.byKey(const ValueKey('dashboard-header-slogan')),
+        findsNothing,
+      );
+      expect(find.text('Search movements or lessons…'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('training overview numbers use the large metric scale', (
     tester,
@@ -741,13 +742,8 @@ void main() {
     expect(find.text('Normal Grip'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('dashboard-top-performance-slogan')),
-      findsOneWidget,
+      findsNothing,
     );
-    final slogan = tester.widget<Image>(
-      find.byKey(const ValueKey('dashboard-top-performance-slogan')),
-    );
-    expect((slogan.image as AssetImage).assetName, 'assets/slogan_3.png');
-    expect(slogan.fit, BoxFit.contain);
     final record = tester.widget<RichText>(
       find.byWidgetPredicate(
         (widget) =>

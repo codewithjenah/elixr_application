@@ -91,10 +91,10 @@ class DashboardTrainingOverview extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (var i = 0; i < metrics.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 10),
+                        if (i > 0) const _MetricDivider(vertical: true),
                         Expanded(
                           flex: metrics[i].flexibleValue ? 14 : 10,
-                          child: _MetricZone(data: metrics[i], boxed: true),
+                          child: _MetricZone(data: metrics[i]),
                         ),
                       ],
                     ],
@@ -181,10 +181,9 @@ class _MetricDivider extends StatelessWidget {
 }
 
 class _MetricZone extends StatelessWidget {
-  const _MetricZone({required this.data, this.boxed = false});
+  const _MetricZone({required this.data});
 
   final _MetricData data;
-  final bool boxed;
 
   @override
   Widget build(BuildContext context) {
@@ -194,25 +193,7 @@ class _MetricZone extends StatelessWidget {
         : AppTheme.metric(context, color: context.elixTextPrimary);
 
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: boxed ? 13 : 4,
-        vertical: boxed ? 12 : 2,
-      ),
-      decoration: boxed
-          ? BoxDecoration(
-              color: context.isHighContrast
-                  ? context.elixCardSurface
-                  : Colors.white.withValues(
-                      alpha: context.isDarkTheme ? 0.025 : 0.55,
-                    ),
-              borderRadius: BorderRadius.circular(ElixRadius.card),
-              border: Border.all(
-                color: context.isHighContrast
-                    ? context.elixBorder
-                    : data.accent.withValues(alpha: 0.17),
-              ),
-            )
-          : null,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
