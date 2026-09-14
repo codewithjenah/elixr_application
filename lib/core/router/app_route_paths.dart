@@ -183,6 +183,17 @@ abstract final class AppRoutePaths {
     );
   }
 
+  /// Personal practice entry with the exact query contract consumed by the
+  /// strict practice redirect.
+  static String personalPractice({
+    required String movement,
+    required String difficulty,
+    required String prop,
+  }) =>
+      '$practice?movement=${Uri.encodeComponent(movement)}'
+      '&difficulty=${Uri.encodeComponent(difficulty)}'
+      '&prop=${Uri.encodeComponent(prop)}';
+
   static String movementLesson({
     required String movement,
     required String difficulty,

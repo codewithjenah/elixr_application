@@ -7,6 +7,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/auth/teacher_auth_messages.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
@@ -155,7 +156,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           child: AuthFooterLink(
             prompt: 'Remember your password?',
             action: 'Sign in',
-            onTap: () => context.go('/login'),
+            onTap: () => context.go(AppRoutePaths.login),
           ),
         ),
       ],
@@ -210,7 +211,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           child: AuthFooterLink(
             prompt: 'Ready to continue?',
             action: 'Sign in',
-            onTap: () => context.go('/login'),
+            onTap: () => context.go(AppRoutePaths.login),
           ),
         ),
       ],
@@ -228,7 +229,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         const SizedBox(height: AppSpacing.lg),
         ElixPrimaryButton(
           label: 'Sign in',
-          onPressed: () => context.go('/login'),
+          onPressed: () => context.go(AppRoutePaths.login),
         ),
       ],
     );

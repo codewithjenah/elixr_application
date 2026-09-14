@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_dialog.dart';
@@ -133,7 +134,7 @@ class SecuritySectionState extends State<SecuritySection> {
         confirmationPhrase: confirmed.phrase,
       );
       if (!mounted) return;
-      context.go('/login');
+      context.go(AppRoutePaths.login);
     } catch (e) {
       if (mounted) {
         await ElixDialog.error(context, _messageForDeleteAccountFailure(e));

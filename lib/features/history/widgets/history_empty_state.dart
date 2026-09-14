@@ -4,6 +4,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
@@ -45,7 +46,7 @@ class HistoryEmptyState extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.lg),
               ElixPrimaryButton(
-                onPressed: () => context.go('/movements'),
+                onPressed: () => context.go(AppRoutePaths.movements),
                 label: 'Browse Movements',
                 icon: FluentIcons.grid_view_medium,
                 expanded: false,

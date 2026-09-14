@@ -961,11 +961,12 @@ class PracticeScreenState extends State<PracticeScreen>
           unawaited(_sfx.stop());
           _clearSessionState();
           _run.cancelToIdle();
-          final encoded = Uri.encodeComponent(nextStep.movement.name);
           router.go(
-            '/practice?movement=$encoded'
-            '&difficulty=${nextStep.movement.difficulty}'
-            '&prop=${nextStep.prop.protocolValue}',
+            AppRoutePaths.personalPractice(
+              movement: nextStep.movement.name,
+              difficulty: nextStep.movement.difficulty,
+              prop: nextStep.prop.protocolValue,
+            ),
           );
           return;
         }

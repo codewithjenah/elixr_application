@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/progression/practice_variant.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
@@ -29,14 +30,17 @@ class RecommendedPracticeCard extends StatefulWidget {
 
 class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
   void _practiceNow(PracticeVariant variant, String difficulty) {
-    final encoded = Uri.encodeComponent(variant.movementName);
     context.go(
-      '/practice?movement=$encoded&difficulty=$difficulty&prop=${variant.trainingProp.protocolValue}',
+      AppRoutePaths.personalPractice(
+        movement: variant.movementName,
+        difficulty: difficulty,
+        prop: variant.trainingProp.protocolValue,
+      ),
     );
   }
 
   void _openMovements() {
-    context.go('/movements');
+    context.go(AppRoutePaths.movements);
   }
 
   @override

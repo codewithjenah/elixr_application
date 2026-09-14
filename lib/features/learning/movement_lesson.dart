@@ -655,7 +655,11 @@ class _Actions extends StatelessWidget {
               context.go(
                 assigned
                     ? AppRoutePaths.assignedPractice(assignmentId!.trim())
-                    : '/practice?movement=${Uri.encodeComponent(item.name)}&difficulty=$difficulty&prop=${prop.protocolValue}',
+                    : AppRoutePaths.personalPractice(
+                        movement: item.name,
+                        difficulty: difficulty,
+                        prop: prop.protocolValue,
+                      ),
               );
             }
           },

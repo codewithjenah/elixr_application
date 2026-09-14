@@ -12,6 +12,7 @@ import '../../data/repositories/leaderboard_repository.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/gamification_rules.dart';
+import '../router/app_route_paths.dart';
 import '../theme/app_theme.dart';
 import '../utils/user_name.dart';
 import 'elix_sidebar_chrome.dart';
@@ -43,67 +44,67 @@ const elixSidebarItems = [
   SidebarItem(
     label: 'Dashboard',
     icon: FluentIcons.view_dashboard,
-    route: '/dashboard',
+    route: AppRoutePaths.dashboard,
     group: SidebarGroup.overview,
   ),
   SidebarItem(
     label: 'Classroom',
     icon: FluentIcons.people,
-    route: '/teacher-access',
+    route: AppRoutePaths.teacherAccess,
     group: SidebarGroup.overview,
   ),
   SidebarItem(
     label: 'Leaderboard',
     icon: FluentIcons.trophy2_solid,
-    route: '/leaderboard',
+    route: AppRoutePaths.leaderboard,
     group: SidebarGroup.overview,
   ),
   SidebarItem(
     label: 'Sessions',
     icon: FluentIcons.calendar_agenda,
-    route: '/training',
+    route: AppRoutePaths.training,
     group: SidebarGroup.training,
   ),
   SidebarItem(
     label: 'Movements',
     icon: FluentIcons.more_sports,
-    route: '/movements',
+    route: AppRoutePaths.movements,
     group: SidebarGroup.training,
   ),
   SidebarItem(
     label: 'Playground',
     icon: FluentIcons.video,
-    route: '/live-practice',
+    route: AppRoutePaths.livePractice,
     group: SidebarGroup.training,
   ),
   SidebarItem(
     label: 'Help & Tutorials',
     icon: FluentIcons.education,
-    route: '/learn',
+    route: AppRoutePaths.learn,
     group: SidebarGroup.training,
   ),
   SidebarItem(
     label: 'Notifications',
     icon: FluentIcons.activity_feed,
-    route: '/activity-center',
+    route: AppRoutePaths.activityCenter,
     group: SidebarGroup.insights,
   ),
   SidebarItem(
     label: 'Messages',
     icon: FluentIcons.chat,
-    route: '/messages',
+    route: AppRoutePaths.messages,
     group: SidebarGroup.insights,
   ),
   SidebarItem(
     label: 'Progress',
     icon: FluentIcons.bar_chart_vertical_fill,
-    route: '/progress',
+    route: AppRoutePaths.progress,
     group: SidebarGroup.insights,
   ),
   SidebarItem(
     label: 'Achievements',
     icon: FluentIcons.medal,
-    route: '/achievements',
+    route: AppRoutePaths.achievements,
     group: SidebarGroup.insights,
   ),
 ];

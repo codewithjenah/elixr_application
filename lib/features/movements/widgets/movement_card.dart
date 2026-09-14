@@ -8,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/progression/practice_variant.dart';
 import '../../../core/progression/progression_access.dart';
 import '../../../core/progression/progression_catalog.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
@@ -223,19 +224,22 @@ class _MovementCardState extends State<MovementCard>
     _activating = true;
     try {
       if (!mounted) return;
-      final encoded = Uri.encodeComponent(widget.movement.name);
       if (access == ProgressionAccessResult.personalLearn) {
         context.go(
-          '/learn/movement/$encoded'
-          '?difficulty=${widget.movement.difficulty}'
-          '&prop=${resolvedProp.protocolValue}',
+          AppRoutePaths.movementLesson(
+            movement: widget.movement.name,
+            difficulty: widget.movement.difficulty,
+            prop: resolvedProp.protocolValue,
+          ),
         );
         return;
       }
       context.go(
-        '/practice?movement=$encoded'
-        '&difficulty=${widget.movement.difficulty}'
-        '&prop=${resolvedProp.protocolValue}',
+        AppRoutePaths.personalPractice(
+          movement: widget.movement.name,
+          difficulty: widget.movement.difficulty,
+          prop: resolvedProp.protocolValue,
+        ),
       );
     } finally {
       _activating = false;

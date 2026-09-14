@@ -175,7 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
               prompt: '',
               action: 'Forgot password?',
               dense: true,
-              onTap: () => context.go('/forgot-password'),
+              onTap: () => context.go(AppRoutePaths.forgotPassword),
             ),
           ),
           AuthErrorSlot(message: _error),

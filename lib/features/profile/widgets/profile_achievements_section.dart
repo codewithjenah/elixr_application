@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/achievement.dart';
@@ -29,7 +30,7 @@ class ProfileAchievementsSection extends StatelessWidget {
       title: 'Achievements',
       trailing: showViewAll
           ? HyperlinkButton(
-              onPressed: () => context.push('/achievements'),
+              onPressed: () => context.push(AppRoutePaths.achievements),
               child: const Text('View All'),
             )
           : null,

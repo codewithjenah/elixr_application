@@ -7,6 +7,7 @@ import '../../services/auth_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../theme/app_theme.dart';
+import '../router/app_route_paths.dart';
 import 'elix_dialog.dart';
 import 'elix_sidebar.dart';
 
@@ -35,7 +36,7 @@ class _AppShellState extends State<AppShell> {
     if (shouldLogout != true || !mounted) return;
 
     await context.read<AuthService>().logout();
-    if (mounted) context.go('/login');
+    if (mounted) context.go(AppRoutePaths.login);
   }
 
   @override

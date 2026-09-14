@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/leaderboard_award_plan.dart';
@@ -141,7 +142,9 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _LeaderboardHeader(onViewLeaderboard: () => context.go('/leaderboard')),
+        _LeaderboardHeader(
+          onViewLeaderboard: () => context.go(AppRoutePaths.leaderboard),
+        ),
         const SizedBox(height: AppSpacing.sm),
         if (_loading)
           const DashboardPanelCard(

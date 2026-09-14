@@ -4,6 +4,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
@@ -57,10 +58,13 @@ class DashboardHero extends StatelessWidget {
     if (mastery == null ||
         variant == null ||
         !recommendation!.hasRunnablePractice) {
-      return '/movements';
+      return AppRoutePaths.movements;
     }
-    final encoded = Uri.encodeComponent(variant.movementName);
-    return '/practice?movement=$encoded&difficulty=${mastery.movement.difficulty}&prop=${variant.trainingProp.protocolValue}';
+    return AppRoutePaths.personalPractice(
+      movement: variant.movementName,
+      difficulty: mastery.movement.difficulty,
+      prop: variant.trainingProp.protocolValue,
+    );
   }
 
   void _startRecommended(BuildContext context) {
@@ -68,7 +72,7 @@ class DashboardHero extends StatelessWidget {
   }
 
   void _exploreMovements(BuildContext context) {
-    context.go('/movements');
+    context.go(AppRoutePaths.movements);
   }
 
   String get _fullPrimaryLabel {
