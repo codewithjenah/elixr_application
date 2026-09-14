@@ -91,7 +91,7 @@ void main() {
 
     expect(find.byType(LineChart), findsNothing);
     expect(
-      find.textContaining('One more scored Assessment V2'),
+      find.textContaining('Complete one more scored practice session'),
       findsOneWidget,
     );
   });

@@ -171,7 +171,7 @@ class _SummaryStrip extends StatelessWidget {
           label: 'STREAK',
           value: '$currentStreak ${currentStreak == 1 ? 'day' : 'days'}',
         ),
-        _SummaryValue(label: 'RUBRIC TREND', value: trend),
+        _SummaryValue(label: 'PROGRESS TREND', value: trend),
       ],
     );
   }
@@ -213,8 +213,8 @@ class _PerformanceTrend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final message = sessions.isEmpty
-        ? 'Complete an Assessment V2 session to start your rubric trend.'
-        : 'One more scored Assessment V2 session will unlock your trend.';
+        ? 'Complete a scored practice session to start tracking your progress.'
+        : 'Complete one more scored practice session to see your progress trend.';
     return DashboardPanelCard(
       accent: context.elixColors.brandPrimary,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -235,7 +235,7 @@ class _PerformanceTrend extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Text(
             sessions.length >= 2
-                ? 'Assessment V2 rubric totals · latest ${sessions.length} sessions'
+                ? 'Practice Score History · latest ${sessions.length} sessions'
                 : message,
             style: ElixTypography.caption(color: context.elixTextSecondary),
           ),
@@ -269,7 +269,7 @@ class _TrendEmptyState extends StatelessWidget {
         Flexible(
           child: Text(
             hasLegacy
-                ? 'Legacy percentage sessions are kept separate from the rubric trend.'
+                ? 'Earlier practice scores use a different scale. Complete a new scored session to start your trend.'
                 : 'Your next scored session will make this trend more useful.',
             style: ElixTypography.caption(color: context.elixTextSecondary),
           ),
@@ -325,7 +325,7 @@ class _DashboardRubricTrendChart extends StatelessWidget {
           getTooltipItems: (spots) => spots.map((spot) {
             final session = sessions[spot.x.toInt()];
             final date = DateTime.tryParse(session.createdAt ?? '');
-            final level = session.performanceLevel?.label ?? 'Assessment V2';
+            final level = session.performanceLevel?.label ?? 'Practice score';
             return LineTooltipItem(
               '${session.rubricTotal ?? 0} / 12\n',
               ElixTypography.label(color: context.elixColors.brandPrimary),
@@ -446,7 +446,7 @@ class _RecentSessionRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${session.difficulty} · ${session.propType.displayLabel} · ${v2 ? 'V2' : 'Legacy'}',
+                  '${session.difficulty} · ${session.propType.displayLabel} · ${v2 ? 'Practice score' : 'Earlier score'}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: ElixTypography.caption(

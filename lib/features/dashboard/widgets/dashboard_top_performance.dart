@@ -21,7 +21,7 @@ class DashboardTopPerformance extends StatelessWidget {
     final recordValue = isRubric
         ? '$rubricTotal'
         : (session?.legacyScore?.toString() ?? '—');
-    final recordLabel = isRubric ? 'Best Rubric' : 'Best Legacy Score';
+    const recordLabel = 'Best Practice Score';
     final recordScale = isRubric ? ' / 12' : ' / 100';
     final levelLabel = session?.performanceLevel?.label;
     final gold = context.elixColors.milestone;

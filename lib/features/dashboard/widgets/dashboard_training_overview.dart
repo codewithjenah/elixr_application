@@ -44,7 +44,7 @@ class DashboardTrainingOverview extends StatelessWidget {
         accent: context.elixColors.brandSecondary,
       ),
       _MetricData(
-        label: hasRubric ? 'Average Rubric (V2)' : 'Average Legacy Score',
+        label: 'Average Score',
         value: average != null
             ? average.toStringAsFixed(hasRubric ? 1 : 0)
             : '—',
@@ -53,12 +53,12 @@ class DashboardTrainingOverview extends StatelessWidget {
             ? weeklyGrowth != null
                   ? '${weeklyGrowth >= 0 ? '+' : '−'}${weeklyGrowth.abs().round()}% vs last week'
                   : 'Not enough data'
-            : 'Legacy scoring',
+            : 'Based on earlier practice',
         icon: FluentIcons.favorite_star,
         accent: context.elixColors.brandPrimary,
       ),
       _MetricData(
-        label: hasRubric ? 'Best Rubric' : 'Best Legacy Score',
+        label: 'Best Practice Score',
         value: best?.toString() ?? '—',
         valueSuffix: best != null ? scaleSuffix : null,
         subLabel: 'Personal record',
