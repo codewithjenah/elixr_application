@@ -6,6 +6,7 @@ import 'package:elixr_application/features/teacher/activity_center/activity_read
 import 'package:elixr_application/features/teacher/activity_center/teacher_activity_controller.dart';
 import 'package:elixr_application/features/trainee/activity_center/trainee_activity_controller.dart';
 import 'package:elixr_application/services/message_unread_service.dart';
+import 'package:elixr_application/services/notification_audio_service.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -199,6 +200,7 @@ void main() {
       announcementRepository: InMemoryClassroomAnnouncementRepository(),
       readStore: InMemoryActivityReadStore(),
     );
+    final sound = _TestNotificationSoundPlayer();
     addTearDown(auth.dispose);
     addTearDown(messages.dispose);
     addTearDown(teacherActivities.dispose);
@@ -214,10 +216,13 @@ void main() {
         ],
         child: FluentApp(
           theme: AppTheme.dark,
-          home: ElixShadThemeBridge(
-            child: shad.ShadToaster(
-              child: IncomingEventToastCoordinator(
-                child: const SizedBox.shrink(),
+          home: NotificationAudioScope(
+            player: sound,
+            child: ElixShadThemeBridge(
+              child: shad.ShadToaster(
+                child: IncomingEventToastCoordinator(
+                  child: const SizedBox.shrink(),
+                ),
               ),
             ),
           ),
@@ -230,8 +235,16 @@ void main() {
     await tester.pump();
 
     expect(find.text('New message from Ada.'), findsOneWidget);
+    expect(sound.playCount, 1);
     expect(tester.takeException(), isNull);
   });
+}
+
+class _TestNotificationSoundPlayer implements NotificationSoundPlayer {
+  int playCount = 0;
+
+  @override
+  void playNotification() => playCount++;
 }
 
 class _ToastRequestedDuringBuild extends StatelessWidget {

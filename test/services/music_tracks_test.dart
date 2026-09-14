@@ -24,12 +24,42 @@ void main() {
       }
     });
 
-    test('catalog includes the Just Dance session tracks', () {
-      final ids = musicTrackCatalog.map((t) => t.id).toSet();
+    test('catalog contains exactly the five bundled Practice tracks', () {
+      expect(musicTrackCatalog.map((track) => track.displayName).toList(), [
+        'A Sky Full of Stars',
+        'Martin Garrix - Animals',
+        'Fireball',
+        'Danza Kuduro',
+        'Timber',
+      ]);
+      expect(musicTrackCatalog, hasLength(5));
+    });
+
+    test('non-Practice audio is excluded from the selectable catalog', () {
+      final paths = musicTrackCatalog.map((track) => track.assetPath);
       expect(
-        ids,
-        containsAll(['practice_classic', 'just_dance_1', 'just_dance_2']),
+        paths,
+        isNot(
+          contains(
+            anyOf(
+              'music/hcc.mp3',
+              'music/notification.mp3',
+              'music/countdown.mp3',
+              'music/congrats.mp3',
+            ),
+          ),
+        ),
       );
+    });
+
+    test('shuffle does not immediately repeat with multiple tracks', () {
+      for (final previous in musicTrackCatalog) {
+        final next = nextShuffleTrack(
+          musicTrackCatalog,
+          previousTrackId: previous.id,
+        );
+        expect(next.id, isNot(previous.id));
+      }
     });
   });
 }

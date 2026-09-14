@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
+import '../../services/notification_audio_service.dart';
 import '../theme/app_theme.dart';
 
 /// A single acknowledgement channel. ELIXR dismisses the active toast before
@@ -42,6 +43,7 @@ abstract final class ElixToast {
     required String message,
     required InfoBarSeverity severity,
   }) {
+    NotificationAudioScope.maybeOf(context)?.playNotification();
     final toaster = shad.ShadToaster.maybeOf(context);
     if (toaster == null) {
       // The Fluent fallback also changes overlay state, so do not perform it

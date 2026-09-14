@@ -43,26 +43,42 @@ void main() {
 
     await service.setJustDanceSetlist(custom);
     await service.setJustDanceIntervalSeconds(40);
-    await service.setSelectedMusicTrackId('practice_classic');
+    await service.setSelectedMusicTrackId('sky_full_of_stars');
 
     expect(service.justDanceMovementNames, custom);
     expect(service.justDanceIntervalSeconds, 40);
-    expect(service.selectedMusicTrackId, 'practice_classic');
+    expect(service.selectedMusicTrackId, 'sky_full_of_stars');
 
     final reloaded = SettingsService(settingsFile: settingsFile);
     await reloaded.initialize();
     expect(reloaded.justDanceMovementNames, custom);
     expect(reloaded.justDanceIntervalSeconds, 40);
-    expect(reloaded.selectedMusicTrackId, 'practice_classic');
+    expect(reloaded.selectedMusicTrackId, 'sky_full_of_stars');
   });
 
   test('setSelectedMusicTrackId(null) restores shuffle', () async {
     await service.initialize();
-    await service.setSelectedMusicTrackId('practice_classic');
-    expect(service.selectedMusicTrackId, 'practice_classic');
+    await service.setSelectedMusicTrackId('sky_full_of_stars');
+    expect(service.selectedMusicTrackId, 'sky_full_of_stars');
 
     await service.setSelectedMusicTrackId(null);
     expect(service.selectedMusicTrackId, isNull);
+  });
+
+  test('legacy selected track IDs recover to Shuffle', () async {
+    for (final legacyId in [
+      'practice_classic',
+      'just_dance_1',
+      'just_dance_2',
+      'unknown_track',
+    ]) {
+      await settingsFile.writeAsString(
+        jsonEncode({'selected_music_track_id': legacyId}),
+      );
+      final loaded = SettingsService(settingsFile: settingsFile);
+      await loaded.initialize();
+      expect(loaded.selectedMusicTrackId, isNull, reason: legacyId);
+    }
   });
 
   test('setJustDanceSetlist throws when the list is empty', () async {

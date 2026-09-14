@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/progression/practice_variant.dart';
 import '../../../core/progression/progression_catalog.dart';
+import '../../../data/models/music_track.dart';
 import '../../../services/settings_service.dart';
 import 'practice_preferences_draft.dart';
 
@@ -22,6 +23,9 @@ class PracticePreferencesController extends ChangeNotifier {
 
   PracticePreferencesDraft get draft => _draft;
   PracticePreferencesDraft get original => _original;
+  List<MusicTrack> get customMusicTracks => _settings.customMusicTracks;
+  List<MusicTrack> get availableCustomMusicTracks =>
+      _settings.availableCustomMusicTracks;
 
   bool get isDirty => _draft != _original;
 
@@ -82,6 +86,32 @@ class PracticePreferencesController extends ChangeNotifier {
       musicTrackId: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
     );
     notifyListeners();
+  }
+
+  Future<SettingsWriteOutcome> addCustomMusicTrack({
+    required String filePath,
+    required String displayName,
+  }) async {
+    final outcome = await _settings.addCustomMusicTrack(
+      filePath: filePath,
+      displayName: displayName,
+    );
+    if (outcome != SettingsWriteOutcome.writeFailed) notifyListeners();
+    return outcome;
+  }
+
+  Future<SettingsWriteOutcome> removeCustomMusicTrack(String id) async {
+    final outcome = await _settings.removeCustomMusicTrack(id);
+    if (outcome != SettingsWriteOutcome.writeFailed) {
+      if (_draft.musicTrackId == id) {
+        _draft = _draft.copyWith(musicTrackId: null);
+      }
+      if (_original.musicTrackId == id) {
+        _original = _original.copyWith(musicTrackId: null);
+      }
+      notifyListeners();
+    }
+    return outcome;
   }
 
   /// Filters unknown/unsupported variants, dedupes preserving order, and nulls

@@ -54,7 +54,7 @@ void main() {
     final outcome = await service.updateLivePracticePreferences(
       movementNames: custom,
       intervalSeconds: 40,
-      musicTrackId: 'practice_classic',
+      musicTrackId: 'sky_full_of_stars',
     );
 
     expect(outcome, SettingsWriteOutcome.saved);
@@ -62,7 +62,7 @@ void main() {
     expect(notifyCount, 1);
     expect(service.justDanceMovementNames, custom);
     expect(service.justDanceIntervalSeconds, 40);
-    expect(service.selectedMusicTrackId, 'practice_classic');
+    expect(service.selectedMusicTrackId, 'sky_full_of_stars');
   });
 
   test('unchanged values perform no write and no notification', () async {
@@ -100,7 +100,7 @@ void main() {
       final outcome = await service.updateLivePracticePreferences(
         movementNames: [movementCatalog.first.name],
         intervalSeconds: 15,
-        musicTrackId: 'practice_classic',
+        musicTrackId: 'sky_full_of_stars',
       );
 
       expect(outcome, SettingsWriteOutcome.writeFailed);
@@ -211,6 +211,67 @@ void main() {
     expect(service.musicVolume, 0.7);
     expect(notifyCount, 0);
   });
+
+  test(
+    'imported local music persists and removing it leaves the file intact',
+    () async {
+      final source = File('${tempDir.path}/My Song.mp3');
+      await source.writeAsBytes(const [1, 2, 3]);
+      final service = buildService();
+      await service.initialize();
+
+      expect(
+        await service.addCustomMusicTrack(
+          filePath: source.path,
+          displayName: 'My Song.mp3',
+        ),
+        SettingsWriteOutcome.saved,
+      );
+      final id = service.customMusicTracks.single.id;
+      expect(
+        await service.setSelectedMusicTrackId(id),
+        SettingsWriteOutcome.saved,
+      );
+
+      final reloaded = buildService();
+      await reloaded.initialize();
+      expect(reloaded.customMusicTracks.single.displayName, 'My Song.mp3');
+      expect(reloaded.selectedMusicTrackId, id);
+
+      expect(
+        await reloaded.removeCustomMusicTrack(id),
+        SettingsWriteOutcome.saved,
+      );
+      expect(reloaded.customMusicTracks, isEmpty);
+      expect(reloaded.selectedMusicTrackId, isNull);
+      expect(await source.exists(), isTrue);
+    },
+  );
+
+  test(
+    'missing imported selection recovers to Shuffle without crashing',
+    () async {
+      await settingsFile.writeAsString(
+        jsonEncode({
+          'selected_music_track_id': 'custom_missing',
+          'custom_music_tracks': [
+            {
+              'id': 'custom_missing',
+              'display_name': 'Moved Song.mp3',
+              'file_path': '${tempDir.path}/missing.mp3',
+            },
+          ],
+        }),
+      );
+
+      final service = buildService();
+      await service.initialize();
+
+      expect(service.customMusicTracks.single.displayName, 'Moved Song.mp3');
+      expect(service.availableCustomMusicTracks, isEmpty);
+      expect(service.selectedMusicTrackId, isNull);
+    },
+  );
 
   test(
     'accessibility defaults are default text scale and contrast off',

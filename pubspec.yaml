@@ -85,11 +85,7 @@ flutter:
     - assets/team/
     - assets/achievements_icon/
     - assets/movements_icon/
-    - assets/music/practice.mp3
-    - assets/music/countdown.mp3
-    - assets/music/congrats.mp3
-    - assets/music/just_dance_1.mp3
-    - assets/music/just_dance_2.mp3
+    - assets/music/
     - assets/fonts/OFL.txt
 
   fonts:

@@ -180,7 +180,7 @@ class _PracticeSectionState extends State<PracticeSection> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Control practice music and sound effects.',
+                  'Control music, notifications, and sound effects across ELIXR.',
                   style: AppTheme.caption.copyWith(
                     color: context.elixTextSecondary,
                   ),
@@ -188,8 +188,7 @@ class _PracticeSectionState extends State<PracticeSection> {
                 const SizedBox(height: AppSpacing.md),
                 SettingsToggleRow(
                   label: 'Enable sound',
-                  description:
-                      'Mute or unmute practice music and sound effects.',
+                  description: 'Mute or unmute all ELIXR audio.',
                   checked: settings.soundEnabled,
                   onChanged: _soundWriting ? null : _onSoundEnabledChanged,
                 ),

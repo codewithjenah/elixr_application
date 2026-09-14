@@ -43,6 +43,7 @@ import 'features/teacher/activity_center/teacher_activity_controller.dart';
 import 'features/trainee/activity_center/trainee_activity_controller.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
+import 'services/app_background_music_service.dart';
 import 'services/backend_service.dart';
 import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
@@ -52,6 +53,7 @@ import 'services/trainee_progression_service.dart';
 import 'services/join_code_resolver.dart';
 import 'services/join_link_service.dart';
 import 'services/message_unread_service.dart';
+import 'services/notification_audio_service.dart';
 
 class ElixrApp extends StatefulWidget {
   ElixrApp({
@@ -76,6 +78,8 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   late final AuthService _authService;
   late final BackendService _backendService;
   late final SettingsService _settingsService;
+  late final AppBackgroundMusicService _appBackgroundMusicService;
+  late final NotificationAudioService _notificationAudioService;
   late final CameraDeviceService _cameraDeviceService;
   late final TutorialProgressService _tutorialProgressService;
   late final TraineeProgressionService _traineeProgressionService;
@@ -113,6 +117,14 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     );
     unawaited(_authService.initialize());
     _settingsService = SettingsService()..initialize();
+    _appBackgroundMusicService = AppBackgroundMusicService(
+      authListenable: _authService,
+      authenticatedAccountId: _authenticatedAudioAccountId,
+      settings: _settingsService,
+    );
+    _notificationAudioService = NotificationAudioService(
+      settings: _settingsService,
+    );
     _cameraDeviceService = CameraDeviceService();
     _tutorialProgressService = TutorialProgressService();
     _traineeProgressionService = TraineeProgressionService(
@@ -129,6 +141,17 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     );
   }
 
+  String? _authenticatedAudioAccountId() {
+    final user = _authService.currentUser;
+    if (!_authService.isAuthenticatedSessionReady ||
+        _authService.needsEmailVerification ||
+        user == null ||
+        (!user.isTrainee && !user.isTeacher)) {
+      return null;
+    }
+    return user.id;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -139,6 +162,8 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_appBackgroundMusicService.dispose());
+    unawaited(_notificationAudioService.dispose());
     _authService.dispose();
     _backendService.dispose();
     _cameraDeviceService.dispose();
@@ -154,6 +179,9 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
       providers: [
         ChangeNotifierProvider.value(value: _authService),
         ChangeNotifierProvider.value(value: _settingsService),
+        Provider<AppBackgroundMusicService>.value(
+          value: _appBackgroundMusicService,
+        ),
         ChangeNotifierProvider.value(value: _cameraDeviceService),
         ChangeNotifierProvider.value(value: _joinLinkService),
         Provider<ChatRepository>.value(value: _chatRepository),
@@ -308,39 +336,45 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
             builder: (context, child) {
               return ElixShadThemeBridge(
                 child: shad.ShadToaster(
-                  child: IncomingEventToastCoordinator(
-                    child: MediaQuery(
-                      data: MediaQuery.of(context).copyWith(
-                        textScaler: TextScaler.linear(settings.textScale),
-                      ),
-                      child: Consumer<AuthService>(
-                        builder: (context, auth, _) {
-                          final startupFailed =
-                              auth.initializationState ==
-                              AuthInitializationState.failed;
-                          if (!_splashFinished ||
-                              auth.isLoading ||
-                              startupFailed) {
-                            return SplashScreen(
-                              authReady:
-                                  auth.initializationState ==
-                                  AuthInitializationState.ready,
-                              startupError: auth.initializationFailure?.message,
-                              onRetry: startupFailed
-                                  ? () => unawaited(auth.initialize())
-                                  : null,
-                              onFinished: () {
-                                if (mounted) {
-                                  setState(() => _splashFinished = true);
-                                }
-                              },
+                  child: NotificationAudioScope(
+                    player: _notificationAudioService,
+                    child: IncomingEventToastCoordinator(
+                      child: MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          textScaler: TextScaler.linear(settings.textScale),
+                        ),
+                        child: Consumer<AuthService>(
+                          builder: (context, auth, _) {
+                            final startupFailed =
+                                auth.initializationState ==
+                                AuthInitializationState.failed;
+                            if (!_splashFinished ||
+                                auth.isLoading ||
+                                startupFailed) {
+                              return SplashScreen(
+                                authReady:
+                                    auth.initializationState ==
+                                    AuthInitializationState.ready,
+                                startupError:
+                                    auth.initializationFailure?.message,
+                                onRetry: startupFailed
+                                    ? () => unawaited(auth.initialize())
+                                    : null,
+                                onFinished: () {
+                                  if (mounted) {
+                                    _appBackgroundMusicService
+                                        .setAuthenticatedAreaVisible(true);
+                                    setState(() => _splashFinished = true);
+                                  }
+                                },
+                              );
+                            }
+                            return KeyedSubtree(
+                              key: ValueKey(auth.accountSessionGeneration),
+                              child: child ?? const SizedBox.shrink(),
                             );
-                          }
-                          return KeyedSubtree(
-                            key: ValueKey(auth.accountSessionGeneration),
-                            child: child ?? const SizedBox.shrink(),
-                          );
-                        },
+                          },
+                        ),
                       ),
                     ),
                   ),

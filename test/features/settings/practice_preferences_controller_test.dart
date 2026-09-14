@@ -136,4 +136,33 @@ void main() {
       );
     }
   });
+
+  test(
+    'adds and removes imported music through the existing controller',
+    () async {
+      final source = File('${tempDir.path}/Practice Mix.mp3');
+      await source.writeAsBytes(const [1, 2, 3]);
+      final controller = PracticePreferencesController(settings);
+      addTearDown(controller.dispose);
+
+      expect(
+        await controller.addCustomMusicTrack(
+          filePath: source.path,
+          displayName: 'Practice Mix.mp3',
+        ),
+        SettingsWriteOutcome.saved,
+      );
+      final track = controller.customMusicTracks.single;
+      controller.setMusicTrackId(track.id);
+      expect(controller.draft.musicTrackId, track.id);
+
+      expect(
+        await controller.removeCustomMusicTrack(track.id),
+        SettingsWriteOutcome.saved,
+      );
+      expect(controller.customMusicTracks, isEmpty);
+      expect(controller.draft.musicTrackId, isNull);
+      expect(await source.exists(), isTrue);
+    },
+  );
 }

@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+
+import 'settings_service.dart';
 
 /// One-shot practice sound effects (countdown, victory congrats).
 class PracticeSfxService {
@@ -12,8 +16,25 @@ class PracticeSfxService {
   static const countdownLeadIn = Duration(milliseconds: 520);
 
   final AudioPlayer _player;
+  SettingsService? _settings;
   bool _disposed = false;
   bool _preloaded = false;
+
+  /// Binds the long-lived settings instance after the Practice screen gains
+  /// access to inherited dependencies. Repeated binding is idempotent.
+  void bindSettings(SettingsService settings) {
+    if (_disposed || identical(_settings, settings)) return;
+    _settings?.removeListener(_onSettingsChanged);
+    _settings = settings;
+    _settings!.addListener(_onSettingsChanged);
+    _onSettingsChanged();
+  }
+
+  void _onSettingsChanged() {
+    final settings = _settings;
+    if (_disposed || settings == null) return;
+    unawaited(setVolume(settings.soundEnabled ? settings.musicVolume : 0.0));
+  }
 
   Future<void> setVolume(double volume) async {
     if (_disposed) return;
@@ -74,8 +95,14 @@ class PracticeSfxService {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    _settings?.removeListener(_onSettingsChanged);
+    _settings = null;
     try {
       await _player.stop();
+    } catch (e, st) {
+      debugPrint('Practice SFX failed to stop during disposal: $e\n$st');
+    }
+    try {
       await _player.dispose();
     } catch (e, st) {
       debugPrint('Practice SFX failed to dispose: $e\n$st');

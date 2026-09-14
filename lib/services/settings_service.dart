@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/constants/music_tracks.dart';
 import '../core/constants/movements.dart';
 import '../core/progression/practice_variant.dart';
 import '../core/progression/progression_catalog.dart';
 import '../data/models/camera_device.dart';
+import '../data/models/music_track.dart';
 
 /// Result of attempting to persist local Settings JSON.
 ///
@@ -44,6 +46,7 @@ class SettingsService extends ChangeNotifier {
   static const _justDancePracticeVariantsKey = 'just_dance_practice_variants';
   static const _justDanceIntervalSecondsKey = 'just_dance_interval_seconds';
   static const _selectedMusicTrackIdKey = 'selected_music_track_id';
+  static const _customMusicTracksKey = 'custom_music_tracks';
 
   /// Legacy migration key. Retained only until mapped to a device id.
   static const _cameraIndexKey = 'camera_index';
@@ -72,6 +75,7 @@ class SettingsService extends ChangeNotifier {
       _defaultJustDancePracticeVariants();
   int _justDanceIntervalSeconds = _defaultJustDanceIntervalSeconds;
   String? _selectedMusicTrackId;
+  List<MusicTrack> _customMusicTracks = const <MusicTrack>[];
 
   /// Pending legacy runtime index awaiting one-time migration.
   int? _legacyCameraIndex;
@@ -88,10 +92,10 @@ class SettingsService extends ChangeNotifier {
   /// When true, high-contrast light/dark themes are used.
   bool get highContrast => _highContrast;
 
-  /// Master mute for practice music and sound effects.
+  /// Master mute for all ELIXR music, notifications, and sound effects.
   bool get soundEnabled => _soundEnabled;
 
-  /// Practice audio level from 0.0 (silent) to 1.0 (full). Default 0.7.
+  /// ELIXR audio level from 0.0 (silent) to 1.0 (full). Default 0.7.
   double get musicVolume => _musicVolume;
 
   /// Ordered Just Dance rotation setlist. Defaults to the full catalog.
@@ -110,6 +114,14 @@ class SettingsService extends ChangeNotifier {
   /// `null` means shuffle across [musicTrackCatalog]; a non-null value pins
   /// session music to that track id (see `resolveTrack`).
   String? get selectedMusicTrackId => _selectedMusicTrackId;
+
+  List<MusicTrack> get customMusicTracks =>
+      List<MusicTrack>.unmodifiable(_customMusicTracks);
+
+  List<MusicTrack> get availableCustomMusicTracks =>
+      List<MusicTrack>.unmodifiable(
+        _customMusicTracks.where((track) => File(track.filePath!).existsSync()),
+      );
 
   /// `null` means Auto-select; a non-null value is an explicit device id.
   String? get selectedCameraDeviceId => _selectedCameraDeviceId;
@@ -142,7 +154,13 @@ class SettingsService extends ChangeNotifier {
         _musicVolume = _parseMusicVolume(data[_musicVolumeKey]);
         _loadCameraSelection(data);
         _loadJustDanceSettings(data);
-        _selectedMusicTrackId = _parseTrackId(data[_selectedMusicTrackIdKey]);
+        _customMusicTracks = _parseCustomMusicTracks(
+          data[_customMusicTracksKey],
+        );
+        _selectedMusicTrackId = _normalizeSelectedTrackId(
+          data[_selectedMusicTrackIdKey],
+          _customMusicTracks,
+        );
       }
     } catch (_) {
       // Keep defaults.
@@ -339,7 +357,7 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<SettingsWriteOutcome> setSelectedMusicTrackId(String? id) {
-    final normalized = _parseTrackId(id);
+    final normalized = _normalizeSelectedTrackId(id, _customMusicTracks);
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
@@ -354,6 +372,83 @@ class SettingsService extends ChangeNotifier {
       justDancePracticeVariants: _justDancePracticeVariants,
       justDanceIntervalSeconds: _justDanceIntervalSeconds,
       selectedMusicTrackId: normalized,
+    );
+  }
+
+  Future<SettingsWriteOutcome> addCustomMusicTrack({
+    required String filePath,
+    required String displayName,
+  }) {
+    final file = File(filePath).absolute;
+    final name = displayName.trim();
+    if (name.isEmpty || !name.toLowerCase().endsWith('.mp3')) {
+      throw ArgumentError.value(
+        displayName,
+        'displayName',
+        'Choose an MP3 file',
+      );
+    }
+    if (!file.existsSync()) {
+      throw ArgumentError.value(
+        filePath,
+        'filePath',
+        'Music file is unavailable',
+      );
+    }
+    for (final track in _customMusicTracks) {
+      if (track.filePath!.toLowerCase() == file.path.toLowerCase()) {
+        return Future<SettingsWriteOutcome>.value(
+          SettingsWriteOutcome.unchanged,
+        );
+      }
+    }
+    final track = MusicTrack.localFile(
+      id: 'custom_${DateTime.now().microsecondsSinceEpoch}',
+      displayName: name,
+      filePath: file.path,
+    );
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
+      textScale: _textScale,
+      highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDancePracticeVariants: _justDancePracticeVariants,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+      customMusicTracks: <MusicTrack>[..._customMusicTracks, track],
+    );
+  }
+
+  Future<SettingsWriteOutcome> removeCustomMusicTrack(String id) {
+    final remaining = _customMusicTracks
+        .where((track) => track.id != id)
+        .toList(growable: false);
+    if (remaining.length == _customMusicTracks.length) {
+      return Future<SettingsWriteOutcome>.value(SettingsWriteOutcome.unchanged);
+    }
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
+      textScale: _textScale,
+      highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDancePracticeVariants: _justDancePracticeVariants,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId == id
+          ? null
+          : _selectedMusicTrackId,
+      customMusicTracks: remaining,
     );
   }
 
@@ -382,7 +477,10 @@ class SettingsService extends ChangeNotifier {
     final normalizedMovements = practiceVariants != null
         ? _normalizePracticeVariants(practiceVariants)
         : _normalizePracticeVariantsFromNames(movementNames!);
-    final normalizedTrack = _parseTrackId(musicTrackId);
+    final normalizedTrack = _normalizeSelectedTrackId(
+      musicTrackId,
+      _customMusicTracks,
+    );
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
@@ -601,6 +699,45 @@ class SettingsService extends ChangeNotifier {
     return value.isEmpty ? null : value;
   }
 
+  static String? _normalizeSelectedTrackId(
+    Object? raw,
+    List<MusicTrack> customTracks,
+  ) {
+    final id = _parseTrackId(raw);
+    if (id == null || legacyMusicTrackIds.contains(id)) return null;
+    if (musicTrackCatalog.any((track) => track.id == id)) return id;
+    for (final track in customTracks) {
+      if (track.id == id && File(track.filePath!).existsSync()) return id;
+    }
+    return null;
+  }
+
+  static List<MusicTrack> _parseCustomMusicTracks(Object? raw) {
+    if (raw is! List) return const <MusicTrack>[];
+    final result = <MusicTrack>[];
+    final seenIds = <String>{};
+    final seenPaths = <String>{};
+    for (final entry in raw) {
+      if (entry is! Map) continue;
+      final id = _parseTrackId(entry['id']);
+      final name = _parseTrackId(entry['display_name']);
+      final path = _parseTrackId(entry['file_path']);
+      if (id == null ||
+          name == null ||
+          path == null ||
+          !id.startsWith('custom_') ||
+          !name.toLowerCase().endsWith('.mp3') ||
+          !seenIds.add(id) ||
+          !seenPaths.add(path.toLowerCase())) {
+        continue;
+      }
+      result.add(
+        MusicTrack.localFile(id: id, displayName: name, filePath: path),
+      );
+    }
+    return List<MusicTrack>.unmodifiable(result);
+  }
+
   /// Parses a persisted text scale, falling back to the default when missing
   /// or not one of [allowedTextScales].
   static double _parseTextScale(Object? raw) {
@@ -648,7 +785,9 @@ class SettingsService extends ChangeNotifier {
     required List<PracticeVariant> justDancePracticeVariants,
     required int justDanceIntervalSeconds,
     required String? selectedMusicTrackId,
+    List<MusicTrack>? customMusicTracks,
   }) async {
+    final candidateCustomMusicTracks = customMusicTracks ?? _customMusicTracks;
     if (_cameraMirrored == cameraMirrored &&
         _darkMode == darkMode &&
         _hasSeenOnboarding == hasSeenOnboarding &&
@@ -664,7 +803,14 @@ class SettingsService extends ChangeNotifier {
           [for (final v in justDancePracticeVariants) v.persistenceKey],
         ) &&
         _justDanceIntervalSeconds == justDanceIntervalSeconds &&
-        _selectedMusicTrackId == selectedMusicTrackId) {
+        _selectedMusicTrackId == selectedMusicTrackId &&
+        listEquals(
+          [for (final track in _customMusicTracks) _customTrackKey(track)],
+          [
+            for (final track in candidateCustomMusicTracks)
+              _customTrackKey(track),
+          ],
+        )) {
       return SettingsWriteOutcome.unchanged;
     }
 
@@ -686,6 +832,9 @@ class SettingsService extends ChangeNotifier {
       ],
       _justDanceIntervalSecondsKey: justDanceIntervalSeconds,
       _selectedMusicTrackIdKey: selectedMusicTrackId,
+      _customMusicTracksKey: [
+        for (final track in candidateCustomMusicTracks) track.toSettingsJson(),
+      ],
     };
     if (cameraDeviceId == null && legacyCameraIndex != null) {
       payload[_cameraIndexKey] = legacyCameraIndex;
@@ -711,6 +860,9 @@ class SettingsService extends ChangeNotifier {
     _justDancePracticeVariants = List.unmodifiable(justDancePracticeVariants);
     _justDanceIntervalSeconds = justDanceIntervalSeconds;
     _selectedMusicTrackId = selectedMusicTrackId;
+    _customMusicTracks = List<MusicTrack>.unmodifiable(
+      candidateCustomMusicTracks,
+    );
     notifyListeners();
     return SettingsWriteOutcome.saved;
   }
@@ -731,6 +883,9 @@ class SettingsService extends ChangeNotifier {
       return false;
     }
   }
+
+  static String _customTrackKey(MusicTrack track) =>
+      '${track.id}\u0000${track.displayName}\u0000${track.filePath}';
 
   File _settingsFile() {
     final override = _settingsFileOverride;

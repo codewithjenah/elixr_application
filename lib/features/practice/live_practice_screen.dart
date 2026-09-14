@@ -10,7 +10,6 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/gamification_rules.dart';
-import '../../core/constants/music_tracks.dart';
 import '../../core/progression/progression_access.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
@@ -25,6 +24,7 @@ import '../../data/models/group_assignment.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../services/auth_service.dart';
+import '../../services/app_background_music_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
@@ -133,7 +133,8 @@ String livePracticeAssignmentStartFailureMessage(Object error) {
 class LivePracticeScreenState extends State<LivePracticeScreen> {
   late final WebSocketService _ws;
   late final bool _ownsWebSocket;
-  final _music = PracticeMusicService();
+  late final PracticeMusicService _music;
+  bool _musicInitialized = false;
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
   late final FreestyleSessionController _freestyle;
@@ -185,6 +186,15 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!_musicInitialized) {
+      _musicInitialized = true;
+      final settings = context.read<SettingsService>();
+      _music = PracticeMusicService(
+        settings: settings,
+        appBackgroundMusic: context.read<AppBackgroundMusicService?>(),
+      );
+      _sfx.bindSettings(settings);
+    }
     final assignment = widget.teacherCreatedAssignment;
     if (_recording != null || assignment == null) return;
     final traineeId = context.read<AuthService>().currentUser?.id;
@@ -218,7 +228,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _previewSub?.cancel();
     _recognitionSub?.cancel();
     _frameBytes.dispose();
-    _music.dispose();
+    if (_musicInitialized) _music.dispose();
     _sfx.dispose();
     _freestyle.removeListener(_onFreestyleChanged);
     _freestyle.dispose();
@@ -281,6 +291,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         !_freestyle.isComplete) {
       _freestyle.cancelToIdle();
       _run.cancelToIdle();
+      unawaited(_music.stop());
+      unawaited(_sfx.stop());
       setState(
         () => _sessionError =
             'Backend connection lost. Restart Freestyle to continue.',
@@ -974,10 +986,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       if (!_freestyle.markActive(generation)) return;
       _run.enterActive();
       final settings = context.read<SettingsService>();
-      await _music.setVolume(
-        settings.soundEnabled ? settings.musicVolume : 0.0,
+      await _music.start(
+        selectedTrackId: settings.selectedMusicTrackId,
+        customTracks: settings.customMusicTracks,
       );
-      _music.start(resolveTrack(settings.selectedMusicTrackId));
     } catch (error, stackTrace) {
       if (!mounted || generation != _freestyle.generation) return;
       debugPrint(
@@ -1117,10 +1129,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _run.enterActive();
       _sfx.stop();
       final settings = context.read<SettingsService>();
-      final track = resolveTrack(settings.selectedMusicTrackId);
-      final volume = settings.soundEnabled ? settings.musicVolume : 0.0;
-      await _music.setVolume(volume);
-      _music.start(track);
+      await _music.start(
+        selectedTrackId: settings.selectedMusicTrackId,
+        customTracks: settings.customMusicTracks,
+      );
       if (_isTeacherActivityV2) {
         await _recording?.beginActivityRecordingNow();
       }

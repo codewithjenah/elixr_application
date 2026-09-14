@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
-import '../../core/constants/music_tracks.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_dialog.dart';
@@ -22,6 +21,7 @@ import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/auth_service.dart';
+import '../../services/app_background_music_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/session_service.dart';
@@ -130,7 +130,8 @@ class PracticeScreenState extends State<PracticeScreen>
 
   late final WebSocketService _ws;
   late final bool _ownsWebSocket;
-  final _music = PracticeMusicService();
+  late final PracticeMusicService _music;
+  bool _musicInitialized = false;
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
   final _feedback = PracticeFeedbackController();
@@ -194,6 +195,19 @@ class PracticeScreenState extends State<PracticeScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_musicInitialized) return;
+    _musicInitialized = true;
+    final settings = context.read<SettingsService>();
+    _music = PracticeMusicService(
+      settings: settings,
+      appBackgroundMusic: context.read<AppBackgroundMusicService?>(),
+    );
+    _sfx.bindSettings(settings);
+  }
+
+  @override
   void dispose() {
     _feedbackSub?.cancel();
     _previewSub?.cancel();
@@ -204,7 +218,7 @@ class PracticeScreenState extends State<PracticeScreen>
     _comboNotifier.dispose();
     _scorePopupNotifier.dispose();
     _calloutNotifier.dispose();
-    _music.dispose();
+    if (_musicInitialized) _music.dispose();
     _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
@@ -745,9 +759,10 @@ class PracticeScreenState extends State<PracticeScreen>
       _run.enterActive();
       _sfx.stop();
       final settings = context.read<SettingsService>();
-      final volume = settings.soundEnabled ? settings.musicVolume : 0.0;
-      await _music.setVolume(volume);
-      _music.start(resolveTrack(settings.selectedMusicTrackId));
+      await _music.start(
+        selectedTrackId: settings.selectedMusicTrackId,
+        customTracks: settings.customMusicTracks,
+      );
       if (mounted) setState(() {});
     } catch (error) {
       if (!mounted) return;
