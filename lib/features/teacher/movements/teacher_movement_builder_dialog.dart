@@ -12,7 +12,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
-import '../../../core/widgets/elix_scaffold_page.dart';
+import '../../../core/shell/teacher_shell.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
@@ -59,6 +59,9 @@ typedef TeacherAssignmentActivitySaveCallback =
       String? safetyGuidance,
       String? topic,
     });
+
+const _teacherActivityContentMaxWidth = 1280.0;
+const _teacherActivityWideBreakpoint = 900.0;
 
 /// Builder for the only writable Teacher-created assessment mode.
 class TeacherMovementBuilderDialog extends StatefulWidget {
@@ -119,6 +122,60 @@ class _TeacherMovementBuilderDialogState
   bool get _isAssignmentEditor => widget.assignment != null;
   bool get _isRetiredTemplate =>
       widget.existingRevision?.isRetiredTemplate == true;
+
+  String get _readinessSummaryLabel {
+    final requirements = <String>[];
+    if (_draft.readiness.hands != ActivityHandRequirement.none) {
+      requirements.add(_draft.readiness.hands.displayLabel);
+    }
+    if (_draft.readiness.body != ActivityBodyRequirement.none) {
+      requirements.add(_draft.readiness.body.displayLabel);
+    }
+    return requirements.isEmpty ? 'Camera only' : requirements.join(' · ');
+  }
+
+  int get _summaryMaximumScore =>
+      _draft.rubricTemplate == TeacherActivityRubricTemplate.custom
+      ? _customCriteria.fold<int>(
+          0,
+          (total, item) =>
+              total + (int.tryParse(item.maximumPoints.text.trim()) ?? 0),
+        )
+      : _draft.maximumScore;
+
+  bool get _isDraftReady {
+    final titleError = TeacherReviewedMovementSpec.validateTitle(_title.text);
+    final instructionsError = TeacherReviewedMovementSpec.validateInstructions(
+      _instructions.text,
+    );
+    final safetyError = TeacherReviewedMovementSpec.validateSafetyGuidance(
+      _safety.text,
+    );
+    final customCriteria = _customCriteria
+        .map((item) => item.toCriterion())
+        .whereType<TeacherActivityRubricCriterion>()
+        .toList(growable: false);
+    final rubricIsValid =
+        _draft.rubricTemplate != TeacherActivityRubricTemplate.custom
+        ? _draft.hasValidMaximumScore
+        : customCriteria.length == _customCriteria.length &&
+              TeacherActivityRubric(
+                template: TeacherActivityRubricTemplate.custom,
+                maximumScore: customCriteria.fold<int>(
+                  0,
+                  (total, criterion) => total + criterion.maximumPoints,
+                ),
+                criteria: customCriteria,
+              ).isValid;
+    return titleError == null &&
+        instructionsError == null &&
+        safetyError == null &&
+        rubricIsValid &&
+        _topic.text.trim().length <= GroupAssignment.maxTopicLength &&
+        (!_isAssignmentEditor ||
+            _audienceType == AssignmentAudienceType.entireClass ||
+            _recipientIds.isNotEmpty);
+  }
 
   @override
   void initState() {
@@ -500,31 +557,67 @@ class _TeacherMovementBuilderDialogState
         : _isEditing
         ? 'Publish a new teacher-reviewed Activity revision for future assignments.'
         : 'Build a reusable teacher-reviewed activity that you can assign to classes later.';
+    final actions = _BuilderActionFooter(
+      saving: _saving,
+      isRetiredTemplate: _isRetiredTemplate,
+      saveLabel: _isAssignmentEditor
+          ? 'Save assignment changes'
+          : _isEditing
+          ? 'Save revision'
+          : 'Save activity',
+      onCancel: () => Navigator.pop(context),
+      onSave:
+          _isEditing &&
+              !_isAssignmentEditor &&
+              widget.onEditTeacherReviewed == null
+          ? null
+          : _save,
+    );
+    final summary = _ActivitySummaryCard(
+      key: const ValueKey('teacher_activity_summary'),
+      title: _title.text.trim(),
+      requiredProp: _draft.requiredProp.displayLabel,
+      maximumScore: _summaryMaximumScore,
+      rubric: _draft.rubricTemplate.displayLabel,
+      recordingDurationSeconds: _draft.recordingDurationSeconds,
+      readiness: _readinessSummaryLabel,
+      hasDemonstration: _draft.demonstrationVideo != null,
+      ready: _isDraftReady,
+      actions: actions,
+    );
 
     return ElixShadThemeBridge(
       child: FocusTraversalGroup(
-        child: ElixScaffoldPage(
-          padding: EdgeInsets.zero,
+        child: TeacherScaffoldPage(
+          scrollable: false,
+          contentPadding: EdgeInsets.zero,
           header: ElixEditorialPageHeader(
             heading: heading,
-            eyebrow: _isAssignmentEditor
-                ? 'CLASSROOM ACTIVITY'
-                : 'TEACHER ACTIVITIES',
+            eyebrow: _isAssignmentEditor ? 'CLASSROOM ACTIVITY' : 'ACTIVITY',
             subtitle: subtitle,
             leading: Icon(FluentIcons.learning_tools, color: accent),
             variant: ElixEditorialHeaderVariant.compact,
+            commandBar: CommandBar(
+              mainAxisAlignment: MainAxisAlignment.end,
+              primaryItems: [
+                CommandBarButton(
+                  key: const ValueKey('teacher_activity_builder_back'),
+                  icon: const Icon(FluentIcons.back),
+                  label: const SizedBox.shrink(),
+                  onPressed: _saving ? null : () => Navigator.pop(context),
+                ),
+              ],
+            ),
           ),
-          content: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: AppSpacing.smPlus,
-              ),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1280),
-                child: ElixPanelCard(
-                  key: const ValueKey('teacher_activity_builder_form'),
-                  padding: EdgeInsets.zero,
+          content: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide =
+                  constraints.maxWidth >= _teacherActivityWideBreakpoint;
+              final editor = ElixPanelCard(
+                key: const ValueKey('teacher_activity_builder_form'),
+                padding: EdgeInsets.zero,
+                child: Scrollbar(
+                  thumbVisibility: true,
                   child: SingleChildScrollView(
                     key: const ValueKey('teacher_activity_builder_scroll'),
                     padding: const EdgeInsets.fromLTRB(
@@ -563,6 +656,7 @@ class _TeacherMovementBuilderDialogState
                                   enabled: fieldsEnabled,
                                   autofocus: fieldsEnabled,
                                   placeholder: 'Activity title',
+                                  onChanged: (_) => setState(_syncDraftText),
                                 ),
                               ),
                               if (_isAssignmentEditor) ...[
@@ -593,6 +687,7 @@ class _TeacherMovementBuilderDialogState
                                   maxLines: 3,
                                   placeholder:
                                       'Enter step-by-step practice guidance',
+                                  onChanged: (_) => setState(_syncDraftText),
                                 ),
                               ),
                             ],
@@ -651,6 +746,7 @@ class _TeacherMovementBuilderDialogState
                                   maxLines: 3,
                                   placeholder:
                                       'Example: Keep the practice area clear',
+                                  onChanged: (_) => setState(_syncDraftText),
                                 ),
                               ),
                             );
@@ -872,6 +968,7 @@ class _TeacherMovementBuilderDialogState
                                     controllers: _customCriteria[index],
                                     enabled: fieldsEnabled,
                                     canRemove: _customCriteria.length > 3,
+                                    onChanged: () => setState(() {}),
                                     onRemove: () =>
                                         _removeCustomCriterion(index),
                                   ),
@@ -1077,24 +1174,34 @@ class _TeacherMovementBuilderDialogState
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-          bottomBar: _BuilderActionFooter(
-            saving: _saving,
-            isRetiredTemplate: _isRetiredTemplate,
-            saveLabel: _isAssignmentEditor
-                ? 'Save assignment changes'
-                : _isEditing
-                ? 'Save revision'
-                : 'Save activity',
-            onCancel: () => Navigator.pop(context),
-            onSave:
-                _isEditing &&
-                    !_isAssignmentEditor &&
-                    widget.onEditTeacherReviewed == null
-                ? null
-                : _save,
+              );
+              return Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: _teacherActivityContentMaxWidth,
+                    ),
+                    child: wide
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(child: editor),
+                              const SizedBox(width: AppSpacing.lg),
+                              SizedBox(width: 330, child: summary),
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(child: editor),
+                              actions,
+                            ],
+                          ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -1126,6 +1233,11 @@ class _BuilderActionFooter extends StatelessWidget {
       onPressed: saving ? null : onCancel,
       child: Text(isRetiredTemplate ? 'Close' : 'Cancel'),
     );
+    final expandedCancel = _BuilderSecondaryButton(
+      onPressed: saving ? null : onCancel,
+      expands: true,
+      child: Text(isRetiredTemplate ? 'Close' : 'Cancel'),
+    );
     final save = ElixPrimaryButton(
       key: const ValueKey('teacher-reviewed-save'),
       label: saveLabel,
@@ -1154,7 +1266,7 @@ class _BuilderActionFooter extends StatelessWidget {
               children: [
                 if (!isRetiredTemplate) save,
                 if (!isRetiredTemplate) const SizedBox(height: AppSpacing.sm),
-                Align(alignment: Alignment.centerRight, child: cancel),
+                expandedCancel,
               ],
             );
           }
@@ -1172,6 +1284,225 @@ class _BuilderActionFooter extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The activity equivalent of the assignment composer's live summary rail.
+/// It deliberately consumes the same draft values used by saving rather than
+/// maintaining a second activity-validation model.
+class _ActivitySummaryCard extends StatelessWidget {
+  const _ActivitySummaryCard({
+    super.key,
+    required this.title,
+    required this.requiredProp,
+    required this.maximumScore,
+    required this.rubric,
+    required this.recordingDurationSeconds,
+    required this.readiness,
+    required this.hasDemonstration,
+    required this.ready,
+    required this.actions,
+  });
+
+  final String title;
+  final String requiredProp;
+  final int maximumScore;
+  final String rubric;
+  final int recordingDurationSeconds;
+  final String readiness;
+  final bool hasDemonstration;
+  final bool ready;
+  final Widget actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = context.elixColors.brandSecondary;
+    final highContrast = context.isHighContrast;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: context.elixPanelSurface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: context.elixColors.borderSubtle,
+          width: highContrast ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: highContrast
+                  ? context.elixCardSurface
+                  : accent.withValues(alpha: 0.11),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(21),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(FluentIcons.preview, size: 19, color: accent),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Activity summary',
+                    style: AppTheme.cardTitle(color: context.elixTextPrimary),
+                  ),
+                ),
+                ElixPill(
+                  text: ready ? 'READY' : 'NEEDS INFO',
+                  color: ready ? context.elixColors.success : accent,
+                  compact: true,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              key: const ValueKey('teacher_activity_summary_scroll'),
+              primary: false,
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              children: [
+                _ActivitySummaryItem(
+                  icon: FluentIcons.learning_tools,
+                  label: 'Activity',
+                  value: title.isEmpty ? 'Untitled activity' : title,
+                  detail: 'Reviewed by teacher',
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ActivitySummaryItem(
+                  icon: FluentIcons.product_variant,
+                  label: 'Required prop',
+                  value: '$requiredProp prop',
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ActivitySummaryItem(
+                  icon: FluentIcons.calculator,
+                  label: 'Maximum score',
+                  value: '$maximumScore points',
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ActivitySummaryItem(
+                  icon: FluentIcons.bulleted_list,
+                  label: 'Rubric',
+                  value: rubric,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ActivitySummaryItem(
+                  icon: FluentIcons.video,
+                  label: 'Recording',
+                  value: '$recordingDurationSeconds seconds',
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ActivitySummaryItem(
+                  icon: FluentIcons.camera,
+                  label: 'Readiness',
+                  value: readiness,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ActivitySummaryItem(
+                  icon: FluentIcons.video,
+                  label: 'Demonstration',
+                  value: hasDemonstration ? 'Attached' : 'Not attached',
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ActivitySummaryReadiness(ready: ready),
+              ],
+            ),
+          ),
+          actions,
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivitySummaryItem extends StatelessWidget {
+  const _ActivitySummaryItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.detail,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? detail;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, size: 16, color: context.elixColors.brandSecondary),
+      const SizedBox(width: AppSpacing.sm),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: AppTheme.eyebrow(color: context.elixTextSecondary),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              value,
+              style: AppTheme.body.copyWith(
+                color: context.elixTextPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (detail != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                detail!,
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _ActivitySummaryReadiness extends StatelessWidget {
+  const _ActivitySummaryReadiness({required this.ready});
+
+  final bool ready;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(AppSpacing.md),
+    decoration: BoxDecoration(
+      color: context.isHighContrast
+          ? context.elixCardSurface
+          : context.elixColors.interactiveHover,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          ready ? FluentIcons.check_mark : FluentIcons.info,
+          size: 16,
+          color: ready ? context.elixColors.success : context.elixTextSecondary,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            ready
+                ? 'Everything looks good. You can save this activity.'
+                : 'Complete the activity details to continue.',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RubricCriteriaTable extends StatelessWidget {
@@ -1448,6 +1779,7 @@ class _CustomCriterionEditor extends StatelessWidget {
     required this.controllers,
     required this.enabled,
     required this.canRemove,
+    required this.onChanged,
     required this.onRemove,
   });
 
@@ -1455,6 +1787,7 @@ class _CustomCriterionEditor extends StatelessWidget {
   final _CustomCriterionControllers controllers;
   final bool enabled;
   final bool canRemove;
+  final VoidCallback onChanged;
   final VoidCallback onRemove;
 
   @override
@@ -1493,6 +1826,7 @@ class _CustomCriterionEditor extends StatelessWidget {
           enabled: enabled,
           placeholder: 'Criterion label',
           maxLength: 80,
+          onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: AppSpacing.xs),
         _BuilderTextInput(
@@ -1503,6 +1837,7 @@ class _CustomCriterionEditor extends StatelessWidget {
           maxLength: 500,
           minLines: 2,
           maxLines: 3,
+          onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: AppSpacing.xs),
         _BuilderTextInput(
@@ -1510,6 +1845,7 @@ class _CustomCriterionEditor extends StatelessWidget {
           controller: controllers.maximumPoints,
           enabled: enabled,
           placeholder: 'Maximum points',
+          onChanged: (_) => onChanged(),
         ),
       ],
     ),
@@ -1818,76 +2154,77 @@ class _FormSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.only(top: AppSpacing.md),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: context.isHighContrast
-                ? context.elixBorder
-                : context.elixBorder.withValues(alpha: 0.7),
-            width: context.isHighContrast ? 2 : 1,
-          ),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: context.isHighContrast
-                    ? context.elixTextPrimary
-                    : context.elixColors.brandPrimary,
+    final accent = context.elixColors.brandPrimary;
+    final highContrast = context.isHighContrast;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: highContrast
+                    ? context.elixCardSurface
+                    : accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(11),
+                border: highContrast
+                    ? Border.all(color: context.elixBorder, width: 2)
+                    : null,
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            style: AppTheme.label(
-                              color: context.elixTextPrimary,
-                            ),
+              child: Icon(icon, size: 17, color: accent),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title.toUpperCase(),
+                    style: AppTheme.eyebrow(color: accent),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          style: AppTheme.cardTitle(
+                            color: context.elixTextPrimary,
                           ),
                         ),
-                        if (optional) ...[
-                          const SizedBox(width: AppSpacing.sm),
-                          Text(
-                            'OPTIONAL',
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      description,
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
-                        height: 1.35,
                       ),
+                      if (optional) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        Text(
+                          'OPTIONAL',
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    description,
+                    style: AppTheme.supporting(
+                      color: context.elixTextSecondary,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          SizedBox(height: compact ? AppSpacing.sm : AppSpacing.md),
-          child,
-        ],
-      ),
+            ),
+          ],
+        ),
+        SizedBox(height: compact ? AppSpacing.sm : AppSpacing.md),
+        child,
+      ],
     );
   }
 }
@@ -2048,15 +2385,26 @@ class _BuilderSecondaryButton extends StatelessWidget {
     super.key,
     required this.onPressed,
     required this.child,
+    this.expands = false,
   });
 
   final VoidCallback? onPressed;
   final Widget child;
+  final bool expands;
 
   @override
-  Widget build(BuildContext context) => context.isHighContrast
-      ? Button(onPressed: onPressed, child: child)
-      : shad.ShadButton.outline(onPressed: onPressed, child: child);
+  Widget build(BuildContext context) {
+    final button = context.isHighContrast
+        ? Button(onPressed: onPressed, child: child)
+        : shad.ShadButton.outline(
+            onPressed: onPressed,
+            expands: expands,
+            child: child,
+          );
+    return expands && context.isHighContrast
+        ? SizedBox(width: double.infinity, child: button)
+        : button;
+  }
 }
 
 class _BuilderDestructiveButton extends StatelessWidget {

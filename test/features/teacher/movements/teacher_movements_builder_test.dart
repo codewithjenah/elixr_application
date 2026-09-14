@@ -548,6 +548,51 @@ void main() {
     expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(560));
   });
 
+  testWidgets('builder keeps its live summary on wide layouts only', (
+    tester,
+  ) async {
+    await pumpBuilder(tester, size: const Size(1280, 900));
+
+    expect(
+      find.byKey(const ValueKey('teacher_activity_summary')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('teacher-reviewed-save'))).width,
+      closeTo(
+        tester
+            .getRect(
+              find.ancestor(
+                of: find.text('Cancel'),
+                matching: find.byType(shad.ShadButton),
+              ),
+            )
+            .width,
+        1,
+      ),
+    );
+    expect(find.text('Untitled activity'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-title')),
+      'Tin Balance',
+    );
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('teacher_activity_summary')),
+        matching: find.text('Tin Balance'),
+      ),
+      findsOneWidget,
+    );
+
+    await pumpBuilder(tester, size: const Size(680, 900));
+    expect(
+      find.byKey(const ValueKey('teacher_activity_summary')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'builder uses a desktop two-column layout with bounded multiline fields',
     (tester) async {
@@ -560,10 +605,14 @@ void main() {
       final initialSafetyRect = tester.getRect(safetyField);
 
       expect(
+        find.byKey(const ValueKey('teacher_activity_summary')),
+        findsOneWidget,
+      );
+      expect(
         tester.getTopLeft(practiceSetup).dy,
         closeTo(tester.getTopLeft(safetyHeading).dy, 1),
       );
-      expect(initialSafetyRect.bottom, lessThan(tester.getTopLeft(save).dy));
+      expect(tester.getRect(save).left, greaterThan(initialSafetyRect.right));
 
       await tester.enterText(
         safetyField,
