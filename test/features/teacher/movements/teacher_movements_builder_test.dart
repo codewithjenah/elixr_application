@@ -125,6 +125,7 @@ void main() {
     TeacherMovementRevision? existingRevision,
     TeacherReviewedSaveCallback? onCreate,
     TeacherActivitySaveCallback? onCreateActivity,
+    TeacherActivitySaveCallback? onEditActivity,
     Size size = const Size(1280, 900),
     FluentThemeData? theme,
     TextScaler? textScaler,
@@ -172,6 +173,7 @@ void main() {
                   safetyGuidance: safetyGuidance,
                 ),
           onCreateActivity: onCreateActivity,
+          onEditActivity: onEditActivity,
         ),
       ),
     );
@@ -377,6 +379,66 @@ void main() {
       isA<TeacherReviewedMovementSpec>(),
     );
   });
+
+  testWidgets(
+    'Teacher Activity create and edit use the shared studio form at desktop and compact widths',
+    (tester) async {
+      for (final size in [const Size(1280, 900), const Size(680, 900)]) {
+        await pumpBuilder(tester, size: size);
+
+        expect(
+          find.byKey(const ValueKey('teacher_activity_builder_form')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('teacher_activity_builder_scroll')),
+          findsOneWidget,
+        );
+        expect(find.text('Create Teacher Activity'), findsOneWidget);
+        expect(find.text('Save activity'), findsOneWidget);
+        expect(find.text('Teacher reviewed'), findsOneWidget);
+        expect(find.textContaining('No automatic ELIXR score'), findsOneWidget);
+        expect(find.text('Required prop'), findsOneWidget);
+        expect(find.text('Safety guidance'), findsOneWidget);
+        expect(find.text('Practice requirements'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+
+      final existing = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'Balance the tin upright.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = await movements.getRevision(
+        movementId: existing.id,
+        revisionId: existing.currentRevisionId,
+      );
+      var editCalls = 0;
+      await pumpBuilder(
+        tester,
+        existing: existing,
+        existingRevision: revision,
+        onEditActivity:
+            ({
+              required title,
+              required instructions,
+              required requiredProp,
+              required assessment,
+              safetyGuidance,
+            }) async {
+              editCalls++;
+            },
+      );
+
+      expect(find.text('Edit Teacher Activity'), findsOneWidget);
+      expect(find.text('Save revision'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+      await tester.pumpAndSettle();
+      expect(editCalls, 1);
+    },
+  );
 
   testWidgets('builder prevents duplicate saves while creation is in flight', (
     tester,
