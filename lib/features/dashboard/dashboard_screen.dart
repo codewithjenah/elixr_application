@@ -37,6 +37,7 @@ import 'widgets/dashboard_leaderboard.dart';
 import 'widgets/dashboard_quest_card.dart';
 import 'widgets/dashboard_top_performance.dart';
 import 'widgets/dashboard_training_overview.dart';
+import 'widgets/dashboard_training_insights.dart';
 import 'widgets/recommended_practice_card.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -241,6 +242,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       stats: _loader.stats,
       sessionsThisWeek: metrics.sessionsThisWeek,
       weeklyComparison: metrics.weeklyComparison,
+      currentStreak: metrics.currentStreak,
+      sessions: _loader.sessions,
       currentUserId: user?.id,
       displayName: user?.fullName ?? 'Trainee',
       profilePictureUrl: user?.profilePictureUrl,
@@ -324,6 +327,8 @@ class _MainColumn extends StatelessWidget {
     required this.stats,
     required this.sessionsThisWeek,
     required this.weeklyComparison,
+    required this.currentStreak,
+    required this.sessions,
     required this.currentUserId,
     required this.displayName,
     required this.trainingRecommendation,
@@ -335,6 +340,8 @@ class _MainColumn extends StatelessWidget {
   final ProgressStats? stats;
   final int sessionsThisWeek;
   final ComparableRubricComparison weeklyComparison;
+  final int currentStreak;
+  final List<Session> sessions;
   final String? currentUserId;
   final String displayName;
   final TrainingRecommendation? trainingRecommendation;
@@ -359,6 +366,13 @@ class _MainColumn extends StatelessWidget {
         DashboardTrainingOverview(
           stats: stats,
           sessionsThisWeek: sessionsThisWeek,
+          weeklyComparison: weeklyComparison,
+        ),
+        const SizedBox(height: AppSpacing.mdPlus),
+        DashboardTrainingInsights(
+          sessions: sessions,
+          sessionsThisWeek: sessionsThisWeek,
+          currentStreak: currentStreak,
           weeklyComparison: weeklyComparison,
         ),
         const SizedBox(height: AppSpacing.mdPlus),
