@@ -302,14 +302,18 @@ class TrainingCameraWorkspace extends StatelessWidget {
                       expanded: false,
                     ),
                   if (recovery.canChooseCamera && onChooseCamera != null)
-                    Button(
+                    ElixPrimaryButton(
+                      label: 'Choose camera',
                       onPressed: connecting ? null : onChooseCamera,
-                      child: const Text('Choose camera'),
+                      expanded: false,
+                      variant: ElixButtonVariant.secondary,
                     ),
                   if (recovery.canOpenSetupHelp && onOpenSetupHelp != null)
-                    Button(
+                    ElixPrimaryButton(
+                      label: 'Open setup help',
                       onPressed: onOpenSetupHelp,
-                      child: const Text('Open setup help'),
+                      expanded: false,
+                      variant: ElixButtonVariant.secondary,
                     ),
                 ],
               ),

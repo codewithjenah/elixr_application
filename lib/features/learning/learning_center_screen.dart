@@ -22,14 +22,59 @@ import 'rubric_guide.dart';
 
 const _kLearningContentMaxWidth = 1280.0;
 
+const _learningMediumMovementDisplayOrder = <String>[
+  'Hand Stall',
+  'Forearm Stall',
+  'Elbow Stall',
+  'Wrist Stall',
+  'One Finger Stall',
+];
+
+/// Presentation-only ordering for the trainee lesson library.
+///
+/// The shared catalog order remains unchanged because it also drives practice
+/// progression. Only Medium lessons need a different pedagogical order here.
+List<PracticeCatalogStep> _learningPracticeSteps() {
+  final steps = enabledPracticeSteps();
+  final mediumSteps = steps
+      .where((step) => step.movement.difficulty == 'Medium')
+      .toList();
+  mediumSteps.sort((a, b) {
+    final aIndex = _learningMediumMovementDisplayOrder.indexOf(a.movement.name);
+    final bIndex = _learningMediumMovementDisplayOrder.indexOf(b.movement.name);
+    if (aIndex == bIndex) {
+      return _learningPropOrder(a.prop).compareTo(_learningPropOrder(b.prop));
+    }
+    if (aIndex < 0) return 1;
+    if (bIndex < 0) return -1;
+    return aIndex.compareTo(bIndex);
+  });
+
+  final ordered = <PracticeCatalogStep>[];
+  var insertedMedium = false;
+  for (final step in steps) {
+    if (step.movement.difficulty != 'Medium') {
+      ordered.add(step);
+    } else if (!insertedMedium) {
+      ordered.addAll(mediumSteps);
+      insertedMedium = true;
+    }
+  }
+  return ordered;
+}
+
+int _learningPropOrder(TrainingProp prop) => switch (prop) {
+  TrainingProp.bottle => 0,
+  TrainingProp.shaker => 1,
+  TrainingProp.bottleAndShaker => 2,
+};
+
 class LearningCenterScreen extends StatelessWidget {
   const LearningCenterScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final movements = movementCatalog
-        .where((movement) => movement.enabled)
-        .toList();
+    final lessons = _learningPracticeSteps();
 
     return ElixScaffoldPage(
       padding: EdgeInsets.zero,
@@ -55,7 +100,7 @@ class LearningCenterScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _LearningHero(lessonCount: movements.length),
+                        _LearningHero(lessonCount: lessons.length),
                         const SizedBox(height: AppSpacing.lg),
                         const _SectionHeading(
                           eyebrow: 'BEFORE YOU PRACTICE',
@@ -72,11 +117,11 @@ class LearningCenterScreen extends StatelessWidget {
                           eyebrow: 'MOVEMENT LIBRARY',
                           title: 'Choose a lesson',
                           subtitle:
-                              '${movements.length} guided lessons from foundational grips to advanced stalls.',
-                          trailing: _CountBadge(count: movements.length),
+                              '${lessons.length} guided lessons from foundational grips to advanced stalls.',
+                          trailing: _CountBadge(count: lessons.length),
                         ),
                         const SizedBox(height: AppSpacing.md),
-                        _LessonGrid(movements: movements),
+                        _LessonGrid(lessons: lessons),
                       ],
                     ),
                   ),
@@ -521,9 +566,9 @@ class _CountBadge extends StatelessWidget {
 }
 
 class _LessonGrid extends StatelessWidget {
-  const _LessonGrid({required this.movements});
+  const _LessonGrid({required this.lessons});
 
-  final List<Movement> movements;
+  final List<PracticeCatalogStep> lessons;
 
   @override
   Widget build(BuildContext context) {
@@ -542,10 +587,13 @@ class _LessonGrid extends StatelessWidget {
           spacing: gap,
           runSpacing: gap,
           children: [
-            for (final movement in movements)
+            for (final lesson in lessons)
               SizedBox(
                 width: cardWidth,
-                child: _LessonCard(movement: movement),
+                child: _LessonCard(
+                  movement: lesson.movement,
+                  prop: lesson.prop,
+                ),
               ),
           ],
         );
@@ -555,9 +603,10 @@ class _LessonGrid extends StatelessWidget {
 }
 
 class _LessonCard extends StatefulWidget {
-  const _LessonCard({required this.movement});
+  const _LessonCard({required this.movement, required this.prop});
 
   final Movement movement;
+  final TrainingProp prop;
 
   @override
   State<_LessonCard> createState() => _LessonCardState();
@@ -566,15 +615,16 @@ class _LessonCard extends StatefulWidget {
 class _LessonCardState extends State<_LessonCard> {
   bool _hovered = false;
 
-  void _openLesson(TrainingProp prop) {
+  void _openLesson() {
     final movement = widget.movement;
+    final prop = widget.prop;
     context.go(
       '/learn/movement/${Uri.encodeComponent(movement.name)}'
       '?difficulty=${movement.difficulty}&prop=${prop.protocolValue}',
     );
   }
 
-  ProgressionAccessResult? _accessFor(TrainingProp prop) {
+  ProgressionAccessResult? _access() {
     final progression = Provider.of<TraineeProgressionService?>(
       context,
       listen: true,
@@ -587,16 +637,16 @@ class _LessonCardState extends State<_LessonCard> {
     return evaluatePersonal(
       variant: PracticeVariant(
         movementName: widget.movement.name,
-        trainingProp: prop,
+        trainingProp: widget.prop,
       ),
       currentLevel: progression.currentLevelOrNull,
       tutorialCompleted: tutorials.isInitialized
-          ? tutorials.hasCompletedLesson(widget.movement.name, prop)
+          ? tutorials.hasCompletedLesson(widget.movement.name, widget.prop)
           : null,
     );
   }
 
-  String _statusFor(TrainingProp prop, ProgressionAccessResult? access) {
+  String _statusFor(ProgressionAccessResult? access) {
     if (access == null) return 'View lesson';
     switch (access) {
       case ProgressionAccessResult.personalReady:
@@ -608,7 +658,7 @@ class _LessonCardState extends State<_LessonCard> {
             requiredLevelFor(
               PracticeVariant(
                 movementName: widget.movement.name,
-                trainingProp: prop,
+                trainingProp: widget.prop,
               ),
             ) ??
             '?';
@@ -647,42 +697,43 @@ class _LessonCardState extends State<_LessonCard> {
         unlockLevel: earliestRequiredLevelForMovement(movement.name),
       );
     }
-    return _buildRevealedCard(context, movement);
+    return _buildRevealedCard(context, movement, widget.prop);
   }
 
-  Widget _buildRevealedCard(BuildContext context, Movement movement) {
-    final props = movement.supportedProps;
+  Widget _buildRevealedCard(
+    BuildContext context,
+    Movement movement,
+    TrainingProp prop,
+  ) {
     final difficultyColor = switch (movement.difficulty) {
       'Easy' => AppColors.success,
       'Medium' => AppColors.warning,
       _ => AppColors.primary,
     };
-    final multiProp = props.length > 1;
-    final primaryProp = props.first;
-    final primaryAccess = _accessFor(primaryProp);
-    final primaryOpenable = !multiProp && _canOpen(primaryAccess);
+    final access = _access();
+    final openable = _canOpen(access);
 
     return Semantics(
-      button: primaryOpenable,
-      label: multiProp
-          ? '${movement.name} lessons'
-          : 'Open ${movement.name} lesson. ${_statusFor(primaryProp, primaryAccess)}',
+      container: true,
+      excludeSemantics: true,
+      button: openable,
+      enabled: openable,
+      label:
+          'Open ${movement.name} ${prop.displayLabel} lesson. ${_statusFor(access)}',
       child: MouseRegion(
-        cursor: primaryOpenable
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
+        cursor: openable ? SystemMouseCursors.click : SystemMouseCursors.basic,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
-          onTap: primaryOpenable ? () => _openLesson(primaryProp) : null,
+          onTap: openable ? _openLesson : null,
           behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            constraints: BoxConstraints(minHeight: multiProp ? 188 : 156),
+            constraints: const BoxConstraints(minHeight: 156),
             decoration: AppTheme.panelDecoration(
               context,
               glow: AppColors.accent,
-              highlighted: _hovered && primaryOpenable,
+              highlighted: _hovered && openable,
             ),
             clipBehavior: Clip.antiAlias,
             child: IntrinsicHeight(
@@ -715,6 +766,7 @@ class _LessonCardState extends State<_LessonCard> {
                         duration: const Duration(milliseconds: 180),
                         child: MovementImage(
                           movementName: movement.name,
+                          prop: prop,
                           size: 106,
                         ),
                       ),
@@ -742,8 +794,18 @@ class _LessonCardState extends State<_LessonCard> {
                           ),
                           const SizedBox(height: 4),
                           Text(
+                            prop.displayLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: difficultyColor,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
                             movement.description,
-                            maxLines: multiProp ? 1 : 2,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.caption.copyWith(
                               color: context.elixTextSecondary,
@@ -751,40 +813,29 @@ class _LessonCardState extends State<_LessonCard> {
                             ),
                           ),
                           const SizedBox(height: AppSpacing.sm),
-                          if (multiProp)
-                            for (final prop in props) ...[
-                              const SizedBox(height: 4),
-                              _PropLessonRow(
-                                prop: prop,
-                                status: _statusFor(prop, _accessFor(prop)),
-                                enabled: _canOpen(_accessFor(prop)),
-                                onTap: () => _openLesson(prop),
-                              ),
-                            ]
-                          else
-                            Row(
-                              children: [
-                                Text(
-                                  _statusFor(primaryProp, primaryAccess),
-                                  style: AppTheme.caption.copyWith(
-                                    color: _hovered && primaryOpenable
-                                        ? AppColors.primarySoft
-                                        : context.elixTextSecondary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                          Row(
+                            children: [
+                              Text(
+                                _statusFor(access),
+                                style: AppTheme.caption.copyWith(
+                                  color: _hovered && openable
+                                      ? AppColors.primarySoft
+                                      : context.elixTextSecondary,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                if (primaryOpenable) ...[
-                                  const SizedBox(width: 5),
-                                  Icon(
-                                    FluentIcons.chevron_right,
-                                    size: 10,
-                                    color: _hovered
-                                        ? AppColors.primarySoft
-                                        : context.elixTextSecondary,
-                                  ),
-                                ],
+                              ),
+                              if (openable) ...[
+                                const SizedBox(width: 5),
+                                Icon(
+                                  FluentIcons.chevron_right,
+                                  size: 10,
+                                  color: _hovered
+                                      ? AppColors.primarySoft
+                                      : context.elixTextSecondary,
+                                ),
                               ],
-                            ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -959,56 +1010,6 @@ class _LockedLessonCard extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PropLessonRow extends StatelessWidget {
-  const _PropLessonRow({
-    required this.prop,
-    required this.status,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final TrainingProp prop;
-  final String status;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: enabled,
-      enabled: enabled,
-      label: '${prop.displayLabel}. $status',
-      child: GestureDetector(
-        onTap: enabled ? onTap : null,
-        behavior: HitTestBehavior.opaque,
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                '${prop.displayLabel} · $status',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.caption.copyWith(
-                  color: enabled
-                      ? context.elixTextPrimary
-                      : context.elixTextSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            if (enabled)
-              Icon(
-                FluentIcons.chevron_right,
-                size: 10,
-                color: context.elixTextSecondary,
-              ),
-          ],
         ),
       ),
     );

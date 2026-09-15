@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/camera_recovery_presentation.dart';
@@ -214,6 +215,7 @@ void main() {
     testWidgets('shows selected-camera recovery actions only when useful', (
       tester,
     ) async {
+      var retryPressed = false;
       var chooseCameraPressed = false;
       var helpPressed = false;
       await tester.pumpWidget(
@@ -226,7 +228,7 @@ void main() {
               connectionState: WebSocketConnectionState.error,
               connecting: false,
               isSessionActive: false,
-              onRetry: () {},
+              onRetry: () => retryPressed = true,
               onChooseCamera: () => chooseCameraPressed = true,
               onOpenSetupHelp: () => helpPressed = true,
               onCountdownComplete: () {},
@@ -244,10 +246,22 @@ void main() {
       expect(find.text('Retry'), findsOneWidget);
       expect(find.text('Choose camera'), findsOneWidget);
       expect(find.text('Open setup help'), findsOneWidget);
+      final recoveryButtons = find.byType(ElixPrimaryButton);
+      expect(recoveryButtons, findsNWidgets(3));
+      final recoveryButtonHeights = recoveryButtons
+          .evaluate()
+          .map(
+            (element) => tester.getSize(find.byWidget(element.widget)).height,
+          )
+          .toSet();
+      expect(recoveryButtonHeights, hasLength(1));
+      await tester.tap(find.text('Retry'));
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(find.text('Choose camera'));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(find.text('Open setup help'));
       await tester.pump(const Duration(milliseconds: 100));
+      expect(retryPressed, isTrue);
       expect(chooseCameraPressed, isTrue);
       expect(helpPressed, isTrue);
     });
