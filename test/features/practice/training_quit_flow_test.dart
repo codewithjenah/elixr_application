@@ -129,6 +129,11 @@ class _GatedSettingsService extends SettingsService {
   Future<String?> loadSelectedCameraDeviceId() async => 'win32:test-camera';
 }
 
+class _TestSessionService extends SessionService {
+  @override
+  String reserveSessionId() => 'test-session-id';
+}
+
 Finder _backButton() => find.byKey(const ValueKey('training-header-back'));
 
 Future<void> _pumpUi(WidgetTester tester) async {
@@ -167,7 +172,9 @@ void main() {
     auth.dispose();
   });
 
-  Future<void> pumpPractice(WidgetTester tester) async {
+  Future<GlobalKey<PracticeScreenState>> pumpPractice(
+    WidgetTester tester,
+  ) async {
     final practiceKey = GlobalKey<PracticeScreenState>();
     final router = GoRouter(
       initialLocation: AppRoutePaths.practice,
@@ -199,7 +206,7 @@ void main() {
           ChangeNotifierProvider<AuthService>.value(value: auth),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider<SessionService>(
-            create: (_) => SessionService(),
+            create: (_) => _TestSessionService(),
           ),
           ChangeNotifierProvider<TutorialProgressService>(
             create: (_) => _ReadyTutorials(),
@@ -210,6 +217,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+    return practiceKey;
   }
 
   Future<GlobalKey<LivePracticeScreenState>> pumpPlayground(
@@ -268,6 +276,65 @@ void main() {
     expect(find.text('movements-destination'), findsOneWidget);
     expect(ws.stopCalls, 0);
   });
+
+  testWidgets('movement timeout stops once and opens Game Over summary', (
+    tester,
+  ) async {
+    final screenKey = await pumpPractice(tester);
+    final run = screenKey.currentState!.debugRun;
+
+    run.beginPreparing(onTimeout: () {});
+    run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+    run.enterCountdown();
+    run.enterActive();
+    run.debugAdvanceActiveSeconds(60);
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+
+    expect(ws.stopCalls, 1);
+    expect(run.phase, PracticeRunPhase.completed);
+    expect(find.text('GAME OVER'), findsOneWidget);
+    expect(find.text("Time's Up · Hand Stall"), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets(
+    'timeout while quit dialog is open completes after Keep Training',
+    (tester) async {
+      final screenKey = await pumpPractice(tester);
+      final run = screenKey.currentState!.debugRun;
+
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterCountdown();
+      run.enterActive();
+      run.debugAdvanceActiveSeconds(59);
+      await tester.pump();
+
+      await tester.tap(_backButton());
+      await _pumpUi(tester);
+      expect(find.text('Quit training?'), findsOneWidget);
+
+      run.debugAdvanceActiveSeconds(1);
+      await tester.pump();
+      expect(run.phase, PracticeRunPhase.completed);
+      expect(ws.stopCalls, 0);
+
+      await tester.tap(find.byKey(const ValueKey('training-quit-keep')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+
+      expect(ws.stopCalls, 1);
+      expect(find.text('GAME OVER'), findsOneWidget);
+      expect(find.text("Time's Up · Hand Stall"), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
 
   testWidgets(
     'keyboard Back on idle Movement Practice leaves without confirmation or save',

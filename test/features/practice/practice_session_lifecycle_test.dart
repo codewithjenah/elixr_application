@@ -8,6 +8,129 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('PracticeRunController timing', () {
+    test('practice clock formats the full minute and single digits', () {
+      expect(formatPracticeClock(60), '01:00');
+      expect(formatPracticeClock(9), '00:09');
+    });
+
+    test('movement countdown starts only in active and times out once', () {
+      fakeAsync((async) {
+        final run = PracticeRunController(
+          movementTimeLimit: PracticeRunController.movementAttemptTimeLimit,
+        );
+        var timeoutSignals = 0;
+        run.addListener(() {
+          if (run.consumeMovementTimeout()) timeoutSignals++;
+        });
+
+        expect(run.remainingSeconds, 60);
+        run.beginPreparing(onTimeout: () {});
+        async.elapse(const Duration(seconds: 3));
+        expect(run.remainingSeconds, 60);
+
+        run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        run.enterReadiness();
+        async.elapse(const Duration(seconds: 3));
+        expect(run.remainingSeconds, 60);
+
+        run.applyReadinessFeedback(
+          items: const [],
+          complete: true,
+          stable: true,
+          progress: 1,
+        );
+        expect(run.requestStartPractice(readinessStable: true), isTrue);
+        expect(run.onConfirmReadinessAccepted(), isTrue);
+        async.elapse(const Duration(seconds: 3));
+        expect(run.phase, PracticeRunPhase.countdown);
+        expect(run.remainingSeconds, 60);
+
+        run.enterActive();
+        expect(run.hasMovementCountdownTimer, isTrue);
+        async.elapse(const Duration(seconds: 1));
+        expect(run.remainingSeconds, 59);
+        expect(run.elapsedSeconds, 1);
+
+        async.elapse(const Duration(seconds: 59));
+        expect(run.remainingSeconds, 0);
+        expect(run.phase, PracticeRunPhase.completed);
+        expect(run.hasMovementCountdownTimer, isFalse);
+        expect(run.hasElapsedTimer, isFalse);
+        expect(timeoutSignals, 1);
+
+        async.elapse(const Duration(seconds: 5));
+        expect(timeoutSignals, 1);
+        run.dispose();
+      });
+    });
+
+    test('completion and cancellation stop and reset movement countdown', () {
+      final run = PracticeRunController(
+        movementTimeLimit: PracticeRunController.movementAttemptTimeLimit,
+      );
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterCountdown();
+      run.enterActive();
+      run.debugAdvanceActiveSeconds(12);
+      expect(run.remainingSeconds, 48);
+
+      run.markCompleted();
+      expect(run.hasMovementCountdownTimer, isFalse);
+      expect(run.consumeMovementTimeout(), isFalse);
+
+      run.cancelToIdle();
+      expect(run.remainingSeconds, 60);
+      run.dispose();
+    });
+
+    test('stale timer cannot timeout a restarted attempt', () {
+      fakeAsync((async) {
+        final run = PracticeRunController(
+          movementTimeLimit: PracticeRunController.movementAttemptTimeLimit,
+        );
+
+        void startAttempt() {
+          run.beginPreparing(onTimeout: () {});
+          run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+          run.enterCountdown();
+          run.enterActive();
+        }
+
+        startAttempt();
+        async.elapse(const Duration(seconds: 59));
+        expect(run.remainingSeconds, 1);
+        run.cancelToIdle();
+        startAttempt();
+
+        async.elapse(const Duration(seconds: 1));
+        expect(run.phase, PracticeRunPhase.active);
+        expect(run.remainingSeconds, 59);
+        expect(run.consumeMovementTimeout(), isFalse);
+        run.dispose();
+      });
+    });
+
+    test('completion just before zero wins without a timeout signal', () {
+      fakeAsync((async) {
+        final run = PracticeRunController(
+          movementTimeLimit: PracticeRunController.movementAttemptTimeLimit,
+        );
+        run.beginPreparing(onTimeout: () {});
+        run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        run.enterCountdown();
+        run.enterActive();
+        async.elapse(const Duration(seconds: 59));
+
+        run.markCompleted();
+        async.elapse(const Duration(seconds: 1));
+
+        expect(run.phase, PracticeRunPhase.completed);
+        expect(run.consumeMovementTimeout(), isFalse);
+        run.dispose();
+      });
+    });
+
     test('elapsed stays 00:00 before first frame and during countdown', () {
       final run = PracticeRunController(
         preparationTimeout: const Duration(seconds: 10),

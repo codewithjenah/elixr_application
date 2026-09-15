@@ -35,23 +35,39 @@ class PracticeRunController extends ChangeNotifier {
   PracticeRunController({
     this.preparationTimeout = const Duration(seconds: 20),
     this.autoStartReadyBeat = defaultAutoStartReadyBeat,
-  });
+    this.movementTimeLimit,
+  }) : assert(
+         movementTimeLimit == null || movementTimeLimit.inSeconds > 0,
+         'movementTimeLimit must be at least one second',
+       ),
+       _remainingSeconds =
+           (movementTimeLimit ?? movementAttemptTimeLimit).inSeconds;
 
   /// Brief hold after [PracticeReadinessState.canStartPractice] so the Ready
   /// checklist state is visible before auto-confirm.
   static const defaultAutoStartReadyBeat = Duration(milliseconds: 500);
+
+  /// Active-practice limit for movement-specific attempts.
+  static const movementAttemptTimeLimit = Duration(seconds: 60);
 
   final Duration preparationTimeout;
 
   /// Delay between stable readiness and [autoStartDue] for guided auto-start.
   final Duration autoStartReadyBeat;
 
+  /// Null keeps the controller's generic elapsed-only behavior. Movement
+  /// Practice opts in with [movementAttemptTimeLimit].
+  final Duration? movementTimeLimit;
+
   PracticeRunPhase _phase = PracticeRunPhase.idle;
   int _elapsedSeconds = 0;
+  int _remainingSeconds;
   bool _elapsedPaused = false;
+  bool _movementTimeoutPending = false;
   String? _errorMessage;
   bool _firstPreviewReceived = false;
   Timer? _elapsedTimer;
+  Timer? _movementCountdownTimer;
   Timer? _prepTimeout;
   Timer? _watchdogTimer;
   Timer? _autoStartTimer;
@@ -67,6 +83,7 @@ class PracticeRunController extends ChangeNotifier {
 
   PracticeRunPhase get phase => _phase;
   int get elapsedSeconds => _elapsedSeconds;
+  int get remainingSeconds => _remainingSeconds;
   bool get elapsedPaused => _elapsedPaused;
   String? get errorMessage => _errorMessage;
 
@@ -115,16 +132,27 @@ class PracticeRunController extends ChangeNotifier {
   /// Finish Session / session summary only after training has started.
   bool get shouldShowSummaryOnStop => _phase == PracticeRunPhase.active;
 
+  /// Consume the one-shot signal raised when an active movement reaches zero.
+  bool consumeMovementTimeout() {
+    if (!_movementTimeoutPending) return false;
+    _movementTimeoutPending = false;
+    return true;
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   void beginPreparing({required VoidCallback onTimeout}) {
     _stopElapsedTimer();
+    _stopMovementCountdown();
     _cancelPrepTimeout();
     _cancelWatchdog();
     _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.preparingCamera;
     _elapsedSeconds = 0;
+    _remainingSeconds =
+        (movementTimeLimit ?? movementAttemptTimeLimit).inSeconds;
     _elapsedPaused = false;
+    _movementTimeoutPending = false;
     _errorMessage = null;
     _firstPreviewReceived = false;
     _readiness = PracticeReadinessState.empty;
@@ -385,7 +413,7 @@ class PracticeRunController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Transition countdown → active and start the elapsed timer from 00:00.
+  /// Transition countdown → active and start active-practice timing.
   void enterActive() {
     if (_phase != PracticeRunPhase.countdown) return;
     _cancelPrepTimeout();
@@ -393,13 +421,17 @@ class PracticeRunController extends ChangeNotifier {
     _elapsedSeconds = 0;
     _elapsedPaused = false;
     _startElapsedTimer();
+    _startMovementCountdown();
     notifyListeners();
   }
 
   void markCompleted() {
+    if (_phase == PracticeRunPhase.completed) return;
     _stopElapsedTimer();
+    _stopMovementCountdown();
     _cancelPrepTimeout();
     _cancelAutoStartBeat(clearDue: true);
+    _movementTimeoutPending = false;
     _phase = PracticeRunPhase.completed;
     notifyListeners();
   }
@@ -421,12 +453,16 @@ class PracticeRunController extends ChangeNotifier {
   /// Cancel prepare/readiness/countdown/error back to idle. Elapsed resets to zero.
   void cancelToIdle() {
     _stopElapsedTimer();
+    _stopMovementCountdown();
     _cancelPrepTimeout();
     _cancelWatchdog();
     _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.idle;
     _elapsedSeconds = 0;
+    _remainingSeconds =
+        (movementTimeLimit ?? movementAttemptTimeLimit).inSeconds;
     _elapsedPaused = false;
+    _movementTimeoutPending = false;
     _errorMessage = null;
     _firstPreviewReceived = false;
     _readiness = PracticeReadinessState.empty;
@@ -435,6 +471,7 @@ class PracticeRunController extends ChangeNotifier {
 
   void _enterError(String message) {
     _stopElapsedTimer();
+    _stopMovementCountdown();
     _cancelPrepTimeout();
     _cancelWatchdog();
     _cancelAutoStartBeat(clearDue: true);
@@ -459,6 +496,35 @@ class PracticeRunController extends ChangeNotifier {
     _elapsedTimer = null;
   }
 
+  void _startMovementCountdown() {
+    _stopMovementCountdown();
+    final limit = movementTimeLimit;
+    if (limit == null) return;
+    _remainingSeconds = limit.inSeconds;
+    final generation = _lifecycleGeneration;
+    _movementCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_phase != PracticeRunPhase.active ||
+          _lifecycleGeneration != generation) {
+        return;
+      }
+      if (_remainingSeconds > 0) {
+        _remainingSeconds--;
+      }
+      if (_remainingSeconds == 0) {
+        _stopMovementCountdown();
+        _stopElapsedTimer();
+        _phase = PracticeRunPhase.completed;
+        _movementTimeoutPending = true;
+      }
+      notifyListeners();
+    });
+  }
+
+  void _stopMovementCountdown() {
+    _movementCountdownTimer?.cancel();
+    _movementCountdownTimer = null;
+  }
+
   void _cancelPrepTimeout() {
     _prepTimeout?.cancel();
     _prepTimeout = null;
@@ -472,6 +538,9 @@ class PracticeRunController extends ChangeNotifier {
 
   @visibleForTesting
   bool get hasElapsedTimer => _elapsedTimer != null;
+
+  @visibleForTesting
+  bool get hasMovementCountdownTimer => _movementCountdownTimer != null;
 
   @visibleForTesting
   bool get hasPrepTimeout => _prepTimeout != null;
@@ -492,6 +561,25 @@ class PracticeRunController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Test helper: advance both active timers atomically.
+  @visibleForTesting
+  void debugAdvanceActiveSeconds(int seconds) {
+    for (var i = 0; i < seconds; i++) {
+      if (_phase != PracticeRunPhase.active) return;
+      _elapsedSeconds++;
+      if (movementTimeLimit != null && _remainingSeconds > 0) {
+        _remainingSeconds--;
+        if (_remainingSeconds == 0) {
+          _stopMovementCountdown();
+          _stopElapsedTimer();
+          _phase = PracticeRunPhase.completed;
+          _movementTimeoutPending = true;
+        }
+      }
+    }
+    notifyListeners();
+  }
+
   /// Test helper: fire the preparation timeout callback immediately.
   @visibleForTesting
   void debugFirePreparationTimeout() => _handlePrepTimeout();
@@ -507,9 +595,18 @@ class PracticeRunController extends ChangeNotifier {
   @override
   void dispose() {
     _stopElapsedTimer();
+    _stopMovementCountdown();
     _cancelPrepTimeout();
     _cancelWatchdog();
     _cancelAutoStartBeat(clearDue: true);
     super.dispose();
   }
+}
+
+/// Formats a practice clock as zero-padded MM:SS.
+String formatPracticeClock(int seconds) {
+  final safeSeconds = seconds.clamp(0, 5999);
+  final minutes = (safeSeconds ~/ 60).toString().padLeft(2, '0');
+  final remainder = (safeSeconds % 60).toString().padLeft(2, '0');
+  return '$minutes:$remainder';
 }

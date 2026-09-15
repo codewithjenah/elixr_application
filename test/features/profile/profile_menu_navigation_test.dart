@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/features/profile/profile_menu.dart';
@@ -194,5 +196,59 @@ void main() {
     expect(settingsOpened, isTrue);
     expect(router.state.uri.path, AppRoutePaths.teacherDashboard);
     expect(find.text('Teacher settings host'), findsNothing);
+  });
+
+  testWidgets('dismissing the hovered profile menu defers removal until a frame', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = _authWith(_teacher());
+    addTearDown(auth.dispose);
+    var settingsOpened = false;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: Builder(
+            builder: (context) => Button(
+              onPressed: () => ProfileMenu.show(
+                context,
+                onLogout: () {},
+                onOpenSettings: () => settingsOpened = true,
+              ),
+              child: const Text('Open menu'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    final openMenuCenter = tester.getCenter(find.text('Open menu'));
+    await mouse.moveTo(openMenuCenter);
+    await mouse.down(openMenuCenter);
+    await mouse.up();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final settingsCenter = tester.getCenter(find.text('Settings'));
+    await mouse.moveTo(settingsCenter);
+    await tester.pump();
+    await mouse.down(settingsCenter);
+    await mouse.up();
+    await tester.pump();
+
+    expect(settingsOpened, isTrue);
+    // The dismissal callback runs after the pointer update. Its removal is
+    // reflected by the following frame.
+    expect(find.text('Settings'), findsOneWidget);
+    await tester.pump();
+    expect(find.text('Settings'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await mouse.removePointer();
   });
 }

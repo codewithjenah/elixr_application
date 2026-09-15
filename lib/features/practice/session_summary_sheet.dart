@@ -58,6 +58,7 @@ class SessionSummarySheet extends StatelessWidget {
     this.saveError,
     this.nextMovementName,
     this.evidenceJpegBytes,
+    this.timedOut = false,
   });
 
   final String movement;
@@ -70,6 +71,7 @@ class SessionSummarySheet extends StatelessWidget {
   final String? saveError;
   final String? nextMovementName;
   final Uint8List? evidenceJpegBytes;
+  final bool timedOut;
 
   RubricAssessment get _rubric => assessment.rubric;
 
@@ -91,6 +93,7 @@ class SessionSummarySheet extends StatelessWidget {
     Movement? nextMovement,
     TrainingProp? nextProp,
     Uint8List? evidenceJpegBytes,
+    bool timedOut = false,
   }) {
     return showDialog<SessionSummaryResult>(
       context: context,
@@ -132,7 +135,9 @@ class SessionSummarySheet extends StatelessWidget {
             final reduceMotion = MediaQuery.disableAnimationsOf(context);
             return Stack(
               children: [
-                if (celebrates(assessment.performanceLevel) && !reduceMotion)
+                if (!timedOut &&
+                    celebrates(assessment.performanceLevel) &&
+                    !reduceMotion)
                   const Positioned.fill(child: ConfettiOverlay()),
                 SafeArea(
                   child: Center(
@@ -152,6 +157,7 @@ class SessionSummarySheet extends StatelessWidget {
                                   nextProp ?? nextMovement.supportedProps.first,
                                 ),
                           evidenceJpegBytes: evidenceJpegBytes,
+                          timedOut: timedOut,
                           onDiscard: () {
                             if (saveState == SessionSaveState.saving) {
                               return;
@@ -300,8 +306,11 @@ class SessionSummarySheet extends StatelessWidget {
                   _ResultHero(
                     movement: movement,
                     heldSteady: _heldSteady,
+                    timedOut: timedOut,
                     level: _level,
-                    completionMessage: _heldSteady
+                    completionMessage: timedOut
+                        ? "Time's Up · $movement"
+                        : _heldSteady
                         ? 'You held "$movement" steady. Well done!'
                         : _tierMessage(
                             _level,
@@ -350,6 +359,7 @@ class _ResultHero extends StatelessWidget {
   const _ResultHero({
     required this.movement,
     required this.heldSteady,
+    required this.timedOut,
     required this.level,
     required this.completionMessage,
     this.evidenceJpegBytes,
@@ -357,6 +367,7 @@ class _ResultHero extends StatelessWidget {
 
   final String movement;
   final bool heldSteady;
+  final bool timedOut;
   final PerformanceLevel level;
   final String completionMessage;
   final Uint8List? evidenceJpegBytes;
@@ -366,7 +377,9 @@ class _ResultHero extends StatelessWidget {
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
     final glowScale = context.elixWorkspaceVisuals.ambientGlowScale;
-    final success = context.elixColors.success;
+    final accent = timedOut
+        ? context.elixColors.error
+        : context.elixColors.success;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -452,25 +465,27 @@ class _ResultHero extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: success.withValues(alpha: highContrast ? 0 : 0.14),
+                    color: accent.withValues(alpha: highContrast ? 0 : 0.14),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: success.withValues(alpha: highContrast ? 1 : 0.4),
+                      color: accent.withValues(alpha: highContrast ? 1 : 0.4),
                     ),
                     boxShadow: highContrast
                         ? const []
                         : [
                             BoxShadow(
-                              color: success.withValues(alpha: 0.22),
+                              color: accent.withValues(alpha: 0.22),
                               blurRadius: 16,
                             ),
                           ],
                   ),
                   child: Icon(
-                    heldSteady
+                    timedOut
+                        ? FluentIcons.error_badge
+                        : heldSteady
                         ? FluentIcons.trophy2_solid
                         : FluentIcons.completed_solid,
-                    color: success,
+                    color: accent,
                     size: 18,
                   ),
                 ),
@@ -480,7 +495,7 @@ class _ResultHero extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Session Complete',
+                        timedOut ? 'GAME OVER' : 'Session Complete',
                         style: AppTheme.eyebrow(
                           color: context.elixTextSecondary,
                         ).copyWith(letterSpacing: 1.6),
@@ -503,7 +518,9 @@ class _ResultHero extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w500,
-                          color: heldSteady
+                          color: timedOut
+                              ? accent
+                              : heldSteady
                               ? AppColors.primary
                               : context.elixTextSecondary,
                           height: 1.35,

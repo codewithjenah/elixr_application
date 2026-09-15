@@ -45,7 +45,8 @@ void main() {
           width: 640,
           height: 480,
           child: TrainingLiveHud(
-            elapsedDisplay: '00:10',
+            remainingDisplay: '00:10',
+            timeWarning: false,
             assessmentListenable: assessment,
             holdListenable: hold,
             comboListenable: combo,
@@ -87,5 +88,43 @@ void main() {
     );
     expect(find.text('Wrong'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('final ten seconds use warning text and icon', (tester) async {
+    final assessment = ValueNotifier<RubricAssessment?>(null);
+    final hold = ValueNotifier(0.0);
+    final combo = ValueNotifier(const ComboState());
+    final score = ValueNotifier(const ScorePopupState());
+    final callout = ValueNotifier(const PerformanceCalloutState());
+    addTearDown(assessment.dispose);
+    addTearDown(hold.dispose);
+    addTearDown(combo.dispose);
+    addTearDown(score.dispose);
+    addTearDown(callout.dispose);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: SizedBox(
+            width: 640,
+            height: 480,
+            child: TrainingLiveHud(
+              remainingDisplay: '00:09',
+              timeWarning: true,
+              assessmentListenable: assessment,
+              holdListenable: hold,
+              comboListenable: combo,
+              scorePopupListenable: score,
+              calloutListenable: callout,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('00:09'), findsOneWidget);
+    expect(find.text('TIME LEFT · HURRY'), findsOneWidget);
+    expect(find.byIcon(FluentIcons.warning), findsOneWidget);
   });
 }

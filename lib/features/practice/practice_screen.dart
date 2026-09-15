@@ -133,7 +133,9 @@ class PracticeScreenState extends State<PracticeScreen>
   late final PracticeMusicService _music;
   bool _musicInitialized = false;
   final _sfx = PracticeSfxService();
-  final _run = PracticeRunController();
+  final _run = PracticeRunController(
+    movementTimeLimit: PracticeRunController.movementAttemptTimeLimit,
+  );
   final _feedback = PracticeFeedbackController();
   final _comboNotifier = ValueNotifier<ComboState>(const ComboState());
   final _scorePopupNotifier = ValueNotifier<ScorePopupState>(
@@ -158,6 +160,9 @@ class PracticeScreenState extends State<PracticeScreen>
   bool _leaving = false;
   bool _quitDialogOpen = false;
   bool _stopInFlight = false;
+  bool _completionPending = false;
+  bool _pendingHeldSteady = false;
+  bool _pendingTimedOut = false;
   Uint8List? _confirmedEvidenceJpegBytes;
 
   late final AnimationController _scorePulseController;
@@ -265,10 +270,19 @@ class PracticeScreenState extends State<PracticeScreen>
 
   void _onRunChanged() {
     if (!mounted || _leaving) return;
+    final movementTimedOut = _run.consumeMovementTimeout();
     setState(() {});
+    if (movementTimedOut) {
+      unawaited(_onMovementTimedOut());
+      return;
+    }
     if (_run.consumeAutoStartDue()) {
       _onStartPractice();
     }
+  }
+
+  Future<void> _onMovementTimedOut() async {
+    await _stopSession(timedOut: true);
   }
 
   void _publishFrame(Uint8List? bytes) {
@@ -568,7 +582,6 @@ class PracticeScreenState extends State<PracticeScreen>
     // One completion dialog for beginners (skip separate victory screen).
     await _stopSession(heldSteady: true);
     _movementConfirmedShowing = false;
-    _confirmedEvidenceJpegBytes = null;
   }
 
   Future<void> _connect() async {
@@ -804,6 +817,10 @@ class PracticeScreenState extends State<PracticeScreen>
     _calloutNotifier.value = const PerformanceCalloutState();
     _lastPulsedTotal = null;
     _movementConfirmedShowing = false;
+    _completionPending = false;
+    _pendingHeldSteady = false;
+    _pendingTimedOut = false;
+    _confirmedEvidenceJpegBytes = null;
   }
 
   Future<void> _cancelPreActive() async {
@@ -816,8 +833,19 @@ class PracticeScreenState extends State<PracticeScreen>
     if (mounted) setState(() {});
   }
 
-  Future<void> _stopSession({bool heldSteady = false}) async {
-    if (_isShowingSummary || _leaving || _stopInFlight || _quitDialogOpen) {
+  Future<void> _stopSession({
+    bool heldSteady = false,
+    bool timedOut = false,
+  }) async {
+    if (_quitDialogOpen) {
+      if (heldSteady || timedOut) {
+        _completionPending = true;
+        _pendingHeldSteady = _pendingHeldSteady || heldSteady;
+        _pendingTimedOut = _pendingTimedOut || timedOut;
+      }
+      return;
+    }
+    if (_isShowingSummary || _leaving || _stopInFlight) {
       return;
     }
     _stopInFlight = true;
@@ -840,6 +868,12 @@ class PracticeScreenState extends State<PracticeScreen>
         return;
       }
 
+      // End active scoring/timing before awaiting the backend stop. This makes
+      // manual finish, hold confirmation, and timeout mutually exclusive.
+      if (_run.phase == PracticeRunPhase.active) {
+        _run.markCompleted();
+      }
+
       final router = GoRouter.of(context);
       final sessionService = context.read<SessionService>();
       final authUser = context.read<AuthService>().currentUser;
@@ -851,9 +885,6 @@ class PracticeScreenState extends State<PracticeScreen>
 
       await _stopWebSocketSession();
       if (_leaving || !mounted) return;
-      if (_run.phase == PracticeRunPhase.active) {
-        _run.markCompleted();
-      }
       unawaited(_music.stop());
       // Do not await _sfx.stop() here. playCongrats() already stops then
       // plays on the same AudioPlayer; a parallel stop can race and mute it.
@@ -915,7 +946,9 @@ class PracticeScreenState extends State<PracticeScreen>
       _isShowingSummary = true;
       if (mounted) setState(() {});
       try {
-        unawaited(_playCongratsBestEffort(sfxVolume));
+        if (!timedOut) {
+          unawaited(_playCongratsBestEffort(sfxVolume));
+        }
         if (!mounted || _leaving) return;
         final nextStep = widget.assignmentContext == null
             ? nextEnabledPracticeAfter(_movement, _prop)
@@ -934,6 +967,7 @@ class PracticeScreenState extends State<PracticeScreen>
           nextProp: nextStep?.prop,
           evidenceJpegBytes: evidence,
           initialSessionId: reservedSessionId,
+          timedOut: timedOut,
           onSave: (existingSessionId) async {
             final sessionId = await sessionService.saveCompletedSession(
               existingSessionId: existingSessionId,
@@ -1066,12 +1100,6 @@ class PracticeScreenState extends State<PracticeScreen>
     );
   }
 
-  String _formatDuration(int seconds) {
-    final m = (seconds ~/ 60).toString().padLeft(2, '0');
-    final s = (seconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
   String _instructionForMovement(String movement) {
     for (final m in movementCatalog) {
       if (m.name == movement) return m.description;
@@ -1133,6 +1161,14 @@ class PracticeScreenState extends State<PracticeScreen>
       }
     } finally {
       _quitDialogOpen = false;
+      if (_completionPending && mounted && !_leaving && !_stopInFlight) {
+        final heldSteady = _pendingHeldSteady;
+        final timedOut = _pendingTimedOut;
+        _completionPending = false;
+        _pendingHeldSteady = false;
+        _pendingTimedOut = false;
+        unawaited(_stopSession(heldSteady: heldSteady, timedOut: timedOut));
+      }
     }
   }
 
@@ -1314,7 +1350,8 @@ class PracticeScreenState extends State<PracticeScreen>
       overlayFeedback: isTrainingActive ? null : _feedback.latestFeedback,
       overlays: isTrainingActive
           ? TrainingLiveHud(
-              elapsedDisplay: _formatDuration(_run.elapsedSeconds),
+              remainingDisplay: formatPracticeClock(_run.remainingSeconds),
+              timeWarning: _run.remainingSeconds <= 10,
               assessmentListenable: _assessmentNotifier,
               holdListenable: _holdProgressNotifier,
               comboListenable: _comboNotifier,
@@ -1359,7 +1396,7 @@ class PracticeScreenState extends State<PracticeScreen>
             )
           : isTrainingActive
           ? SessionMetricTiles(
-              elapsedDisplay: _formatDuration(_run.elapsedSeconds),
+              elapsedDisplay: formatPracticeClock(_run.elapsedSeconds),
               rubricChild: ValueListenableBuilder<RubricAssessment?>(
                 valueListenable: _assessmentNotifier,
                 builder: (context, assessment, _) {

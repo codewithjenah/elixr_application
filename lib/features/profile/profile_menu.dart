@@ -44,9 +44,18 @@ class ProfileMenu {
     final screenSize = MediaQuery.sizeOf(anchorContext);
 
     late OverlayEntry entry;
+    var dismissScheduled = false;
 
     void dismiss() {
-      entry.remove();
+      if (dismissScheduled) return;
+      dismissScheduled = true;
+      // Menu actions and the backdrop are pointer-driven. Removing the hovered
+      // overlay synchronously can make MouseTracker re-enter hit testing while
+      // it is dispatching that same pointer update on Windows. Let this event
+      // finish, then remove the entry before the next rendered frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (entry.mounted) entry.remove();
+      });
     }
 
     entry = OverlayEntry(

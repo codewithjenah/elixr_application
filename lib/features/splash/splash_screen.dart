@@ -3,13 +3,34 @@ import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_app_logo.dart';
-import '../../core/widgets/elix_primary_button.dart';
+
+/// Fixed launch palette shared by normal light and dark application modes.
+///
+/// High-contrast mode deliberately bypasses these values in favor of the
+/// active system-aware semantic colors.
+abstract final class _SplashPalette {
+  static const canvas = Color(0xFF15111D);
+  static const canvasDeep = Color(0xFF100D17);
+  static const primary = Color(0xFFFF2FA8);
+  static const primarySoft = Color(0xFFFF79C5);
+  static const secondary = Color(0xFF8C3DFF);
+  static const textPrimary = Color(0xFFF7F5FC);
+  static const textSecondary = Color(0xFFC9C2D4);
+  static const textMuted = Color(0xFF9B91A8);
+  static const surface = Color(0xD91F1929);
+  static const surfaceBorder = Color(0x665C456C);
+  static const railTrack = Color(0xCC0E0B13);
+  static const success = Color(0xFF65E6B5);
+  static const error = Color(0xFFFF7B8D);
+  static const errorSurface = Color(0xF02A1926);
+  static const errorBorder = Color(0xB86F3A50);
+  static const grain = Color(0x0EF7F5FC);
+}
 
 /// The branded hand-off shown while Firebase establishes the first auth state.
 ///
@@ -36,10 +57,10 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  static const _entryDuration = Duration(milliseconds: 1400);
-  static const _readyDuration = Duration(milliseconds: 180);
-  static const _exitDuration = Duration(milliseconds: 240);
-  static const _idleDuration = Duration(seconds: 16);
+  static const _entryDuration = Duration(milliseconds: 1050);
+  static const _readyDuration = Duration(milliseconds: 160);
+  static const _exitDuration = Duration(milliseconds: 190);
+  static const _idleDuration = Duration(seconds: 20);
 
   late final AnimationController _entryController;
   late final AnimationController _idleController;
@@ -289,17 +310,32 @@ class _SplashScreenState extends State<SplashScreen>
     required _SplashMetrics metrics,
   }) {
     final colors = context.elixColors;
-    final canvas = highContrast ? colors.canvas : AppColors.background;
+    final canvas = highContrast ? colors.canvas : _SplashPalette.canvas;
 
-    return ColoredBox(
-      color: canvas,
+    return DecoratedBox(
+      key: const Key('splash_canvas'),
+      decoration: BoxDecoration(
+        color: canvas,
+        gradient: highContrast
+            ? null
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_SplashPalette.canvas, _SplashPalette.canvasDeep],
+              ),
+      ),
       child: Stack(
         fit: StackFit.expand,
         clipBehavior: Clip.none,
         children: [
           if (!highContrast)
             const RepaintBoundary(
-              child: CustomPaint(painter: _StaticFieldPainter()),
+              child: CustomPaint(
+                painter: _StaticFieldPainter(
+                  grain: _SplashPalette.grain,
+                  vignette: _SplashPalette.canvasDeep,
+                ),
+              ),
             ),
           if (!highContrast)
             RepaintBoundary(
@@ -309,8 +345,8 @@ class _SplashScreenState extends State<SplashScreen>
                       ? const AlwaysStoppedAnimation(0.42)
                       : _idleController,
                   reveal: _atmosphereReveal,
-                  primary: AppColors.primary,
-                  secondary: AppColors.accent,
+                  primary: _SplashPalette.primary,
+                  secondary: _SplashPalette.secondary,
                 ),
               ),
             ),
@@ -375,15 +411,28 @@ class _SplashScreenState extends State<SplashScreen>
             position: _taglineSlide,
             child: FadeTransition(
               opacity: _taglineOpacity,
-              child: Text(
-                AppConstants.appTagline,
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    const TextSpan(text: AppConstants.appTaglineHeading),
+                    TextSpan(
+                      text: AppConstants.appTaglineAccentHeading,
+                      style: TextStyle(
+                        color: highContrast
+                            ? context.elixTextPrimary
+                            : _SplashPalette.primarySoft,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.bodySecondary.copyWith(
                   color: highContrast
                       ? context.elixTextSecondary
-                      : context.elixColors.textMuted,
+                      : _SplashPalette.textSecondary,
                   fontSize: metrics.taglineSize,
                   height: 1.35,
                   letterSpacing: 0.2,
@@ -429,8 +478,8 @@ class _SplashScreenState extends State<SplashScreen>
                       child: CustomPaint(
                         size: Size.square(markSize),
                         painter: const _HeroBloomPainter(
-                          primary: AppColors.primary,
-                          secondary: AppColors.accent,
+                          primary: _SplashPalette.primary,
+                          secondary: _SplashPalette.secondary,
                         ),
                       ),
                     ),
@@ -446,10 +495,10 @@ class _SplashScreenState extends State<SplashScreen>
                     reveal: _bloomOpacity,
                     primary: highContrast
                         ? context.elixColors.textPrimary
-                        : AppColors.primary,
+                        : _SplashPalette.primary,
                     secondary: highContrast
                         ? context.elixColors.borderStrong
-                        : AppColors.accent,
+                        : _SplashPalette.secondary,
                     highContrast: highContrast,
                     reducedMotion: reducedMotion,
                   ),
@@ -468,13 +517,17 @@ class _SplashScreenState extends State<SplashScreen>
                       ? const []
                       : [
                           BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.28),
+                            color: _SplashPalette.primary.withValues(
+                              alpha: 0.24,
+                            ),
                             blurRadius: 28,
                             spreadRadius: -4,
                             offset: const Offset(0, 12),
                           ),
                           BoxShadow(
-                            color: AppColors.accent.withValues(alpha: 0.14),
+                            color: _SplashPalette.secondary.withValues(
+                              alpha: 0.12,
+                            ),
                             blurRadius: 48,
                             spreadRadius: -8,
                           ),
@@ -509,14 +562,16 @@ class _SplashScreenState extends State<SplashScreen>
     final style =
         AppTheme.brandTitle(
           fontSize: metrics.wordmarkSize,
-          color: highContrast ? context.elixTextPrimary : AppColors.textPrimary,
+          color: highContrast
+              ? context.elixTextPrimary
+              : _SplashPalette.textPrimary,
         ).copyWith(
           letterSpacing: metrics.wordmarkTracking,
           shadows: highContrast
               ? null
               : [
                   Shadow(
-                    color: AppColors.primary.withValues(alpha: 0.16),
+                    color: _SplashPalette.primary.withValues(alpha: 0.14),
                     blurRadius: 14,
                   ),
                 ],
@@ -692,55 +747,85 @@ class _PreparingStatus extends StatelessWidget {
     return Semantics(
       liveRegion: true,
       label: label,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          RepaintBoundary(
-            child: SizedBox(
-              key: const Key('splash_startup_rail'),
-              width: railWidth,
-              height: 28,
-              child: CustomPaint(
-                painter: _CometRailPainter(
-                  idle: idle,
-                  ready: ready,
-                  trackFill: highContrast
-                      ? colors.canvas
-                      : AppColors.backgroundDeep.withValues(alpha: 0.72),
-                  borderColor: highContrast
-                      ? colors.borderStrong
-                      : AppColors.primary.withValues(alpha: 0.28),
-                  comet: highContrast ? colors.textPrimary : AppColors.primary,
-                  trail: highContrast
-                      ? colors.textPrimary
-                      : AppColors.primarySoft,
-                  glow: highContrast
-                      ? const Color(0x00000000)
-                      : AppColors.accent,
-                  highContrast: highContrast,
+      child: DecoratedBox(
+        key: const Key('splash_status_panel'),
+        decoration: BoxDecoration(
+          color: highContrast ? colors.surfaceRaised : _SplashPalette.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: highContrast
+                ? colors.borderStrong
+                : _SplashPalette.surfaceBorder,
+            width: highContrast ? 2 : 1,
+          ),
+          boxShadow: highContrast
+              ? const []
+              : [
+                  BoxShadow(
+                    color: _SplashPalette.canvasDeep.withValues(alpha: 0.48),
+                    blurRadius: 26,
+                    spreadRadius: -8,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 9),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RepaintBoundary(
+                child: SizedBox(
+                  key: const Key('splash_startup_rail'),
+                  width: railWidth,
+                  height: 20,
+                  child: CustomPaint(
+                    painter: _CometRailPainter(
+                      idle: idle,
+                      ready: ready,
+                      trackFill: highContrast
+                          ? colors.canvas
+                          : _SplashPalette.railTrack,
+                      borderColor: highContrast
+                          ? colors.borderStrong
+                          : _SplashPalette.surfaceBorder,
+                      comet: highContrast
+                          ? colors.textPrimary
+                          : _SplashPalette.primary,
+                      trail: highContrast
+                          ? colors.textPrimary
+                          : _SplashPalette.primarySoft,
+                      glow: highContrast
+                          ? const Color(0x00000000)
+                          : _SplashPalette.secondary,
+                      highContrast: highContrast,
+                    ),
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(height: AppSpacing.xs),
+              AnimatedSwitcher(
+                duration: reducedMotion ? Duration.zero : ElixMotion.standard,
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: Text(
+                  label,
+                  key: ValueKey(label),
+                  textAlign: TextAlign.center,
+                  style: AppTheme.eyebrow(
+                    color: authReady
+                        ? (highContrast
+                              ? colors.textPrimary
+                              : _SplashPalette.success)
+                        : (highContrast
+                              ? colors.textSecondary
+                              : _SplashPalette.textMuted),
+                  ).copyWith(fontSize: 10, letterSpacing: 1.65),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.sm),
-          AnimatedSwitcher(
-            duration: reducedMotion ? Duration.zero : ElixMotion.standard,
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: Text(
-              label,
-              key: ValueKey(label),
-              textAlign: TextAlign.center,
-              style: AppTheme.eyebrow(
-                color: authReady
-                    ? (highContrast
-                          ? colors.textPrimary
-                          : AppColors.textPrimary)
-                    : context.elixTextSecondary,
-              ).copyWith(fontSize: 10, letterSpacing: 1.7),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -767,19 +852,19 @@ class _FailureStatus extends StatelessWidget {
         decoration: BoxDecoration(
           color: highContrast
               ? colors.surfaceRaised
-              : AppColors.cardSurface.withValues(alpha: 0.94),
+              : _SplashPalette.errorSurface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: highContrast
                 ? colors.borderStrong
-                : AppColors.border.withValues(alpha: 0.9),
+                : _SplashPalette.errorBorder,
             width: highContrast ? 2 : 1,
           ),
           boxShadow: highContrast
               ? const []
               : [
                   BoxShadow(
-                    color: AppColors.background.withValues(alpha: 0.46),
+                    color: _SplashPalette.canvasDeep.withValues(alpha: 0.52),
                     blurRadius: 24,
                     offset: const Offset(0, 10),
                   ),
@@ -799,7 +884,9 @@ class _FailureStatus extends StatelessWidget {
                 children: [
                   Icon(
                     ElixToneCues.icon(ElixTone.error),
-                    color: highContrast ? colors.textPrimary : colors.error,
+                    color: highContrast
+                        ? colors.textPrimary
+                        : _SplashPalette.error,
                     size: 16,
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -807,7 +894,9 @@ class _FailureStatus extends StatelessWidget {
                     child: Text(
                       'SESSION PREPARATION FAILED',
                       style: AppTheme.eyebrow(
-                        color: context.elixTextSecondary,
+                        color: highContrast
+                            ? context.elixTextSecondary
+                            : _SplashPalette.textPrimary,
                       ).copyWith(fontSize: 10, letterSpacing: 1.4),
                     ),
                   ),
@@ -819,7 +908,9 @@ class _FailureStatus extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
+                  color: highContrast
+                      ? context.elixTextSecondary
+                      : _SplashPalette.textSecondary,
                   height: 1.35,
                 ),
               ),
@@ -827,13 +918,33 @@ class _FailureStatus extends StatelessWidget {
                 const SizedBox(height: AppSpacing.sm),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElixPrimaryButton(
+                  child: FilledButton(
                     key: const Key('splash_retry_button'),
-                    label: 'Retry',
-                    icon: FluentIcons.refresh,
-                    expanded: false,
-                    dense: true,
                     onPressed: onRetry,
+                    style: highContrast
+                        ? null
+                        : ButtonStyle(
+                            backgroundColor: const WidgetStatePropertyAll(
+                              _SplashPalette.primary,
+                            ),
+                            foregroundColor: const WidgetStatePropertyAll(
+                              _SplashPalette.textPrimary,
+                            ),
+                            padding: const WidgetStatePropertyAll(
+                              EdgeInsets.symmetric(
+                                horizontal: AppSpacing.sm,
+                                vertical: AppSpacing.xs,
+                              ),
+                            ),
+                          ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.refresh, size: 14),
+                        SizedBox(width: AppSpacing.xs),
+                        Text('Retry'),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -853,11 +964,14 @@ double _unitInterval(double t, double begin, double end, Curve curve) {
 
 /// Static grain and vignette so the desktop canvas has depth without ticking.
 class _StaticFieldPainter extends CustomPainter {
-  const _StaticFieldPainter();
+  const _StaticFieldPainter({required this.grain, required this.vignette});
+
+  final Color grain;
+  final Color vignette;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final grain = Paint()..color = const Color(0x14F7F5FC);
+    final grainPaint = Paint()..color = grain;
     const step = 13.0;
     for (var x = 0.0; x < size.width; x += step) {
       for (var y = 0.0; y < size.height; y += step) {
@@ -866,27 +980,28 @@ class _StaticFieldPainter extends CustomPainter {
         canvas.drawCircle(
           Offset(x + (hashed % 5) * 0.35, y + (hashed % 3) * 0.4),
           0.55,
-          grain,
+          grainPaint,
         );
       }
     }
 
-    final vignette = Paint()
+    final vignettePaint = Paint()
       ..shader = ui.Gradient.radial(
         size.center(Offset.zero),
         size.longestSide * 0.72,
         [
           const Color(0x00000000),
-          AppColors.background.withValues(alpha: 0.22),
-          AppColors.background.withValues(alpha: 0.58),
+          vignette.withValues(alpha: 0.18),
+          vignette.withValues(alpha: 0.62),
         ],
         const [0.46, 0.78, 1],
       );
-    canvas.drawRect(Offset.zero & size, vignette);
+    canvas.drawRect(Offset.zero & size, vignettePaint);
   }
 
   @override
-  bool shouldRepaint(covariant _StaticFieldPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _StaticFieldPainter oldDelegate) =>
+      oldDelegate.grain != grain || oldDelegate.vignette != vignette;
 }
 
 int _hash2(int x, int y) {
@@ -1124,7 +1239,7 @@ class _SpecularSweepPainter extends CustomPainter {
         colors: [
           const Color(0x00FFFFFF),
           Colors.white.withValues(alpha: 0.2 * math.sin(t * math.pi)),
-          AppColors.primary.withValues(alpha: 0.1 * math.sin(t * math.pi)),
+          _SplashPalette.primary.withValues(alpha: 0.1 * math.sin(t * math.pi)),
           const Color(0x00FFFFFF),
         ],
       ).createShader(band.getBounds());

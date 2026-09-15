@@ -13,6 +13,7 @@ class _SplashHarness extends StatefulWidget {
     this.onRetry,
     this.reducedMotion = false,
     this.highContrast = false,
+    this.darkMode = true,
     this.size = const Size(1100, 760),
   });
 
@@ -22,6 +23,7 @@ class _SplashHarness extends StatefulWidget {
   final VoidCallback? onRetry;
   final bool reducedMotion;
   final bool highContrast;
+  final bool darkMode;
   final Size size;
 
   @override
@@ -47,7 +49,11 @@ class _SplashHarnessState extends State<_SplashHarness> {
       disableAnimations: widget.reducedMotion,
     ),
     child: FluentApp(
-      theme: widget.highContrast ? AppTheme.highContrastDark : AppTheme.dark,
+      theme: widget.highContrast ? AppTheme.highContrastDark : AppTheme.light,
+      darkTheme: widget.highContrast
+          ? AppTheme.highContrastDark
+          : AppTheme.dark,
+      themeMode: widget.darkMode ? ThemeMode.dark : ThemeMode.light,
       home: SplashScreen(
         onFinished: widget.onFinished,
         authReady: authReady,
@@ -183,6 +189,37 @@ void main() {
     );
     await tester.pump();
 
+    expect(find.text(AppConstants.appName), findsOneWidget);
+    expect(find.text('PREPARING YOUR SESSION'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('uses the same normal splash palette in light and dark modes', (
+    tester,
+  ) async {
+    Future<BoxDecoration> render({required bool darkMode}) async {
+      await tester.pumpWidget(
+        _SplashHarness(
+          authReady: false,
+          reducedMotion: true,
+          darkMode: darkMode,
+          onFinished: () {},
+        ),
+      );
+      await tester.pump();
+      final canvas = tester.widget<DecoratedBox>(
+        find.byKey(const Key('splash_canvas')),
+      );
+      return canvas.decoration as BoxDecoration;
+    }
+
+    final darkDecoration = await render(darkMode: true);
+    expect(find.text(AppConstants.appTagline), findsOneWidget);
+    expect(find.byKey(const Key('splash_startup_rail')), findsOneWidget);
+
+    final lightDecoration = await render(darkMode: false);
+    expect(lightDecoration.color, darkDecoration.color);
+    expect(lightDecoration.gradient, darkDecoration.gradient);
     expect(find.text(AppConstants.appName), findsOneWidget);
     expect(find.text('PREPARING YOUR SESSION'), findsOneWidget);
     expect(tester.takeException(), isNull);

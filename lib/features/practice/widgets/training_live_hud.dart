@@ -16,7 +16,8 @@ import 'training_performance.dart';
 class TrainingLiveHud extends StatelessWidget {
   const TrainingLiveHud({
     super.key,
-    required this.elapsedDisplay,
+    required this.remainingDisplay,
+    required this.timeWarning,
     required this.assessmentListenable,
     required this.holdListenable,
     required this.comboListenable,
@@ -25,7 +26,8 @@ class TrainingLiveHud extends StatelessWidget {
     this.coaching,
   });
 
-  final String elapsedDisplay;
+  final String remainingDisplay;
+  final bool timeWarning;
   final ValueListenable<RubricAssessment?> assessmentListenable;
   final ValueListenable<double> holdListenable;
   final ValueListenable<ComboState> comboListenable;
@@ -43,9 +45,12 @@ class TrainingLiveHud extends StatelessWidget {
             top: AppSpacing.md,
             left: AppSpacing.md,
             child: _HudChip(
-              label: 'TIME',
-              value: elapsedDisplay,
-              accent: context.elixColors.textPrimary,
+              label: timeWarning ? 'TIME LEFT · HURRY' : 'TIME LEFT',
+              value: remainingDisplay,
+              accent: timeWarning
+                  ? context.elixColors.error
+                  : context.elixColors.textPrimary,
+              leadingIcon: timeWarning ? FluentIcons.warning : null,
             ),
           ),
           Positioned(
@@ -144,17 +149,20 @@ class _HudChip extends StatelessWidget {
     required this.value,
     required this.accent,
     this.supporting,
+    this.leadingIcon,
   });
 
   final String label;
   final String value;
   final String? supporting;
   final Color accent;
+  final IconData? leadingIcon;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       container: true,
+      liveRegion: false,
       label: supporting == null ? '$label $value' : '$label $value $supporting',
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -167,16 +175,27 @@ class _HudChip extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              label,
-              style:
-                  ElixTypography.eyebrow(
-                    color: context.elixColors.textSecondary,
-                  ).copyWith(
-                    fontSize: 9,
-                    letterSpacing: 1.1,
-                    fontWeight: FontWeight.w800,
-                  ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (leadingIcon != null) ...[
+                  Icon(leadingIcon, size: 11, color: accent),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  label,
+                  style:
+                      ElixTypography.eyebrow(
+                        color: leadingIcon == null
+                            ? context.elixColors.textSecondary
+                            : accent,
+                      ).copyWith(
+                        fontSize: 9,
+                        letterSpacing: 1.1,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ],
             ),
             Text(
               value,

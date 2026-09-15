@@ -254,6 +254,7 @@ Future<void> _openSummary(
   TrainingProp? nextProp,
   Uint8List? evidenceJpegBytes,
   String? initialSessionId,
+  bool timedOut = false,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -275,6 +276,7 @@ Future<void> _openSummary(
                   nextMovement: nextMovement,
                   nextProp: nextProp,
                   evidenceJpegBytes: evidenceJpegBytes,
+                  timedOut: timedOut,
                 );
               },
               child: const Text('Open'),
@@ -325,6 +327,33 @@ bool _isFullyVisible(WidgetTester tester, Finder finder, Size viewport) {
 }
 
 void main() {
+  testWidgets('timeout summary shows Game Over and Time\'s Up', (tester) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(total: 6),
+      onSave: (_) async => 'timeout-session',
+      timedOut: true,
+    );
+
+    expect(find.text('GAME OVER'), findsOneWidget);
+    expect(find.text("Time's Up · Hand Stall"), findsOneWidget);
+    expect(find.text('Session Complete'), findsNothing);
+  });
+
+  testWidgets('ordinary successful summary stays success-oriented', (
+    tester,
+  ) async {
+    await _openSummary(
+      tester,
+      assessment: _standardSummaryAssessment(),
+      onSave: (_) async => 'success-session',
+    );
+
+    expect(find.text('Session Complete'), findsOneWidget);
+    expect(find.text('GAME OVER'), findsNothing);
+    expect(find.textContaining("Time's Up"), findsNothing);
+  });
+
   testWidgets('populated coaching summary renders all three sections', (
     tester,
   ) async {
