@@ -54,7 +54,7 @@ class NotificationAudioService implements NotificationSoundPlayer {
       if (_disposed || !_settings.soundEnabled) return;
       await _player.stop();
       await _player.setReleaseMode(ReleaseMode.release);
-      await _player.setVolume(_settings.musicVolume);
+      await _player.setVolume(_settings.notificationVolume);
       await _player.playAsset(_assetPath);
     });
   }
@@ -65,7 +65,7 @@ class NotificationAudioService implements NotificationSoundPlayer {
       if (!_settings.soundEnabled) {
         await _player.stop();
       } else {
-        await _player.setVolume(_settings.musicVolume);
+        await _player.setVolume(_settings.notificationVolume);
       }
     });
   }

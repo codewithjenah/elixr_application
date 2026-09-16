@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/constants/movements.dart';
 import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../data/models/movement.dart';
 import '../movements_presentation.dart';
 import 'movement_card.dart';
 
@@ -11,12 +11,12 @@ class MovementDifficultySection extends StatefulWidget {
   const MovementDifficultySection({
     super.key,
     required this.difficulty,
-    required this.movements,
+    required this.practiceSteps,
     required this.stats,
   });
 
   final String difficulty;
-  final List<Movement> movements;
+  final List<PracticeCatalogStep> practiceSteps;
   final Map<String, MovementStats> stats;
 
   @override
@@ -27,8 +27,7 @@ class MovementDifficultySection extends StatefulWidget {
 class _MovementDifficultySectionState extends State<MovementDifficultySection>
     with SingleTickerProviderStateMixin {
   static const _animationDuration = Duration(milliseconds: 240);
-  // Sized for the densest card variant (two prop actions) so every card keeps
-  // the same footprint without clipping or moving neighboring content.
+  // A fixed footprint keeps wrapped catalog rows aligned across variants.
   static const _cardHeight = 448.0;
   // Keeps cards visually distinct at desktop density. Card hover is minimal.
   static const _cardRowGap = 32.0;
@@ -75,12 +74,19 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
   @override
   Widget build(BuildContext context) {
     final accent = difficultyAccentColor(widget.difficulty);
-    final practiced = widget.movements
-        .where((m) => (widget.stats[m.name]?.count ?? 0) > 0)
+    final practiced = widget.practiceSteps
+        .where(
+          (step) =>
+              (widget
+                      .stats[practiceVariantKey(step.movement.name, step.prop)]
+                      ?.count ??
+                  0) >
+              0,
+        )
         .length;
-    final progress = widget.movements.isEmpty
+    final progress = widget.practiceSteps.isEmpty
         ? 0.0
-        : practiced / widget.movements.length;
+        : practiced / widget.practiceSteps.length;
     final sectionTitle = difficultySectionTitle(widget.difficulty);
     final semanticsAction = _expanded ? 'Collapse' : 'Expand';
     final highContrast = context.isHighContrast;
@@ -95,7 +101,7 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
           expanded: _expanded,
           label:
               '$semanticsAction $sectionTitle, '
-              '$practiced of ${widget.movements.length} practiced',
+              '$practiced of ${widget.practiceSteps.length} practiced',
           child: FocusableActionDetector(
             onShowFocusHighlight: (focused) {
               setState(() => _headerFocused = focused);
@@ -156,7 +162,7 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                           Row(
                             children: [
                               Text(
-                                '$practiced of ${widget.movements.length} practiced',
+                                '$practiced of ${widget.practiceSteps.length} practiced',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -236,7 +242,7 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                     final availableWidth = constraints.maxWidth - 20;
                     final columns = BalancedCardGrid.columnsFor(
                       availableWidth: availableWidth,
-                      itemCount: widget.movements.length,
+                      itemCount: widget.practiceSteps.length,
                       // Five compact cards retain a single, polished catalog
                       // row on wide desktops; narrower surfaces still reflow
                       // from the actual available width.
@@ -255,16 +261,26 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                         spacing: AppSpacing.md,
                         runSpacing: _cardRowGap,
                         children: [
-                          for (final movement in widget.movements)
+                          for (final step in widget.practiceSteps)
                             SizedBox(
                               width: cardWidth,
                               height: _cardHeight,
                               child: MovementCard(
-                                movement: movement,
+                                movement: step.movement,
+                                prop: step.prop,
                                 sessionCount:
-                                    widget.stats[movement.name]?.count ?? 0,
+                                    widget
+                                        .stats[practiceVariantKey(
+                                          step.movement.name,
+                                          step.prop,
+                                        )]
+                                        ?.count ??
+                                    0,
                                 averageRubricTotal: widget
-                                    .stats[movement.name]
+                                    .stats[practiceVariantKey(
+                                      step.movement.name,
+                                      step.prop,
+                                    )]
                                     ?.averageRubricTotal,
                               ),
                             ),

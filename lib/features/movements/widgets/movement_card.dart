@@ -31,11 +31,13 @@ class MovementCard extends StatefulWidget {
   const MovementCard({
     super.key,
     required this.movement,
+    required this.prop,
     required this.sessionCount,
     required this.averageRubricTotal,
   });
 
   final Movement movement;
+  final TrainingProp prop;
   final int sessionCount;
 
   /// Assessment V2 rubric average (0..12), or null without rubric sessions.
@@ -51,8 +53,6 @@ class _MovementCardState extends State<MovementCard>
   bool _hovered = false;
   bool _focused = false;
   bool _pressed = false;
-  final Map<TrainingProp, bool> _propHovered = {};
-  final Map<TrainingProp, bool> _propFocused = {};
   bool _activating = false;
 
   @override
@@ -73,22 +73,6 @@ class _MovementCardState extends State<MovementCard>
 
   bool get _enabled => widget.movement.enabled;
   bool get _practiced => widget.sessionCount > 0;
-
-  /// Props this movement can be practiced with, per movement metadata.
-  List<TrainingProp> get _supportedProps => widget.movement.supportedProps;
-
-  /// True when the movement offers a choice between multiple props, shown
-  /// as separate action chips rather than a single call-to-action button.
-  bool get _hasPropChoice => _supportedProps.length > 1;
-
-  /// The single prop used when the movement does not offer a choice.
-  TrainingProp get _singleProp =>
-      _supportedProps.length == 1 ? _supportedProps.first : TrainingProp.bottle;
-
-  /// True when the movement's one fixed prop is not the default Bottle,
-  /// e.g. a movement that always requires Bottle + Cocktail Shaker.
-  bool get _requiresFixedNonDefaultProp =>
-      !_hasPropChoice && _singleProp != TrainingProp.bottle;
 
   Color get _accent => difficultyAccentColor(widget.movement.difficulty);
 
@@ -121,39 +105,31 @@ class _MovementCardState extends State<MovementCard>
     );
   }
 
-  /// A movement identity is hidden only when every catalog-supported prop is
-  /// personally locked. Missing or loading providers deliberately retain the
-  /// normal card so they cannot briefly conceal or reveal content incorrectly.
+  /// A movement identity is hidden until its earliest prop variant unlocks.
+  /// Missing or loading providers retain the normal card for compatibility
+  /// with standalone cards and to avoid transient loading-state flashes.
   _MysteryState _mysteryState() {
-    if (!_enabled || _supportedProps.isEmpty) {
+    if (!_enabled) {
       return const _MysteryState(isLocked: false);
     }
-    final accesses = [for (final prop in _supportedProps) _accessFor(prop)];
-    if (accesses.any(
-      (access) => access != ProgressionAccessResult.personalLocked,
-    )) {
-      return const _MysteryState(isLocked: false);
-    }
-    final levels = [
-      for (final prop in _supportedProps)
-        requiredLevelFor(
-          PracticeVariant(
-            movementName: widget.movement.name,
-            trainingProp: prop,
-          ),
-        ),
-    ].whereType<int>();
-    if (levels.isEmpty) return const _MysteryState(isLocked: false);
-    return _MysteryState(
-      isLocked: true,
-      unlockLevel: levels.reduce((first, next) => first < next ? first : next),
+    final progression = Provider.of<TraineeProgressionService?>(
+      context,
+      listen: true,
     );
+    final currentLevel = progression?.currentLevelOrNull;
+    if (currentLevel == null ||
+        isMovementIdentityRevealed(widget.movement.name, currentLevel)) {
+      return const _MysteryState(isLocked: false);
+    }
+    final unlockLevel = earliestRequiredLevelForMovement(widget.movement.name);
+    if (unlockLevel == null) return const _MysteryState(isLocked: false);
+    return _MysteryState(isLocked: true, unlockLevel: unlockLevel);
   }
 
   String _actionLabelFor(TrainingProp prop, ProgressionAccessResult? access) {
     if (!_enabled) return 'Locked';
     if (access == null) {
-      if (_requiresFixedNonDefaultProp && prop == _singleProp) {
+      if (prop == TrainingProp.bottleAndShaker) {
         return 'Start with ${prop.displayLabel}';
       }
       final tutorial = Provider.of<TutorialProgressService?>(
@@ -163,22 +139,15 @@ class _MovementCardState extends State<MovementCard>
       // Standalone cards (including legacy widget tests) retain the original
       // practice wording. In the app, the router still enforces the lesson gate.
       if (tutorial == null) {
-        if (_hasPropChoice) return 'Ready';
         return _practiced ? 'Practice again' : 'Start practice';
       }
       if (tutorial.hasCompletedLesson(widget.movement.name, prop)) {
-        if (_hasPropChoice) {
-          return _practiced ? 'Practice again' : 'Ready';
-        }
         return _practiced ? 'Practice again' : 'Start practice';
       }
       return 'Learn first';
     }
     switch (access) {
       case ProgressionAccessResult.personalReady:
-        if (_hasPropChoice) {
-          return _practiced ? 'Practice again' : 'Ready';
-        }
         return _practiced ? 'Practice again' : 'Start practice';
       case ProgressionAccessResult.personalLearn:
         return 'Learn first';
@@ -203,10 +172,9 @@ class _MovementCardState extends State<MovementCard>
     }
   }
 
-  String _actionLabel(BuildContext context) {
+  String get _actionLabel {
     if (!_enabled) return 'Locked';
-    if (_hasPropChoice) return 'Choose a prop';
-    return _actionLabelFor(_singleProp, _accessFor(_singleProp));
+    return _actionLabelFor(widget.prop, _accessFor(widget.prop));
   }
 
   bool _canActivate(ProgressionAccessResult? access) {
@@ -216,10 +184,9 @@ class _MovementCardState extends State<MovementCard>
         access == ProgressionAccessResult.personalReady;
   }
 
-  void _activate([TrainingProp? prop]) {
+  void _activate() {
     if (!_enabled || _activating) return;
-    final resolvedProp = prop ?? _singleProp;
-    final access = _accessFor(resolvedProp, listen: false);
+    final access = _accessFor(widget.prop, listen: false);
     if (!_canActivate(access)) return;
     _activating = true;
     try {
@@ -229,7 +196,7 @@ class _MovementCardState extends State<MovementCard>
           AppRoutePaths.movementLesson(
             movement: widget.movement.name,
             difficulty: widget.movement.difficulty,
-            prop: resolvedProp.protocolValue,
+            prop: widget.prop.protocolValue,
           ),
         );
         return;
@@ -238,7 +205,7 @@ class _MovementCardState extends State<MovementCard>
         AppRoutePaths.personalPractice(
           movement: widget.movement.name,
           difficulty: widget.movement.difficulty,
-          prop: resolvedProp.protocolValue,
+          prop: widget.prop.protocolValue,
         ),
       );
     } finally {
@@ -279,11 +246,10 @@ class _MovementCardState extends State<MovementCard>
 
   @override
   Widget build(BuildContext context) {
-    final singleAccess = _hasPropChoice ? null : _accessFor(_singleProp);
+    final access = _accessFor(widget.prop);
     final mystery = _mysteryState();
-    final interactive = _enabled && !mystery.isLocked;
     final cardInteractive =
-        interactive && !_hasPropChoice && _canActivate(singleAccess);
+        _enabled && !mystery.isLocked && _canActivate(access);
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
     final reduceMotion = _reduceMotion;
@@ -296,14 +262,17 @@ class _MovementCardState extends State<MovementCard>
             : (_enabled ? 'Ready to learn' : 'Coming soon');
         final card = Semantics(
           button: cardInteractive,
-          enabled: interactive,
+          enabled: cardInteractive,
+          excludeSemantics: true,
           label: mystery.isLocked
               ? 'Mystery movement. Locked. Unlocks at Level ${mystery.unlockLevel}.'
-              : '${widget.movement.name}. $_statusLabel. $statsLabel. ${_actionLabel(context)}',
+              : '${widget.movement.name}. ${widget.prop.displayLabel}. '
+                    '${widget.movement.difficulty}. $_statusLabel. '
+                    '$statsLabel. $_actionLabel',
           child: FocusableActionDetector(
             enabled: cardInteractive,
             onShowFocusHighlight: _setFocused,
-            mouseCursor: interactive
+            mouseCursor: cardInteractive
                 ? SystemMouseCursors.click
                 : SystemMouseCursors.basic,
             actions: <Type, Action<Intent>>{
@@ -424,12 +393,12 @@ class _MovementCardState extends State<MovementCard>
           ),
         );
         return MouseRegion(
-          onEnter: (_) => _setHovered(true),
+          onEnter: cardInteractive ? (_) => _setHovered(true) : null,
           onExit: (_) {
             _setHovered(false);
             _setPressed(false);
           },
-          cursor: interactive
+          cursor: cardInteractive
               ? SystemMouseCursors.click
               : SystemMouseCursors.basic,
           child: card,
@@ -487,6 +456,7 @@ class _MovementCardState extends State<MovementCard>
           alignment: Alignment.bottomCenter,
           child: MovementImage(
             movementName: widget.movement.name,
+            prop: widget.prop,
             size: 154,
             paddingFactor: 0.01,
             alignment: Alignment.bottomCenter,
@@ -603,12 +573,10 @@ class _MovementCardState extends State<MovementCard>
               active: false,
               reduceMotion: _reduceMotion,
             )
-          else if (_hasPropChoice && _enabled)
-            _buildPropChoiceActions(context)
           else
             _ActionButton(
-              label: _actionLabel(context),
-              enabled: _enabled && _canActivate(_accessFor(_singleProp)),
+              label: _actionLabel,
+              enabled: _enabled && _canActivate(_accessFor(widget.prop)),
               accent: _accent,
               fullWidth: true,
               active: _hovered || _focused,
@@ -668,7 +636,9 @@ class _MovementCardState extends State<MovementCard>
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 7),
+        _PropBadge(prop: widget.prop, accent: _accent),
+        const SizedBox(height: 7),
         Text(
           widget.movement.description,
           style: TextStyle(
@@ -778,61 +748,41 @@ class _MovementCardState extends State<MovementCard>
       },
     );
   }
+}
 
-  String _emojiForProp(TrainingProp prop) {
-    return switch (prop) {
-      TrainingProp.bottle => '🍾',
-      TrainingProp.shaker => '🍸',
-      TrainingProp.bottleAndShaker => '🍾🍸',
-    };
-  }
+class _PropBadge extends StatelessWidget {
+  const _PropBadge({required this.prop, required this.accent});
 
-  Widget _buildPropChoiceActions(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Practice with',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: context.elixTextSecondary,
+  final TrainingProp prop;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: context.isDarkTheme ? 0.15 : 0.09),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: context.isHighContrast
+                ? context.elixBorder
+                : accent.withValues(alpha: 0.55),
+            width: context.isHighContrast ? 2 : 1,
           ),
         ),
-        const SizedBox(height: 6),
-        for (var i = 0; i < _supportedProps.length; i++) ...[
-          if (i > 0) const SizedBox(height: 8),
-          Builder(
-            builder: (context) {
-              final prop = _supportedProps[i];
-              final access = _accessFor(prop);
-              final canActivate = _canActivate(access);
-              final status = _actionLabelFor(prop, access);
-              return _PropActionChip(
-                emoji: _emojiForProp(prop),
-                label: prop.displayLabel,
-                statusLabel: status,
-                enabled: canActivate,
-                accent: _accent,
-                hovered: _propHovered[prop] ?? false,
-                focused: _propFocused[prop] ?? false,
-                onHoverChanged: (hovered) {
-                  setState(() => _propHovered[prop] = hovered);
-                },
-                onFocusChanged: (focused) {
-                  setState(() => _propFocused[prop] = focused);
-                  _setFocused(_propFocused.values.any((value) => value));
-                },
-                onPressedChanged: _setPressed,
-                onTap: () => _activate(prop),
-                semanticLabel: canActivate
-                    ? '$status with ${prop.displayLabel}'
-                    : '${prop.displayLabel}. $status',
-              );
-            },
+        child: Text(
+          prop.displayLabel,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: context.elixTextPrimary,
           ),
-        ],
-      ],
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
     );
   }
 }
@@ -992,134 +942,5 @@ class _ActionButton extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _PropActionChip extends StatelessWidget {
-  const _PropActionChip({
-    required this.emoji,
-    required this.label,
-    required this.statusLabel,
-    required this.enabled,
-    required this.accent,
-    required this.hovered,
-    required this.focused,
-    required this.onHoverChanged,
-    required this.onFocusChanged,
-    required this.onPressedChanged,
-    required this.onTap,
-    required this.semanticLabel,
-  });
-
-  final String emoji;
-  final String label;
-  final String statusLabel;
-  final bool enabled;
-  final Color accent;
-  final bool hovered;
-  final bool focused;
-  final ValueChanged<bool> onHoverChanged;
-  final ValueChanged<bool> onFocusChanged;
-  final ValueChanged<bool> onPressedChanged;
-  final VoidCallback onTap;
-  final String semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final fill = enabled
-        ? accent.withValues(
-            alpha: hovered
-                ? (context.isDarkTheme ? 0.24 : 0.18)
-                : (context.isDarkTheme ? 0.14 : 0.10),
-          )
-        : context.elixBorder.withValues(alpha: 0.35);
-
-    final chip = Semantics(
-      button: enabled,
-      enabled: enabled,
-      label: semanticLabel,
-      child: FocusableActionDetector(
-        enabled: enabled,
-        onShowHoverHighlight: (value) {
-          if (enabled) onHoverChanged(value);
-        },
-        onShowFocusHighlight: (value) {
-          if (enabled) onFocusChanged(value);
-        },
-        mouseCursor: enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        actions: enabled
-            ? <Type, Action<Intent>>{
-                ActivateIntent: CallbackAction<ActivateIntent>(
-                  onInvoke: (_) {
-                    onTap();
-                    return null;
-                  },
-                ),
-              }
-            : const <Type, Action<Intent>>{},
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: enabled ? onTap : null,
-          onTapDown: enabled ? (_) => onPressedChanged(true) : null,
-          onTapUp: enabled ? (_) => onPressedChanged(false) : null,
-          onTapCancel: enabled ? () => onPressedChanged(false) : null,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: enabled
-                    ? accent.withValues(alpha: focused ? 0.75 : 0.40)
-                    : context.elixBorder,
-                width: focused ? 1.6 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Text(emoji, style: const TextStyle(fontSize: 14)),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: enabled
-                              ? context.elixTextPrimary
-                              : context.elixTextSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        statusLabel,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: context.elixTextSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    return chip;
   }
 }

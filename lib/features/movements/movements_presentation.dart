@@ -2,9 +2,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/movements.dart';
+import '../../data/models/session.dart';
 import '../../data/models/training_prop.dart';
 
-/// Per-movement aggregates.
+/// Session aggregates keyed by movement or exact practice variant.
 ///
 /// [count] is every completed session; [rubricSessionCount] and
 /// [averageRubricTotal] cover only Assessment V2 sessions on the 0..12 scale.
@@ -13,6 +14,87 @@ typedef MovementStats = ({
   int rubricSessionCount,
   double? averageRubricTotal,
 });
+
+const _mediumMovementDisplayOrder = <String>[
+  'Hand Stall',
+  'Forearm Stall',
+  'Elbow Stall',
+  'Wrist Stall',
+  'One Finger Stall',
+];
+
+/// Enabled practice variants for one difficulty in trainee-library order.
+///
+/// The canonical progression sequence remains owned by
+/// [enabledPracticeSteps]. Medium receives presentation-only ordering so each
+/// movement's Bottle and Cocktail Shaker cards stay adjacent.
+List<PracticeCatalogStep> practiceStepsForDifficulty(String difficulty) {
+  final steps = enabledPracticeSteps()
+      .where((step) => step.movement.difficulty == difficulty)
+      .toList();
+  if (difficulty != 'Medium') return steps;
+
+  steps.sort((a, b) {
+    final aIndex = _mediumMovementDisplayOrder.indexOf(a.movement.name);
+    final bIndex = _mediumMovementDisplayOrder.indexOf(b.movement.name);
+    if (aIndex == bIndex) {
+      return _propDisplayOrder(a.prop).compareTo(_propDisplayOrder(b.prop));
+    }
+    if (aIndex < 0) return 1;
+    if (bIndex < 0) return -1;
+    return aIndex.compareTo(bIndex);
+  });
+  return steps;
+}
+
+int _propDisplayOrder(TrainingProp prop) => switch (prop) {
+  TrainingProp.bottle => 0,
+  TrainingProp.shaker => 1,
+  TrainingProp.bottleAndShaker => 2,
+};
+
+/// Aggregates completed sessions by movement for the page-level summary.
+Map<String, MovementStats> aggregateMovementStats(List<Session> sessions) {
+  return _aggregateStats(sessions, (session) => session.movementName);
+}
+
+/// Aggregates completed sessions by exact movement + prop practice variant.
+Map<String, MovementStats> aggregatePracticeVariantStats(
+  List<Session> sessions,
+) {
+  return _aggregateStats(
+    sessions,
+    (session) => practiceVariantKey(session.movementName, session.propType),
+  );
+}
+
+Map<String, MovementStats> _aggregateStats(
+  List<Session> sessions,
+  String Function(Session session) keyFor,
+) {
+  final counts = <String, int>{};
+  final rubricCounts = <String, int>{};
+  final rubricSums = <String, int>{};
+
+  for (final session in sessions) {
+    final key = keyFor(session);
+    counts[key] = (counts[key] ?? 0) + 1;
+    if (!session.isRubricAssessed) continue;
+    rubricCounts[key] = (rubricCounts[key] ?? 0) + 1;
+    rubricSums[key] = (rubricSums[key] ?? 0) + session.rubricTotal!;
+  }
+
+  return {
+    for (final entry in counts.entries)
+      entry.key: (
+        count: entry.value,
+        rubricSessionCount: rubricCounts[entry.key] ?? 0,
+        averageRubricTotal: (rubricCounts[entry.key] ?? 0) == 0
+            ? null
+            : rubricSums[entry.key]! / rubricCounts[entry.key]!,
+      ),
+  };
+}
 
 class MovementsSummary {
   const MovementsSummary({
@@ -34,13 +116,12 @@ class MovementsSummary {
   final double? overallAverageRubric;
 }
 
-/// Builds page-level summary values from per-movement session aggregates.
 String practiceVariantKey(String movementName, TrainingProp prop) =>
     '$movementName\u0000${prop.protocolValue}';
 
 /// Builds page-level summary values from movement aggregates and the set of
 /// practiced catalog variants. Bottle and Cocktail Shaker are separate
-/// trainee practice steps even when they share the same movement card.
+/// trainee practice steps even when they share a movement identity.
 MovementsSummary computeMovementsSummary(
   Map<String, MovementStats> stats, {
   Set<String> practicedVariants = const {},

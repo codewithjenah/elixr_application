@@ -25,12 +25,18 @@ class PracticeSection extends StatefulWidget {
 class _PracticeSectionState extends State<PracticeSection> {
   bool _mirrorWriting = false;
   String? _mirrorWriteError;
-  bool _soundWriting = false;
+  bool _soundToggleWriting = false;
+  bool _musicVolumeWriting = false;
+  bool _notificationVolumeWriting = false;
   String? _soundWriteError;
-  double? _volumeDraft;
+  double? _musicVolumeDraft;
+  double? _notificationVolumeDraft;
   bool _savingDraft = false;
   String? _draftSaveError;
   bool _camerasRefreshed = false;
+
+  bool get _soundWriting =>
+      _soundToggleWriting || _musicVolumeWriting || _notificationVolumeWriting;
 
   @override
   void initState() {
@@ -65,7 +71,7 @@ class _PracticeSectionState extends State<PracticeSection> {
   Future<void> _onSoundEnabledChanged(bool value) async {
     if (_soundWriting) return;
     setState(() {
-      _soundWriting = true;
+      _soundToggleWriting = true;
       _soundWriteError = null;
     });
 
@@ -74,19 +80,19 @@ class _PracticeSectionState extends State<PracticeSection> {
     if (!mounted) return;
 
     setState(() {
-      _soundWriting = false;
+      _soundToggleWriting = false;
       if (outcome == SettingsWriteOutcome.writeFailed) {
         _soundWriteError = 'Could not save sound preference. Try again.';
       }
     });
   }
 
-  Future<void> _onVolumeChangeEnd(double value) async {
+  Future<void> _onMusicVolumeChangeEnd(double value) async {
     if (_soundWriting) return;
     setState(() {
-      _soundWriting = true;
+      _musicVolumeWriting = true;
       _soundWriteError = null;
-      _volumeDraft = value;
+      _musicVolumeDraft = value;
     });
 
     final settings = context.read<SettingsService>();
@@ -94,10 +100,31 @@ class _PracticeSectionState extends State<PracticeSection> {
     if (!mounted) return;
 
     setState(() {
-      _soundWriting = false;
-      _volumeDraft = null;
+      _musicVolumeWriting = false;
+      _musicVolumeDraft = null;
       if (outcome == SettingsWriteOutcome.writeFailed) {
-        _soundWriteError = 'Could not save volume preference. Try again.';
+        _soundWriteError = 'Could not save game music volume. Try again.';
+      }
+    });
+  }
+
+  Future<void> _onNotificationVolumeChangeEnd(double value) async {
+    if (_soundWriting) return;
+    setState(() {
+      _notificationVolumeWriting = true;
+      _soundWriteError = null;
+      _notificationVolumeDraft = value;
+    });
+
+    final settings = context.read<SettingsService>();
+    final outcome = await settings.setNotificationVolume(value);
+    if (!mounted) return;
+
+    setState(() {
+      _notificationVolumeWriting = false;
+      _notificationVolumeDraft = null;
+      if (outcome == SettingsWriteOutcome.writeFailed) {
+        _soundWriteError = 'Could not save notification volume. Try again.';
       }
     });
   }
@@ -194,25 +221,63 @@ class _PracticeSectionState extends State<PracticeSection> {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Text(
-                  'Volume',
+                  'Game music volume',
                   style: AppTheme.body.copyWith(
                     fontSize: 14,
                     color: context.elixTextPrimary,
                   ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  'Controls background, Practice, and Playground audio.',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
                 const SizedBox(height: AppSpacing.sm),
                 Slider(
-                  value: _volumeDraft ?? settings.musicVolume,
+                  value: _musicVolumeDraft ?? settings.musicVolume,
                   min: 0.0,
                   max: 1.0,
                   label:
-                      '${((_volumeDraft ?? settings.musicVolume) * 100).round()}%',
+                      '${((_musicVolumeDraft ?? settings.musicVolume) * 100).round()}%',
                   onChanged: !settings.soundEnabled || _soundWriting
                       ? null
-                      : (value) => setState(() => _volumeDraft = value),
+                      : (value) => setState(() => _musicVolumeDraft = value),
                   onChangeEnd: !settings.soundEnabled || _soundWriting
                       ? null
-                      : _onVolumeChangeEnd,
+                      : _onMusicVolumeChangeEnd,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  'Notification volume',
+                  style: AppTheme.body.copyWith(
+                    fontSize: 14,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Controls notifications, chats, toasts, and incoming alerts.',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Slider(
+                  value:
+                      _notificationVolumeDraft ?? settings.notificationVolume,
+                  min: 0.0,
+                  max: 1.0,
+                  label:
+                      '${((_notificationVolumeDraft ?? settings.notificationVolume) * 100).round()}%',
+                  onChanged: !settings.soundEnabled || _soundWriting
+                      ? null
+                      : (value) =>
+                            setState(() => _notificationVolumeDraft = value),
+                  onChangeEnd: !settings.soundEnabled || _soundWriting
+                      ? null
+                      : _onNotificationVolumeChangeEnd,
                 ),
                 if (_soundWriteError != null)
                   SettingsStatusBanner(message: _soundWriteError!),

@@ -40,6 +40,7 @@ class SettingsService extends ChangeNotifier {
   static const _highContrastKey = 'high_contrast';
   static const _soundEnabledKey = 'sound_enabled';
   static const _musicVolumeKey = 'music_volume';
+  static const _notificationVolumeKey = 'notification_volume';
   static const _cameraDeviceIdKey = 'camera_device_id';
   static const _cameraDisplayNameKey = 'camera_display_name';
   static const _justDanceMovementNamesKey = 'just_dance_movement_names';
@@ -69,6 +70,7 @@ class SettingsService extends ChangeNotifier {
   bool _highContrast = false;
   bool _soundEnabled = true;
   double _musicVolume = _defaultMusicVolume;
+  double _notificationVolume = _defaultMusicVolume;
   String? _selectedCameraDeviceId;
   String? _selectedCameraDisplayName;
   List<PracticeVariant> _justDancePracticeVariants =
@@ -95,8 +97,11 @@ class SettingsService extends ChangeNotifier {
   /// Master mute for all ELIXR music, notifications, and sound effects.
   bool get soundEnabled => _soundEnabled;
 
-  /// ELIXR audio level from 0.0 (silent) to 1.0 (full). Default 0.7.
+  /// Background, Practice, Playground, and Practice SFX level from 0.0 to 1.0.
   double get musicVolume => _musicVolume;
+
+  /// Notification and incoming-event audio level from 0.0 to 1.0.
+  double get notificationVolume => _notificationVolume;
 
   /// Ordered Just Dance rotation setlist. Defaults to the full catalog.
   /// Compatibility view of movement names derived from exact practice variants.
@@ -152,6 +157,9 @@ class SettingsService extends ChangeNotifier {
         _highContrast = data[_highContrastKey] as bool? ?? false;
         _soundEnabled = data[_soundEnabledKey] as bool? ?? true;
         _musicVolume = _parseMusicVolume(data[_musicVolumeKey]);
+        _notificationVolume = data.containsKey(_notificationVolumeKey)
+            ? _parseMusicVolume(data[_notificationVolumeKey])
+            : _musicVolume;
         _loadCameraSelection(data);
         _loadJustDanceSettings(data);
         _customMusicTracks = _parseCustomMusicTracks(
@@ -298,6 +306,27 @@ class SettingsService extends ChangeNotifier {
       highContrast: _highContrast,
       soundEnabled: _soundEnabled,
       musicVolume: clamped,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDancePracticeVariants: _justDancePracticeVariants,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
+  }
+
+  /// Notification and incoming-event audio level. Values are clamped to 0–1.
+  Future<SettingsWriteOutcome> setNotificationVolume(double value) {
+    final clamped = _clampMusicVolume(value);
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
+      textScale: _textScale,
+      highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
+      notificationVolume: clamped,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -779,6 +808,7 @@ class SettingsService extends ChangeNotifier {
     required bool highContrast,
     required bool soundEnabled,
     required double musicVolume,
+    double? notificationVolume,
     required String? cameraDeviceId,
     required String? cameraDisplayName,
     required int? legacyCameraIndex,
@@ -787,6 +817,8 @@ class SettingsService extends ChangeNotifier {
     required String? selectedMusicTrackId,
     List<MusicTrack>? customMusicTracks,
   }) async {
+    final candidateNotificationVolume =
+        notificationVolume ?? _notificationVolume;
     final candidateCustomMusicTracks = customMusicTracks ?? _customMusicTracks;
     if (_cameraMirrored == cameraMirrored &&
         _darkMode == darkMode &&
@@ -795,6 +827,7 @@ class SettingsService extends ChangeNotifier {
         _highContrast == highContrast &&
         _soundEnabled == soundEnabled &&
         _musicVolume == musicVolume &&
+        _notificationVolume == candidateNotificationVolume &&
         _selectedCameraDeviceId == cameraDeviceId &&
         _selectedCameraDisplayName == cameraDisplayName &&
         _legacyCameraIndex == legacyCameraIndex &&
@@ -822,6 +855,7 @@ class SettingsService extends ChangeNotifier {
       _highContrastKey: highContrast,
       _soundEnabledKey: soundEnabled,
       _musicVolumeKey: musicVolume,
+      _notificationVolumeKey: candidateNotificationVolume,
       _cameraDeviceIdKey: cameraDeviceId,
       _cameraDisplayNameKey: cameraDisplayName,
       _justDanceMovementNamesKey: [
@@ -854,6 +888,7 @@ class SettingsService extends ChangeNotifier {
     _highContrast = highContrast;
     _soundEnabled = soundEnabled;
     _musicVolume = musicVolume;
+    _notificationVolume = candidateNotificationVolume;
     _selectedCameraDeviceId = cameraDeviceId;
     _selectedCameraDisplayName = cameraDisplayName;
     _legacyCameraIndex = legacyCameraIndex;

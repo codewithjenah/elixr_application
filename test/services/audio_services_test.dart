@@ -48,6 +48,7 @@ void main() {
       await service.settled;
       expect(player.playedAssets, ['music/hcc.mp3']);
       expect(player.releaseModes.last, ReleaseMode.loop);
+      expect(player.volumes.last, settings.musicVolume);
 
       final firstOwner = Object();
       final secondOwner = Object();
@@ -80,7 +81,7 @@ void main() {
   );
 
   test(
-    'notification sound reuses one player and respects master mute',
+    'notification sound uses its own volume and respects master mute',
     () async {
       final player = _FakeAudioPlayer();
       final service = NotificationAudioService(
@@ -88,9 +89,21 @@ void main() {
         player: player,
       );
 
+      await settings.setMusicVolume(0.2);
+      await settings.setNotificationVolume(0.85);
+      await service.settled;
       service.playNotification();
       await service.settled;
       expect(player.playedAssets, ['music/notification.mp3']);
+      expect(player.volumes.last, 0.85);
+
+      await settings.setMusicVolume(0.1);
+      await service.settled;
+      expect(player.volumes.last, 0.85);
+
+      await settings.setNotificationVolume(0.55);
+      await service.settled;
+      expect(player.volumes.last, 0.55);
 
       await settings.setSoundEnabled(false);
       service.playNotification();
@@ -115,6 +128,7 @@ void main() {
 
     expect(player.releaseModes.last, ReleaseMode.loop);
     expect(player.playedAssets, [musicTrackCatalog[2].assetPath]);
+    expect(player.volumes.last, settings.musicVolume);
     await service.dispose();
   });
 
@@ -225,6 +239,7 @@ class _FakeAudioPlayer implements AudioPlayerHandle {
   final playedAssets = <String>[];
   final playedFiles = <String>[];
   final releaseModes = <ReleaseMode>[];
+  final volumes = <double>[];
   int pauseCount = 0;
   int resumeCount = 0;
   int stopCount = 0;
@@ -254,7 +269,7 @@ class _FakeAudioPlayer implements AudioPlayerHandle {
   Future<void> setReleaseMode(ReleaseMode mode) async => releaseModes.add(mode);
 
   @override
-  Future<void> setVolume(double volume) async {}
+  Future<void> setVolume(double volume) async => volumes.add(volume);
 
   @override
   Future<void> stop() async {
