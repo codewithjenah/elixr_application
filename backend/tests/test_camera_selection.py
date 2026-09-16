@@ -315,11 +315,13 @@ def test_explicit_device_id_resolves_current_index(monkeypatch):
     assert tried == [0]
     assert camera_mod._shared_index == 0
     assert camera_mod._shared_device_id == "dev-b"
+    assert capture.selected_camera_fallback_used is False
+    assert capture.active_device_id == "dev-b"
 
     camera_mod._release_shared_unlocked()
 
 
-def test_explicit_device_id_missing_does_not_fallback(monkeypatch):
+def test_explicit_device_id_missing_uses_auto_select_fallback(monkeypatch):
     from vision import camera_devices
 
     monkeypatch.setattr(camera_devices, "enumerate_camera_devices", lambda: [])
@@ -327,14 +329,79 @@ def test_explicit_device_id_missing_does_not_fallback(monkeypatch):
 
     def fake_open(index: int, **_kwargs):
         tried.append(index)
-        return _opened(_FakeCap(), index)
+        if index == CAMERA_INDEX:
+            return _opened(_FakeCap(), index)
+        return None
 
     monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
     _reset_shared()
 
     capture = camera_mod.CameraCapture(camera_device_id="missing-device")
+    assert capture.open() is True
+    assert tried == [CAMERA_INDEX]
+    assert capture.selected_camera_fallback_used is True
+    assert capture.requested_device_id == "missing-device"
+    assert capture.active_device_id == f"opencv:{CAMERA_INDEX}"
+
+    camera_mod._release_shared_unlocked()
+
+
+def test_explicit_device_startup_failure_falls_back_after_selected(monkeypatch):
+    from vision import camera_devices
+    from vision.camera_devices import EnumeratedCamera
+
+    selected_index = max(CAMERA_INDEX, CAMERA_FALLBACK_INDEX) + 1
+    monkeypatch.setattr(
+        camera_devices,
+        "enumerate_camera_devices",
+        lambda: [EnumeratedCamera("dev-selected", "Selected USB Camera", selected_index, True)],
+    )
+    tried = []
+
+    def fake_open(index: int, **_kwargs):
+        tried.append(index)
+        if index == CAMERA_INDEX:
+            return _opened(_FakeCap(), index)
+        return None
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+    _reset_shared()
+
+    capture = camera_mod.CameraCapture(camera_device_id="dev-selected")
+    assert capture.open() is True
+    assert tried[0] == selected_index
+    assert tried[1] == CAMERA_INDEX
+    assert tried.count(selected_index) == 1
+    assert capture.selected_camera_fallback_used is True
+    assert capture.requested_device_id == "dev-selected"
+    assert capture.active_device_id == f"opencv:{CAMERA_INDEX}"
+
+    camera_mod._release_shared_unlocked()
+
+
+def test_explicit_device_and_auto_select_failure_remains_unavailable(monkeypatch):
+    from vision import camera_devices
+    from vision.camera_devices import EnumeratedCamera
+
+    selected_index = max(CAMERA_INDEX, CAMERA_FALLBACK_INDEX) + 1
+    monkeypatch.setattr(
+        camera_devices,
+        "enumerate_camera_devices",
+        lambda: [EnumeratedCamera("dev-selected", "Selected USB Camera", selected_index, True)],
+    )
+    tried = []
+    monkeypatch.setattr(
+        camera_mod,
+        "_open_video_capture",
+        lambda index, **_kwargs: tried.append(index),
+    )
+    _reset_shared()
+
+    capture = camera_mod.CameraCapture(camera_device_id="dev-selected")
     assert capture.open() is False
-    assert tried == []
+    assert tried == [selected_index, *camera_mod.candidate_indices(None)]
+    assert capture.last_read_status == camera_mod.CameraReadStatus.UNAVAILABLE
+    assert capture.requested_device_id == "dev-selected"
 
 
 def test_device_reorder_keeps_selected_physical_camera(monkeypatch):
@@ -983,6 +1050,52 @@ def test_explicit_recovery_never_switches_to_fallback(monkeypatch):
     assert all(i == 1 for i in tried)
     assert CAMERA_FALLBACK_INDEX not in tried or CAMERA_FALLBACK_INDEX == 1
     assert capture.last_read_status == camera_mod.CameraReadStatus.UNAVAILABLE
+
+    camera_mod._release_shared_unlocked()
+
+
+def test_selected_camera_fallback_recovery_stays_on_active_device(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_MAX_BLANK_FRAME_STREAK", 2)
+    monkeypatch.setattr(camera_mod, "_RECOVERY_COOLDOWN_S", 0.0)
+    monkeypatch.setattr(camera_mod, "_READ_RETRIES", 1)
+    _reset_shared()
+
+    selected_index = max(CAMERA_INDEX, CAMERA_FALLBACK_INDEX) + 1
+    fallback_index = CAMERA_INDEX
+    monkeypatch.setattr(
+        camera_mod,
+        "resolve_device_id_to_index",
+        lambda device_id: {
+            "dev-selected": selected_index,
+            "dev-fallback": fallback_index,
+        }.get(device_id),
+    )
+
+    blank = _FakeCap(usable=False)
+    healthy = _FakeCap(usable=True)
+    camera_mod._shared_cap = blank
+    camera_mod._shared_index = fallback_index
+    camera_mod._shared_device_id = "dev-fallback"
+    camera_mod._shared_profile = _default_profile(fallback_index)
+
+    tried = []
+
+    def fake_open(index: int, **_kwargs):
+        tried.append(index)
+        return _opened(healthy, index)
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+
+    capture = camera_mod.CameraCapture(camera_device_id="dev-selected")
+    capture._selected_camera_fallback_used = True
+    capture._active_device_id = "dev-fallback"
+    assert capture.read() is None
+    assert capture.read() is not None
+
+    assert tried == [fallback_index]
+    assert selected_index not in tried
+    assert capture.active_device_id == "dev-fallback"
 
     camera_mod._release_shared_unlocked()
 

@@ -5,6 +5,7 @@ import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/features/practice/camera_recovery_presentation.dart';
 import 'package:elixr_application/features/practice/widgets/training_camera_workspace.dart';
 import 'package:elixr_application/services/websocket_service.dart';
@@ -119,6 +120,68 @@ class _RebuildProbe extends StatelessWidget {
 }
 
 void main() {
+  group('selected-camera fallback warning', () {
+    test('uses the acknowledged active camera name', () {
+      const ack = CommandAck(
+        protocolVersion: 1,
+        requestId: 'req-fallback',
+        sessionId: 'session-fallback',
+        action: 'prepare',
+        accepted: true,
+        sessionState: 'preparing',
+        selectedCameraFallbackUsed: true,
+        activeCameraDeviceId: 'dev-fallback',
+        activeCameraDisplayName: 'Fallback USB Camera',
+      );
+
+      expect(
+        cameraFallbackWarningMessage(ack),
+        'Selected camera is unavailable. Using Fallback USB Camera for this session.',
+      );
+    });
+
+    test('normal selected-camera success has no warning', () {
+      const ack = CommandAck(
+        protocolVersion: 1,
+        requestId: 'req-selected',
+        action: 'prepare',
+        accepted: true,
+        selectedCameraFallbackUsed: false,
+        activeCameraDisplayName: 'Selected USB Camera',
+      );
+
+      expect(cameraFallbackWarningMessage(ack), isNull);
+    });
+
+    test('rejected prepare never shows fallback warning metadata', () {
+      const ack = CommandAck(
+        protocolVersion: 1,
+        requestId: 'req-failed',
+        action: 'prepare',
+        accepted: false,
+        selectedCameraFallbackUsed: true,
+        activeCameraDisplayName: 'Fallback USB Camera',
+      );
+
+      expect(cameraFallbackWarningMessage(ack), isNull);
+    });
+
+    test('same accepted prepare acknowledgment warns exactly once', () {
+      final tracker = CameraFallbackWarningTracker();
+      const ack = CommandAck(
+        protocolVersion: 1,
+        requestId: 'req-fallback',
+        action: 'prepare',
+        accepted: true,
+        selectedCameraFallbackUsed: true,
+        activeCameraDisplayName: 'Fallback USB Camera',
+      );
+
+      expect(tracker.takeMessage(ack), isNotNull);
+      expect(tracker.takeMessage(ack), isNull);
+    });
+  });
+
   group('TrainingCameraWorkspace idle stage', () {
     testWidgets('connected idle stage is not an empty black rectangle', (
       tester,

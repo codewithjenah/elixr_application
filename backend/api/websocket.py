@@ -2659,6 +2659,9 @@ async def websocket_endpoint(websocket: WebSocket):
         session_state: str | None,
         error_code: str | None = None,
         message: str | None = None,
+        selected_camera_fallback_used: bool | None = None,
+        active_camera_device_id: str | None = None,
+        active_camera_display_name: str | None = None,
         calibration_scale: float | None = None,
         calibration_source: str | None = None,
         local_file_path: str | None = None,
@@ -2676,6 +2679,9 @@ async def websocket_endpoint(websocket: WebSocket):
             session_state=session_state,
             error_code=error_code,
             message=message,
+            selected_camera_fallback_used=selected_camera_fallback_used,
+            active_camera_device_id=active_camera_device_id,
+            active_camera_display_name=active_camera_display_name,
             calibration_scale=calibration_scale,
             calibration_source=calibration_source,
             local_file_path=local_file_path,
@@ -2903,12 +2909,37 @@ async def websocket_endpoint(websocket: WebSocket):
                 and command.movement == "Free Practice"
                 and session_mode != "freestyle"
             )
+            prepared_session = session_ref.get("session")
+            prepared_camera = (
+                getattr(prepared_session, "camera", None)
+                if prepared_session is not None
+                else None
+            )
             await send_ack(
                 request_id=command.request_id,
                 session_id=command.session_id,
                 action=command.action,
                 accepted=True,
                 session_state="active" if start_active else "preparing",
+                selected_camera_fallback_used=(
+                    getattr(
+                        prepared_camera,
+                        "selected_camera_fallback_used",
+                        False,
+                    )
+                    if command.camera_device_id is not None
+                    else False
+                ),
+                active_camera_device_id=getattr(
+                    prepared_camera,
+                    "active_device_id",
+                    None,
+                ),
+                active_camera_display_name=getattr(
+                    prepared_camera,
+                    "active_display_name",
+                    None,
+                ),
             )
         else:
             submission_recording_allowed = False

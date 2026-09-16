@@ -18,6 +18,9 @@ class CommandAck {
     this.sessionState,
     this.errorCode,
     this.message,
+    this.selectedCameraFallbackUsed = false,
+    this.activeCameraDeviceId,
+    this.activeCameraDisplayName,
     this.calibrationScale,
     this.calibrationSource,
     this.localFilePath,
@@ -35,6 +38,9 @@ class CommandAck {
   final String? sessionState;
   final String? errorCode;
   final String? message;
+  final bool selectedCameraFallbackUsed;
+  final String? activeCameraDeviceId;
+  final String? activeCameraDisplayName;
   final double? calibrationScale;
   final String? calibrationSource;
   final String? localFilePath;
@@ -53,6 +59,10 @@ class CommandAck {
       sessionState: json['session_state'] as String?,
       errorCode: json['error_code'] as String?,
       message: json['message'] as String?,
+      selectedCameraFallbackUsed:
+          json['selected_camera_fallback_used'] as bool? ?? false,
+      activeCameraDeviceId: json['active_camera_device_id'] as String?,
+      activeCameraDisplayName: json['active_camera_display_name'] as String?,
       calibrationScale: json['calibration_scale'] is num
           ? (json['calibration_scale'] as num).toDouble()
           : null,

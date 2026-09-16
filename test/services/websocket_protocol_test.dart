@@ -193,6 +193,28 @@ void main() {
       expect(ack.calibrationSource, 'palm_fallback');
     });
 
+    test('prepare acknowledgment parses selected-camera fallback metadata', () {
+      final decoded = decoder.decode(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': 'req-camera',
+          'session_id': 'session-camera',
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+          'selected_camera_fallback_used': true,
+          'active_camera_device_id': 'dev-fallback',
+          'active_camera_display_name': 'Fallback USB Camera',
+        }),
+      );
+
+      final ack = (decoded as WsCommandAckMessage).ack;
+      expect(ack.selectedCameraFallbackUsed, isTrue);
+      expect(ack.activeCameraDeviceId, 'dev-fallback');
+      expect(ack.activeCameraDisplayName, 'Fallback USB Camera');
+    });
+
     test('malformed and unknown messages are observable without crashing', () {
       expect(decoder.decode('{bad'), isA<WsMalformedMessage>());
       expect(

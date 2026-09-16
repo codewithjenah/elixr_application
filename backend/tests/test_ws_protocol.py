@@ -40,7 +40,14 @@ class StubCamera:
         self.read_count = 0
         self.released = False
         self.active_index = kwargs.get("camera_index") or 0
-        self.active_device_id = kwargs.get("camera_device_id")
+        requested_device_id = kwargs.get("camera_device_id")
+        self.selected_camera_fallback_used = requested_device_id == "missing-selected"
+        self.active_device_id = (
+            "dev-fallback" if self.selected_camera_fallback_used else requested_device_id
+        )
+        self.active_display_name = (
+            "Fallback USB Camera" if self.selected_camera_fallback_used else None
+        )
         self.used_fallback = False
         self.last_captured_at_monotonic = None
         self.last_capture_sequence = None
@@ -843,6 +850,25 @@ def test_stale_stop_does_not_stop_newer_session(monkeypatch):
     asyncio.run(_run())
 
 
+def test_prepare_ack_reports_selected_camera_fallback(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(_prepare_payload(camera_device_id="missing-selected"))
+        ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is True
+        assert ack["selected_camera_fallback_used"] is True
+        assert ack["active_camera_device_id"] == "dev-fallback"
+        assert ack["active_camera_display_name"] == "Fallback USB Camera"
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
 def test_stop_preempts_camera_startup_and_releases_its_session(monkeypatch):
     """A v1 stop must cancel a pending prepare before it can acknowledge."""
     _patch_vision(monkeypatch)
@@ -1040,10 +1066,16 @@ def test_command_ack_schema_roundtrip():
         action="activate",
         accepted=True,
         session_state="active",
+        selected_camera_fallback_used=True,
+        active_camera_device_id="dev-b",
+        active_camera_display_name="USB Camera",
     )
     dumped = json.loads(ack.model_dump_json())
     assert dumped["message_type"] == "command_ack"
     assert dumped["protocol_version"] == 1
+    assert dumped["selected_camera_fallback_used"] is True
+    assert dumped["active_camera_device_id"] == "dev-b"
+    assert dumped["active_camera_display_name"] == "USB Camera"
 
 
 def test_protocol_error_schema_roundtrip():

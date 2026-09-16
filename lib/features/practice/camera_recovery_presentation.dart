@@ -1,6 +1,33 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/widgets/elix_dialog.dart';
+import '../../data/models/ws_protocol.dart';
+
+/// One-time trainee copy derived only from an accepted prepare acknowledgement.
+String? cameraFallbackWarningMessage(CommandAck ack) {
+  if (!ack.accepted ||
+      ack.action != 'prepare' ||
+      !ack.selectedCameraFallbackUsed) {
+    return null;
+  }
+
+  final activeName = ack.activeCameraDisplayName?.trim();
+  final displayName = activeName == null || activeName.isEmpty
+      ? 'another available camera'
+      : activeName;
+  return 'Selected camera is unavailable. Using $displayName for this session.';
+}
+
+class CameraFallbackWarningTracker {
+  String? _shownRequestId;
+
+  String? takeMessage(CommandAck ack) {
+    final message = cameraFallbackWarningMessage(ack);
+    if (message == null || _shownRequestId == ack.requestId) return null;
+    _shownRequestId = ack.requestId;
+    return message;
+  }
+}
 
 /// Trainee-facing copy and actions for an interrupted camera attempt.
 ///

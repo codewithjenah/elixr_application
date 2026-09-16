@@ -13,6 +13,7 @@ import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_toast.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/class_challenge.dart';
@@ -154,6 +155,8 @@ class PracticeScreenState extends State<PracticeScreen>
   bool _connecting = false;
   String? _sessionError;
   String? _sessionErrorCode;
+  final CameraFallbackWarningTracker _fallbackWarningTracker =
+      CameraFallbackWarningTracker();
   bool _isShowingSummary = false;
   bool _movementConfirmedShowing = false;
   bool _commandInFlight = false;
@@ -490,6 +493,12 @@ class PracticeScreenState extends State<PracticeScreen>
     }
   }
 
+  void _showCameraFallbackWarning(CommandAck ack) {
+    final message = _fallbackWarningTracker.takeMessage(ack);
+    if (message == null) return;
+    ElixToast.showWarning(context, message: message);
+  }
+
   /// Auto-start entry after the Ready beat (or shared confirm path).
   void _onStartPractice() {
     if (_leaving || _commandInFlight) return;
@@ -690,6 +699,8 @@ class PracticeScreenState extends State<PracticeScreen>
           _sessionErrorCode = ack.errorCode;
           _clearFrame();
         });
+      } else {
+        _showCameraFallbackWarning(ack);
       }
     } catch (error) {
       if (!mounted) return;

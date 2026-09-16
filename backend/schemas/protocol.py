@@ -21,6 +21,9 @@ class CommandAck(BaseModel):
     session_state: Optional[str] = None
     error_code: Optional[str] = None
     message: Optional[str] = None
+    selected_camera_fallback_used: Optional[bool] = None
+    active_camera_device_id: Optional[str] = None
+    active_camera_display_name: Optional[str] = None
     calibration_scale: Optional[float] = None
     calibration_source: Optional[Literal["shoulders", "palm_fallback", "default"]] = None
     local_file_path: Optional[str] = None

@@ -37,6 +37,15 @@ abstract final class ElixToast {
     );
   }
 
+  static void showWarning(BuildContext context, {required String message}) {
+    _show(
+      context,
+      title: 'Camera changed',
+      message: message,
+      severity: InfoBarSeverity.warning,
+    );
+  }
+
   static void _show(
     BuildContext context, {
     required String title,

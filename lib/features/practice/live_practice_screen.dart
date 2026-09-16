@@ -14,6 +14,7 @@ import '../../core/progression/progression_access.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_toast.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/classroom_exceptions.dart';
 import '../../data/models/practice_feedback.dart';
@@ -147,6 +148,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _connecting = false;
   String? _sessionError;
   String? _sessionErrorCode;
+  final CameraFallbackWarningTracker _fallbackWarningTracker =
+      CameraFallbackWarningTracker();
   bool _leaving = false;
   bool _quitDialogOpen = false;
   bool _stopInFlight = false;
@@ -836,6 +839,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
           _sessionErrorCode = ack.errorCode;
           _clearFrame();
         });
+      } else {
+        _showCameraFallbackWarning(ack);
       }
     } catch (error, stackTrace) {
       if (!mounted) return;
@@ -935,6 +940,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         _freestyle.cancelToIdle();
         unawaited(_stopWebSocketSession());
         setState(() => _sessionError = message);
+      } else {
+        _showCameraFallbackWarning(ack);
       }
     } catch (error) {
       if (!mounted || generation != _freestyle.generation) return;
@@ -951,6 +958,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _commandInFlight = false;
       if (mounted) setState(() {});
     }
+  }
+
+  void _showCameraFallbackWarning(CommandAck ack) {
+    final message = _fallbackWarningTracker.takeMessage(ack);
+    if (message == null) return;
+    ElixToast.showWarning(context, message: message);
   }
 
   Future<void> _activateFreestyle(int generation) async {
