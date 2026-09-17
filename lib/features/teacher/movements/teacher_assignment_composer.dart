@@ -1077,16 +1077,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         eyebrow: _isEditingDraft ? 'DRAFT ASSIGNMENT' : 'ASSIGNMENT STUDIO',
         subtitle: subtitle,
         variant: ElixEditorialHeaderVariant.compact,
-        commandBar: CommandBar(
-          mainAxisAlignment: MainAxisAlignment.end,
-          primaryItems: [
-            CommandBarButton(
-              key: const Key('teacher_assignment_back'),
-              icon: const Icon(FluentIcons.back),
-              label: const Text('Back'),
-              onPressed: _submitting ? null : () => Navigator.pop(context),
-            ),
-          ],
+        leading: ElixPrimaryButton(
+          key: const Key('teacher_assignment_back'),
+          label: 'Back',
+          icon: FluentIcons.back,
+          variant: ElixButtonVariant.outline,
+          expanded: false,
+          onPressed: _submitting ? null : () => Navigator.pop(context),
         ),
       ),
       scrollable: false,

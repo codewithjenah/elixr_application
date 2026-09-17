@@ -609,6 +609,51 @@ void main() {
     }
   }
 
+  testWidgets(
+    'Assignment Studio Back is leading and returns to the previous route',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        FluentApp(
+          navigatorKey: navigatorKey,
+          theme: AppTheme.dark,
+          home: const Text('Teacher workspace'),
+        ),
+      );
+
+      navigatorKey.currentState!.push<void>(
+        PageRouteBuilder<void>(
+          pageBuilder: (_, _, _) => ElixShadThemeBridge(
+            child: TeacherAssignmentComposer(
+              teacherId: 'teacher-1',
+              teacherDisplayName: 'Grace Hopper',
+              groups: const [group],
+              movementRepository: movements,
+              groupRepository: groups,
+              creationService: service(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final back = find.byKey(const Key('teacher_assignment_back'));
+      expect(back, findsOneWidget);
+      expect(
+        tester.getTopLeft(back).dx,
+        lessThan(tester.getTopLeft(find.text('ASSIGNMENT STUDIO')).dx),
+      );
+
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      expect(find.text('Teacher workspace'), findsOneWidget);
+    },
+  );
+
   Future<DateTime> scheduleAt(
     WidgetTester tester, {
     required int hour,
@@ -2777,6 +2822,10 @@ void main() {
 
       expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
       expect(find.byKey(const Key('teacher_assignment_summary')), findsNothing);
+      expect(
+        find.byKey(const Key('teacher_assignment_back')).hitTestable(),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const Key('teacher_assignment_publish_now')).hitTestable(),
         findsOneWidget,
