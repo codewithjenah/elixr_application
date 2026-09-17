@@ -1069,9 +1069,7 @@ void main() {
       expect(authRepository.updatePictureCallCount, 0);
     });
 
-    testWidgets('Practice Save practice preferences button remains available', (
-      tester,
-    ) async {
+    testWidgets('Session Setup save button remains available', (tester) async {
       await _setSurface(tester);
 
       await tester.pumpWidget(
@@ -1087,7 +1085,7 @@ void main() {
       );
       await _pumpFrames(tester);
 
-      expect(find.text('Save practice preferences'), findsOneWidget);
+      expect(find.text('Save session settings'), findsOneWidget);
     });
   });
 }

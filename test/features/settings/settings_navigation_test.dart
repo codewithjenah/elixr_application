@@ -250,7 +250,7 @@ void main() {
     expect(find.text('Account & Profile'), findsOneWidget);
     expect(find.text('Security'), findsWidgets);
     expect(find.text('Sound'), findsOneWidget);
-    expect(find.text('Practice'), findsOneWidget);
+    expect(find.text('Session Setup'), findsOneWidget);
     expect(find.text('About'), findsOneWidget);
     expect(find.text('Contact & Feedback'), findsOneWidget);
     expect(find.text('Teacher Access'), findsNothing);
@@ -276,6 +276,23 @@ void main() {
 
     expect(find.byType(ComboBox<SettingsSection>), findsOneWidget);
     expect(find.text('Dark mode'), findsOneWidget);
+  });
+
+  testWidgets('Session Setup labels the sidebar and selected page', (
+    tester,
+  ) async {
+    await setSurface(tester, const Size(1400, 900));
+    await tester.pumpWidget(wrap(settingsScreen(SettingsSection.practice)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Session Setup'), findsNWidgets(2));
+    expect(find.text('Camera, mirroring, and session music.'), findsOneWidget);
+    expect(find.text('Mirror camera feed'), findsOneWidget);
+    expect(find.text('Camera source'), findsOneWidget);
+    expect(find.text('Playground music'), findsOneWidget);
+    expect(find.text('Save session settings'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('selecting Security shows password form', (tester) async {
@@ -332,6 +349,12 @@ void main() {
       SettingsSection.sound,
     );
     expect(tryParseSettingsSection('privacy'), SettingsSection.privacy);
+    expect(tryParseSettingsSection('practice'), SettingsSection.practice);
+    expect(SettingsSection.practice.title, 'Session Setup');
+    expect(
+      SettingsSection.practice.description,
+      'Camera, mirroring, and session music.',
+    );
     expect(tryParseSettingsSection('about'), SettingsSection.about);
     expect(
       tryParseSettingsSection('contactFeedback'),
@@ -369,7 +392,7 @@ void main() {
       expect(find.text('Privacy'), findsWidgets);
       expect(find.text('About'), findsOneWidget);
       expect(find.text('Contact & Feedback'), findsOneWidget);
-      expect(find.text('Practice'), findsNothing);
+      expect(find.text('Session Setup'), findsNothing);
       expect(find.text('Teacher Access'), findsNothing);
       expect(find.text('TEACHER WORKSPACE'), findsOneWidget);
       expect(find.text('Save confirmed movement images'), findsNothing);
@@ -461,7 +484,7 @@ void main() {
 
       expect(find.text('Music volume'), findsOneWidget);
       expect(find.text('Notification volume'), findsOneWidget);
-      expect(find.text('Practice'), findsNothing);
+      expect(find.text('Session Setup'), findsNothing);
       expect(find.text('Privacy'), findsOneWidget);
     },
   );

@@ -12,7 +12,7 @@ import '../widgets/practice_preferences_controller.dart';
 import '../widgets/practice_preferences_editor.dart';
 import '../widgets/settings_components.dart';
 
-/// Practice Settings: mirror, camera source, and Live Practice draft editor.
+/// Session setup: mirror, camera source, and Playground music preferences.
 class PracticeSection extends StatefulWidget {
   const PracticeSection({super.key, required this.controller});
 
@@ -71,14 +71,10 @@ class _PracticeSectionState extends State<PracticeSection> {
       if (!mounted) return;
       if (outcome == SettingsWriteOutcome.writeFailed) {
         setState(() {
-          _draftSaveError =
-              'Could not save Live Practice preferences. Try again.';
+          _draftSaveError = 'Could not save session settings. Try again.';
         });
       } else if (outcome == SettingsWriteOutcome.saved) {
-        ElixToast.showSuccess(
-          context,
-          message: 'Live Practice preferences saved.',
-        );
+        ElixToast.showSuccess(context, message: 'Session settings saved.');
       }
     } on ArgumentError catch (e) {
       if (mounted) {
@@ -154,7 +150,7 @@ class _PracticeSectionState extends State<PracticeSection> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         ElixPrimaryButton(
-                          label: 'Save practice preferences',
+                          label: 'Save session settings',
                           dense: true,
                           expanded: false,
                           isLoading: _savingDraft,
@@ -296,7 +292,7 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Choose the camera ELIXR will use during practice.',
+          'Choose the camera ELIXR will use during sessions.',
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -382,7 +378,7 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
         ],
         const SizedBox(height: 4),
         Text(
-          'Selection applies to your next practice session',
+          'Selection applies to your next session',
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
         if (_writeError != null) SettingsStatusBanner(message: _writeError!),

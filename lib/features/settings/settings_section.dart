@@ -60,7 +60,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.security => 'Security',
     SettingsSection.appearance => 'Appearance',
     SettingsSection.sound => 'Sound',
-    SettingsSection.practice => 'Practice',
+    SettingsSection.practice => 'Session Setup',
     SettingsSection.privacy => 'Privacy',
     SettingsSection.about => 'About',
     SettingsSection.contactFeedback => 'Contact & Feedback',
@@ -74,7 +74,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => 'Customize how Elixr looks on this device.',
     SettingsSection.sound =>
       'Control music, notifications, and sound effects across ELIXR.',
-    SettingsSection.practice => 'Camera, mirroring, and Playground music.',
+    SettingsSection.practice => 'Camera, mirroring, and session music.',
     SettingsSection.privacy =>
       'Control who can see your detailed player profile activity.',
     SettingsSection.about => 'Learn about ELIXR and the team behind it.',
