@@ -30,6 +30,17 @@ void main() {
   });
 
   group('RubricAssessment', () {
+    test('uses the Assessment V2 criterion labels and wire ordering', () {
+      expect(
+        RubricCriterion.values.map((criterion) => criterion.wireValue),
+        ['technique', 'stability', 'completion', 'prop_positioning'],
+      );
+      expect(
+        RubricCriterion.values.map((criterion) => criterion.label),
+        ['Technique', 'Stability', 'Completion', 'Prop Positioning'],
+      );
+    });
+
     test('derives total and performance level', () {
       const assessment = RubricAssessment(
         technique: 3,

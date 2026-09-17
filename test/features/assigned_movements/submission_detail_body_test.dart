@@ -245,9 +245,9 @@ void main() {
     expect(find.byKey(const Key('submission_clip_preview')), findsNothing);
     expect(find.textContaining('8/12 • 66.7%'), findsOneWidget);
     expect(find.textContaining('Competent'), findsOneWidget);
-    expect(find.textContaining('Correct Technique: 3/3'), findsOneWidget);
-    expect(find.textContaining('Stability / Control: 2/3'), findsOneWidget);
-    expect(find.textContaining('Hold / Completion: 2/3'), findsOneWidget);
+    expect(find.textContaining('Technique: 3/3'), findsOneWidget);
+    expect(find.textContaining('Stability: 2/3'), findsOneWidget);
+    expect(find.textContaining('Completion: 2/3'), findsOneWidget);
     expect(find.textContaining('Prop Positioning: 1/3'), findsOneWidget);
     expect(find.text('AI coaching'), findsNothing);
     expect(find.textContaining('does not save a video clip'), findsOneWidget);

@@ -266,13 +266,19 @@ Future<void> _openSummary(
           return Center(
             child: FilledButton(
               onPressed: () async {
+                final saveController = SessionSummarySaveController(
+                  save: () async {
+                    await onSave(initialSessionId);
+                  },
+                );
+                unawaited(saveController.start());
+                addTearDown(saveController.dispose);
                 await SessionSummarySheet.show(
                   context,
                   movement: movement,
                   durationSeconds: 45,
                   assessment: assessment,
-                  onSave: onSave,
-                  initialSessionId: initialSessionId,
+                  saveController: saveController,
                   nextMovement: nextMovement,
                   nextProp: nextProp,
                   evidenceJpegBytes: evidenceJpegBytes,
@@ -289,6 +295,37 @@ Future<void> _openSummary(
   await tester.tap(find.text('Open'));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 900));
+}
+
+Future<SessionSummaryResult?> _showWithAutoSave(
+  BuildContext context, {
+  required String movement,
+  required int durationSeconds,
+  required SessionAssessment assessment,
+  required Future<String> Function(String? existingSessionId) onSave,
+  String? initialSessionId,
+  Movement? nextMovement,
+  TrainingProp? nextProp,
+  Uint8List? evidenceJpegBytes,
+  bool timedOut = false,
+}) {
+  final saveController = SessionSummarySaveController(
+    save: () async {
+      await onSave(initialSessionId);
+    },
+  );
+  unawaited(saveController.start());
+  return SessionSummarySheet.show(
+    context,
+    movement: movement,
+    durationSeconds: durationSeconds,
+    assessment: assessment,
+    saveController: saveController,
+    nextMovement: nextMovement,
+    nextProp: nextProp,
+    evidenceJpegBytes: evidenceJpegBytes,
+    timedOut: timedOut,
+  ).whenComplete(saveController.dispose);
 }
 
 Finder get _primaryButton => find.byType(GameActionButton);
@@ -651,7 +688,7 @@ void main() {
       );
       expect(_recommendation, findsOneWidget);
       expect(find.text('Try Again'), findsOneWidget);
-      expect(find.text('Discard without saving'), findsOneWidget);
+      expect(find.text('Back to movements'), findsOneWidget);
       expect(find.text('Finish'), findsOneWidget);
       expect(find.text('Save & Continue'), findsNothing);
       expect(_primaryButton, findsOneWidget);
@@ -690,7 +727,7 @@ void main() {
       expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(_isFullyVisible(tester, find.text('Try Again'), size), isTrue);
       expect(
-        _isFullyVisible(tester, find.text('Discard without saving'), size),
+        _isFullyVisible(tester, find.text('Back to movements'), size),
         isTrue,
       );
       expect(_isFullyVisible(tester, _primaryButton, size), isTrue);
@@ -797,7 +834,7 @@ void main() {
       expect(_scrollView, findsOneWidget);
       expect(_actions, findsOneWidget);
       expect(find.text('Try Again'), findsOneWidget);
-      expect(find.text('Discard without saving'), findsOneWidget);
+      expect(find.text('Back to movements'), findsOneWidget);
       expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(_primaryButton, findsOneWidget);
       expect(find.text('What Went Well'), findsOneWidget);
@@ -923,13 +960,13 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Try Again'), findsOneWidget);
-      expect(find.text('Discard without saving'), findsOneWidget);
+      expect(find.text('Back to movements'), findsOneWidget);
       expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(tester.takeException(), isNull);
     });
   });
 
-  testWidgets('duplicate primary clicks issue one persistence operation', (
+  testWidgets('automatic save starts once before any navigation action', (
     tester,
   ) async {
     var saveCalls = 0;
@@ -976,8 +1013,6 @@ void main() {
       },
     );
 
-    await tester.tap(_primaryButton, warnIfMissed: false);
-    await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Retry Save'), findsOneWidget);
     await tester.tap(_primaryButtonLabeled('Retry Save'), warnIfMissed: false);
     await tester.pumpAndSettle();
@@ -985,7 +1020,7 @@ void main() {
     expect(receivedIds, ['reserved-summary-id', 'reserved-summary-id']);
   });
 
-  testWidgets('failed save shows error and restores enabled actions', (
+  testWidgets('failed automatic save blocks navigation until retry', (
     tester,
   ) async {
     await _openSummary(
@@ -999,21 +1034,22 @@ void main() {
       },
     );
 
-    await tester.tap(_primaryButton, warnIfMissed: false);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    tester.takeException();
-
     expect(find.textContaining('Could not save your session'), findsOneWidget);
     expect(find.text('Try Again'), findsOneWidget);
-    expect(find.text('Discard without saving'), findsOneWidget);
+    expect(find.text('Back to movements'), findsOneWidget);
+    expect(
+      tester.widget<HyperlinkButton>(find.byType(HyperlinkButton).last)
+          .onPressed,
+      isNull,
+    );
     expect(_primaryButton, findsOneWidget);
   });
 
-  testWidgets('reserved ID Finish saves and returns after one tap', (
+  testWidgets('final movement saves before Finish, which only exits', (
     tester,
   ) async {
     SessionSummaryResult? result;
+    var saveCalls = 0;
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -1022,13 +1058,16 @@ void main() {
         home: Builder(
           builder: (context) => FilledButton(
             onPressed: () async {
-              result = await SessionSummarySheet.show(
+              result = await _showWithAutoSave(
                 context,
                 movement: 'Hand Stall',
                 durationSeconds: 45,
                 assessment: _standardSummaryAssessment(),
                 initialSessionId: 'reserved-summary-id',
-                onSave: (sessionId) async => sessionId!,
+                onSave: (sessionId) async {
+                  saveCalls++;
+                  return sessionId!;
+                },
               );
             },
             child: const Text('Open'),
@@ -1038,9 +1077,12 @@ void main() {
     );
     await tester.tap(find.text('Open'));
     await tester.pump(const Duration(milliseconds: 900));
+    expect(saveCalls, 1);
+    expect(find.text('Session saved'), findsOneWidget);
     await tester.tap(_primaryButtonLabeled('Finish'));
     await tester.pumpAndSettle();
 
+    expect(saveCalls, 1);
     expect(result, SessionSummaryResult.saved);
     expect(find.byKey(const Key('session-summary-dialog')), findsNothing);
   });
@@ -1059,7 +1101,7 @@ void main() {
             return Center(
               child: FilledButton(
                 onPressed: () async {
-                  result = await SessionSummarySheet.show(
+                  result = await _showWithAutoSave(
                     context,
                     movement: 'Hand Stall',
                     durationSeconds: 45,
@@ -1092,22 +1134,21 @@ void main() {
     await tester.pump(const Duration(milliseconds: 900));
     tester.takeException();
 
-    await tester.tap(_primaryButton, warnIfMissed: false);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    tester.takeException();
     expect(find.textContaining('Could not save your session'), findsOneWidget);
 
-    await tester.tap(_primaryButton, warnIfMissed: false);
+    await tester.tap(_primaryButtonLabeled('Retry Save'), warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     tester.takeException();
 
     expect(saveCalls, 2);
+    expect(find.text('Session saved'), findsOneWidget);
+    await tester.tap(_primaryButtonLabeled('Finish'));
+    await tester.pumpAndSettle();
     expect(result, SessionSummaryResult.saved);
   });
 
-  testWidgets('discard without saving returns discarded result', (
+  testWidgets('back to movements returns discarded result after auto-save', (
     tester,
   ) async {
     var saveCalls = 0;
@@ -1123,7 +1164,7 @@ void main() {
             return Center(
               child: FilledButton(
                 onPressed: () async {
-                  result = await SessionSummarySheet.show(
+                  result = await _showWithAutoSave(
                     context,
                     movement: 'Hand Stall',
                     durationSeconds: 45,
@@ -1146,9 +1187,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 900));
 
-    await tester.tap(find.text('Discard without saving'));
+    await tester.tap(find.text('Back to movements'));
     await tester.pumpAndSettle();
-    expect(saveCalls, 0);
+    expect(saveCalls, 1);
     expect(result, SessionSummaryResult.discarded);
   });
 
@@ -1166,7 +1207,7 @@ void main() {
             return Center(
               child: FilledButton(
                 onPressed: () async {
-                  result = await SessionSummarySheet.show(
+                  result = await _showWithAutoSave(
                     context,
                     movement: 'Hand Stall',
                     durationSeconds: 45,
@@ -1191,11 +1232,11 @@ void main() {
 
     await tester.tap(find.text('Try Again'));
     await tester.pumpAndSettle();
-    expect(saveCalls, 0);
+    expect(saveCalls, 1);
     expect(result, SessionSummaryResult.tryAgain);
   });
 
-  group('primary action persistence', () {
+  group('primary action navigation after automatic persistence', () {
     testWidgets('with next movement shows Next and no Save & Continue', (
       tester,
     ) async {
@@ -1249,7 +1290,7 @@ void main() {
       expect(_primaryButton, findsOneWidget);
     });
 
-    testWidgets('Next awaits save then returns SessionSummaryResult.next', (
+    testWidgets('Next navigates after automatic save without saving again', (
       tester,
     ) async {
       var saveCalls = 0;
@@ -1266,7 +1307,7 @@ void main() {
               return Center(
                 child: FilledButton(
                   onPressed: () async {
-                    result = await SessionSummarySheet.show(
+                    result = await _showWithAutoSave(
                       context,
                       movement: 'Hand Stall',
                       durationSeconds: 45,
@@ -1294,15 +1335,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 900));
 
-      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
-      await tester.pump();
       expect(saveCalls, 1);
-      expect(saveCompleted, isFalse);
-      expect(result, isNull);
-
-      await tester.pump(const Duration(milliseconds: 100));
-      tester.takeException();
       expect(saveCompleted, isTrue);
+      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
+      await tester.pumpAndSettle();
+      expect(saveCalls, 1);
       expect(result, SessionSummaryResult.next);
     });
 
@@ -1322,7 +1359,7 @@ void main() {
               return Center(
                 child: FilledButton(
                   onPressed: () async {
-                    result = await SessionSummarySheet.show(
+                    result = await _showWithAutoSave(
                       context,
                       movement: 'Hand Stall',
                       durationSeconds: 45,
@@ -1331,7 +1368,7 @@ void main() {
                       onSave: (existingSessionId) async {
                         saveCalls++;
                         await Future<void>.delayed(
-                          const Duration(milliseconds: 120),
+                          const Duration(milliseconds: 1500),
                         );
                         return existingSessionId ?? 'session-next-inflight';
                       },
@@ -1349,9 +1386,6 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 900));
 
-      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
-      await tester.pump();
-
       final primary = tester.widget<GameActionButton>(_primaryButton);
       expect(primary.isLoading, isTrue);
       expect(primary.onPressed, isNull);
@@ -1359,7 +1393,7 @@ void main() {
       await tester.tap(_primaryButton, warnIfMissed: false);
       await tester.tap(find.text('Try Again'), warnIfMissed: false);
       await tester.tap(
-        find.text('Discard without saving'),
+        find.text('Back to movements'),
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 60));
@@ -1367,8 +1401,10 @@ void main() {
       expect(saveCalls, 1);
       expect(result, isNull);
 
-      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 1500));
       tester.takeException();
+      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
+      await tester.pumpAndSettle();
       expect(result, SessionSummaryResult.next);
     });
 
@@ -1388,7 +1424,7 @@ void main() {
               return Center(
                 child: FilledButton(
                   onPressed: () async {
-                    result = await SessionSummarySheet.show(
+                    result = await _showWithAutoSave(
                       context,
                       movement: 'Hand Stall',
                       durationSeconds: 45,
@@ -1418,11 +1454,6 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 900));
 
-      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      tester.takeException();
-
       expect(
         find.textContaining('Could not save your session'),
         findsOneWidget,
@@ -1443,6 +1474,9 @@ void main() {
       tester.takeException();
 
       expect(saveCalls, 2);
+      expect(find.text("Next: Bartender's Grip"), findsOneWidget);
+      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
+      await tester.pumpAndSettle();
       expect(result, SessionSummaryResult.next);
     });
 
@@ -1462,7 +1496,7 @@ void main() {
               return Center(
                 child: FilledButton(
                   onPressed: () async {
-                    result = await SessionSummarySheet.show(
+                    result = await _showWithAutoSave(
                       context,
                       movement: 'Hand Stall',
                       durationSeconds: 45,
@@ -1511,7 +1545,7 @@ void main() {
                 return Center(
                   child: FilledButton(
                     onPressed: () async {
-                      result = await SessionSummarySheet.show(
+                      result = await _showWithAutoSave(
                         context,
                         movement: 'Hand Stall',
                         durationSeconds: 45,
@@ -1562,7 +1596,7 @@ void main() {
                 return Center(
                   child: FilledButton(
                     onPressed: () async {
-                      result = await SessionSummarySheet.show(
+                      result = await _showWithAutoSave(
                         context,
                         movement: 'Hand Stall',
                         durationSeconds: 45,
@@ -1582,9 +1616,6 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 900));
 
-        await tester.tap(_primaryButtonLabeled('Finish'));
-        await tester.pump();
-
         final primary = tester.widget<GameActionButton>(_primaryButton);
         expect(primary.isLoading, isTrue);
         expect(primary.onPressed, isNull);
@@ -1592,6 +1623,9 @@ void main() {
         expect(find.byKey(const Key('session-summary-dialog')), findsOneWidget);
 
         hang.complete('session-pending');
+        await tester.pumpAndSettle();
+        expect(find.text('Session saved'), findsOneWidget);
+        await tester.tap(_primaryButtonLabeled('Finish'));
         await tester.pumpAndSettle();
         expect(result, SessionSummaryResult.saved);
         expect(find.byKey(const Key('session-summary-dialog')), findsNothing);

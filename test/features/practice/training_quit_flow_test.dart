@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/models/class_challenge_session_context.dart';
+import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
+import 'package:elixr_application/data/models/session_assignment_context.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
@@ -130,8 +134,33 @@ class _GatedSettingsService extends SettingsService {
 }
 
 class _TestSessionService extends SessionService {
+  int completedSaveCalls = 0;
+  String? existingSessionId;
+
   @override
   String reserveSessionId() => 'test-session-id';
+
+  @override
+  Future<String> saveCompletedSession({
+    required String userId,
+    required String displayName,
+    required String movementName,
+    required String difficulty,
+    required RubricAssessment rubric,
+    required int durationSeconds,
+    required List<PracticeFeedback> sessionImprovements,
+    TrainingProp prop = TrainingProp.bottle,
+    String? profilePictureUrl,
+    String? existingSessionId,
+    Uint8List? evidenceJpegBytes,
+    bool saveEvidence = false,
+    SessionAssignmentContext? assignmentContext,
+    ClassChallengeSessionContext? challengeContext,
+  }) async {
+    completedSaveCalls++;
+    this.existingSessionId = existingSessionId;
+    return existingSessionId ?? 'test-session-id';
+  }
 }
 
 Finder _backButton() => find.byKey(const ValueKey('training-header-back'));
@@ -174,6 +203,7 @@ void main() {
 
   Future<GlobalKey<PracticeScreenState>> pumpPractice(
     WidgetTester tester,
+    {SessionService? sessionService}
   ) async {
     final practiceKey = GlobalKey<PracticeScreenState>();
     final router = GoRouter(
@@ -206,7 +236,7 @@ void main() {
           ChangeNotifierProvider<AuthService>.value(value: auth),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider<SessionService>(
-            create: (_) => _TestSessionService(),
+            create: (_) => sessionService ?? _TestSessionService(),
           ),
           ChangeNotifierProvider<TutorialProgressService>(
             create: (_) => _ReadyTutorials(),
@@ -280,7 +310,8 @@ void main() {
   testWidgets('movement timeout stops once and opens Game Over summary', (
     tester,
   ) async {
-    final screenKey = await pumpPractice(tester);
+    final sessions = _TestSessionService();
+    final screenKey = await pumpPractice(tester, sessionService: sessions);
     final run = screenKey.currentState!.debugRun;
 
     run.beginPreparing(onTimeout: () {});
@@ -296,6 +327,9 @@ void main() {
     expect(run.phase, PracticeRunPhase.completed);
     expect(find.text('GAME OVER'), findsOneWidget);
     expect(find.text("Time's Up · Hand Stall"), findsOneWidget);
+    expect(sessions.completedSaveCalls, 1);
+    expect(sessions.existingSessionId, 'test-session-id');
+    expect(find.text('Session saved'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

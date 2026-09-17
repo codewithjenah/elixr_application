@@ -71,7 +71,7 @@ void main() {
       );
       expect(find.text('Ready'), findsOneWidget);
       expect(find.text('Waiting for assessment'), findsOneWidget);
-      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Technique'), findsOneWidget);
       expect(find.text('%'), findsNothing);
       expect(
         find.byKey(const ValueKey('practice-primary-action')),

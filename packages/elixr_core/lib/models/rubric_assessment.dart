@@ -20,9 +20,12 @@ enum RubricCriterion {
   };
 
   String get label => switch (this) {
-    RubricCriterion.technique => 'Correct Technique',
-    RubricCriterion.stability => 'Stability / Control',
-    RubricCriterion.completion => 'Hold / Completion',
+    // These labels mirror the backend Assessment V2 criterion keys. Keep
+    // presentation consumers on this shared metadata rather than creating
+    // History- or session-summary-specific interpretations.
+    RubricCriterion.technique => 'Technique',
+    RubricCriterion.stability => 'Stability',
+    RubricCriterion.completion => 'Completion',
     RubricCriterion.propPositioning => 'Prop Positioning',
   };
 

@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Material, MaterialType;
 
 import '../../core/constants/app_colors.dart';
@@ -21,7 +22,73 @@ import 'widgets/training_performance.dart';
 
 enum SessionSummaryResult { saved, discarded, tryAgain, next }
 
-enum SessionSaveState { ready, saving, failed }
+enum SessionSaveState { saving, saved, failed }
+
+/// Owns the one authoritative persistence operation for a completed attempt.
+///
+/// The practice flow starts this controller before presenting the summary. The
+/// sheet only observes it, offers a serialized retry, and handles navigation
+/// once the attempt is safely saved. Keeping the operation here makes the
+/// save state survive summary rebuilds without giving UI actions a second way
+/// to initiate the first write.
+class SessionSummarySaveController extends ChangeNotifier {
+  SessionSummarySaveController({required Future<void> Function() save})
+    : _save = save;
+
+  final Future<void> Function() _save;
+  SessionSaveState _state = SessionSaveState.saving;
+  String? _error;
+  Future<void>? _inFlight;
+  bool _disposed = false;
+
+  SessionSaveState get state => _state;
+  String? get error => _error;
+
+  /// Starts the automatic save. Repeated completion signals reuse the same
+  /// in-flight Future instead of issuing a second write.
+  Future<void> start() => _runSave();
+
+  /// Retries the same immutable attempt after a failed save.
+  Future<void> retry() => _state == SessionSaveState.failed
+      ? _runSave()
+      : _inFlight ?? Future<void>.value();
+
+  Future<void> _runSave() {
+    final existing = _inFlight;
+    if (existing != null) return existing;
+
+    _state = SessionSaveState.saving;
+    _error = null;
+    _notify();
+
+    late final Future<void> pending;
+    pending = Future<void>.sync(_save).then(
+      (_) {
+        _state = SessionSaveState.saved;
+        _notify();
+      },
+      onError: (Object error, StackTrace _) {
+        _error = SessionSummarySheet._formatSaveError(error);
+        _state = SessionSaveState.failed;
+        _notify();
+      },
+    ).whenComplete(() {
+      if (identical(_inFlight, pending)) _inFlight = null;
+    });
+    _inFlight = pending;
+    return pending;
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+}
 
 /// Centralized sizing for the session-complete dashboard.
 abstract final class _SummaryLayout {
@@ -54,7 +121,7 @@ class SessionSummarySheet extends StatelessWidget {
     required this.onPrimaryAction,
     required this.onDiscard,
     required this.onTryAgain,
-    this.saveState = SessionSaveState.ready,
+    this.saveState = SessionSaveState.saving,
     this.saveError,
     this.nextMovementName,
     this.evidenceJpegBytes,
@@ -88,8 +155,7 @@ class SessionSummarySheet extends StatelessWidget {
     required String movement,
     required int durationSeconds,
     required SessionAssessment assessment,
-    required Future<String> Function(String? existingSessionId) onSave,
-    String? initialSessionId,
+    required SessionSummarySaveController saveController,
     Movement? nextMovement,
     TrainingProp? nextProp,
     Uint8List? evidenceJpegBytes,
@@ -101,37 +167,23 @@ class SessionSummarySheet extends StatelessWidget {
       barrierColor: const Color(0xE6080812),
       useRootNavigator: true,
       builder: (ctx) {
-        var saveState = SessionSaveState.ready;
-        String? saveError;
-        var pendingSessionId = initialSessionId;
-        return StatefulBuilder(
-          builder: (context, setState) {
-            Future<void> handlePrimaryAction() async {
+        return AnimatedBuilder(
+          animation: saveController,
+          builder: (context, _) {
+            final saveState = saveController.state;
+            final saveError = saveController.error;
+            void handlePrimaryAction() {
               if (saveState == SessionSaveState.saving) return;
-              setState(() {
-                saveState = SessionSaveState.saving;
-                saveError = null;
-              });
-              try {
-                pendingSessionId = await onSave(pendingSessionId);
-              } catch (error) {
-                if (ctx.mounted) {
-                  setState(() {
-                    saveError = _formatSaveError(error);
-                    saveState = SessionSaveState.failed;
-                  });
-                }
+              if (saveState == SessionSaveState.failed) {
+                unawaited(saveController.retry());
                 return;
               }
-              if (ctx.mounted) {
-                Navigator.of(ctx, rootNavigator: true).pop(
-                  nextMovement != null
-                      ? SessionSummaryResult.next
-                      : SessionSummaryResult.saved,
-                );
-              }
+              Navigator.of(ctx, rootNavigator: true).pop(
+                nextMovement != null
+                    ? SessionSummaryResult.next
+                    : SessionSummaryResult.saved,
+              );
             }
-
             final reduceMotion = MediaQuery.disableAnimationsOf(context);
             return Stack(
               children: [
@@ -159,7 +211,7 @@ class SessionSummarySheet extends StatelessWidget {
                           evidenceJpegBytes: evidenceJpegBytes,
                           timedOut: timedOut,
                           onDiscard: () {
-                            if (saveState == SessionSaveState.saving) {
+                            if (saveState != SessionSaveState.saved) {
                               return;
                             }
                             Navigator.of(
@@ -168,7 +220,7 @@ class SessionSummarySheet extends StatelessWidget {
                             ).pop(SessionSummaryResult.discarded);
                           },
                           onTryAgain: () {
-                            if (saveState == SessionSaveState.saving) return;
+                            if (saveState != SessionSaveState.saved) return;
                             Navigator.of(
                               ctx,
                               rootNavigator: true,
@@ -1604,12 +1656,15 @@ class _SummaryActions extends StatelessWidget {
     final hasNext = nextMovementName != null;
     final saving = saveState == SessionSaveState.saving;
     final failed = saveState == SessionSaveState.failed;
+    final saved = saveState == SessionSaveState.saved;
     final primaryLabel = failed
         ? 'Retry Save'
         : (hasNext ? 'Next: $nextMovementName' : 'Finish');
     final primaryButton = GameActionButton(
       label: primaryLabel,
-      icon: hasNext ? FluentIcons.chevron_right : FluentIcons.save,
+      icon: failed
+          ? FluentIcons.sync
+          : (hasNext ? FluentIcons.chevron_right : FluentIcons.check_mark),
       onPressed: saving ? null : onPrimaryAction,
       isLoading: saving,
     );
@@ -1647,9 +1702,9 @@ class _SummaryActions extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: HyperlinkButton(
-                      onPressed: saving ? null : onDiscard,
+                      onPressed: saved ? onDiscard : null,
                       child: Text(
-                        'Discard without saving',
+                        'Back to movements',
                         style: AppTheme.caption.copyWith(
                           color: context.elixTextSecondary,
                         ),
@@ -1659,7 +1714,7 @@ class _SummaryActions extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 _TryAgainButton(
-                  onPressed: saving ? null : onTryAgain,
+                    onPressed: saved ? onTryAgain : null,
                   expanded: false,
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -1677,7 +1732,7 @@ class _SummaryActions extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _TryAgainButton(
-                        onPressed: saving ? null : onTryAgain,
+                        onPressed: saved ? onTryAgain : null,
                         expanded: true,
                       ),
                     ),
@@ -1688,9 +1743,9 @@ class _SummaryActions extends StatelessWidget {
                 const SizedBox(height: AppSpacing.xs),
                 Center(
                   child: HyperlinkButton(
-                    onPressed: saving ? null : onDiscard,
+                    onPressed: saved ? onDiscard : null,
                     child: Text(
-                      'Discard without saving',
+                      'Back to movements',
                       style: AppTheme.caption.copyWith(
                         color: context.elixTextSecondary,
                       ),
@@ -1714,15 +1769,15 @@ class _SaveStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (message, icon, color) = switch (state) {
-      SessionSaveState.ready => (
-        'Not saved yet. Save this result when you are ready.',
-        FluentIcons.save,
-        context.elixTextSecondary,
-      ),
       SessionSaveState.saving => (
         'Saving session...',
         FluentIcons.sync,
         AppColors.primary,
+      ),
+      SessionSaveState.saved => (
+        'Session saved',
+        FluentIcons.completed,
+        AppColors.success,
       ),
       SessionSaveState.failed => (
         error ??

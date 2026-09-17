@@ -956,6 +956,7 @@ class PracticeScreenState extends State<PracticeScreen>
       if (_leaving) return;
       _isShowingSummary = true;
       if (mounted) setState(() {});
+      SessionSummarySaveController? saveController;
       try {
         if (!timedOut) {
           unawaited(_playCongratsBestEffort(sfxVolume));
@@ -964,11 +965,46 @@ class PracticeScreenState extends State<PracticeScreen>
         final nextStep = widget.assignmentContext == null
             ? nextEnabledPracticeAfter(_movement, _prop)
             : null;
-        // Reserve before the first write. The sheet retains this identifier on
-        // every retry, including when the first atomic write committed but the
-        // client received an ambiguous transport failure.
+        // Reserve before the first write. The completion operation retains
+        // this identifier on every retry, including when the first atomic
+        // write committed but the client received an ambiguous failure.
         final reservedSessionId = sessionService.reserveSessionId();
         ClassChallengeCompletionReceipt? challengeReceipt;
+        String? persistedSessionId;
+        var challengeCompleted = false;
+        saveController = SessionSummarySaveController(
+          save: () async {
+            // Preserve this immutable completion snapshot across retries. If a
+            // transport error is ambiguous, SessionService receives the same
+            // reserved ID and its atomic save remains idempotent.
+            final sessionId = persistedSessionId ??=
+                await sessionService.saveCompletedSession(
+                  existingSessionId: reservedSessionId,
+                  userId: userId,
+                  displayName: displayName,
+                  profilePictureUrl: authUser?.profilePictureUrl,
+                  movementName: _movement,
+                  difficulty: _difficulty,
+                  prop: _prop,
+                  rubric: summaryRubric,
+                  durationSeconds: summaryDuration,
+                  sessionImprovements: sessionAssessment.improvementFeedbacks,
+                  evidenceJpegBytes: evidence,
+                  saveEvidence: saveEvidence,
+                  assignmentContext: widget.assignmentContext,
+                  challengeContext: widget.challengeContext,
+                );
+            final complete = widget.onChallengeComplete;
+            if (complete != null && !challengeCompleted) {
+              challengeReceipt = await complete(sessionId);
+              challengeCompleted = true;
+            }
+          },
+        );
+        // Persistence begins at completed/scored state, not on a navigation
+        // button in the summary. The controller serializes retries and keeps
+        // this logical attempt tied to [reservedSessionId].
+        unawaited(saveController.start());
         final result = await SessionSummarySheet.show(
           context,
           movement: _movement,
@@ -977,29 +1013,8 @@ class PracticeScreenState extends State<PracticeScreen>
           nextMovement: nextStep?.movement,
           nextProp: nextStep?.prop,
           evidenceJpegBytes: evidence,
-          initialSessionId: reservedSessionId,
           timedOut: timedOut,
-          onSave: (existingSessionId) async {
-            final sessionId = await sessionService.saveCompletedSession(
-              existingSessionId: existingSessionId,
-              userId: userId,
-              displayName: displayName,
-              profilePictureUrl: authUser?.profilePictureUrl,
-              movementName: _movement,
-              difficulty: _difficulty,
-              prop: _prop,
-              rubric: summaryRubric,
-              durationSeconds: summaryDuration,
-              sessionImprovements: sessionAssessment.improvementFeedbacks,
-              evidenceJpegBytes: evidence,
-              saveEvidence: saveEvidence,
-              assignmentContext: widget.assignmentContext,
-              challengeContext: widget.challengeContext,
-            );
-            final complete = widget.onChallengeComplete;
-            if (complete != null) challengeReceipt = await complete(sessionId);
-            return sessionId;
-          },
+          saveController: saveController,
         );
 
         if (!mounted || _leaving) return;
@@ -1057,6 +1072,7 @@ class PracticeScreenState extends State<PracticeScreen>
               : _practiceExitLocation(catalog: true),
         );
       } finally {
+        saveController?.dispose();
         _isShowingSummary = false;
       }
     } finally {

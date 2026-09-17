@@ -242,22 +242,35 @@ void main() {
   });
 
   group('HistorySessionDetails', () {
-    testWidgets('Assessment V2 session shows the four criteria', (
+    testWidgets('Assessment V2 session shows the authoritative criteria and scores', (
       tester,
     ) async {
-      await _pumpDetails(tester, session: _rubricSession());
+      await _pumpDetails(
+        tester,
+        session: _rubricSession(
+          technique: 0,
+          stability: 1,
+          completion: 2,
+          propPositioning: 3,
+        ),
+      );
 
       expect(find.text('Performance'), findsOneWidget);
-      expect(find.text('Proficient'), findsOneWidget);
+      expect(find.text('Developing'), findsOneWidget);
       expect(find.text('Rubric Total'), findsOneWidget);
-      expect(find.text('10/12 • 83.3%'), findsOneWidget);
+      expect(find.text('6/12 • 50%'), findsOneWidget);
 
-      expect(find.text('Correct Technique'), findsOneWidget);
-      expect(find.text('Stability / Control'), findsOneWidget);
-      expect(find.text('Hold / Completion'), findsOneWidget);
+      expect(find.text('Technique'), findsOneWidget);
+      expect(find.text('Stability'), findsOneWidget);
+      expect(find.text('Completion'), findsOneWidget);
       expect(find.text('Prop Positioning'), findsOneWidget);
-      expect(find.text('3 / 3'), findsNWidgets(2));
-      expect(find.text('2 / 3'), findsNWidgets(2));
+      expect(find.text('0 / 3'), findsOneWidget);
+      expect(find.text('1 / 3'), findsOneWidget);
+      expect(find.text('2 / 3'), findsOneWidget);
+      expect(find.text('3 / 3'), findsOneWidget);
+      expect(find.text('Correct Technique'), findsNothing);
+      expect(find.text('Stability / Control'), findsNothing);
+      expect(find.text('Hold / Completion'), findsNothing);
 
       expect(find.textContaining('Legacy Score'), findsNothing);
       expect(find.text('No confirmed movement image'), findsOneWidget);
@@ -269,7 +282,7 @@ void main() {
       await _pumpDetails(tester, session: _legacySession());
 
       expect(find.text('Legacy Score: 84/100'), findsOneWidget);
-      expect(find.text('Correct Technique'), findsNothing);
+      expect(find.text('Technique'), findsNothing);
       expect(find.text('Rubric Total'), findsNothing);
       expect(find.textContaining('/ 12'), findsNothing);
     });
@@ -305,7 +318,7 @@ void main() {
         loadEvidence: (_) async => _onePixelPng,
       );
 
-      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Technique'), findsOneWidget);
       expect(find.text('Confirmed movement image'), findsOneWidget);
       expect(find.text('Click to enlarge'), findsOneWidget);
       expect(find.byKey(const Key('history-evidence-preview')), findsOneWidget);
@@ -680,12 +693,12 @@ void main() {
     ) async {
       await pumpRows(tester, [_rubricSession()]);
 
-      expect(find.text('Correct Technique'), findsNothing);
+      expect(find.text('Technique'), findsNothing);
 
       await tester.tap(find.text('Hand Stall'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Technique'), findsOneWidget);
       expect(find.text('Performance'), findsOneWidget);
       expect(find.text('10/12 • 83.3%'), findsWidgets);
     });
