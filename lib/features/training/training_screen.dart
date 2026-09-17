@@ -92,7 +92,7 @@ class _TrainingHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ElixEditorialHeader(
-      heading: 'Sessions',
+      heading: 'Plan & History',
       eyebrow: 'TRAINING',
       subtitle: 'Plan your practice and review completed sessions.',
       leading: Container(
