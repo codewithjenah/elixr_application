@@ -1,25 +1,22 @@
 from typing import Optional
 
 from config import (
-    UPPER_FOREARM_ELBOW_ZONE,
-    UPPER_FOREARM_MID_ZONE,
+    REVERSE_FOREARM_MAX_ALONG_FRACTION,
+    REVERSE_FOREARM_MAX_CONTACT_DISTANCE,
+    REVERSE_FOREARM_MIN_ALONG_FRACTION,
     UPPER_FOREARM_RATIO,
-    UPPER_FOREARM_STALL_PROXIMITY,
 )
 from assessment.calibration import scaled_proximity
 from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
 from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
-    pose_upper_forearm_landmarks,
+    pose_nearest_forearm_segment,
+    project_point_to_segment_axis,
     track_bottle_stability,
     uncertain_result,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
-
-
-def _dist(a: Point2D, b: Point2D) -> float:
-    return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
 
 
 def _credited(
@@ -49,10 +46,15 @@ def evaluate(
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
-    landmarks = pose_upper_forearm_landmarks(
-        pose, bottle, ratio=UPPER_FOREARM_RATIO
+    # Use the bbox support point: its center is not the point resting on the
+    # forearm and can shift classification toward the elbow for upright props.
+    contact = bottle.bottom_center_normalized(640, 480)
+    segment = pose_nearest_forearm_segment(
+        pose,
+        contact,
+        target_fraction_from_elbow=UPPER_FOREARM_RATIO,
     )
-    if landmarks is None:
+    if segment is None:
         return (
             uncertain_result(
                 "Move back so your elbow and forearm are visible.",
@@ -62,22 +64,27 @@ def evaluate(
             movement_state,
         )
 
-    elbow, upper, mid, _wrist = landmarks
     state, stable = track_bottle_stability(movement_state, bottle)
-    bottle_center = bottle.center_normalized(640, 480)
     stability_fail = None if stable else FeedbackCode.PROP_NOT_STEADY.value
 
-    dist_elbow = _dist(bottle_center, elbow)
-    dist_upper = _dist(bottle_center, upper)
-    dist_mid = _dist(bottle_center, mid)
-
+    elbow, wrist = segment
+    geometry = project_point_to_segment_axis(contact, elbow, wrist)
+    contact_tolerance = scaled_proximity(
+        REVERSE_FOREARM_MAX_CONTACT_DISTANCE,
+        state,
+    )
     positioning_fail = None
-    if dist_elbow <= UPPER_FOREARM_ELBOW_ZONE and dist_elbow < dist_upper:
-        positioning_fail = FeedbackCode.PROP_TOO_NEAR_ELBOW.value
-    elif dist_mid <= UPPER_FOREARM_MID_ZONE and dist_mid < dist_upper:
-        positioning_fail = FeedbackCode.PROP_TOO_NEAR_MID_FOREARM.value
-    elif dist_upper > scaled_proximity(UPPER_FOREARM_STALL_PROXIMITY, state):
+    if (
+        geometry is None
+        or geometry.perpendicular_distance > contact_tolerance
+        or geometry.along_fraction < 0.0
+        or geometry.along_fraction > 1.0
+    ):
         positioning_fail = FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM.value
+    elif geometry.along_fraction < REVERSE_FOREARM_MIN_ALONG_FRACTION:
+        positioning_fail = FeedbackCode.PROP_TOO_NEAR_ELBOW.value
+    elif geometry.along_fraction > REVERSE_FOREARM_MAX_ALONG_FRACTION:
+        positioning_fail = FeedbackCode.PROP_TOO_NEAR_MID_FOREARM.value
 
     if positioning_fail == FeedbackCode.PROP_TOO_NEAR_ELBOW.value:
         return (

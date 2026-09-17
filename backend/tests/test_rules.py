@@ -18,7 +18,6 @@ from config import (
     SHOULDER_STALL_PROXIMITY,
     STALL_STABILITY_THRESHOLD,
     UPPER_FOREARM_RATIO,
-    UPPER_FOREARM_STALL_PROXIMITY,
 )
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -2102,11 +2101,85 @@ def _bottle_at(point: Point2D) -> BottleDetection:
     return _bottle(cx=int(point.x * 640), cy=int(point.y * 480))
 
 
+def _bottle_supported_at(point: Point2D) -> BottleDetection:
+    """Upright synthetic bottle whose bottom-center contacts ``point``."""
+    cx = int(round(point.x * 640))
+    bottom = int(round(point.y * 480))
+    return BottleDetection(
+        x1=cx - 20,
+        y1=bottom - 80,
+        x2=cx + 20,
+        y2=bottom,
+        confidence=0.9,
+    )
+
+
+def test_forearm_stall_support_contact_on_mid_forearm_succeeds():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    contact = Point2D(0.50, 0.55)
+    bottle = _bottle_supported_at(contact)
+
+    result, _, _ = evaluate_movement(
+        "Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.FOREARM_STALL_LOCKED.value
+    assert result.posture_status == "stable"
+
+
+def test_forearm_stall_stable_prop_beside_segment_does_not_lock():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    # The old bbox-center-to-midpoint distance is about 0.15, within 0.22,
+    # even though the support point is 0.12 perpendicular to the forearm.
+    # Maximum calibration must not expand the contact band far enough to pass.
+    bottle = _bottle_supported_at(Point2D(0.62, 0.55))
+    state = _stable_state(bottle)
+    state["calibration_scale"] = 1.6
+
+    result, _, _ = evaluate_movement(
+        "Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        state,
+        calibration_scale=1.6,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value
+    assert result.posture_status == "unstable"
+
+
+@pytest.mark.parametrize("contact_y", [0.34, 0.78])
+def test_forearm_stall_rejects_projection_beyond_segment(contact_y: float):
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    bottle = _bottle_supported_at(Point2D(0.50, contact_y))
+
+    result, _, _ = evaluate_movement(
+        "Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value
+
+
 def test_upper_forearm_stall_success_left():
     elbow = Point2D(0.40, 0.40)
     wrist = Point2D(0.40, 0.70)
     upper = _upper_point(elbow, wrist)
-    bottle = _bottle_at(upper)
+    bottle = _bottle_supported_at(upper)
     result, _, _ = evaluate_movement(
         "Reverse Forearm Stall",
         bottle,
@@ -2123,7 +2196,7 @@ def test_upper_forearm_stall_success_right():
     elbow = Point2D(0.60, 0.40)
     wrist = Point2D(0.60, 0.70)
     upper = _upper_point(elbow, wrist)
-    bottle = _bottle_at(upper)
+    bottle = _bottle_supported_at(upper)
     result, _, _ = evaluate_movement(
         "Reverse Forearm Stall",
         bottle,
@@ -2154,7 +2227,7 @@ def test_upper_forearm_stall_far_from_target():
 def test_upper_forearm_stall_rejects_elbow():
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)
-    bottle = _bottle_at(elbow)
+    bottle = _bottle_supported_at(elbow)
     result, _, _ = evaluate_movement(
         "Reverse Forearm Stall",
         bottle,
@@ -2164,14 +2237,14 @@ def test_upper_forearm_stall_rejects_elbow():
         _stable_state(bottle),
     )
     assert result.feedback_type == "warning"
-    assert "elbow" in result.feedback.lower()
+    assert result.feedback_code == FeedbackCode.PROP_TOO_NEAR_ELBOW.value
 
 
-def test_upper_forearm_stall_rejects_mid_forearm():
+@pytest.mark.parametrize("contact_y", [0.55, 0.70])
+def test_upper_forearm_stall_rejects_mid_forearm_and_wrist(contact_y: float):
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)
-    mid = Point2D(x=(elbow.x + wrist.x) / 2.0, y=(elbow.y + wrist.y) / 2.0)
-    bottle = _bottle_at(mid)
+    bottle = _bottle_supported_at(Point2D(0.50, contact_y))
     result, _, _ = evaluate_movement(
         "Reverse Forearm Stall",
         bottle,
@@ -2181,7 +2254,25 @@ def test_upper_forearm_stall_rejects_mid_forearm():
         _stable_state(bottle),
     )
     assert result.feedback_type == "warning"
-    assert "mid-forearm" in result.feedback.lower() or "wrist" in result.feedback.lower()
+    assert result.feedback_code == FeedbackCode.PROP_TOO_NEAR_MID_FOREARM.value
+
+
+@pytest.mark.parametrize("contact_y", [0.34, 0.78])
+def test_upper_forearm_stall_rejects_projection_beyond_segment(contact_y: float):
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    bottle = _bottle_supported_at(Point2D(0.50, contact_y))
+
+    result, _, _ = evaluate_movement(
+        "Reverse Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM.value
 
 
 def test_upper_forearm_stall_missing_pose():
@@ -2200,7 +2291,7 @@ def test_upper_forearm_stall_unstable_history():
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)
     upper = _upper_point(elbow, wrist)
-    bottle = _bottle_at(upper)
+    bottle = _bottle_supported_at(upper)
     state = None
     for i in range(6):
         moving = _bottle(cx=int(upper.x * 640) + i * 40, cy=int(upper.y * 480))
@@ -2217,13 +2308,34 @@ def test_upper_forearm_stall_unstable_history():
     assert "steady" in result.feedback.lower()
 
 
-def test_upper_forearm_stall_proximity_boundary():
+def test_upper_forearm_stall_rejects_off_segment_at_max_calibration():
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)
     upper = _upper_point(elbow, wrist)
-    # Just outside the success proximity.
-    outside = Point2D(upper.x + UPPER_FOREARM_STALL_PROXIMITY + 0.02, upper.y)
-    bottle = _bottle_at(outside)
+    # The support point is 0.10 perpendicular to the arm. Its bbox center was
+    # still inside the old calibration-expanded circle around the target.
+    bottle = _bottle_supported_at(Point2D(upper.x + 0.10, upper.y))
+    state = _stable_state(bottle)
+    state["calibration_scale"] = 1.6
+    result, _, _ = evaluate_movement(
+        "Reverse Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        state,
+        calibration_scale=1.6,
+    )
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM.value
+
+
+def test_upper_forearm_stall_prop_beside_target_does_not_lock():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    upper = _upper_point(elbow, wrist)
+    # Bbox center remains inside the old 0.16 target circle, but its support
+    # point is 0.12 away from the actual elbow-wrist segment.
+    bottle = _bottle_supported_at(Point2D(upper.x + 0.12, upper.y))
     result, _, _ = evaluate_movement(
         "Reverse Forearm Stall",
         bottle,
@@ -2232,7 +2344,13 @@ def test_upper_forearm_stall_proximity_boundary():
         None,
         _stable_state(bottle),
     )
-    assert result.feedback_type == "warning"
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM.value
+
+
+def test_upper_forearm_stall_helper_keeps_proximal_target():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    upper = _upper_point(elbow, wrist)
     helper = pose_upper_forearm_point(
         _arm_pose(left=True, elbow=elbow, wrist=wrist),
         _bottle_at(upper),

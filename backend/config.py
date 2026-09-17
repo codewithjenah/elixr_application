@@ -195,8 +195,8 @@ STALL_STABILITY_THRESHOLD = 0.06
 
 # Per-session proximity calibration. Scale = observed / reference, clamped
 # to [CALIBRATION_SCALE_MIN, CALIBRATION_SCALE_MAX] before multiplying
-# HAND_BOTTLE_PROXIMITY / STALL_* / ARM_STALL_* / UPPER_FOREARM_STALL_* /
-# SHOULDER_STALL_PROXIMITY.
+# HAND_BOTTLE_PROXIMITY / STALL_* / ARM_STALL_* / FOREARM_STALL_* /
+# REVERSE_FOREARM_* / SHOULDER_STALL_PROXIMITY.
 #
 # Shoulder width 0.30 is the normalized distance between Pose landmarks 11
 # and 12 in the readiness _pose_upper_body fixture (x=0.35 and x=0.65 at
@@ -212,10 +212,20 @@ STALL_HISTORY_FRAMES = 12
 
 PINCH_DISTANCE = 0.06
 
-# Reverse Forearm Stall: target is proximal (elbow -> wrist), between elbow and mid.
-# Ratio is the fraction of elbow-to-wrist distance used for the stall point.
+# Forearm stalls use anatomical fractions along elbow -> wrist plus a narrow
+# calibrated distance from the prop support point to the forearm axis. Along-arm
+# fractions are anatomical regions and must not be calibration-scaled.
+FOREARM_STALL_MIN_ALONG_FRACTION = 0.35
+FOREARM_STALL_MAX_ALONG_FRACTION = 0.65
+FOREARM_STALL_MAX_CONTACT_DISTANCE = 0.045
+
+# Reverse Forearm Stall: target is proximal (elbow -> wrist), between elbow and
+# mid-forearm. Ratio remains the representative target used for arm selection;
+# the min/max fractions define the full accepted proximal region.
 UPPER_FOREARM_RATIO = 0.33
-UPPER_FOREARM_STALL_PROXIMITY = 0.16
+REVERSE_FOREARM_MIN_ALONG_FRACTION = 0.18
+REVERSE_FOREARM_MAX_ALONG_FRACTION = 0.42
+REVERSE_FOREARM_MAX_CONTACT_DISTANCE = 0.045
 # Wrist Stall: along-arm fraction from wrist toward elbow (0 = wrist, 0.5 = mid).
 WRIST_STALL_MAX_ALONG_FRACTION = 0.22
 WRIST_STALL_FOREARM_ALONG_FRACTION = 0.38
@@ -224,10 +234,6 @@ WRIST_STALL_PROXIMITY_RATIO = 0.28
 # Double Forearm Stall: keep each bottle on the mid-forearm band, not the wrist.
 DOUBLE_FOREARM_MIN_ALONG_FRACTION = 0.32
 DOUBLE_FOREARM_MAX_ALONG_FRACTION = 0.68
-# Absolute proximity zones that mean the bottle is on the elbow or ordinary mid-forearm.
-UPPER_FOREARM_ELBOW_ZONE = 0.09
-UPPER_FOREARM_MID_ZONE = 0.09
-
 # Shoulder Stall: expect the bottle slightly above the shoulder joint (smaller y).
 SHOULDER_ABOVE_OFFSET = 0.045
 SHOULDER_STALL_PROXIMITY = 0.16

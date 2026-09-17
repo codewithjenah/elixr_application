@@ -1,4 +1,5 @@
 import math
+from dataclasses import dataclass
 from typing import Optional
 
 from config import (
@@ -177,6 +178,71 @@ def along_wrist_to_elbow_fraction(
     if length_sq <= 1e-12:
         return 0.0
     return ((point.x - wrist.x) * vx + (point.y - wrist.y) * vy) / length_sq
+
+
+@dataclass(frozen=True)
+class SegmentProjection:
+    """Unclamped point projection onto a 2D segment axis.
+
+    ``along_fraction`` is 0 at ``start`` and 1 at ``end``. Values outside that
+    range identify points beyond an endpoint. ``perpendicular_distance`` is
+    measured to the segment's infinite axis so callers can evaluate the along
+    region and contact distance independently.
+    """
+
+    along_fraction: float
+    perpendicular_distance: float
+
+
+def project_point_to_segment_axis(
+    point: Point2D,
+    start: Point2D,
+    end: Point2D,
+) -> Optional[SegmentProjection]:
+    """Return projection geometry, or ``None`` for invalid/degenerate input."""
+    values = (point.x, point.y, start.x, start.y, end.x, end.y)
+    if not all(math.isfinite(value) for value in values):
+        return None
+    vx = end.x - start.x
+    vy = end.y - start.y
+    length_sq = vx * vx + vy * vy
+    if length_sq <= 1e-12:
+        return None
+    along = ((point.x - start.x) * vx + (point.y - start.y) * vy) / length_sq
+    projected = Point2D(x=start.x + along * vx, y=start.y + along * vy)
+    return SegmentProjection(
+        along_fraction=along,
+        perpendicular_distance=_dist(point, projected),
+    )
+
+
+def pose_nearest_forearm_segment(
+    pose: Optional[PoseLandmarks],
+    point: Point2D,
+    *,
+    target_fraction_from_elbow: float,
+) -> Optional[tuple[Point2D, Point2D]]:
+    """Select a complete elbow-wrist chain by its movement target point."""
+    if pose is None:
+        return None
+    best: Optional[tuple[Point2D, Point2D]] = None
+    best_dist = float("inf")
+    for elbow_i, wrist_i in ((13, 15), (14, 16)):
+        elbow = pose.get(elbow_i)
+        wrist = pose.get(wrist_i)
+        if elbow is None or wrist is None:
+            continue
+        if project_point_to_segment_axis(point, elbow, wrist) is None:
+            continue
+        target = Point2D(
+            x=elbow.x + (wrist.x - elbow.x) * target_fraction_from_elbow,
+            y=elbow.y + (wrist.y - elbow.y) * target_fraction_from_elbow,
+        )
+        dist = _dist(point, target)
+        if dist < best_dist:
+            best_dist = dist
+            best = (elbow, wrist)
+    return best
 
 
 def pose_upper_forearm_landmarks(
