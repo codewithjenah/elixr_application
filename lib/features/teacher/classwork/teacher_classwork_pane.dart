@@ -5,10 +5,12 @@ import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/elix_tone_label.dart';
 import '../../../core/widgets/elix_toast.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
@@ -592,27 +594,33 @@ class TeacherAssignmentWorkPane extends StatelessWidget {
         profilePictureUrl: profilePictureUrlFor?.call(traineeId),
       );
     }
-    return Column(
-      key: const Key('teacher_classwork_assignment_roster_workspace'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _AssignmentHeader(
-          controller: controller,
-          assignment: assignment,
-          onEdit: onEditAssignment == null
-              ? null
-              : () => onEditAssignment!(assignment),
+    return Align(
+      alignment: Alignment.topLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1120),
+        child: Column(
+          key: const Key('teacher_classwork_assignment_roster_workspace'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _AssignmentHeader(
+              controller: controller,
+              assignment: assignment,
+              onEdit: onEditAssignment == null
+                  ? null
+                  : () => onEditAssignment!(assignment),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Expanded(
+              child: _Roster(
+                controller: controller,
+                assignment: assignment,
+                profilePictureUrlFor: profilePictureUrlFor,
+                onOpenTrainee: onOpenTrainee,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: AppSpacing.md),
-        Expanded(
-          child: _Roster(
-            controller: controller,
-            assignment: assignment,
-            profilePictureUrlFor: profilePictureUrlFor,
-            onOpenTrainee: onOpenTrainee,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -776,7 +784,7 @@ class _AssignmentHeader extends StatelessWidget {
     final counts = controller.rosterCountsFor(assignment.id);
     final maximum = assignment.maxScore ?? 100;
     return ElixPanelCard(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -786,7 +794,18 @@ class _AssignmentHeader extends StatelessWidget {
             spacing: AppSpacing.lg,
             runSpacing: AppSpacing.sm,
             children: [
-              Text(assignment.displayTitle, style: AppTheme.headingMedium),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 620),
+                child: Text(
+                  assignment.displayTitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.pageTitle(
+                    context,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+              ),
               if (onEdit != null)
                 ElixPrimaryButton(
                   key: const Key('teacher_classwork_edit_assignment'),
@@ -799,65 +818,151 @@ class _AssignmentHeader extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            '${assignment.origin.displayLabel} · '
-            '${controller.audienceLabel(assignment)} · '
-            '${assignment.isActive ? 'Active' : 'Archived'}'
-            '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}'
-            '${assignment.isTeacherCreated ? ' · Maximum $maximum${assignment.gradingLocked ? ' (locked)' : ''}' : ''}',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm),
           Wrap(
-            spacing: AppSpacing.lg,
+            spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              _AssignmentMetric(value: counts.turnedIn, label: 'Turned in'),
-              _AssignmentMetric(
-                value: counts.awaitingCheck,
-                label: 'To Review',
+              ElixPill(
+                text: assignment.origin.displayLabel,
+                color: context.elixColors.brandPrimary,
+                compact: true,
               ),
-              _AssignmentMetric(value: counts.checked, label: 'Checked'),
-              _AssignmentMetric(
-                value: counts.notTurnedIn,
-                label: 'Not turned in',
+              ElixPill(
+                text: controller.audienceLabel(assignment),
+                color: context.elixColors.brandSecondary,
+                compact: true,
+              ),
+              ElixPill(
+                text: assignment.isActive ? 'Active' : 'Archived',
+                color: assignment.isActive
+                    ? context.elixColors.success
+                    : context.elixTextSecondary,
+                compact: true,
               ),
             ],
           ),
+          if (assignment.dueAt != null || assignment.isTeacherCreated) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              '${assignment.dueAt == null ? '' : 'Due ${_formatDue(assignment.dueAt!)}'}'
+              '${assignment.dueAt != null && assignment.isTeacherCreated ? ' · ' : ''}'
+              '${assignment.isTeacherCreated ? 'Maximum $maximum${assignment.gradingLocked ? ' (locked)' : ''}' : ''}',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          _AssignmentStatGrid(counts: counts),
         ],
       ),
     );
   }
 }
 
-class _AssignmentMetric extends StatelessWidget {
-  const _AssignmentMetric({required this.value, required this.label});
+class _AssignmentStatGrid extends StatelessWidget {
+  const _AssignmentStatGrid({required this.counts});
 
-  final int value;
-  final String label;
+  final TeacherAssignmentRosterCounts counts;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 112,
+    final stats = [
+      (
+        label: 'Turned in',
+        value: counts.turnedIn,
+        icon: FluentIcons.completed,
+        color: context.elixColors.brandPrimary,
+      ),
+      (
+        label: 'To Review',
+        value: counts.awaitingCheck,
+        icon: FluentIcons.review_request_solid,
+        color: context.elixColors.warning,
+      ),
+      (
+        label: 'Checked',
+        value: counts.checked,
+        icon: FluentIcons.completed_solid,
+        color: context.elixColors.success,
+      ),
+      (
+        label: 'Not turned in',
+        value: counts.notTurnedIn,
+        icon: FluentIcons.clock,
+        color: context.elixTextSecondary,
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 880
+            ? 4
+            : constraints.maxWidth >= 520
+            ? 2
+            : 1;
+        final tileWidth =
+            (constraints.maxWidth - (columns - 1) * AppSpacing.sm) / columns;
+        return Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final stat in stats)
+              SizedBox(
+                width: tileWidth,
+                child: _AssignmentStatTile(
+                  label: stat.label,
+                  value: '${stat.value}',
+                  icon: stat.icon,
+                  color: stat.color,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AssignmentStatTile extends StatelessWidget {
+  const _AssignmentStatTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return ElixPanelCard(
+      padding: const EdgeInsets.all(AppSpacing.smPlus),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(
-            '$value',
-            style: AppTheme.headingMedium.copyWith(
-              color: context.elixTextPrimary,
-            ),
-          ),
+          Icon(icon, size: 18, color: color),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
-            child: Text(
-              label,
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: AppTheme.headingMedium.copyWith(color: color),
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -925,18 +1030,26 @@ class _RosterState extends State<_Roster> {
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: [
-            for (final filter in _RosterFilter.values)
-              ToggleButton(
-                key: Key('teacher_classwork_filter_${filter.name}'),
-                checked: _filter == filter,
-                onChanged: (_) => setState(() => _filter = filter),
-                child: Text(_rosterFilterLabel(filter, entries)),
-              ),
-          ],
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.xs),
+          decoration: BoxDecoration(
+            color: context.elixColors.surfaceInteractive,
+            borderRadius: BorderRadius.circular(ElixRadius.card),
+            border: Border.all(color: context.elixColors.borderSubtle),
+          ),
+          child: Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children: [
+              for (final filter in _RosterFilter.values)
+                ToggleButton(
+                  key: Key('teacher_classwork_filter_${filter.name}'),
+                  checked: _filter == filter,
+                  onChanged: (_) => setState(() => _filter = filter),
+                  child: Text(_rosterFilterLabel(filter, entries)),
+                ),
+            ],
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         Expanded(
@@ -1040,13 +1153,19 @@ class _RosterState extends State<_Roster> {
                                   ),
                                 ),
                                 const SizedBox(width: AppSpacing.md),
+                                ElixToneLabel(
+                                  tone: _rosterTone(entry),
+                                  label: status,
+                                ),
+                                const SizedBox(width: AppSpacing.md),
                                 Text(
                                   entry.reviewState ==
                                           AssignmentReviewState.toReview
                                       ? 'Review'
                                       : 'View',
                                   style: AppTheme.caption.copyWith(
-                                    color: context.elixTextSecondary,
+                                    color: context.elixColors.brandPrimary,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 const SizedBox(width: AppSpacing.sm),
@@ -1119,6 +1238,13 @@ String _rosterReviewLabel(TeacherAssignmentRosterEntry entry) =>
         entry.deadlineState == AssignmentDeadlineState.overdue
             ? 'Overdue · Missing'
             : 'Not turned in',
+    };
+
+ElixTone _rosterTone(TeacherAssignmentRosterEntry entry) =>
+    switch (entry.reviewState) {
+      AssignmentReviewState.toReview => ElixTone.warning,
+      AssignmentReviewState.checked => ElixTone.success,
+      AssignmentReviewState.missing => ElixTone.error,
     };
 
 String _rosterStatusLine({

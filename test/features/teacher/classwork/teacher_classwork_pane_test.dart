@@ -161,6 +161,35 @@ void main() {
     expect(find.byKey(const Key('teacher_classwork_roster')), findsNothing);
   });
 
+  testWidgets(
+    'assignment overview is complete and overflow-free at desktop width',
+    (tester) async {
+      var editPressed = false;
+      await pumpPane(
+        tester,
+        const Size(1366, 768),
+        onEditAssignment: (_) => editPressed = true,
+      );
+
+      expect(find.text('Tin Balance'), findsOneWidget);
+    expect(find.text('Turned in'), findsWidgets);
+    expect(find.text('To Review'), findsWidgets);
+    expect(find.text('Checked'), findsWidgets);
+    expect(find.text('Not turned in'), findsWidgets);
+      expect(
+        find.byKey(const Key('teacher_classwork_filter_all')),
+        findsOneWidget,
+      );
+      expect(find.text('View'), findsNWidgets(2));
+
+      await tester.tap(
+        find.byKey(const Key('teacher_classwork_edit_assignment')),
+      );
+      expect(editPressed, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('targeted assignment roster excludes untargeted classmates', (
     tester,
   ) async {
