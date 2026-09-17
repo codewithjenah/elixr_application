@@ -11,10 +11,13 @@ class _UnusedAuthRepository extends Fake implements AuthRepositoryBase {}
 
 void main() {
   test(
-    'sidebar has one Sessions destination and no Calendar or History items',
+    'sidebar has one Plan & History destination and no Calendar or History items',
     () {
       final labels = elixSidebarItems.map((item) => item.label).toList();
-      expect(labels.where((label) => label == 'Sessions'), ['Sessions']);
+      expect(
+        labels.where((label) => label == 'Plan & History'),
+        ['Plan & History'],
+      );
       expect(labels.contains('Calendar'), isFalse);
       expect(labels.contains('History'), isFalse);
       expect(labels.contains('Assigned Movements'), isFalse);
@@ -31,10 +34,10 @@ void main() {
       );
       expect(playground.route, '/live-practice');
 
-      final sessions = elixSidebarItems.singleWhere(
-        (item) => item.label == 'Sessions',
+      final planAndHistory = elixSidebarItems.singleWhere(
+        (item) => item.label == 'Plan & History',
       );
-      expect(sessions.route, '/training');
+      expect(planAndHistory.route, '/training');
 
       final notifications = elixSidebarItems.singleWhere(
         (item) => item.label == 'Notifications',
@@ -44,7 +47,7 @@ void main() {
     },
   );
 
-  test('Sessions stays selected for planner and history paths', () {
+  test('Plan & History stays selected for planner and history paths', () {
     expect(isElixSidebarRouteActive('/training', '/training'), isTrue);
     expect(isElixSidebarRouteActive('/dashboard', '/training'), isFalse);
     expect(isElixSidebarRouteActive('/learn', '/training'), isFalse);
@@ -146,11 +149,11 @@ void main() {
     final pane = tester.widget<ElixSidebarPane>(find.byType(ElixSidebarPane));
     expect(pane.isCollapsed, isTrue);
 
-    final sessions = tester
+    final planAndHistory = tester
         .widgetList<ElixSidebarNavTile>(find.byType(ElixSidebarNavTile))
-        .firstWhere((tile) => tile.label == 'Sessions');
-    expect(sessions.isActive, isTrue);
-    expect(sessions.isCollapsed, isTrue);
+        .firstWhere((tile) => tile.label == 'Plan & History');
+    expect(planAndHistory.isActive, isTrue);
+    expect(planAndHistory.isCollapsed, isTrue);
   });
 
   testWidgets('trainee sidebar stays layout-safe through pane transitions', (

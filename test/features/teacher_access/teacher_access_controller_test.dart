@@ -39,6 +39,18 @@ class _TrackingGroupRepository extends InMemoryGroupRepository {
   }
 }
 
+class _CountingMembershipGroupRepository extends InMemoryGroupRepository {
+  int membershipWatchCalls = 0;
+
+  @override
+  Stream<List<GroupMembership>> watchTraineeMemberships({
+    required String traineeId,
+  }) {
+    membershipWatchCalls++;
+    return super.watchTraineeMemberships(traineeId: traineeId);
+  }
+}
+
 void main() {
   late InMemoryTeacherRelationshipRepository relationshipRepository;
   late InMemoryGroupRepository groupRepository;
@@ -84,6 +96,24 @@ void main() {
     expect(controller.resolvedGroupInvite, isNull);
     expect(controller.joinError, 'No class is using that code.');
     expect(controller.pendingJoinCount, 0);
+  });
+
+  test('concurrent start calls share one membership subscription', () async {
+    final tracked = _CountingMembershipGroupRepository();
+    final trackedController = TeacherAccessController(
+      groupRepository: tracked,
+      joinCodeResolver: JoinCodeResolver(groupRepository: tracked),
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+    );
+    addTearDown(trackedController.dispose);
+    addTearDown(tracked.dispose);
+
+    final first = trackedController.start();
+    final second = trackedController.start();
+    await Future.wait([first, second]);
+
+    expect(tracked.membershipWatchCalls, 1);
   });
 
   test('group invite resolves and creates pending membership', () async {

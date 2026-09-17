@@ -49,7 +49,7 @@ class TeacherAccessSection extends StatefulWidget {
 class TeacherAccessSectionState extends State<TeacherAccessSection> {
   TeacherAccessController? _owned;
   TeacherAccessController? _active;
-  bool _started = false;
+  TeacherAccessController? _startedController;
 
   TeacherAccessController? get _controller => widget.controller ?? _active;
 
@@ -95,10 +95,10 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
   }
 
   void _startIfNeeded() {
-    if (_started) return;
     final controller = _controller;
     if (controller == null) return;
-    _started = true;
+    if (identical(_startedController, controller)) return;
+    _startedController = controller;
     controller.start();
   }
 
@@ -115,7 +115,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.isActive && !_started) {
+    if (!widget.isActive && _startedController == null) {
       return const SizedBox.shrink();
     }
 
@@ -215,15 +215,18 @@ class _AccessControls extends StatelessWidget {
       );
     }
 
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: join),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(child: pending),
-        ],
-      ),
+    // [ElixPrimaryButton] uses LayoutBuilder to resolve its available width.
+    // IntrinsicHeight asks descendants for speculative dimensions, which
+    // LayoutBuilder intentionally rejects. Both workspace cards already share
+    // a minimum height, so normal Row layout preserves the desktop pairing
+    // without triggering an intrinsic measurement.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: join),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(child: pending),
+      ],
     );
   }
 }

@@ -45,6 +45,7 @@ class TraineeClassDetailController extends ChangeNotifier {
   final Map<String, StreamSubscription<PublicProfile?>> _profileSubs = {};
   final Map<String, String> _profilePictureUrls = {};
   bool _disposed = false;
+  Future<void>? _startInFlight;
   Future<void>? _assignmentsStart;
 
   String get className => group?.name ?? 'Class';
@@ -63,7 +64,19 @@ class TraineeClassDetailController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> start() async {
+  Future<void> start() {
+    if (_disposed) return Future<void>.value();
+    final inFlight = _startInFlight;
+    if (inFlight != null) return inFlight;
+    late final Future<void> future;
+    future = _runStart().whenComplete(() {
+      if (identical(_startInFlight, future)) _startInFlight = null;
+    });
+    _startInFlight = future;
+    return future;
+  }
+
+  Future<void> _runStart() async {
     loading = true;
     unauthorized = false;
     errorMessage = null;
@@ -82,6 +95,13 @@ class TraineeClassDetailController extends ChangeNotifier {
               errorMessage = 'Could not load this class.';
               if (!first.isCompleted) first.completeError(error);
               _safeNotifyListeners();
+            },
+            onDone: () {
+              if (!first.isCompleted) {
+                first.completeError(
+                  StateError('Classroom membership stream closed.'),
+                );
+              }
             },
           );
       await first.future;
@@ -138,6 +158,8 @@ class TraineeClassDetailController extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint('[TraineeClassDetail] getGroup failed: $error\n$stackTrace');
       }
+      errorMessage = 'Could not load this class.';
+      _safeNotifyListeners();
     }
   }
 

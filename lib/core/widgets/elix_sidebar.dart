@@ -60,7 +60,7 @@ const elixSidebarItems = [
     group: SidebarGroup.overview,
   ),
   SidebarItem(
-    label: 'Sessions',
+    label: 'Plan & History',
     icon: FluentIcons.calendar_agenda,
     route: AppRoutePaths.training,
     group: SidebarGroup.training,

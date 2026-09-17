@@ -53,6 +53,7 @@ class TeacherAccessController extends ChangeNotifier {
   String? resolvedGroupName;
   String? joinError;
   StreamSubscription<List<GroupMembership>>? _groupMembershipsSub;
+  Future<void>? _startInFlight;
   bool _disposed = false;
 
   List<GroupAssignment> assignmentsFor(String groupId) {
@@ -82,7 +83,19 @@ class TeacherAccessController extends ChangeNotifier {
       if (groupNamesById[membership.groupId]?.isActive == true) membership,
   ];
 
-  Future<void> start() async {
+  Future<void> start() {
+    if (_disposed) return Future<void>.value();
+    final inFlight = _startInFlight;
+    if (inFlight != null) return inFlight;
+    late final Future<void> future;
+    future = _runStart().whenComplete(() {
+      if (identical(_startInFlight, future)) _startInFlight = null;
+    });
+    _startInFlight = future;
+    return future;
+  }
+
+  Future<void> _runStart() async {
     loading = true;
     errorMessage = null;
     notifyListeners();
@@ -116,6 +129,13 @@ class TeacherAccessController extends ChangeNotifier {
               errorMessage = 'Could not load your classes.';
               if (!firstGroups.isCompleted) firstGroups.completeError(error);
               _safeNotifyListeners();
+            },
+            onDone: () {
+              if (!firstGroups.isCompleted) {
+                firstGroups.completeError(
+                  StateError('Classroom membership stream closed.'),
+                );
+              }
             },
           );
       await firstGroups.future;

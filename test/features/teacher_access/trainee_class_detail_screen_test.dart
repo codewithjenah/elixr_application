@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
@@ -13,11 +15,23 @@ import 'package:elixr_application/features/teacher_access/trainee_class_detail_s
 import 'package:elixr_application/features/assigned_movements/assigned_movement_list.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_controller.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_movements_screen.dart';
+import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+
+class _UnusedAuthRepository extends Fake implements AuthRepositoryBase {}
+
+class _FailingMembershipRepository extends InMemoryGroupRepository {
+  @override
+  Stream<List<GroupMembership>> watchTraineeMemberships({
+    required String traineeId,
+  }) => Stream<List<GroupMembership>>.error(
+    StateError('membership query failed'),
+  );
+}
 
 Future<GoRouter> pumpClassDetail(
   WidgetTester tester, {
@@ -578,6 +592,128 @@ void main() {
       groupRepository: groupRepository,
       assignmentRepository: assignmentRepository,
     );
+
+    expect(
+      find.byKey(const Key('teacher_access_class_unauthorized')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('membership stream failure shows a retry action', (tester) async {
+    final failingRepository = _FailingMembershipRepository();
+    final controller = TraineeClassDetailController(
+      groupId: 'group-1',
+      traineeId: 'trainee-1',
+      groupRepository: failingRepository,
+      assignmentRepository: assignmentRepository,
+    );
+    addTearDown(controller.dispose);
+    addTearDown(failingRepository.dispose);
+    await controller.start();
+
+    await pumpClassDetail(
+      tester,
+      controller: controller,
+      groupRepository: failingRepository,
+      assignmentRepository: assignmentRepository,
+    );
+
+    expect(find.text('Could not load classroom'), findsOneWidget);
+    expect(find.text('Could not load this class.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets(
+    'initializes detail when authentication becomes ready after mount',
+    (tester) async {
+      final group = await approvedClass(name: 'Delayed Detail Class');
+      final auth = AuthService(repository: _UnusedAuthRepository());
+      addTearDown(auth.dispose);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthService>.value(value: auth),
+              Provider<GroupRepository>.value(value: groupRepository),
+              Provider<ClassroomAssignmentRepository>.value(
+                value: assignmentRepository,
+              ),
+            ],
+            child: TraineeClassDetailScreen(
+              groupId: group.id,
+              initialTab: 'classwork',
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(ProgressRing), findsOneWidget);
+
+      auth.seedAuthenticatedUser(
+        const User(
+          id: 'trainee-1',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          email: 'ada@example.test',
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Delayed Detail Class'), findsOneWidget);
+      expect(find.byType(ProgressRing), findsNothing);
+    },
+  );
+
+  testWidgets('replaces detail state when the authenticated account changes', (
+    tester,
+  ) async {
+    final group = await approvedClass(name: 'Account One Detail');
+    final auth = AuthService(repository: _UnusedAuthRepository())
+      ..seedAuthenticatedUser(
+        const User(
+          id: 'trainee-1',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          email: 'ada@example.test',
+        ),
+      );
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthService>.value(value: auth),
+            Provider<GroupRepository>.value(value: groupRepository),
+            Provider<ClassroomAssignmentRepository>.value(
+              value: assignmentRepository,
+            ),
+          ],
+          child: TraineeClassDetailScreen(
+            groupId: group.id,
+            initialTab: 'classwork',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Account One Detail'), findsOneWidget);
+
+    auth.seedAuthenticatedUser(
+      const User(
+        id: 'trainee-2',
+        firstName: 'Bea',
+        lastName: 'Trainee',
+        email: 'bea@example.test',
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(
       find.byKey(const Key('teacher_access_class_unauthorized')),

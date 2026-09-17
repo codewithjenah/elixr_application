@@ -26,6 +26,18 @@ GroupAssignment _assignment({required String id, required String groupId}) {
   );
 }
 
+class _CountingMembershipGroupRepository extends InMemoryGroupRepository {
+  int membershipWatchCalls = 0;
+
+  @override
+  Stream<List<GroupMembership>> watchTraineeMemberships({
+    required String traineeId,
+  }) {
+    membershipWatchCalls++;
+    return super.watchTraineeMemberships(traineeId: traineeId);
+  }
+}
+
 void main() {
   late InMemoryGroupRepository groupRepository;
   late InMemoryClassroomAssignmentRepository assignmentRepository;
@@ -108,6 +120,24 @@ void main() {
       'trainee-1',
       'trainee-2',
     });
+  });
+
+  test('concurrent start calls share one membership subscription', () async {
+    final tracked = _CountingMembershipGroupRepository();
+    final controller = TraineeClassDetailController(
+      groupId: 'group-1',
+      traineeId: 'trainee-1',
+      groupRepository: tracked,
+      assignmentRepository: assignmentRepository,
+    );
+    addTearDown(controller.dispose);
+    addTearDown(tracked.dispose);
+
+    final first = controller.start();
+    final second = controller.start();
+    await Future.wait([first, second]);
+
+    expect(tracked.membershipWatchCalls, 1);
   });
 
   test('maps classmate public profile pictures', () async {

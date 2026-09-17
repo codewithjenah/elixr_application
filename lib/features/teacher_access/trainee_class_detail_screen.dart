@@ -51,6 +51,8 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
   TraineeClassDetailController? _owned;
   ClassroomAnnouncementsController? _ownedAnnouncements;
   late final bool _ownsController;
+  AuthService? _authService;
+  int? _ownedSessionGeneration;
 
   TraineeClassDetailController? get _controller => widget.controller ?? _owned;
   ClassroomAnnouncementsController? get _announcementsController =>
@@ -65,37 +67,71 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!_ownsController) {
+      _syncOwnedControllersToAuth();
+      return;
+    }
+    final authService = context.read<AuthService>();
+    if (!identical(_authService, authService)) {
+      _authService?.removeListener(_onAuthChanged);
+      _authService = authService..addListener(_onAuthChanged);
+    }
+    _syncOwnedControllersToAuth();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (_syncOwnedControllersToAuth()) setState(() {});
+  }
+
+  bool _syncOwnedControllersToAuth() {
     final injected = widget.controller;
-    if (_ownsController && _owned == null) {
-      final traineeId = context.read<AuthService>().currentUser?.id;
-      if (traineeId == null) return;
-      PublicProfileRepository? publicProfileRepository;
-      try {
-        publicProfileRepository = context.read<PublicProfileRepository>();
-      } on ProviderNotFoundException {
-        publicProfileRepository = null;
+    var changed = false;
+    if (_ownsController) {
+      final authService = _authService;
+      if (authService == null) return false;
+      final traineeId = authService.currentUser?.id?.trim();
+      final sessionGeneration = authService.accountSessionGeneration;
+      if (traineeId == null || traineeId.isEmpty) {
+        if (_owned != null || _ownedAnnouncements != null) {
+          _disposeOwnedControllers();
+          changed = true;
+        }
+        return changed;
       }
-      AssignmentSubmissionRepository? submissionRepository;
-      try {
-        submissionRepository = context.read<AssignmentSubmissionRepository>();
-      } on ProviderNotFoundException {
-        submissionRepository = null;
+      if (_owned?.traineeId != traineeId ||
+          _ownedSessionGeneration != sessionGeneration) {
+        _disposeOwnedControllers();
+        PublicProfileRepository? publicProfileRepository;
+        try {
+          publicProfileRepository = context.read<PublicProfileRepository>();
+        } on ProviderNotFoundException {
+          publicProfileRepository = null;
+        }
+        AssignmentSubmissionRepository? submissionRepository;
+        try {
+          submissionRepository = context.read<AssignmentSubmissionRepository>();
+        } on ProviderNotFoundException {
+          submissionRepository = null;
+        }
+        _owned =
+            TraineeClassDetailController(
+                groupId: widget.groupId,
+                traineeId: traineeId,
+                groupRepository: context.read<GroupRepository>(),
+                assignmentRepository: context
+                    .read<ClassroomAssignmentRepository>(),
+                submissionRepository: submissionRepository,
+                publicProfileRepository: publicProfileRepository,
+              )
+              ..setTab(_traineeTabFromQuery(widget.initialTab))
+              ..start();
+        _ownedSessionGeneration = sessionGeneration;
+        changed = true;
       }
-      _owned =
-          TraineeClassDetailController(
-              groupId: widget.groupId,
-              traineeId: traineeId,
-              groupRepository: context.read<GroupRepository>(),
-              assignmentRepository: context
-                  .read<ClassroomAssignmentRepository>(),
-              submissionRepository: submissionRepository,
-              publicProfileRepository: publicProfileRepository,
-            )
-            ..setTab(_traineeTabFromQuery(widget.initialTab))
-            ..start();
     }
     final traineeId = injected?.traineeId ?? _owned?.traineeId;
-    if (traineeId == null || _announcementsController != null) return;
+    if (traineeId == null || _announcementsController != null) return changed;
     ClassroomAnnouncementRepository? announcements;
     try {
       announcements = context.read<ClassroomAnnouncementRepository>();
@@ -110,13 +146,23 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
         canManage: false,
         isGroupActive: () => _controller?.group?.isActive == true,
       )..start();
+      changed = true;
     }
+    return changed;
+  }
+
+  void _disposeOwnedControllers() {
+    _owned?.dispose();
+    _owned = null;
+    _ownedAnnouncements?.dispose();
+    _ownedAnnouncements = null;
+    _ownedSessionGeneration = null;
   }
 
   @override
   void dispose() {
-    _owned?.dispose();
-    _ownedAnnouncements?.dispose();
+    _authService?.removeListener(_onAuthChanged);
+    _disposeOwnedControllers();
     super.dispose();
   }
 
@@ -124,7 +170,19 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(content: Center(child: ProgressRing()));
+      final waitingForAuth =
+          _authService?.initializationState ==
+              AuthInitializationState.loading ||
+          _authService?.isLoading == true;
+      return ElixScaffoldPage(
+        content: waitingForAuth
+            ? const Center(child: ProgressRing())
+            : const ElixStatusPanel(
+                icon: FluentIcons.contact,
+                title: 'Sign in required',
+                message: 'Sign in to view this class.',
+              ),
+      );
     }
     return AnimatedBuilder(
       animation: Listenable.merge([controller, ?_announcementsController]),
@@ -208,7 +266,14 @@ class _ClassDetailBody extends StatelessWidget {
     if (controller.errorMessage != null &&
         controller.classmates.isEmpty &&
         (controller.assignments?.items.isEmpty ?? true)) {
-      return ElixStatusPanel(message: controller.errorMessage!, isError: true);
+      return ElixStatusPanel(
+        message: controller.errorMessage!,
+        isError: true,
+        icon: FluentIcons.error_badge,
+        title: 'Could not load classroom',
+        actionLabel: 'Retry',
+        onAction: controller.start,
+      );
     }
 
     return Column(

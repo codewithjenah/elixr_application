@@ -8,11 +8,43 @@ import 'package:elixr_application/data/repositories/in_memory_classroom_assignme
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_controller.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_section.dart';
+import 'package:elixr_application/features/teacher_access/join_teacher_screen.dart';
+import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/join_code_resolver.dart';
+import 'package:elixr_application/services/join_link_service.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+
+class _UnusedAuthRepository extends Fake implements AuthRepositoryBase {}
+
+class _TrackingMembershipRepository extends InMemoryGroupRepository {
+  _TrackingMembershipRepository({this.fail = false});
+
+  final bool fail;
+  int watchCalls = 0;
+
+  @override
+  Stream<List<GroupMembership>> watchTraineeMemberships({
+    required String traineeId,
+  }) {
+    watchCalls++;
+    if (fail) {
+      return Stream<List<GroupMembership>>.error(
+        StateError('membership query failed'),
+      );
+    }
+    return super.watchTraineeMemberships(traineeId: traineeId);
+  }
+}
+
+User _trainee(String id, String firstName) => User(
+  id: id,
+  firstName: firstName,
+  lastName: 'Trainee',
+  email: '$id@example.test',
+);
 
 Future<void> pumpAccess(
   WidgetTester tester,
@@ -124,6 +156,149 @@ void main() {
     relationshipRepository.dispose();
     groupRepository.dispose();
     assignments.dispose();
+  });
+
+  testWidgets('initializes when authentication becomes ready after mount', (
+    tester,
+  ) async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'Delayed Auth Class',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    final membership = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Trainee',
+      code: invite!.normalizedCode,
+    );
+    await groupRepository.approveMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+    final auth = AuthService(repository: _UnusedAuthRepository());
+    final links = JoinLinkService();
+    addTearDown(auth.dispose);
+    addTearDown(links.dispose);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthService>.value(value: auth),
+            Provider<GroupRepository>.value(value: groupRepository),
+            Provider<JoinCodeResolver>.value(value: joinCodeResolver),
+            ChangeNotifierProvider<JoinLinkService>.value(value: links),
+          ],
+          child: const TeacherAccessScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Preparing your classrooms.'), findsOneWidget);
+
+    auth.seedAuthenticatedUser(_trainee('trainee-1', 'Ada'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Delayed Auth Class'), findsOneWidget);
+    expect(find.text('Preparing your classrooms.'), findsNothing);
+  });
+
+  testWidgets(
+    'replaces classroom state when the authenticated account changes',
+    (tester) async {
+      Future<void> approveClass(String traineeId, String className) async {
+        final group = await groupRepository.createGroup(
+          teacherId: 'teacher-1',
+          teacherDisplayName: 'Grace Hopper',
+          name: className,
+        );
+        final invite = await groupRepository.getActiveGroupInvite(
+          groupId: group.id,
+        );
+        final membership = await groupRepository.requestGroupJoin(
+          traineeId: traineeId,
+          traineeDisplayName: '$traineeId Trainee',
+          code: invite!.normalizedCode,
+        );
+        await groupRepository.approveMembership(
+          membershipId: membership.id,
+          teacherId: 'teacher-1',
+        );
+      }
+
+      await approveClass('trainee-1', 'Account One Class');
+      await approveClass('trainee-2', 'Account Two Class');
+      final auth = AuthService(repository: _UnusedAuthRepository())
+        ..seedAuthenticatedUser(_trainee('trainee-1', 'Ada'));
+      final links = JoinLinkService();
+      addTearDown(auth.dispose);
+      addTearDown(links.dispose);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthService>.value(value: auth),
+              Provider<GroupRepository>.value(value: groupRepository),
+              Provider<JoinCodeResolver>.value(value: joinCodeResolver),
+              ChangeNotifierProvider<JoinLinkService>.value(value: links),
+            ],
+            child: const TeacherAccessScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Account One Class'), findsOneWidget);
+      expect(find.text('Account Two Class'), findsNothing);
+
+      auth.seedAuthenticatedUser(_trainee('trainee-2', 'Bea'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Account One Class'), findsNothing);
+      expect(find.text('Account Two Class'), findsOneWidget);
+
+      auth.handleFirebaseAuthIdentityChanged(null);
+      await tester.pump();
+
+      expect(find.text('Account Two Class'), findsNothing);
+      expect(find.text('Sign in required'), findsOneWidget);
+    },
+  );
+
+  testWidgets('membership stream failure shows the recoverable error UI', (
+    tester,
+  ) async {
+    final failingRepository = _TrackingMembershipRepository(fail: true);
+    final failingResolver = JoinCodeResolver(
+      groupRepository: failingRepository,
+    );
+    final failingController = TeacherAccessController(
+      groupRepository: failingRepository,
+      joinCodeResolver: failingResolver,
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+    );
+    addTearDown(failingController.dispose);
+    addTearDown(failingRepository.dispose);
+
+    await pumpAccess(
+      tester,
+      failingController,
+      groupRepository: failingRepository,
+      joinCodeResolver: failingResolver,
+    );
+
+    expect(find.text('Could not load classrooms'), findsOneWidget);
+    expect(find.text('Could not load your classes.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
   });
 
   testWidgets('resolves class and requires explicit join confirmation', (

@@ -30,14 +30,44 @@ typedef JoinTeacherScreen = TeacherAccessScreen;
 
 class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
   TeacherAccessController? _controller;
+  AuthService? _authService;
+  int? _controllerSessionGeneration;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_controller != null) return;
-    final user = context.read<AuthService>().currentUser;
-    final userId = user?.id;
-    if (user == null || userId == null) return;
+    final authService = context.read<AuthService>();
+    if (!identical(_authService, authService)) {
+      _authService?.removeListener(_onAuthChanged);
+      _authService = authService..addListener(_onAuthChanged);
+    }
+    _syncControllerToAuth();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (_syncControllerToAuth()) setState(() {});
+  }
+
+  bool _syncControllerToAuth() {
+    final authService = _authService;
+    if (authService == null) return false;
+    final user = authService.currentUser;
+    final userId = user?.id?.trim();
+    final sessionGeneration = authService.accountSessionGeneration;
+    final current = _controller;
+    if (user == null || userId == null || userId.isEmpty) {
+      if (current == null) return false;
+      current.dispose();
+      _controller = null;
+      _controllerSessionGeneration = null;
+      return true;
+    }
+    if (current?.traineeId == userId &&
+        _controllerSessionGeneration == sessionGeneration) {
+      return false;
+    }
+    current?.dispose();
     final links = context.read<JoinLinkService>();
     ClassroomAssignmentRepository? assignmentRepository;
     PublicProfileRepository? publicProfileRepository;
@@ -62,12 +92,15 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
       assignmentRepository: assignmentRepository,
       publicProfileRepository: publicProfileRepository,
     );
+    _controllerSessionGeneration = sessionGeneration;
     final code = links.pendingCode;
     if (code != null) _controller!.prefillCode(code);
+    return true;
   }
 
   @override
   void dispose() {
+    _authService?.removeListener(_onAuthChanged);
     _controller?.dispose();
     super.dispose();
   }
@@ -105,11 +138,24 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
                       const _ClassroomPageHeader(),
                       const SizedBox(height: AppSpacing.lg),
                       if (controller == null)
-                        const ElixStatusPanel(
-                          isLoading: true,
+                        ElixStatusPanel(
+                          isLoading:
+                              _authService?.initializationState ==
+                                  AuthInitializationState.loading ||
+                              _authService?.isLoading == true,
                           icon: FluentIcons.people,
-                          title: 'Loading classroom',
-                          message: 'Preparing your classrooms.',
+                          title:
+                              _authService?.initializationState ==
+                                      AuthInitializationState.loading ||
+                                  _authService?.isLoading == true
+                              ? 'Loading classroom'
+                              : 'Sign in required',
+                          message:
+                              _authService?.initializationState ==
+                                      AuthInitializationState.loading ||
+                                  _authService?.isLoading == true
+                              ? 'Preparing your classrooms.'
+                              : 'Sign in to view your classes.',
                         )
                       else
                         TeacherAccessSection(
