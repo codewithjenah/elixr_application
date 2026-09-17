@@ -2114,6 +2114,177 @@ def _bottle_supported_at(point: Point2D) -> BottleDetection:
     )
 
 
+@pytest.mark.parametrize(
+    "left,elbow_x",
+    [(True, 0.40), (False, 0.60)],
+)
+def test_elbow_stall_support_contact_on_elbow_succeeds(
+    left: bool,
+    elbow_x: float,
+):
+    elbow = Point2D(elbow_x, 0.40)
+    wrist = Point2D(elbow_x, 0.70)
+    bottle = _bottle_supported_at(elbow)
+
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _arm_pose(left=left, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.ELBOW_STALL_LOCKED.value
+    assert result.feedback == "Elbow stall locked in."
+    assert result.posture_status == "stable"
+
+
+def test_elbow_stall_stable_prop_beside_elbow_does_not_lock():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    bottle = _bottle_supported_at(Point2D(0.57, 0.40))
+
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle, frames=20),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value
+    assert result.posture_status == "unstable"
+    assert result.criterion_results is not None
+    assert result.criterion_results["prop_positioning"].satisfied is False
+    assert result.criterion_results["stability"].satisfied is True
+
+
+def test_elbow_stall_valid_contact_still_requires_stability():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    bottle = _bottle_supported_at(elbow)
+    state = None
+    for i in range(6):
+        moving = _bottle_supported_at(Point2D(0.35 + i * 0.05, 0.40))
+        state, _ = track_bottle_stability(state, moving)
+
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        state,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_STEADY.value
+    assert result.posture_status == "unstable"
+
+
+def test_elbow_stall_rejects_ordinary_mid_forearm_placement():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    bottle = _bottle_supported_at(Point2D(0.50, 0.55))
+
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value
+
+
+def test_elbow_stall_rejects_bbox_center_near_elbow_when_support_is_off_target():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    # This 80 px-tall prop has its bbox center at y=0.40 (the elbow), while
+    # its actual bottom support point is about 0.083 below the joint.
+    bottle = _bottle_supported_at(Point2D(0.50, 232 / 480))
+
+    assert bottle.center_normalized(640, 480).y == pytest.approx(elbow.y)
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value
+
+
+@pytest.mark.parametrize("contact_y", [0.30, 0.50])
+def test_elbow_stall_rejects_support_beyond_elbow_region(contact_y: float):
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    bottle = _bottle_supported_at(Point2D(0.50, contact_y))
+
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value
+
+
+def test_elbow_stall_max_calibration_does_not_reopen_off_elbow_region():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    # The old bbox-center distance is about 0.27: outside the base 0.22
+    # radius, but inside the 0.352 radius produced by maximum calibration.
+    bottle = _bottle_supported_at(Point2D(0.76, 0.40))
+    state = _stable_state(bottle)
+    state["calibration_scale"] = 1.6
+
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        state,
+        calibration_scale=1.6,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value
+    assert result.posture_status == "unstable"
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        {13: Point2D(0.50, 0.40)},
+        {15: Point2D(0.50, 0.70)},
+    ],
+)
+def test_elbow_stall_incomplete_arm_is_uncertain(points: dict[int, Point2D]):
+    bottle = _bottle_supported_at(Point2D(0.50, 0.40))
+
+    result, _, _ = evaluate_movement(
+        "Elbow Stall",
+        bottle,
+        _pose_from_points(points),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.POSE_ARM_NOT_VISIBLE.value
+    assert result.posture_status == "unknown"
+    assert result.criterion_results is None
+
+
 def test_forearm_stall_support_contact_on_mid_forearm_succeeds():
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)

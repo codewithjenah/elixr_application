@@ -186,8 +186,17 @@ YOLO_IMGSZ = _load_yolo_imgsz()
 
 HAND_BOTTLE_PROXIMITY = 0.15
 STALL_PROXIMITY = 0.12
-# Wider tolerance for arm/elbow stalls, which rest away from the palm.
+# Wider legacy tolerance retained for Double Forearm Stall positioning.
 ARM_STALL_PROXIMITY = 0.22
+# Elbow Stall uses the prop's bottom support point, not its bounding-box
+# center. Keep its calibrated contact radius local to the elbow joint and cap
+# the scaled value so a large calibration cannot recreate the generic 0.22
+# arm-stall acceptance zone. Along fractions are measured elbow -> wrist and
+# describe anatomy, so they are intentionally not calibration-scaled.
+ELBOW_STALL_CONTACT_DISTANCE = 0.045
+ELBOW_STALL_MAX_SCALED_CONTACT_DISTANCE = 0.06
+ELBOW_STALL_MIN_ALONG_FRACTION = -0.10
+ELBOW_STALL_MAX_ALONG_FRACTION = 0.18
 # Unused dead config (kept for a later cleanup). Do not scale it in this task.
 POSE_STALL_PROXIMITY = 0.18
 # Max bottle drift (normalized) allowed while a stall is held.
@@ -196,6 +205,7 @@ STALL_STABILITY_THRESHOLD = 0.06
 # Per-session proximity calibration. Scale = observed / reference, clamped
 # to [CALIBRATION_SCALE_MIN, CALIBRATION_SCALE_MAX] before multiplying
 # HAND_BOTTLE_PROXIMITY / STALL_* / ARM_STALL_* /
+# ELBOW_STALL_CONTACT_DISTANCE /
 # FOREARM_STALL_MAX_CONTACT_DISTANCE /
 # REVERSE_FOREARM_MAX_CONTACT_DISTANCE / SHOULDER_STALL_PROXIMITY.
 #
