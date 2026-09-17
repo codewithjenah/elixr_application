@@ -2,7 +2,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
@@ -31,23 +30,23 @@ class DashboardHero extends StatelessWidget {
   final TrainingRecommendation? recommendation;
 
   /// Content width at which CTAs stay on one compact row.
-  static const double _inlineCtaBreakpoint = 620;
+  static const double _inlineCtaBreakpoint = 560;
 
   /// Below this, full-width stacked CTAs are acceptable.
   static const double _narrowCtaBreakpoint = 520;
 
   /// Prefer the named "Practice …" label when the hero content is wide enough.
-  static const double _fullPrimaryLabelBreakpoint = 560;
+  static const double _fullPrimaryLabelBreakpoint = 480;
 
-  /// Smallest hero width that preserves the 226px slogan reservation while
-  /// leaving enough room for readable, stacked CTA content.
-  static const double _sloganVisibilityBreakpoint = 840;
+  /// The photo is deliberately a compact decision surface rather than a
+  /// second page header. This keeps the next practice visible above the fold.
+  static const double _bannerWidthToHeight = 3.6;
+  static const double _minImageLedHeight = 340.0;
+  static const double _maxBannerHeight = 400.0;
+  static const double _heroContentMaxWidth = 500.0;
 
-  /// Banner art is ~16:9; a taller hero on wide layouts avoids cropping the subject.
-  static const double _bannerWidthToHeight = 3.4;
-  static const double _minImageLedHeight = 280.0;
-  static const double _maxBannerHeight = 340.0;
-  static const double _heroContentMaxWidth = 720.0;
+  /// One deliberately contained brand moment balances the photo-led hero.
+  static const double _sloganVisibilityBreakpoint = 880;
 
   /// Keeps the bartender's face and pour action in frame when cover-cropping.
   static const Alignment _bannerAlignment = Alignment(0.58, -0.38);
@@ -131,29 +130,27 @@ class DashboardHero extends StatelessWidget {
                       alignment: _bannerAlignment,
                     ),
                   ),
-                  // A single restrained wash protects copy without turning the
-                  // dashboard into another gradient-heavy surface.
+                  // A single restrained wash protects copy without turning
+                  // the dashboard into another gradient-heavy surface.
                   const Positioned.fill(
                     child: ColoredBox(color: Color(0x9E17111E)),
                   ),
                 ],
                 if (showSlogan)
                   Positioned(
-                    right: 18,
-                    top: 62,
-                    height: 154,
-                    width: 194,
-                    child: Semantics(
-                      image: true,
-                      label: 'Discipline creates freedom',
-                      child: Image.asset(
-                        'assets/slogan_2.png',
-                        key: const ValueKey('dashboard-hero-slogan'),
-                        // Contain keeps the full three-line artwork visible;
-                        // cover would crop the first and last letters.
-                        fit: BoxFit.contain,
-                        alignment: Alignment.center,
-                        filterQuality: FilterQuality.high,
+                    right: AppSpacing.lg,
+                    bottom: AppSpacing.md,
+                    width: 330,
+                    child: IgnorePointer(
+                      child: Semantics(
+                        image: true,
+                        label: 'Better bartenders, brighter tomorrows',
+                        child: Image.asset(
+                          'assets/slogan_3.png',
+                          key: const ValueKey('dashboard-hero-slogan'),
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                        ),
                       ),
                     ),
                   ),
@@ -161,16 +158,21 @@ class DashboardHero extends StatelessWidget {
                   padding: EdgeInsets.fromLTRB(
                     AppSpacing.lg,
                     AppSpacing.lg,
-                    showSlogan ? 226 : AppSpacing.lg,
+                    AppSpacing.lg,
                     AppSpacing.lg,
                   ),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final contentWidth = constraints.maxWidth;
-                      final inlineCtas = contentWidth >= _inlineCtaBreakpoint;
+                      final ctaContentWidth =
+                          contentWidth < _heroContentMaxWidth
+                          ? contentWidth
+                          : _heroContentMaxWidth;
+                      final inlineCtas =
+                          ctaContentWidth >= _inlineCtaBreakpoint;
                       final stretchStacked =
-                          contentWidth < _narrowCtaBreakpoint;
-                      final primaryLabel = _primaryLabelFor(contentWidth);
+                          ctaContentWidth < _narrowCtaBreakpoint;
+                      final primaryLabel = _primaryLabelFor(ctaContentWidth);
                       final onPhoto = !highContrast;
 
                       return Align(
@@ -186,9 +188,7 @@ class DashboardHero extends StatelessWidget {
                               Text(
                                 '✦  PRACTICE TODAY',
                                 style: AppTheme.eyebrow(
-                                  color: onPhoto
-                                      ? AppColors.primarySoft
-                                      : context.elixColors.brandPrimary,
+                                  color: context.elixColors.brandPrimary,
                                 ),
                               ),
                               const SizedBox(height: 7),
@@ -240,6 +240,9 @@ class DashboardHero extends StatelessWidget {
                                 inline: inlineCtas,
                                 stretchWhenStacked: stretchStacked,
                                 primaryLabel: primaryLabel,
+                                showSecondary:
+                                    recommendation?.hasRunnablePractice ??
+                                    false,
                                 onPrimary: () => _startRecommended(context),
                                 onSecondary: () => _exploreMovements(context),
                               ),
@@ -264,6 +267,7 @@ class _HeroCtaRow extends StatelessWidget {
     required this.inline,
     required this.stretchWhenStacked,
     required this.primaryLabel,
+    required this.showSecondary,
     required this.onPrimary,
     required this.onSecondary,
   });
@@ -271,6 +275,7 @@ class _HeroCtaRow extends StatelessWidget {
   final bool inline;
   final bool stretchWhenStacked;
   final String primaryLabel;
+  final bool showSecondary;
   final VoidCallback onPrimary;
   final VoidCallback onSecondary;
 
@@ -289,6 +294,8 @@ class _HeroCtaRow extends StatelessWidget {
       onPressed: onSecondary,
       expand: !inline && stretchWhenStacked,
     );
+
+    if (!showSecondary) return primary;
 
     if (inline) {
       return Row(
@@ -318,12 +325,15 @@ class _SessionStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final unit = sessionCount == 1 ? 'session' : 'sessions';
+    final color = context.isHighContrast
+        ? context.elixTextSecondary
+        : Colors.white.withValues(alpha: 0.68);
     return Text(
       '$sessionCount $unit completed',
       style: TextStyle(
         fontSize: 10.5,
         fontWeight: FontWeight.w600,
-        color: Colors.white.withValues(alpha: 0.68),
+        color: color,
       ),
     );
   }

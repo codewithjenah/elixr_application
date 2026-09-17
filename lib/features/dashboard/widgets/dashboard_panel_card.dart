@@ -33,9 +33,9 @@ class DashboardPanelCard extends StatelessWidget {
       padding: padding ?? const EdgeInsets.all(AppSpacing.md),
       showAccentBar: showAccentBar,
       expand: expand,
-      variant: showAccentBar
-          ? ElixPanelVariant.hero
-          : ElixPanelVariant.elevated,
+      // Dashboard sections rely on tonal separation and spacing. Only an
+      // explicit accent rail earns the slightly raised hero treatment.
+      variant: showAccentBar ? ElixPanelVariant.hero : ElixPanelVariant.normal,
       child: child,
     );
   }

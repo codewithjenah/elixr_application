@@ -101,12 +101,9 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       ]),
       builder: (context, _) {
         return TeacherScaffoldPage(
-          header: const ElixEditorialPageHeader(
-            heading: 'Dashboard',
-            eyebrow: 'TEACHER WORKSPACE',
-            subtitle: 'Your classrooms and review work in one place.',
-            variant: ElixEditorialHeaderVariant.standard,
-          ),
+          // The command header in the body is the single dashboard greeting.
+          // Avoid a stacked editorial page title above it.
+          header: const SizedBox.shrink(),
           content: controller.loading
               ? const Center(child: ProgressRing())
               : controller.errorMessage != null
@@ -149,7 +146,7 @@ class _DashboardBody extends StatelessWidget {
             // Keep the rail visible at medium desktop widths. The dashboard
             // cards are designed for this split; only narrow windows become a
             // single document column.
-            final wide = constraints.maxWidth >= 760;
+            final wide = constraints.maxWidth >= 1040;
             final gettingStarted = _GettingStartedModel.from(
               controller: controller,
               analyticsController: analyticsController,
@@ -196,9 +193,10 @@ class _TeacherCommandHeader extends StatelessWidget {
     final name = teacher?.fullName.trim();
     final displayName = name == null || name.isEmpty ? 'Teacher' : name;
     return ElixPanelCard(
-      accent: context.elixColors.brandPrimary,
-      showAccentBar: true,
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.smPlus,
+      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 650;
@@ -741,9 +739,9 @@ class _DashboardMetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = ElixPanelCard(
-      accent: metric.tone,
+      accent: metric.emphasis ? metric.tone : null,
       showAccentBar: metric.emphasis,
-      padding: const EdgeInsets.all(AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.smPlus),
       child: Row(
         children: [
           Container(
@@ -867,9 +865,9 @@ class _DashboardContent extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(flex: 3, child: main),
+        Expanded(flex: 7, child: main),
         const SizedBox(width: AppSpacing.lg),
-        Expanded(flex: 2, child: rail),
+        Expanded(flex: 3, child: rail),
       ],
     );
   }

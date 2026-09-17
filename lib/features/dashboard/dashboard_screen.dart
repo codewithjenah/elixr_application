@@ -63,12 +63,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   SessionService? _sessionService;
   AuthService? _authService;
 
-  static const _maxContentWidth = 1440.0;
-  // The page has 48px horizontal chrome at its narrowest desktop size. This
-  // keeps the two-column composition available around a 1100px window without
-  // forcing either column below its useful content width.
-  static const _wideBreakpoint = 1040.0;
-  static const _railWidth = 350.0;
+  static const _maxContentWidth = 1360.0;
+  // A 340px rail remains readable, while the main training column retains
+  // roughly two-thirds of the available desktop width.
+  static const _wideBreakpoint = 1160.0;
+  static const _railWidth = 340.0;
 
   @override
   void initState() {

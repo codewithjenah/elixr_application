@@ -228,11 +228,6 @@ void main() {
     expect(find.text('Build control. Move with confidence.'), findsOneWidget);
     expect(find.text('3 sessions completed'), findsOneWidget);
     expect(find.byKey(const ValueKey('dashboard-hero-slogan')), findsOneWidget);
-    final heroSlogan = tester.widget<Image>(
-      find.byKey(const ValueKey('dashboard-hero-slogan')),
-    );
-    expect((heroSlogan.image as AssetImage).assetName, 'assets/slogan_2.png');
-    expect(heroSlogan.fit, BoxFit.contain);
   });
 
   testWidgets('trainee hero remains overflow-free at compact width', (
@@ -265,7 +260,7 @@ void main() {
   });
 
   testWidgets(
-    'trainee hero keeps the slogan with an expanded-sidebar-width recommendation',
+    'trainee hero keeps its recommendation compact at expanded-sidebar width',
     (tester) async {
       await _setSurface(tester, const Size(850, 800));
       final recommendation = buildTrainingRecommendation(
@@ -295,15 +290,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('dashboard-hero-slogan')),
-        findsOneWidget,
-      );
-      final heroSlogan = tester.widget<Image>(
-        find.byKey(const ValueKey('dashboard-hero-slogan')),
-      );
-      expect((heroSlogan.image as AssetImage).assetName, 'assets/slogan_2.png');
-      expect(heroSlogan.fit, BoxFit.contain);
+      expect(find.byKey(const ValueKey('dashboard-hero-slogan')), findsNothing);
       expect(find.text('Practice Normal Grip'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -385,12 +372,9 @@ void main() {
       );
       await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('dashboard-hero-slogan')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('dashboard-hero-slogan')), findsNothing);
       expect(find.text('Start Recommended Practice'), findsOneWidget);
-      expect(find.text('Explore Movements'), findsOneWidget);
+      expect(find.text('Explore Movements'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -421,6 +405,34 @@ void main() {
     expect(find.text('Start Recommended Practice'), findsOneWidget);
   });
 
+  testWidgets('high contrast light trainee hero keeps session copy legible', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    await tester.pumpWidget(
+      _app(
+        const SizedBox(
+          width: 1100,
+          child: DashboardHero(
+            firstName: 'Ada',
+            greeting: 'Good Morning',
+            sessionCount: 3,
+            recommendation: null,
+          ),
+        ),
+        theme: AppTheme.highContrastLight,
+      ),
+    );
+    await tester.pump();
+
+    final sessionCopy = tester.widget<Text>(find.text('3 sessions completed'));
+    expect(
+      sessionCopy.style?.color,
+      tester.element(find.text('3 sessions completed')).elixTextSecondary,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('dashboard header separates welcome copy from quick actions', (
     tester,
   ) async {
@@ -441,14 +453,7 @@ void main() {
     );
     expect(find.text('Search movements or lessons…'), findsNothing);
     expect(find.byIcon(FluentIcons.ringer), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('dashboard-header-slogan')),
-      findsOneWidget,
-    );
-    final headerSlogan = tester.widget<Image>(
-      find.byKey(const ValueKey('dashboard-header-slogan')),
-    );
-    expect((headerSlogan.image as AssetImage).assetName, 'assets/slogan_1.png');
+    expect(find.byKey(const ValueKey('dashboard-header-slogan')), findsNothing);
   });
 
   testWidgets('dashboard bell opens its notification panel in place', (
@@ -533,7 +538,7 @@ void main() {
   );
 
   testWidgets(
-    'light dashboard header keeps the notification and slogan transparent',
+    'light dashboard header keeps the notification control on its semantic surface',
     (tester) async {
       await _setSurface(tester, const Size(1100, 800));
       await tester.pumpWidget(
@@ -548,10 +553,7 @@ void main() {
 
       expect(find.text('Search movements or lessons…'), findsNothing);
       expect(
-        find.ancestor(
-          of: find.byKey(const ValueKey('dashboard-header-slogan')),
-          matching: find.byType(DecoratedBox),
-        ),
+        find.byKey(const ValueKey('dashboard-header-slogan')),
         findsNothing,
       );
       final notificationFinder = find.byKey(

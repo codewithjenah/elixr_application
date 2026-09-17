@@ -55,60 +55,45 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   Widget build(BuildContext context) {
     final unreadCount =
         context.watch<TraineeActivityController?>()?.unreadCount ?? 0;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Preserve the brand artwork where it has room to breathe. At compact
-        // widths the greeting gets the full header rather than competing with
-        // a decorative element.
-        final showSlogan =
-            constraints.maxWidth >= 760 && !context.isHighContrast;
-        return Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${widget.greeting}, ${widget.firstName}!',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.sectionTitle(
-                      context,
-                      color: context.elixTextPrimary,
-                    ).copyWith(fontSize: 24),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    'Keep going. Every pour builds a better you.',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.supporting(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${widget.greeting}, ${widget.firstName}!',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.sectionTitle(
+                  context,
+                  color: context.elixTextPrimary,
+                ).copyWith(fontSize: 24),
               ),
-            ),
-            const SizedBox(width: 12),
-            FlyoutTarget(
-              controller: _notificationsFlyout,
-              child: _HeaderIconButton(
-                key: const ValueKey('dashboard-header-notifications'),
-                icon: FluentIcons.ringer,
-                tooltip: unreadCount == 0
-                    ? 'Notifications'
-                    : 'Notifications, $unreadCount unread',
-                unreadCount: unreadCount,
-                onPressed: _showNotifications,
+              const SizedBox(height: 3),
+              Text(
+                'Keep going. Every pour builds a better you.',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.supporting(color: context.elixTextSecondary),
               ),
-            ),
-            if (showSlogan) ...[
-              const SizedBox(width: 18),
-              const _HeaderSlogan(),
             ],
-          ],
-        );
-      },
+          ),
+        ),
+        const SizedBox(width: 12),
+        FlyoutTarget(
+          controller: _notificationsFlyout,
+          child: _HeaderIconButton(
+            key: const ValueKey('dashboard-header-notifications'),
+            icon: FluentIcons.ringer,
+            tooltip: unreadCount == 0
+                ? 'Notifications'
+                : 'Notifications, $unreadCount unread',
+            unreadCount: unreadCount,
+            onPressed: _showNotifications,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -326,27 +311,6 @@ class _NotificationPreview extends StatelessWidget {
     TraineeActivityType.workReturned => FluentIcons.refresh,
     TraineeActivityType.joinApproved => FluentIcons.people_add,
   };
-}
-
-class _HeaderSlogan extends StatelessWidget {
-  const _HeaderSlogan();
-
-  @override
-  Widget build(BuildContext context) {
-    // Keep the tall three-line artwork contained in the compact header slot.
-    final artwork = Image.asset(
-      'assets/slogan_1.png',
-      key: const ValueKey('dashboard-header-slogan'),
-      fit: BoxFit.contain,
-      alignment: Alignment.center,
-      filterQuality: FilterQuality.high,
-    );
-    return Semantics(
-      image: true,
-      label: 'Skills pour further',
-      child: SizedBox(width: 92, height: 76, child: artwork),
-    );
-  }
 }
 
 class _HeaderIconButton extends StatefulWidget {
