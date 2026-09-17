@@ -309,39 +309,37 @@ def pose_shoulder_point(
     if pose is None:
         return None
     bottle_center = bottle.center_normalized(640, 480)
+    best_shoulder = pose_nearest_shoulder_to_point(pose, bottle_center)
+    if best_shoulder is None:
+        return None
+    return Point2D(x=best_shoulder.x, y=best_shoulder.y - above_offset)
+
+
+def pose_nearest_shoulder_to_point(
+    pose: Optional[PoseLandmarks], point: Point2D
+) -> Optional[Point2D]:
+    """Nearest visible MediaPipe shoulder joint to an explicit 2D anchor."""
+    if pose is None:
+        return None
     best_shoulder: Optional[Point2D] = None
     best_dist = float("inf")
     for index in (11, 12):
         shoulder = pose.get(index)
         if shoulder is None:
             continue
-        dist = _dist(shoulder, bottle_center)
+        dist = _dist(shoulder, point)
         if dist < best_dist:
             best_dist = dist
             best_shoulder = shoulder
-    if best_shoulder is None:
-        return None
-    return Point2D(x=best_shoulder.x, y=best_shoulder.y - above_offset)
+    return best_shoulder
 
 
 def pose_nearest_shoulder(
     pose: Optional[PoseLandmarks], bottle: BottleDetection
 ) -> Optional[Point2D]:
     """Nearest visible shoulder joint (without the above-offset target)."""
-    if pose is None:
-        return None
     bottle_center = bottle.center_normalized(640, 480)
-    best: Optional[Point2D] = None
-    best_dist = float("inf")
-    for index in (11, 12):
-        shoulder = pose.get(index)
-        if shoulder is None:
-            continue
-        dist = _dist(shoulder, bottle_center)
-        if dist < best_dist:
-            best_dist = dist
-            best = shoulder
-    return best
+    return pose_nearest_shoulder_to_point(pose, bottle_center)
 
 
 def uncertain_result(

@@ -186,8 +186,6 @@ YOLO_IMGSZ = _load_yolo_imgsz()
 
 HAND_BOTTLE_PROXIMITY = 0.15
 STALL_PROXIMITY = 0.12
-# Wider legacy tolerance retained for Double Forearm Stall positioning.
-ARM_STALL_PROXIMITY = 0.22
 # Elbow Stall uses the prop's bottom support point, not its bounding-box
 # center. Keep its calibrated contact radius local to the elbow joint and cap
 # the scaled value so a large calibration cannot recreate the generic 0.22
@@ -204,10 +202,11 @@ STALL_STABILITY_THRESHOLD = 0.06
 
 # Per-session proximity calibration. Scale = observed / reference, clamped
 # to [CALIBRATION_SCALE_MIN, CALIBRATION_SCALE_MAX] before multiplying
-# HAND_BOTTLE_PROXIMITY / STALL_* / ARM_STALL_* /
+# HAND_BOTTLE_PROXIMITY / STALL_* /
 # ELBOW_STALL_CONTACT_DISTANCE /
 # FOREARM_STALL_MAX_CONTACT_DISTANCE /
-# REVERSE_FOREARM_MAX_CONTACT_DISTANCE / SHOULDER_STALL_PROXIMITY.
+# REVERSE_FOREARM_MAX_CONTACT_DISTANCE /
+# WRIST_STALL_CONTACT_DISTANCE / SHOULDER_STALL_CONTACT_DISTANCE.
 #
 # Shoulder width 0.30 is the normalized distance between Pose landmarks 11
 # and 12 in the readiness _pose_upper_body fixture (x=0.35 and x=0.65 at
@@ -229,6 +228,9 @@ PINCH_DISTANCE = 0.06
 FOREARM_STALL_MIN_ALONG_FRACTION = 0.35
 FOREARM_STALL_MAX_ALONG_FRACTION = 0.65
 FOREARM_STALL_MAX_CONTACT_DISTANCE = 0.045
+# Double Forearm uses the same anatomical band and base contact tolerance,
+# with a cap so maximum calibration cannot admit a clearly sideways prop.
+DOUBLE_FOREARM_MAX_SCALED_CONTACT_DISTANCE = 0.06
 
 # Reverse Forearm Stall: target is proximal (elbow -> wrist), between elbow and
 # mid-forearm. Ratio remains the representative target used for arm selection;
@@ -240,15 +242,16 @@ REVERSE_FOREARM_MAX_CONTACT_DISTANCE = 0.045
 # Wrist Stall: along-arm fraction from wrist toward elbow (0 = wrist, 0.5 = mid).
 WRIST_STALL_MAX_ALONG_FRACTION = 0.22
 WRIST_STALL_FOREARM_ALONG_FRACTION = 0.38
-# Max distance to the wrist as a fraction of that arm's elbow–wrist length.
-WRIST_STALL_PROXIMITY_RATIO = 0.28
-# Double Forearm Stall: keep each bottle on the mid-forearm band, not the wrist.
-DOUBLE_FOREARM_MIN_ALONG_FRACTION = 0.32
-DOUBLE_FOREARM_MAX_ALONG_FRACTION = 0.68
-# Shoulder Stall: expect the bottle slightly above the shoulder joint (smaller y).
+# Both catalog variants are shown upright, so their bbox bottom-center is the
+# contact anchor. Keep the calibrated off-axis band local and capped.
+WRIST_STALL_CONTACT_DISTANCE = 0.045
+WRIST_STALL_MAX_SCALED_CONTACT_DISTANCE = 0.06
+# Shoulder Stall: the upright bottle's bottom-center rests slightly above the
+# shoulder joint (smaller y). Keep calibration from widening this local region.
 SHOULDER_ABOVE_OFFSET = 0.045
-SHOULDER_STALL_PROXIMITY = 0.16
-# Bottle centers farther below the shoulder than this are treated as chest/below.
+SHOULDER_STALL_CONTACT_DISTANCE = 0.05
+SHOULDER_STALL_MAX_SCALED_CONTACT_DISTANCE = 0.065
+# Support contacts farther below the shoulder than this are chest/below.
 SHOULDER_BELOW_REJECT = 0.03
 
 # Hand Stall: one upright bottle resting on a single open palm.

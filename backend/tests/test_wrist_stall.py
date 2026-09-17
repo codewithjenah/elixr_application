@@ -1,3 +1,5 @@
+import pytest
+
 from assessment.feedback_codes import FeedbackCode
 from assessment.rule_engine import (
     evaluate_movement,
@@ -29,6 +31,21 @@ def _bottle_at(point: Point2D, *, width: int = 40, height: int = 80) -> BottleDe
         y1=cy - height // 2,
         x2=cx + width // 2,
         y2=cy + height // 2,
+        confidence=0.9,
+    )
+
+
+def _prop_supported_at(
+    point: Point2D, *, width: int = 40, height: int = 80
+) -> BottleDetection:
+    """Upright synthetic prop whose bottom-center contacts ``point``."""
+    cx = int(round(point.x * 640))
+    bottom = int(round(point.y * 480))
+    return BottleDetection(
+        x1=cx - width // 2,
+        y1=bottom - height,
+        x2=cx + width // 2,
+        y2=bottom,
         confidence=0.9,
     )
 
@@ -69,57 +86,35 @@ def _evaluate(
     )
 
 
-def test_wrist_stall_bottle_left_positive():
-    elbow = Point2D(0.40, 0.40)
-    wrist = Point2D(0.40, 0.70)
-    bottle = _bottle_at(wrist)
-    result, _, _ = _evaluate(bottle, _arm_pose(left=True, elbow=elbow, wrist=wrist), _stable_state(bottle))
-    assert result.feedback_type == "positive"
-    assert result.feedback_code == FeedbackCode.WRIST_STALL_LOCKED.value
-
-
-def test_wrist_stall_bottle_right_positive():
-    elbow = Point2D(0.60, 0.40)
-    wrist = Point2D(0.60, 0.70)
-    bottle = _bottle_at(wrist)
-    result, _, _ = _evaluate(bottle, _arm_pose(left=False, elbow=elbow, wrist=wrist), _stable_state(bottle))
-    assert result.feedback_type == "positive"
-    assert result.feedback_code == FeedbackCode.WRIST_STALL_LOCKED.value
-
-
-def test_wrist_stall_shaker_left_positive():
-    elbow = Point2D(0.40, 0.40)
-    wrist = Point2D(0.40, 0.70)
-    bottle = _bottle_at(wrist)
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker"])
+@pytest.mark.parametrize("left,x", [(True, 0.40), (False, 0.60)])
+def test_wrist_stall_supported_prop_left_or_right_positive(
+    prop_type: str, left: bool, x: float
+):
+    elbow = Point2D(x, 0.40)
+    wrist = Point2D(x, 0.70)
+    prop = _prop_supported_at(wrist)
     result, _, _ = _evaluate(
-        bottle,
-        _arm_pose(left=True, elbow=elbow, wrist=wrist),
-        _stable_state(bottle),
-        prop_type="shaker",
+        prop,
+        _arm_pose(left=left, elbow=elbow, wrist=wrist),
+        _stable_state(prop),
+        prop_type=prop_type,
     )
     assert result.feedback_type == "positive"
     assert result.feedback_code == FeedbackCode.WRIST_STALL_LOCKED.value
 
 
-def test_wrist_stall_shaker_right_positive():
-    elbow = Point2D(0.60, 0.40)
-    wrist = Point2D(0.60, 0.70)
-    bottle = _bottle_at(wrist)
-    result, _, _ = _evaluate(
-        bottle,
-        _arm_pose(left=False, elbow=elbow, wrist=wrist),
-        _stable_state(bottle),
-        prop_type="shaker",
-    )
-    assert result.feedback_type == "positive"
-    assert result.feedback_code == FeedbackCode.WRIST_STALL_LOCKED.value
-
-
-def test_wrist_stall_forearm_midpoint_fails():
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker"])
+def test_wrist_stall_forearm_midpoint_fails(prop_type: str):
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)
-    bottle = _bottle_at(_mid(elbow, wrist))
-    result, _, _ = _evaluate(bottle, _arm_pose(left=True, elbow=elbow, wrist=wrist), _stable_state(bottle))
+    prop = _prop_supported_at(_mid(elbow, wrist))
+    result, _, _ = _evaluate(
+        prop,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        _stable_state(prop),
+        prop_type=prop_type,
+    )
     assert result.feedback_type == "warning"
     assert result.feedback_code == FeedbackCode.PROP_ON_FOREARM_NOT_WRIST.value
 
@@ -127,7 +122,7 @@ def test_wrist_stall_forearm_midpoint_fails():
 def test_wrist_stall_lower_mid_forearm_fails():
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)
-    bottle = _bottle_at(_along(elbow, wrist, 0.40))
+    bottle = _prop_supported_at(_along(elbow, wrist, 0.40))
     result, _, _ = _evaluate(bottle, _arm_pose(left=True, elbow=elbow, wrist=wrist), _stable_state(bottle))
     assert result.feedback_type == "warning"
     assert result.feedback_code == FeedbackCode.PROP_ON_FOREARM_NOT_WRIST.value
@@ -155,10 +150,10 @@ def test_wrist_stall_wrong_selected_prop_fails():
 def test_wrist_stall_unstable_prop_fails():
     elbow = Point2D(0.50, 0.40)
     wrist = Point2D(0.50, 0.70)
-    bottle = _bottle_at(wrist)
+    bottle = _prop_supported_at(wrist)
     state = None
     for i in range(6):
-        moving = _bottle_at(Point2D(wrist.x + i * 0.04, wrist.y))
+        moving = _prop_supported_at(Point2D(wrist.x + i * 0.04, wrist.y))
         state, _ = track_bottle_stability(state, moving)
     result, _, _ = _evaluate(bottle, _arm_pose(left=True, elbow=elbow, wrist=wrist), state)
     assert result.feedback_type == "warning"
@@ -175,3 +170,91 @@ def test_wrist_stall_missing_pose_fails_safely():
 def test_wrist_stall_detector_profile():
     assert movement_requires_hands("Wrist Stall") is False
     assert movement_requires_pose("Wrist Stall") is True
+
+
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker"])
+def test_wrist_stall_lateral_contact_inside_old_radius_fails(prop_type: str):
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    # With a short upright bbox, the center is still inside the legacy
+    # 0.28 * arm-length circle, but the support point is beside the wrist.
+    prop = _prop_supported_at(Point2D(0.57, 0.70), height=20)
+
+    result, _, _ = _evaluate(
+        prop,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        _stable_state(prop),
+        prop_type=prop_type,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_WRIST.value
+    assert result.criterion_results is not None
+    assert result.criterion_results["prop_positioning"].satisfied is False
+    assert result.criterion_results["stability"].satisfied is True
+
+
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker"])
+def test_wrist_stall_bbox_center_at_wrist_but_support_beyond_wrist_fails(
+    prop_type: str,
+):
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    prop = _prop_supported_at(Point2D(wrist.x, wrist.y + 40 / 480))
+    assert prop.center_normalized(640, 480).y == pytest.approx(wrist.y)
+
+    result, _, _ = _evaluate(
+        prop,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        _stable_state(prop),
+        prop_type=prop_type,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_WRIST.value
+
+
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker"])
+def test_wrist_stall_support_beyond_wrist_fails(prop_type: str):
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    prop = _prop_supported_at(Point2D(wrist.x, wrist.y + 0.04), height=20)
+
+    result, _, _ = _evaluate(
+        prop,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        _stable_state(prop),
+        prop_type=prop_type,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_WRIST.value
+
+
+def test_wrist_stall_max_calibration_does_not_reopen_lateral_contact():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    prop = _prop_supported_at(Point2D(0.565, 0.70), height=20)
+    state = _stable_state(prop)
+    state["calibration_scale"] = 1.6
+
+    result, _, _ = evaluate_movement(
+        "Wrist Stall",
+        prop,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        state,
+        calibration_scale=1.6,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_WRIST.value
+
+
+@pytest.mark.parametrize(
+    "points", [{13: Point2D(0.50, 0.40)}, {15: Point2D(0.50, 0.70)}]
+)
+def test_wrist_stall_incomplete_arm_fails_safely(points: dict[int, Point2D]):
+    prop = _prop_supported_at(Point2D(0.50, 0.70))
+
+    result, _, _ = _evaluate(prop, _pose_from_points(points), _stable_state(prop))
+
+    assert result.posture_status == "unknown"
+    assert result.feedback_code == FeedbackCode.POSE_ARM_NOT_VISIBLE.value

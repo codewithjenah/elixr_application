@@ -15,7 +15,7 @@ from config import (
     FRAME_WIDTH,
     ONE_FINGER_STALL_INDEX_HORIZONTAL_RATIO,
     SHOULDER_ABOVE_OFFSET,
-    SHOULDER_STALL_PROXIMITY,
+    SHOULDER_STALL_MAX_SCALED_CONTACT_DISTANCE,
     STALL_STABILITY_THRESHOLD,
     UPPER_FOREARM_RATIO,
 )
@@ -2101,14 +2101,16 @@ def _bottle_at(point: Point2D) -> BottleDetection:
     return _bottle(cx=int(point.x * 640), cy=int(point.y * 480))
 
 
-def _bottle_supported_at(point: Point2D) -> BottleDetection:
+def _bottle_supported_at(
+    point: Point2D, *, width: int = 40, height: int = 80
+) -> BottleDetection:
     """Upright synthetic bottle whose bottom-center contacts ``point``."""
     cx = int(round(point.x * 640))
     bottom = int(round(point.y * 480))
     return BottleDetection(
-        x1=cx - 20,
-        y1=bottom - 80,
-        x2=cx + 20,
+        x1=cx - width // 2,
+        y1=bottom - height,
+        x2=cx + width // 2,
         y2=bottom,
         confidence=0.9,
     )
@@ -2534,7 +2536,7 @@ def test_upper_forearm_stall_helper_keeps_proximal_target():
 def test_shoulder_stall_success_left():
     shoulder = Point2D(0.40, 0.35)
     target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
-    bottle = _bottle_at(target)
+    bottle = _bottle_supported_at(target)
     pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.35)})
     result, _, _ = evaluate_movement(
         "Shoulder Stall",
@@ -2550,7 +2552,7 @@ def test_shoulder_stall_success_left():
 def test_shoulder_stall_success_right():
     shoulder = Point2D(0.65, 0.35)
     target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
-    bottle = _bottle_at(target)
+    bottle = _bottle_supported_at(target)
     pose = _pose_from_points({11: Point2D(0.30, 0.35), 12: shoulder})
     result, _, _ = evaluate_movement(
         "Shoulder Stall",
@@ -2566,7 +2568,7 @@ def test_shoulder_stall_success_right():
 def test_shoulder_stall_rejects_below_shoulder():
     shoulder = Point2D(0.50, 0.35)
     below = Point2D(shoulder.x, shoulder.y + 0.08)
-    bottle = _bottle_at(below)
+    bottle = _bottle_supported_at(below)
     pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.35)})
     result, _, _ = evaluate_movement(
         "Shoulder Stall",
@@ -2583,7 +2585,7 @@ def test_shoulder_stall_rejects_below_shoulder():
 def test_shoulder_stall_rejects_chest():
     shoulder = Point2D(0.50, 0.30)
     chest = Point2D(shoulder.x, shoulder.y + 0.12)
-    bottle = _bottle_at(chest)
+    bottle = _bottle_supported_at(chest)
     pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.30)})
     result, _, _ = evaluate_movement(
         "Shoulder Stall",
@@ -2626,11 +2628,11 @@ def test_shoulder_stall_missing_landmarks():
 def test_shoulder_stall_unstable_history():
     shoulder = Point2D(0.50, 0.35)
     target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
-    bottle = _bottle_at(target)
+    bottle = _bottle_supported_at(target)
     pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.35)})
     state = None
     for i in range(6):
-        moving = _bottle(cx=int(target.x * 640) + i * 40, cy=int(target.y * 480))
+        moving = _bottle_supported_at(Point2D(target.x + i * 0.07, target.y))
         state, _ = track_bottle_stability(state, moving)
     result, _, _ = evaluate_movement(
         "Shoulder Stall",
@@ -2650,8 +2652,10 @@ def test_shoulder_stall_proximity_boundary():
     target = pose_shoulder_point(pose, _bottle_at(shoulder))
     assert target is not None
     # Stay above the shoulder line, but far from both shoulder targets.
-    outside = Point2D(0.50, target.y - (SHOULDER_STALL_PROXIMITY + 0.05))
-    bottle = _bottle_at(outside)
+    outside = Point2D(
+        0.50, target.y - (SHOULDER_STALL_MAX_SCALED_CONTACT_DISTANCE + 0.05)
+    )
+    bottle = _bottle_supported_at(outside)
     result, _, _ = evaluate_movement(
         "Shoulder Stall",
         bottle,
@@ -2661,6 +2665,69 @@ def test_shoulder_stall_proximity_boundary():
         _stable_state(bottle),
     )
     assert result.feedback_type == "warning"
+
+
+def test_shoulder_stall_bottle_beside_shoulder_does_not_lock():
+    shoulder = Point2D(0.50, 0.35)
+    target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
+    bottle = _bottle_supported_at(Point2D(target.x + 0.08, target.y), height=20)
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.75, 0.35)})
+
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_SHOULDER.value
+    assert result.criterion_results is not None
+    assert result.criterion_results["prop_positioning"].satisfied is False
+    assert result.criterion_results["stability"].satisfied is True
+
+
+def test_shoulder_stall_bbox_center_at_old_target_but_support_below_shoulder_fails():
+    shoulder = Point2D(0.50, 0.35)
+    target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
+    bottle = _bottle_supported_at(Point2D(target.x, target.y + 40 / 480))
+    assert bottle.center_normalized(640, 480).y == pytest.approx(
+        target.y, abs=1 / 480
+    )
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.75, 0.35)})
+
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_BELOW_SHOULDER.value
+
+
+def test_shoulder_stall_max_calibration_does_not_reopen_lateral_contact():
+    shoulder = Point2D(0.50, 0.35)
+    target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
+    bottle = _bottle_supported_at(Point2D(target.x + 0.08, target.y), height=20)
+    state = _stable_state(bottle)
+    state["calibration_scale"] = 1.6
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.75, 0.35)})
+
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        state,
+        calibration_scale=1.6,
+    )
+
+    assert result.feedback_code == FeedbackCode.PROP_NOT_ON_SHOULDER.value
 
 
 def _open_palm_hand(

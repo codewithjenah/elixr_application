@@ -16,12 +16,12 @@ from assessment.rules.common_checks import (
     track_bottle_stability,
 )
 from config import (
-    ARM_STALL_PROXIMITY,
     CALIBRATION_REFERENCE_PALM_LENGTH,
     CALIBRATION_REFERENCE_SHOULDER_WIDTH,
     CALIBRATION_SCALE_MAX,
     CALIBRATION_SCALE_MIN,
     HAND_BOTTLE_PROXIMITY,
+    STALL_PROXIMITY,
     STALL_STABILITY_THRESHOLD,
 )
 from vision.types import (
@@ -275,19 +275,19 @@ def test_hand_bottle_proximity_respects_calibration_scale():
 
 def test_stall_proximity_and_stability_use_scaled_threshold():
     bottle = _bottle(cx=320, cy=240)
-    target = Point2D(0.5 + 0.16, 0.5)
+    target = Point2D(0.5 + 0.10, 0.5)
     close = check_stall_proximity(
         bottle,
         target,
         success_message="ok",
-        threshold=ARM_STALL_PROXIMITY,
+        threshold=STALL_PROXIMITY,
         movement_state={"calibration_scale": 1.0},
     )
     tight = check_stall_proximity(
         bottle,
         target,
         success_message="ok",
-        threshold=ARM_STALL_PROXIMITY,
+        threshold=STALL_PROXIMITY,
         movement_state={"calibration_scale": 0.6},
     )
     assert close.posture_status == "stable"

@@ -3,15 +3,15 @@ from typing import Optional
 from config import (
     SHOULDER_ABOVE_OFFSET,
     SHOULDER_BELOW_REJECT,
-    SHOULDER_STALL_PROXIMITY,
+    SHOULDER_STALL_CONTACT_DISTANCE,
+    SHOULDER_STALL_MAX_SCALED_CONTACT_DISTANCE,
 )
 from assessment.calibration import scaled_proximity
 from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
 from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
-    pose_nearest_shoulder,
-    pose_shoulder_point,
+    pose_nearest_shoulder_to_point,
     track_bottle_stability,
     uncertain_result,
 )
@@ -49,11 +49,11 @@ def evaluate(
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
-    shoulder = pose_nearest_shoulder(pose, bottle)
-    target = pose_shoulder_point(
-        pose, bottle, above_offset=SHOULDER_ABOVE_OFFSET
-    )
-    if shoulder is None or target is None:
+    # The upright bottle rests on the shoulder at its bbox bottom-center; its
+    # bbox center can be well above the actual support region.
+    contact = bottle.bottom_center_normalized(640, 480)
+    shoulder = pose_nearest_shoulder_to_point(pose, contact)
+    if shoulder is None:
         return (
             uncertain_result(
                 "Move back so your shoulder is visible.",
@@ -64,15 +64,20 @@ def evaluate(
         )
 
     state, stable = track_bottle_stability(movement_state, bottle)
-    bottle_center = bottle.center_normalized(640, 480)
     stability_fail = None if stable else FeedbackCode.PROP_NOT_STEADY.value
+    target = Point2D(
+        x=shoulder.x,
+        y=shoulder.y - SHOULDER_ABOVE_OFFSET,
+    )
+    contact_tolerance = min(
+        scaled_proximity(SHOULDER_STALL_CONTACT_DISTANCE, state),
+        SHOULDER_STALL_MAX_SCALED_CONTACT_DISTANCE,
+    )
 
     positioning_fail = None
-    if bottle_center.y > shoulder.y + SHOULDER_BELOW_REJECT:
+    if contact.y > shoulder.y + SHOULDER_BELOW_REJECT:
         positioning_fail = FeedbackCode.PROP_BELOW_SHOULDER.value
-    elif _dist(bottle_center, target) > scaled_proximity(
-        SHOULDER_STALL_PROXIMITY, state
-    ):
+    elif _dist(contact, target) > contact_tolerance:
         positioning_fail = FeedbackCode.PROP_NOT_ON_SHOULDER.value
 
     # Headline coaching still uses the original first-failure order.
