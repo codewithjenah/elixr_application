@@ -31,6 +31,7 @@ const double _assignmentDueRowHeight = 20;
 const int _assignmentTitleLines = 2;
 const int _assignmentDetailLines = 2;
 const double _assignmentDetailLineHeight = 1.35;
+const double _classworkMinCardWidth = 200;
 
 double _assignmentTextSlotHeight({
   required BuildContext context,
@@ -108,14 +109,7 @@ class AssignedMovementContent extends StatelessWidget {
         final width = constraints.maxWidth;
 
         Widget cardGrid(List<AssignedMovementItem> sectionItems) {
-          final columns = elixrActivityGridColumnsFor(
-            availableWidth: width,
-            itemCount: sectionItems.length,
-            spacing: AppSpacing.md,
-            // Classwork badges need slightly more room than the catalog's
-            // assignment-picker cards at compact widths.
-            minCardWidth: 200,
-          );
+          final columns = _classworkGridColumnsFor(width);
           final cardWidth = (width - (AppSpacing.md * (columns - 1))) / columns;
           return Padding(
             padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -170,6 +164,19 @@ class AssignedMovementContent extends StatelessWidget {
       },
     );
   }
+}
+
+/// Calculates the available Classwork tracks without treating a short section
+/// as a reason to widen its cards. Unlike the catalog helper, Classwork keeps
+/// unoccupied desktop tracks so its assignment cards match the five-track
+/// ELIXR activity geometry while [Wrap] still renders only real assignments.
+int _classworkGridColumnsFor(double availableWidth) {
+  if (availableWidth <= 0) return 1;
+  final widthLimitedColumns =
+      ((availableWidth + AppSpacing.md) /
+              (_classworkMinCardWidth + AppSpacing.md))
+          .floor();
+  return widthLimitedColumns.clamp(1, elixrActivityGridMaxColumns);
 }
 
 /// Classwork presentation grouped by the optional teacher-selected topic.

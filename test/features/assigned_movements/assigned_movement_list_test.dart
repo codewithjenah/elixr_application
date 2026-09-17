@@ -1000,6 +1000,53 @@ void main() {
     _expectNoOverflow(tester);
   });
 
+  testWidgets(
+    'wide Classwork keeps short Official ELIXR sections on five-track widths',
+    (tester) async {
+      List<AssignedMovementItem> officialItems(int count) => [
+        for (var index = 0; index < count; index++)
+          AssignedMovementItem(
+            assignment: _assignment(
+              id: 'official-$index',
+              title: 'Official activity $index',
+            ),
+            attempt: null,
+          ),
+      ];
+
+      await _pumpList(
+        tester,
+        paneWidth: 1200,
+        viewSize: const Size(1200, 900),
+        items: officialItems(5),
+      );
+
+      final normalCardWidth = _cardSize(tester, 'official-0').width;
+      final firstRow = tester.getTopLeft(_card('official-0')).dy;
+      for (var index = 1; index < 5; index++) {
+        expect(
+          tester.getTopLeft(_card('official-$index')).dy,
+          closeTo(firstRow, 0.5),
+        );
+      }
+      _expectNoOverflow(tester);
+
+      await _pumpList(
+        tester,
+        paneWidth: 1200,
+        viewSize: const Size(1200, 900),
+        items: officialItems(3),
+      );
+
+      for (var index = 0; index < 3; index++) {
+        final card = _card('official-$index');
+        expect(card, findsOneWidget);
+        expect(_cardSize(tester, 'official-$index').width, closeTo(normalCardWidth, 0.5));
+      }
+      _expectNoOverflow(tester);
+    },
+  );
+
   testWidgets('narrow 1-column classwork does not clip assignment cards', (
     tester,
   ) async {
