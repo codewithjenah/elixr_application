@@ -345,18 +345,11 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
       context,
       title: 'Confirmed movement image',
       maxWidth: _InspectorLayout.dialogMaxWidth,
-      scrollableContent: true,
-      content: AspectRatio(
-        aspectRatio: 4 / 3,
-        child: ColoredBox(
-          color: Colors.black,
-          child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.diagonal3Values(-1, 1, 1),
-            child: Image.memory(image, fit: BoxFit.contain),
-          ),
-        ),
-      ),
+      // The evidence frame must fit inside the dialog's non-scrolling body.
+      // A fixed 4:3 frame can exceed a shorter desktop viewport once the
+      // header and actions are included.
+      scrollableContent: false,
+      content: _EvidenceLightbox(image: image),
       actions: [
         ElixPrimaryButton(
           label: 'Close',
@@ -365,6 +358,56 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
           onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
         ),
       ],
+    );
+  }
+}
+
+class _EvidenceLightbox extends StatelessWidget {
+  const _EvidenceLightbox({required this.image});
+
+  final Uint8List image;
+
+  @override
+  Widget build(BuildContext context) {
+    final maximumHeight = MediaQuery.sizeOf(context).height * 0.58;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Preserve room for the dialog header, body padding, and footer.
+        // The image itself remains uncropped regardless of its saved aspect
+        // ratio, while 4:3 evidence frames use the available width naturally.
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : _InspectorLayout.dialogMaxWidth;
+        final imageHeight = (width * 0.75) < maximumHeight
+            ? width * 0.75
+            : maximumHeight;
+        return SizedBox(
+          key: const Key('history-evidence-lightbox'),
+          height: imageHeight,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.34),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(-1, 1, 1),
+              child: Image.memory(image, fit: BoxFit.contain),
+            ),
+          ),
+        );
+      },
     );
   }
 }

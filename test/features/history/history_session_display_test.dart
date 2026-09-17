@@ -343,7 +343,9 @@ void main() {
       expect(find.byType(AspectRatio), findsNothing);
     });
 
-    testWidgets('enlarging the still uses a 4:3 dialog only', (tester) async {
+    testWidgets('enlarging the still fits a non-scrolling evidence lightbox', (
+      tester,
+    ) async {
       await _pumpDetails(
         tester,
         width: 900,
@@ -354,16 +356,20 @@ void main() {
         loadEvidence: (_) async => _onePixelPng,
       );
 
-      expect(find.byType(AspectRatio), findsNothing);
       await tester.tap(find.byKey(const Key('history-evidence-preview')));
       await tester.pumpAndSettle();
 
-      expect(find.byType(AspectRatio), findsOneWidget);
+      final lightbox = find.byKey(const Key('history-evidence-lightbox'));
+      expect(lightbox, findsOneWidget);
+      expect(
+        tester.getSize(lightbox).height,
+        lessThanOrEqualTo(tester.view.physicalSize.height * 0.58),
+      );
       expect(find.text('Click to enlarge'), findsOneWidget);
 
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();
-      expect(find.byType(AspectRatio), findsNothing);
+      expect(lightbox, findsNothing);
     });
 
     testWidgets(
