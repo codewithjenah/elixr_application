@@ -5,6 +5,7 @@ enum SettingsSection {
   accountProfile,
   security,
   appearance,
+  sound,
   practice,
   privacy,
   about,
@@ -26,6 +27,7 @@ List<SettingsSection> settingsSectionsFor(SettingsAudience audience) {
       SettingsSection.accountProfile,
       SettingsSection.security,
       SettingsSection.appearance,
+      SettingsSection.sound,
       SettingsSection.privacy,
       SettingsSection.about,
       SettingsSection.contactFeedback,
@@ -57,6 +59,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.accountProfile => 'Account & Profile',
     SettingsSection.security => 'Security',
     SettingsSection.appearance => 'Appearance',
+    SettingsSection.sound => 'Sound',
     SettingsSection.practice => 'Practice',
     SettingsSection.privacy => 'Privacy',
     SettingsSection.about => 'About',
@@ -69,6 +72,8 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.security =>
       'Update your password and protect access to your Elixr account.',
     SettingsSection.appearance => 'Customize how Elixr looks on this device.',
+    SettingsSection.sound =>
+      'Control music, notifications, and sound effects across ELIXR.',
     SettingsSection.practice => 'Camera, mirroring, and Playground music.',
     SettingsSection.privacy =>
       'Control who can see your detailed player profile activity.',
@@ -81,6 +86,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.accountProfile => FluentIcons.contact,
     SettingsSection.security => FluentIcons.lock,
     SettingsSection.appearance => FluentIcons.color,
+    SettingsSection.sound => FluentIcons.volume3,
     SettingsSection.practice => FluentIcons.video,
     SettingsSection.privacy => FluentIcons.shield,
     SettingsSection.about => FluentIcons.info,

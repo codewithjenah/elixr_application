@@ -249,6 +249,7 @@ void main() {
     expect(find.byType(ComboBox<SettingsSection>), findsNothing);
     expect(find.text('Account & Profile'), findsOneWidget);
     expect(find.text('Security'), findsWidgets);
+    expect(find.text('Sound'), findsOneWidget);
     expect(find.text('Practice'), findsOneWidget);
     expect(find.text('About'), findsOneWidget);
     expect(find.text('Contact & Feedback'), findsOneWidget);
@@ -307,6 +308,7 @@ void main() {
       SettingsSection.accountProfile,
       SettingsSection.security,
       SettingsSection.appearance,
+      SettingsSection.sound,
       SettingsSection.privacy,
       SettingsSection.about,
       SettingsSection.contactFeedback,
@@ -321,6 +323,13 @@ void main() {
         requested: SettingsSection.practice,
       ),
       SettingsSection.accountProfile,
+    );
+    expect(
+      resolveSettingsSection(
+        audience: SettingsAudience.teacher,
+        requested: SettingsSection.sound,
+      ),
+      SettingsSection.sound,
     );
     expect(tryParseSettingsSection('privacy'), SettingsSection.privacy);
     expect(tryParseSettingsSection('about'), SettingsSection.about);
@@ -356,6 +365,7 @@ void main() {
       expect(find.text('Account & Profile'), findsWidgets);
       expect(find.text('Security'), findsWidgets);
       expect(find.text('Appearance'), findsWidgets);
+      expect(find.text('Sound'), findsOneWidget);
       expect(find.text('Privacy'), findsWidgets);
       expect(find.text('About'), findsOneWidget);
       expect(find.text('Contact & Feedback'), findsOneWidget);
@@ -375,6 +385,112 @@ void main() {
       expect(find.textContaining('practice session'), findsNothing);
     },
   );
+
+  testWidgets(
+    'shared Sound section keeps music and notification controls independent',
+    (tester) async {
+      await setSurface(tester, const Size(1400, 900));
+      await tester.pumpWidget(wrap(settingsScreen(SettingsSection.sound)));
+      await tester.pump();
+
+      expect(find.text('Music volume'), findsOneWidget);
+      expect(find.text('Game music volume'), findsNothing);
+      expect(find.byKey(const Key('music_volume_slider')), findsOneWidget);
+      expect(
+        find.byKey(const Key('notification_volume_slider')),
+        findsOneWidget,
+      );
+
+      final music = tester.widget<Slider>(
+        find.byKey(const Key('music_volume_slider')),
+      );
+      music.onChanged!(0.35);
+      await tester.pump();
+      expect(
+        tester
+            .widget<Slider>(find.byKey(const Key('music_volume_slider')))
+            .value,
+        0.35,
+      );
+      expect(
+        tester
+            .widget<Slider>(find.byKey(const Key('notification_volume_slider')))
+            .value,
+        0.7,
+      );
+
+      final notifications = tester.widget<Slider>(
+        find.byKey(const Key('notification_volume_slider')),
+      );
+      notifications.onChanged!(0.8);
+      await tester.pump();
+      expect(
+        tester
+            .widget<Slider>(find.byKey(const Key('music_volume_slider')))
+            .value,
+        0.35,
+      );
+      expect(
+        tester
+            .widget<Slider>(find.byKey(const Key('notification_volume_slider')))
+            .value,
+        0.8,
+      );
+    },
+  );
+
+  testWidgets(
+    'teacher resolves Sound to its Sound pane without exposing Practice',
+    (tester) async {
+      await setSurface(tester, const Size(1400, 900));
+      await tester.pumpWidget(
+        wrap(
+          SettingsScreen(
+            audience: SettingsAudience.teacher,
+            embedded: true,
+            initialSection: SettingsSection.sound,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
+            publicProfileRepository: _StubPublicProfiles(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Music volume'), findsOneWidget);
+      expect(find.text('Notification volume'), findsOneWidget);
+      expect(find.text('Practice'), findsNothing);
+      expect(find.text('Privacy'), findsOneWidget);
+    },
+  );
+
+  testWidgets('master sound mute disables both volume sliders', (tester) async {
+    await setSurface(tester, const Size(1400, 900));
+    await tester.pumpWidget(wrap(settingsScreen(SettingsSection.sound)));
+    await tester.pump();
+
+    final toggle = tester.widget<ToggleSwitch>(
+      find.byKey(const Key('sound_enabled_toggle')),
+    );
+    toggle.onChanged!(false);
+    await tester.pumpAndSettle();
+
+    expect(settingsService.soundEnabled, isFalse);
+    expect(
+      tester
+          .widget<Slider>(find.byKey(const Key('music_volume_slider')))
+          .onChanged,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<Slider>(find.byKey(const Key('notification_volume_slider')))
+          .onChanged,
+      isNull,
+    );
+  });
 
   testWidgets('About content is available at wide and narrow Settings widths', (
     tester,

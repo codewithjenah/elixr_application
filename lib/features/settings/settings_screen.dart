@@ -16,6 +16,7 @@ import 'sections/contact_feedback_section.dart';
 import 'sections/practice_section.dart';
 import 'sections/privacy_section.dart';
 import 'sections/security_section.dart';
+import 'sections/sound_section.dart';
 import 'settings_section.dart';
 import 'widgets/practice_preferences_controller.dart';
 import 'widgets/settings_components.dart';
@@ -572,6 +573,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return SecuritySection(key: _securityKey);
       case SettingsSection.appearance:
         return const AppearanceSection();
+      case SettingsSection.sound:
+        return const SoundSection();
       case SettingsSection.practice:
         final controller = _practiceController;
         if (controller == null) return const SizedBox.shrink();
