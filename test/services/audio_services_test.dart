@@ -232,6 +232,83 @@ void main() {
       auth.dispose();
     },
   );
+
+  test('appearance changes do not enqueue audio work', () async {
+    final auth = ValueNotifier<String?>('trainee-1');
+    final backgroundPlayer = _FakeAudioPlayer();
+    final background = AppBackgroundMusicService(
+      authListenable: auth,
+      authenticatedAccountId: () => auth.value,
+      settings: settings,
+      player: backgroundPlayer,
+    );
+    background.setAuthenticatedAreaVisible(true);
+    await background.settled;
+
+    final notificationPlayer = _FakeAudioPlayer();
+    final notifications = NotificationAudioService(
+      settings: settings,
+      player: notificationPlayer,
+    );
+    final practicePlayer = _FakeAudioPlayer();
+    final practice = PracticeMusicService(
+      settings: settings,
+      appBackgroundMusic: background,
+      player: practicePlayer,
+    );
+    await practice.start(
+      selectedTrackId: musicTrackCatalog.first.id,
+      customTracks: const <MusicTrack>[],
+    );
+    await background.settled;
+
+    final backgroundVolumes = backgroundPlayer.volumes.length;
+    final backgroundStops = backgroundPlayer.stopCount;
+    final backgroundPauses = backgroundPlayer.pauseCount;
+    final backgroundResumes = backgroundPlayer.resumeCount;
+    final notificationVolumes = notificationPlayer.volumes.length;
+    final notificationStops = notificationPlayer.stopCount;
+    final practiceVolumes = practicePlayer.volumes.length;
+    final practiceStops = practicePlayer.stopCount;
+
+    await settings.setDarkMode(false);
+    await settings.setTextScale(1.15);
+    await settings.setHighContrast(true);
+    await background.settled;
+    await notifications.settled;
+    await practice.settled;
+
+    expect(backgroundPlayer.volumes.length, backgroundVolumes);
+    expect(backgroundPlayer.stopCount, backgroundStops);
+    expect(backgroundPlayer.pauseCount, backgroundPauses);
+    expect(backgroundPlayer.resumeCount, backgroundResumes);
+    expect(notificationPlayer.volumes.length, notificationVolumes);
+    expect(notificationPlayer.stopCount, notificationStops);
+    expect(practicePlayer.volumes.length, practiceVolumes);
+    expect(practicePlayer.stopCount, practiceStops);
+
+    await settings.setMusicVolume(0.25);
+    await background.settled;
+    await notifications.settled;
+    await practice.settled;
+    // Background music is suspended while Practice owns the audio lease.
+    expect(backgroundPlayer.volumes.length, backgroundVolumes);
+    expect(practicePlayer.volumes.last, 0.25);
+    expect(notificationPlayer.volumes.length, notificationVolumes);
+
+    await settings.setNotificationVolume(0.85);
+    await background.settled;
+    await notifications.settled;
+    await practice.settled;
+    expect(notificationPlayer.volumes.last, 0.85);
+    expect(backgroundPlayer.volumes.length, backgroundVolumes);
+    expect(practicePlayer.volumes.last, 0.25);
+
+    await practice.dispose();
+    await notifications.dispose();
+    await background.dispose();
+    auth.dispose();
+  });
 }
 
 class _FakeAudioPlayer implements AudioPlayerHandle {

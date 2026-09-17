@@ -26,6 +26,8 @@ class PracticeMusicService {
     _completeSubscription = _player.onPlayerComplete.listen((_) {
       unawaited(_playNextShuffleTrack());
     });
+    _lastSoundEnabled = _settings.soundEnabled;
+    _lastMusicVolume = _settings.musicVolume;
     _settings.addListener(_onSettingsChanged);
   }
 
@@ -42,6 +44,10 @@ class PracticeMusicService {
   Future<void> _operation = Future<void>.value();
   bool _sessionActive = false;
   bool _disposed = false;
+  late bool _lastSoundEnabled;
+  late double _lastMusicVolume;
+  bool _settingsUpdatePending = false;
+  bool _settingsUpdateQueued = false;
 
   @visibleForTesting
   String? get currentTrackId => _currentTrackId;
@@ -65,18 +71,35 @@ class PracticeMusicService {
 
   void _onSettingsChanged() {
     if (_disposed || !_sessionActive) return;
-    unawaited(
-      _queue(() async {
-        if (!_sessionActive || _disposed) return;
+    final soundEnabled = _settings.soundEnabled;
+    final musicVolume = _settings.musicVolume;
+    if (_lastSoundEnabled == soundEnabled && _lastMusicVolume == musicVolume) {
+      return;
+    }
+    _lastSoundEnabled = soundEnabled;
+    _lastMusicVolume = musicVolume;
+    _settingsUpdatePending = true;
+    if (_settingsUpdateQueued) return;
+    _settingsUpdateQueued = true;
+    unawaited(_queue(_drainSettingsUpdates));
+  }
+
+  Future<void> _drainSettingsUpdates() async {
+    try {
+      while (_settingsUpdatePending && !_disposed) {
+        _settingsUpdatePending = false;
+        if (!_sessionActive) return;
         if (!_settings.soundEnabled) {
           await _player.stop();
           _currentTrackId = null;
-          return;
+          continue;
         }
         await _player.setVolume(_settings.musicVolume);
         if (_currentTrackId == null) await _startCurrentMode();
-      }),
-    );
+      }
+    } finally {
+      _settingsUpdateQueued = false;
+    }
   }
 
   Future<void> _startCurrentMode() async {

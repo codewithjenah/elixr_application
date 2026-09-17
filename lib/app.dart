@@ -320,17 +320,17 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
           value: _teacherEvidenceRepository,
         ),
       ],
-      child: Consumer<SettingsService>(
-        builder: (context, settings, _) {
+      child: Selector<SettingsService, (bool, bool, double)>(
+        selector: (_, settings) =>
+            (settings.darkMode, settings.highContrast, settings.textScale),
+        builder: (context, appearance, _) {
           return FluentApp.router(
             title: AppConstants.appName,
-            theme: settings.highContrast
-                ? AppTheme.highContrastLight
-                : AppTheme.light,
-            darkTheme: settings.highContrast
+            theme: appearance.$2 ? AppTheme.highContrastLight : AppTheme.light,
+            darkTheme: appearance.$2
                 ? AppTheme.highContrastDark
                 : AppTheme.dark,
-            themeMode: settings.darkMode ? ThemeMode.dark : ThemeMode.light,
+            themeMode: appearance.$1 ? ThemeMode.dark : ThemeMode.light,
             routerConfig: _router,
             debugShowCheckedModeBanner: false,
             builder: (context, child) {
@@ -341,7 +341,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
                     child: IncomingEventToastCoordinator(
                       child: MediaQuery(
                         data: MediaQuery.of(context).copyWith(
-                          textScaler: TextScaler.linear(settings.textScale),
+                          textScaler: TextScaler.linear(appearance.$3),
                         ),
                         child: Consumer<AuthService>(
                           builder: (context, auth, _) {

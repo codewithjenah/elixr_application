@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -105,7 +106,7 @@ void main() {
 
       expect(outcome, SettingsWriteOutcome.writeFailed);
       expect(writeCount, 1);
-      expect(notifyCount, 0);
+      expect(notifyCount, 2);
       expect(service.justDanceMovementNames, beforeNames);
       expect(service.justDanceIntervalSeconds, beforeInterval);
       expect(service.selectedMusicTrackId, beforeTrack);
@@ -125,8 +126,46 @@ void main() {
 
     expect(outcome, SettingsWriteOutcome.writeFailed);
     expect(service.darkMode, isTrue);
-    expect(notifyCount, 0);
+    expect(notifyCount, 2);
   });
+
+  test(
+    'rapid dark mode changes coalesce and persist the final selection',
+    () async {
+      final service = buildService();
+      await service.initialize();
+      final firstWriteStarted = Completer<void>();
+      final releaseFirstWrite = Completer<void>();
+      final writtenDarkModes = <bool>[];
+      writeOverride = (file, contents) async {
+        final data = jsonDecode(contents) as Map<String, dynamic>;
+        writtenDarkModes.add(data['dark_mode'] as bool);
+        if (writtenDarkModes.length == 1) {
+          firstWriteStarted.complete();
+          await releaseFirstWrite.future;
+        }
+        await file.writeAsString(contents);
+      };
+
+      final first = service.setDarkMode(false);
+      await firstWriteStarted.future;
+      final second = service.setDarkMode(true);
+      final third = service.setDarkMode(false);
+      final finalSelection = service.setDarkMode(true);
+      expect(service.darkMode, isTrue);
+
+      releaseFirstWrite.complete();
+      expect(await first, SettingsWriteOutcome.saved);
+      expect(await second, SettingsWriteOutcome.saved);
+      expect(await third, SettingsWriteOutcome.saved);
+      expect(await finalSelection, SettingsWriteOutcome.saved);
+      expect(writtenDarkModes, [false, true]);
+      final data =
+          jsonDecode(await settingsFile.readAsString()) as Map<String, dynamic>;
+      expect(data['dark_mode'], isTrue);
+      expect(service.darkMode, isTrue);
+    },
+  );
 
   test('sound defaults are enabled with independent volumes at 0.7', () async {
     final service = buildService();
@@ -273,7 +312,7 @@ void main() {
     expect(service.soundEnabled, isTrue);
     expect(service.musicVolume, 0.7);
     expect(service.notificationVolume, 0.7);
-    expect(notifyCount, 0);
+    expect(notifyCount, 6);
   });
 
   test(
@@ -401,7 +440,7 @@ void main() {
 
       expect(outcome, SettingsWriteOutcome.writeFailed);
       expect(service.highContrast, isFalse);
-      expect(notifyCount, 0);
+      expect(notifyCount, 2);
     },
   );
 

@@ -34,6 +34,8 @@ class NotificationAudioService implements NotificationSoundPlayer {
     AudioPlayerHandle? player,
   }) : _settings = settings,
        _player = player ?? AudioplayersHandle() {
+    _lastSoundEnabled = _settings.soundEnabled;
+    _lastNotificationVolume = _settings.notificationVolume;
     _settings.addListener(_onSettingsChanged);
   }
 
@@ -43,6 +45,10 @@ class NotificationAudioService implements NotificationSoundPlayer {
   final AudioPlayerHandle _player;
   Future<void> _operation = Future<void>.value();
   bool _disposed = false;
+  late bool _lastSoundEnabled;
+  late double _lastNotificationVolume;
+  bool _settingsUpdatePending = false;
+  bool _settingsUpdateQueued = false;
 
   @visibleForTesting
   Future<void> get settled => _operation;
@@ -60,14 +66,33 @@ class NotificationAudioService implements NotificationSoundPlayer {
   }
 
   void _onSettingsChanged() {
-    _enqueue(() async {
-      if (_disposed) return;
-      if (!_settings.soundEnabled) {
-        await _player.stop();
-      } else {
-        await _player.setVolume(_settings.notificationVolume);
+    final soundEnabled = _settings.soundEnabled;
+    final notificationVolume = _settings.notificationVolume;
+    if (_lastSoundEnabled == soundEnabled &&
+        _lastNotificationVolume == notificationVolume) {
+      return;
+    }
+    _lastSoundEnabled = soundEnabled;
+    _lastNotificationVolume = notificationVolume;
+    _settingsUpdatePending = true;
+    if (_settingsUpdateQueued) return;
+    _settingsUpdateQueued = true;
+    _enqueue(_drainSettingsUpdates);
+  }
+
+  Future<void> _drainSettingsUpdates() async {
+    try {
+      while (_settingsUpdatePending && !_disposed) {
+        _settingsUpdatePending = false;
+        if (!_settings.soundEnabled) {
+          await _player.stop();
+        } else {
+          await _player.setVolume(_settings.notificationVolume);
+        }
       }
-    });
+    } finally {
+      _settingsUpdateQueued = false;
+    }
   }
 
   void _enqueue(Future<void> Function() action) {

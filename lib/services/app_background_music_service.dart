@@ -18,7 +18,9 @@ class AppBackgroundMusicService {
        _settings = settings,
        _player = player ?? AudioplayersHandle() {
     _authListenable.addListener(_scheduleReconcile);
-    _settings.addListener(_scheduleReconcile);
+    _lastSoundEnabled = _settings.soundEnabled;
+    _lastMusicVolume = _settings.musicVolume;
+    _settings.addListener(_onSettingsChanged);
   }
 
   static const _assetPath = 'music/hcc.mp3';
@@ -35,6 +37,10 @@ class AppBackgroundMusicService {
   bool _sourceLoaded = false;
   bool _audible = false;
   bool _disposed = false;
+  late bool _lastSoundEnabled;
+  late double _lastMusicVolume;
+  bool _reconcilePending = false;
+  bool _reconcileRunning = false;
 
   @visibleForTesting
   bool get isAudible => _audible;
@@ -65,15 +71,40 @@ class AppBackgroundMusicService {
     _enqueueReconcile();
   }
 
+  void _onSettingsChanged() {
+    final soundEnabled = _settings.soundEnabled;
+    final musicVolume = _settings.musicVolume;
+    if (_lastSoundEnabled == soundEnabled && _lastMusicVolume == musicVolume) {
+      return;
+    }
+    _lastSoundEnabled = soundEnabled;
+    _lastMusicVolume = musicVolume;
+    _enqueueReconcile();
+  }
+
   Future<void> _enqueueReconcile() {
     if (_disposed) return _operation;
-    _operation = _operation.then((_) => _reconcile()).catchError((
+    _reconcilePending = true;
+    if (_reconcileRunning) return _operation;
+    _reconcileRunning = true;
+    _operation = _operation.then((_) => _drainReconciles()).catchError((
       Object error,
       StackTrace stack,
     ) {
       debugPrint('App background music operation failed: $error\n$stack');
     });
     return _operation;
+  }
+
+  Future<void> _drainReconciles() async {
+    try {
+      while (_reconcilePending && !_disposed) {
+        _reconcilePending = false;
+        await _reconcile();
+      }
+    } finally {
+      _reconcileRunning = false;
+    }
   }
 
   Future<void> _reconcile() async {
@@ -114,7 +145,7 @@ class AppBackgroundMusicService {
     if (_disposed) return;
     _disposed = true;
     _authListenable.removeListener(_scheduleReconcile);
-    _settings.removeListener(_scheduleReconcile);
+    _settings.removeListener(_onSettingsChanged);
     await _operation;
     try {
       await _player.stop();

@@ -19,6 +19,8 @@ class PracticeSfxService {
   SettingsService? _settings;
   bool _disposed = false;
   bool _preloaded = false;
+  bool? _lastSoundEnabled;
+  double? _lastMusicVolume;
 
   /// Binds the long-lived settings instance after the Practice screen gains
   /// access to inherited dependencies. Repeated binding is idempotent.
@@ -33,6 +35,12 @@ class PracticeSfxService {
   void _onSettingsChanged() {
     final settings = _settings;
     if (_disposed || settings == null) return;
+    if (_lastSoundEnabled == settings.soundEnabled &&
+        _lastMusicVolume == settings.musicVolume) {
+      return;
+    }
+    _lastSoundEnabled = settings.soundEnabled;
+    _lastMusicVolume = settings.musicVolume;
     unawaited(setVolume(settings.soundEnabled ? settings.musicVolume : 0.0));
   }
 

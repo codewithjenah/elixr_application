@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -15,13 +16,13 @@ import '../data/models/music_track.dart';
 /// Validation failures are not represented here — callers validate first and
 /// defensive service checks throw [ArgumentError].
 enum SettingsWriteOutcome {
-  /// Disk write succeeded and in-memory fields were committed.
+  /// Disk write succeeded for the already-applied in-memory change.
   saved,
 
   /// Candidate matched current in-memory values; no write or notification.
   unchanged,
 
-  /// Disk write failed; in-memory values were left unchanged.
+  /// Disk write failed and in-memory values were restored to the last save.
   writeFailed,
 }
 
@@ -82,6 +83,11 @@ class SettingsService extends ChangeNotifier {
   /// Pending legacy runtime index awaiting one-time migration.
   int? _legacyCameraIndex;
   bool _initialized = false;
+  Map<String, dynamic>? _lastPersistedPayload;
+  Map<String, dynamic>? _pendingPayload;
+  List<Completer<SettingsWriteOutcome>> _pendingWriteCompletions = [];
+  Future<void> _persistenceOperation = Future<void>.value();
+  bool _persistenceRunning = false;
 
   bool get isInitialized => _initialized;
   bool get cameraMirrored => _cameraMirrored;
@@ -173,6 +179,7 @@ class SettingsService extends ChangeNotifier {
     } catch (_) {
       // Keep defaults.
     }
+    _lastPersistedPayload = _snapshotPayload();
     _initialized = true;
     notifyListeners();
   }
@@ -876,11 +883,6 @@ class SettingsService extends ChangeNotifier {
       payload[_cameraIndexKey] = null;
     }
 
-    final wrote = await _writePayload(payload);
-    if (!wrote) {
-      return SettingsWriteOutcome.writeFailed;
-    }
-
     _cameraMirrored = cameraMirrored;
     _darkMode = darkMode;
     _hasSeenOnboarding = hasSeenOnboarding;
@@ -899,7 +901,104 @@ class SettingsService extends ChangeNotifier {
       candidateCustomMusicTracks,
     );
     notifyListeners();
-    return SettingsWriteOutcome.saved;
+    return _enqueuePersistence(payload);
+  }
+
+  Future<SettingsWriteOutcome> _enqueuePersistence(
+    Map<String, dynamic> payload,
+  ) {
+    final completion = Completer<SettingsWriteOutcome>();
+    _pendingPayload = payload;
+    _pendingWriteCompletions.add(completion);
+    if (!_persistenceRunning) {
+      _persistenceRunning = true;
+      _persistenceOperation = _persistenceOperation.then(
+        (_) => _drainPendingWrites(),
+      );
+    }
+    return completion.future;
+  }
+
+  Future<void> _drainPendingWrites() async {
+    try {
+      while (_pendingPayload != null) {
+        final payload = _pendingPayload!;
+        final completions = _pendingWriteCompletions;
+        _pendingPayload = null;
+        _pendingWriteCompletions = [];
+
+        final wrote = await _writePayload(payload);
+        if (wrote) {
+          _lastPersistedPayload = payload;
+        } else if (_pendingPayload == null) {
+          final lastPersisted = _lastPersistedPayload;
+          if (lastPersisted != null) {
+            _restorePayload(lastPersisted);
+            notifyListeners();
+          }
+        }
+        final outcome = wrote
+            ? SettingsWriteOutcome.saved
+            : SettingsWriteOutcome.writeFailed;
+        for (final completion in completions) {
+          completion.complete(outcome);
+        }
+      }
+    } finally {
+      _persistenceRunning = false;
+    }
+  }
+
+  Map<String, dynamic> _snapshotPayload() {
+    final payload = <String, dynamic>{
+      _cameraMirroredKey: _cameraMirrored,
+      _darkModeKey: _darkMode,
+      _hasSeenOnboardingKey: _hasSeenOnboarding,
+      _textScaleKey: _textScale,
+      _highContrastKey: _highContrast,
+      _soundEnabledKey: _soundEnabled,
+      _musicVolumeKey: _musicVolume,
+      _notificationVolumeKey: _notificationVolume,
+      _cameraDeviceIdKey: _selectedCameraDeviceId,
+      _cameraDisplayNameKey: _selectedCameraDisplayName,
+      _justDanceMovementNamesKey: [
+        for (final v in _justDancePracticeVariants) v.movementName,
+      ],
+      _justDancePracticeVariantsKey: [
+        for (final v in _justDancePracticeVariants) v.persistenceKey,
+      ],
+      _justDanceIntervalSecondsKey: _justDanceIntervalSeconds,
+      _selectedMusicTrackIdKey: _selectedMusicTrackId,
+      _customMusicTracksKey: [
+        for (final track in _customMusicTracks) track.toSettingsJson(),
+      ],
+    };
+    payload[_cameraIndexKey] = _selectedCameraDeviceId == null
+        ? _legacyCameraIndex
+        : null;
+    return payload;
+  }
+
+  void _restorePayload(Map<String, dynamic> payload) {
+    _cameraMirrored = payload[_cameraMirroredKey] as bool? ?? true;
+    _darkMode = payload[_darkModeKey] as bool? ?? true;
+    _hasSeenOnboarding = payload[_hasSeenOnboardingKey] as bool? ?? false;
+    _textScale = _parseTextScale(payload[_textScaleKey]);
+    _highContrast = payload[_highContrastKey] as bool? ?? false;
+    _soundEnabled = payload[_soundEnabledKey] as bool? ?? true;
+    _musicVolume = _parseMusicVolume(payload[_musicVolumeKey]);
+    _notificationVolume = payload.containsKey(_notificationVolumeKey)
+        ? _parseMusicVolume(payload[_notificationVolumeKey])
+        : _musicVolume;
+    _loadCameraSelection(payload);
+    _loadJustDanceSettings(payload);
+    _customMusicTracks = _parseCustomMusicTracks(
+      payload[_customMusicTracksKey],
+    );
+    _selectedMusicTrackId = _normalizeSelectedTrackId(
+      payload[_selectedMusicTrackIdKey],
+      _customMusicTracks,
+    );
   }
 
   Future<bool> _writePayload(Map<String, dynamic> payload) async {

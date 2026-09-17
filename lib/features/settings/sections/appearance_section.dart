@@ -16,8 +16,8 @@ class AppearanceSection extends StatefulWidget {
 }
 
 class _AppearanceSectionState extends State<AppearanceSection> {
-  bool _writing = false;
   String? _writeError;
+  int _writeGeneration = 0;
 
   static const _textScaleOptions = <(double, String)>[
     (1.0, 'Default'),
@@ -26,17 +26,13 @@ class _AppearanceSectionState extends State<AppearanceSection> {
   ];
 
   Future<void> _persist(Future<SettingsWriteOutcome> Function() write) async {
-    if (_writing) return;
-    setState(() {
-      _writing = true;
-      _writeError = null;
-    });
+    final generation = ++_writeGeneration;
+    setState(() => _writeError = null);
 
     final outcome = await write();
-    if (!mounted) return;
+    if (!mounted || generation != _writeGeneration) return;
 
     setState(() {
-      _writing = false;
       if (outcome == SettingsWriteOutcome.writeFailed) {
         _writeError = 'Could not save appearance preference. Try again.';
       }
@@ -75,7 +71,7 @@ class _AppearanceSectionState extends State<AppearanceSection> {
                   label: 'Dark mode',
                   description: 'Use a dark color scheme across the app.',
                   checked: settings.darkMode,
-                  onChanged: _writing ? null : _onDarkModeChanged,
+                  onChanged: _onDarkModeChanged,
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
@@ -102,11 +98,9 @@ class _AppearanceSectionState extends State<AppearanceSection> {
                       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                       child: RadioButton(
                         checked: settings.textScale == option.$1,
-                        onChanged: _writing
-                            ? null
-                            : (checked) {
-                                if (checked) _onTextScaleChanged(option.$1);
-                              },
+                        onChanged: (checked) {
+                          if (checked) _onTextScaleChanged(option.$1);
+                        },
                         content: Text(option.$2),
                       ),
                     )
@@ -114,7 +108,7 @@ class _AppearanceSectionState extends State<AppearanceSection> {
                   shad.ShadRadioGroup<double>(
                     key: ValueKey(settings.textScale),
                     initialValue: settings.textScale,
-                    enabled: !_writing,
+                    enabled: true,
                     spacing: AppSpacing.sm,
                     onChanged: (value) {
                       if (value != null) _onTextScaleChanged(value);
@@ -138,7 +132,7 @@ class _AppearanceSectionState extends State<AppearanceSection> {
                   description:
                       'Use stronger text and borders for better visibility.',
                   checked: settings.highContrast,
-                  onChanged: _writing ? null : _onHighContrastChanged,
+                  onChanged: _onHighContrastChanged,
                 ),
                 if (_writeError != null)
                   SettingsStatusBanner(message: _writeError!),
