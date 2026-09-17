@@ -1,5 +1,5 @@
-import math
 from dataclasses import dataclass
+import math
 from typing import Optional
 
 from config import (

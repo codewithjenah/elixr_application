@@ -195,8 +195,9 @@ STALL_STABILITY_THRESHOLD = 0.06
 
 # Per-session proximity calibration. Scale = observed / reference, clamped
 # to [CALIBRATION_SCALE_MIN, CALIBRATION_SCALE_MAX] before multiplying
-# HAND_BOTTLE_PROXIMITY / STALL_* / ARM_STALL_* / FOREARM_STALL_* /
-# REVERSE_FOREARM_* / SHOULDER_STALL_PROXIMITY.
+# HAND_BOTTLE_PROXIMITY / STALL_* / ARM_STALL_* /
+# FOREARM_STALL_MAX_CONTACT_DISTANCE /
+# REVERSE_FOREARM_MAX_CONTACT_DISTANCE / SHOULDER_STALL_PROXIMITY.
 #
 # Shoulder width 0.30 is the normalized distance between Pose landmarks 11
 # and 12 in the readiness _pose_upper_body fixture (x=0.35 and x=0.65 at

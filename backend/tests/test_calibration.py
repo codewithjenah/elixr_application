@@ -62,6 +62,18 @@ def _bottle_at(point: Point2D) -> BottleDetection:
     return _bottle(cx=int(round(point.x * 640)), cy=int(round(point.y * 480)))
 
 
+def _bottle_supported_at(point: Point2D) -> BottleDetection:
+    cx = int(round(point.x * 640))
+    bottom = int(round(point.y * 480))
+    return BottleDetection(
+        x1=cx - 20,
+        y1=bottom - 80,
+        x2=cx + 20,
+        y2=bottom,
+        confidence=0.9,
+    )
+
+
 def _arm_pose() -> PoseLandmarks:
     return PoseLandmarks(
         points={13: Point2D(0.40, 0.40), 15: Point2D(0.40, 0.70)},
@@ -198,11 +210,11 @@ def test_scaled_proximity_multiplies_and_clamps_state_scale():
     assert scaled_proximity(0.15, {"calibration_scale": 9.0}) == pytest.approx(0.24)
 
 
-def test_same_geometry_passes_or_fails_by_calibration_scale():
-    """Distance 0.16 is inside ARM_STALL_PROXIMITY at 1.0 and outside at 0.6."""
+def test_forearm_contact_tolerance_scales_without_reopening_off_arm_region():
     mid = Point2D(0.40, 0.55)
-    offset = Point2D(mid.x + 0.16, mid.y)
-    bottle = _bottle_at(offset)
+    # Perpendicular contact offset 0.035 is within the 1.0-scale band but
+    # outside the 0.6-scale band. Along-arm anatomy is unchanged.
+    bottle = _bottle_supported_at(Point2D(mid.x + 0.035, mid.y))
     pose = _arm_pose()
     state = {"calibration_scale": 1.0}
     for _ in range(6):
@@ -232,18 +244,19 @@ def test_same_geometry_passes_or_fails_by_calibration_scale():
     assert pass_state["calibration_scale"] == pytest.approx(1.0)
     assert fail_state["calibration_scale"] == pytest.approx(0.6)
 
-    far = _bottle_at(Point2D(mid.x + 0.28, mid.y))
+    # Even maximum calibration cannot reopen a clearly off-arm placement.
+    far = _bottle_supported_at(Point2D(mid.x + 0.08, mid.y))
     far_state = {"calibration_scale": 1.6}
     for _ in range(6):
         far_state, _ = track_bottle_stability(far_state, far)
     far_fail, _, _ = evaluate_movement(
         "Forearm Stall", far, pose, None, None, dict(far_state), calibration_scale=1.0
     )
-    far_pass, _, _ = evaluate_movement(
+    far_max_scale, _, _ = evaluate_movement(
         "Forearm Stall", far, pose, None, None, dict(far_state), calibration_scale=1.6
     )
     assert far_fail.posture_status == "unstable"
-    assert far_pass.posture_status == "stable"
+    assert far_max_scale.posture_status == "unstable"
 
 
 def test_hand_bottle_proximity_respects_calibration_scale():
