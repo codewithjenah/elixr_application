@@ -269,7 +269,14 @@ class LeaderboardRepository {
         .snapshots()
         .map((doc) {
           if (!doc.exists || doc.data() == null) return null;
-          return LeaderboardEntry.tryFromMap(doc.data()!, id: doc.id);
+          final entry = LeaderboardEntry.tryFromMap(doc.data()!, id: doc.id);
+          if (entry == null) {
+            // A malformed existing document is not an authoritative zero-XP
+            // absence. Let personal progression retain its last trusted
+            // snapshot and otherwise fail closed.
+            throw FormatException('Invalid leaderboard entry: ${doc.id}');
+          }
+          return entry;
         });
   }
 

@@ -53,6 +53,9 @@ typedef AssignedSessionAtomicSaver =
       required AssignmentAttempt officialAssignmentPointer,
     });
 
+typedef SessionEvidencePreferenceRemoteWriter =
+    Future<void> Function({required String userId, required bool enabled});
+
 /// Thrown when a caller tries to persist an official session for a movement
 /// that is not one of the 15 catalog identities.
 class UnofficialMovementException implements Exception {
@@ -78,6 +81,7 @@ class SessionService extends ChangeNotifier {
     PublicProfileSessionProjector? projectSessionOverride,
     SessionEvidenceRepository? evidenceRepository,
     SessionEvidencePreferenceStore? evidencePreferenceStore,
+    SessionEvidencePreferenceRemoteWriter? evidencePreferenceRemoteWriter,
     TeacherRelationshipRepository? teacherRelationshipRepository,
   }) : _repositoryOrNull = repository,
        _leaderboardRepositoryOrNull = leaderboardRepository,
@@ -90,6 +94,7 @@ class SessionService extends ChangeNotifier {
        _evidenceRepositoryOrNull = evidenceRepository,
        _evidencePreferenceStore =
            evidencePreferenceStore ?? SessionEvidencePreferenceStore(),
+       _evidencePreferenceRemoteWriter = evidencePreferenceRemoteWriter,
        _teacherRelationshipRepository = teacherRelationshipRepository;
 
   SessionRepository? _repositoryOrNull;
@@ -102,7 +107,11 @@ class SessionService extends ChangeNotifier {
   final PublicProfileSessionProjector? _projectSessionOverride;
   SessionEvidenceRepository? _evidenceRepositoryOrNull;
   final SessionEvidencePreferenceStore _evidencePreferenceStore;
+  final SessionEvidencePreferenceRemoteWriter? _evidencePreferenceRemoteWriter;
   final TeacherRelationshipRepository? _teacherRelationshipRepository;
+  final Map<String, ({int revision, bool enabled})> _pendingEvidenceSync = {};
+  final Set<String> _evidenceSyncingUsers = <String>{};
+  final Map<String, int> _evidenceRevisions = <String, int>{};
 
   SessionRepository get repository => _repositoryOrNull ??= SessionRepository();
 
@@ -124,23 +133,14 @@ class SessionService extends ChangeNotifier {
   Future<bool?> sessionEvidenceEnabled(String userId) async {
     final cached = await _evidencePreferenceStore.read(userId);
     if (cached != null) return cached;
+    final revision = _evidenceRevisions[userId] ?? 0;
     final remote = FirestoreHelper.instance.getUserById(userId);
-    unawaited(
-      remote
-          .then((user) async {
-            final enabled = user?.sessionEvidenceEnabled;
-            if (enabled != null) {
-              await _evidencePreferenceStore.write(userId, enabled);
-            }
-          })
-          .catchError((_) {}),
-    );
     // A profile read is not the local durability boundary. Do not leave the
     // completion flow waiting indefinitely when Firebase is unreachable.
     try {
       final user = await remote.timeout(const Duration(seconds: 2));
       final enabled = user?.sessionEvidenceEnabled;
-      if (enabled != null) {
+      if (enabled != null && _evidenceRevisions[userId] == revision) {
         await _evidencePreferenceStore.write(userId, enabled);
       }
       return enabled;
@@ -153,28 +153,102 @@ class SessionService extends ChangeNotifier {
     required String userId,
     required bool enabled,
   }) async {
-    await FirestoreHelper.instance.updateUserProfileField(userId, {
-      'session_evidence_enabled': enabled,
-      'session_evidence_policy_version': 'v1',
-      'session_evidence_decision_at': FieldValue.serverTimestamp(),
-    });
-    await _evidencePreferenceStore.write(userId, enabled);
+    // This local account-scoped value is the practice-flow durability
+    // boundary. In particular an offline first decision must not hold the
+    // session summary or local outbox behind a Firestore write.
+    await _setLocalSessionEvidencePreference(userId: userId, enabled: enabled);
+    _scheduleSessionEvidencePreferenceSync(userId: userId, enabled: enabled);
+  }
+
+  /// Best-effort profile projection for an already durable local decision.
+  /// Calling this again after connectivity returns is safe and preserves an
+  /// explicit false decision; it never uploads or retains evidence itself.
+  Future<void> syncSessionEvidencePreference(String userId) async {
+    final enabled = await _evidencePreferenceStore.read(userId);
+    if (enabled == null) return;
+    _scheduleSessionEvidencePreferenceSync(userId: userId, enabled: enabled);
+  }
+
+  void _scheduleSessionEvidencePreferenceSync({
+    required String userId,
+    required bool enabled,
+  }) {
+    final revision = (_evidenceRevisions[userId] ?? 0) + 1;
+    _evidenceRevisions[userId] = revision;
+    _pendingEvidenceSync[userId] = (revision: revision, enabled: enabled);
+    if (_evidenceSyncingUsers.add(userId)) {
+      unawaited(_drainSessionEvidencePreferenceSync(userId));
+    }
+  }
+
+  Future<void> _drainSessionEvidencePreferenceSync(String userId) async {
+    var completedWithoutFailure = true;
+    try {
+      while (true) {
+        final pending = _pendingEvidenceSync[userId];
+        if (pending == null) return;
+        try {
+          final writer = _evidencePreferenceRemoteWriter;
+          if (writer != null) {
+            await writer(userId: userId, enabled: pending.enabled);
+          } else {
+            await FirestoreHelper.instance.updateUserProfileField(userId, {
+              'session_evidence_enabled': pending.enabled,
+              'session_evidence_policy_version': 'v1',
+              'session_evidence_decision_at': FieldValue.serverTimestamp(),
+            });
+          }
+        } catch (_) {
+          // The latest desired value is retained for a foreground retry.
+          completedWithoutFailure = false;
+          return;
+        }
+        final latest = _pendingEvidenceSync[userId];
+        if (latest?.revision == pending.revision) {
+          _pendingEvidenceSync.remove(userId);
+        }
+      }
+    } finally {
+      _evidenceSyncingUsers.remove(userId);
+      // A value can arrive after the drain's final map check but before the
+      // syncing marker is cleared.
+      final latest = _pendingEvidenceSync[userId];
+      if (completedWithoutFailure && latest != null) {
+        _scheduleSessionEvidencePreferenceSync(
+          userId: userId,
+          enabled: latest.enabled,
+        );
+      }
+    }
   }
 
   Future<void> revokeSessionEvidence(String userId) async {
+    await _setLocalSessionEvidencePreference(userId: userId, enabled: false);
     // Remove the authorization edge first so a Teacher cannot begin another
     // read while retained objects are being purged.
     await _teacherRelationshipRepository?.revokeAllEvidenceAccess(
       traineeId: userId,
     );
     await _evidenceRepository.deleteAllForUser(userId);
-    await setSessionEvidenceEnabled(userId: userId, enabled: false);
-    await _evidencePreferenceStore.purge(userId);
+    _scheduleSessionEvidencePreferenceSync(userId: userId, enabled: false);
     notifyListeners();
   }
 
-  Future<void> purgeLocalSessionEvidencePreference(String userId) =>
-      _evidencePreferenceStore.purge(userId);
+  Future<void> purgeLocalSessionEvidencePreference(String userId) async {
+    _evidenceRevisions[userId] = (_evidenceRevisions[userId] ?? 0) + 1;
+    _pendingEvidenceSync.remove(userId);
+    await _evidencePreferenceStore.purge(userId);
+  }
+
+  Future<void> _setLocalSessionEvidencePreference({
+    required String userId,
+    required bool enabled,
+  }) {
+    // Invalidate a remote profile read before awaiting the file write so a
+    // late old value cannot repopulate or reverse the new local decision.
+    _evidenceRevisions[userId] = (_evidenceRevisions[userId] ?? 0) + 1;
+    return _evidencePreferenceStore.write(userId, enabled);
+  }
 
   Future<String> saveCompletedSession({
     required String userId,

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/trainee_profile_snapshot_store.dart';
+import 'package:elixr_application/services/trainee_progression_snapshot_store.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -111,10 +112,17 @@ void main() {
     role: User.roleTrainee,
   );
 
-  Future<(TraineeProfileSnapshotStore, Directory)> createStore() async {
+  Future<
+    (TraineeProfileSnapshotStore, TraineeProgressionSnapshotStore, Directory)
+  >
+  createStore() async {
     final directory = await Directory.systemTemp.createTemp('elixr_auth_');
     addTearDown(() => directory.delete(recursive: true));
-    return (TraineeProfileSnapshotStore(directory: directory), directory);
+    return (
+      TraineeProfileSnapshotStore(directory: directory),
+      TraineeProgressionSnapshotStore(directory: directory),
+      directory,
+    );
   }
 
   Future<void> saveTrainee(TraineeProfileSnapshotStore store, User user) =>
@@ -128,10 +136,12 @@ void main() {
   AuthService service({
     required _OfflineRestoreRepository repository,
     required TraineeProfileSnapshotStore store,
+    required TraineeProgressionSnapshotStore progressionStore,
     required String? Function() firebaseUid,
   }) => AuthService(
     repository: repository,
     traineeProfileSnapshotStore: store,
+    traineeProgressionSnapshotStore: progressionStore,
     currentFirebaseAuthUid: firebaseUid,
     awaitInitialAuthState: () async {},
   );
@@ -139,12 +149,13 @@ void main() {
   test(
     'authoritative persisted profile refreshes the Trainee snapshot',
     () async {
-      final (store, _) = await createStore();
+      final (store, progressionStore, _) = await createStore();
       final auth = service(
         repository: _OfflineRestoreRepository(
           const PersistedProfileRestoration.authoritative(trainee),
         ),
         store: store,
+        progressionStore: progressionStore,
         firebaseUid: () => 'trainee-A',
       );
       addTearDown(auth.dispose);
@@ -161,13 +172,14 @@ void main() {
   test(
     'matching persisted Firebase UID restores cached Trainee offline',
     () async {
-      final (store, _) = await createStore();
+      final (store, progressionStore, _) = await createStore();
       await saveTrainee(store, trainee);
       final auth = service(
         repository: _OfflineRestoreRepository(
           const PersistedProfileRestoration.unavailable(),
         ),
         store: store,
+        progressionStore: progressionStore,
         firebaseUid: () => 'trainee-A',
       );
       addTearDown(auth.dispose);
@@ -181,13 +193,14 @@ void main() {
   );
 
   test('no Firebase identity does not authenticate from a cache', () async {
-    final (store, _) = await createStore();
+    final (store, progressionStore, _) = await createStore();
     await saveTrainee(store, trainee);
     final auth = service(
       repository: _OfflineRestoreRepository(
         const PersistedProfileRestoration.unavailable(),
       ),
       store: store,
+      progressionStore: progressionStore,
       firebaseUid: () => null,
     );
     addTearDown(auth.dispose);
@@ -201,7 +214,7 @@ void main() {
   test(
     'a snapshot for another UID cannot restore the active identity',
     () async {
-      final (store, _) = await createStore();
+      final (store, progressionStore, _) = await createStore();
       await saveTrainee(
         store,
         trainee.copyWith(id: 'trainee-B', email: 'b@example.test'),
@@ -211,6 +224,7 @@ void main() {
           const PersistedProfileRestoration.unavailable(),
         ),
         store: store,
+        progressionStore: progressionStore,
         firebaseUid: () => 'trainee-A',
       );
       addTearDown(auth.dispose);
@@ -222,7 +236,7 @@ void main() {
   );
 
   test('Teacher cache data cannot restore through the Trainee path', () async {
-    final (store, directory) = await createStore();
+    final (store, progressionStore, directory) = await createStore();
     await File(
       '${directory.path}${Platform.pathSeparator}profiles.json',
     ).writeAsString(
@@ -235,6 +249,7 @@ void main() {
         const PersistedProfileRestoration.unavailable(),
       ),
       store: store,
+      progressionStore: progressionStore,
       firebaseUid: () => 'teacher-A',
     );
     addTearDown(auth.dispose);
@@ -245,13 +260,14 @@ void main() {
   });
 
   test('invalid authoritative profile never falls back to a cache', () async {
-    final (store, _) = await createStore();
+    final (store, progressionStore, _) = await createStore();
     await saveTrainee(store, trainee);
     final auth = service(
       repository: _OfflineRestoreRepository(
         const PersistedProfileRestoration.invalidProfile(),
       ),
       store: store,
+      progressionStore: progressionStore,
       firebaseUid: () => 'trainee-A',
     );
     addTearDown(auth.dispose);
@@ -264,14 +280,18 @@ void main() {
   test(
     'explicit logout removes the snapshot and cannot resurrect it',
     () async {
-      final (store, _) = await createStore();
+      final (store, progressionStore, _) = await createStore();
       await saveTrainee(store, trainee);
+      await progressionStore.save(
+        const TraineeProgressionSnapshot(userId: 'trainee-A', totalXp: 500),
+      );
       final repository = _OfflineRestoreRepository(
         const PersistedProfileRestoration.unavailable(),
       );
       final auth = service(
         repository: repository,
         store: store,
+        progressionStore: progressionStore,
         firebaseUid: () => 'trainee-A',
       );
       addTearDown(auth.dispose);
@@ -282,18 +302,23 @@ void main() {
       expect(repository.clearCalled, isTrue);
       expect(auth.currentUser, isNull);
       expect(await store.load('trainee-A'), isNull);
+      expect(await progressionStore.load('trainee-A'), isNull);
     },
   );
 
   test('account deletion purges the corresponding Trainee snapshot', () async {
-    final (store, _) = await createStore();
+    final (store, progressionStore, _) = await createStore();
     await saveTrainee(store, trainee);
+    await progressionStore.save(
+      const TraineeProgressionSnapshot(userId: 'trainee-A', totalXp: 500),
+    );
     final repository = _OfflineRestoreRepository(
       const PersistedProfileRestoration.authoritative(trainee),
     );
     final auth = service(
       repository: repository,
       store: store,
+      progressionStore: progressionStore,
       firebaseUid: () => 'trainee-A',
     );
     addTearDown(auth.dispose);
@@ -306,12 +331,13 @@ void main() {
 
     expect(repository.deleteCalled, isTrue);
     expect(await store.load('trainee-A'), isNull);
+    expect(await progressionStore.load('trainee-A'), isNull);
   });
 
   test(
     'foreground refresh replaces offline data and clears offline state',
     () async {
-      final (store, _) = await createStore();
+      final (store, progressionStore, _) = await createStore();
       await saveTrainee(store, trainee);
       final refreshed = trainee.copyWith(firstName: 'Grace');
       final repository = _OfflineRestoreRepository(
@@ -320,6 +346,7 @@ void main() {
       final auth = service(
         repository: repository,
         store: store,
+        progressionStore: progressionStore,
         firebaseUid: () => 'trainee-A',
       );
       addTearDown(auth.dispose);

@@ -16,6 +16,7 @@ import '../firebase_options.dart';
 import 'auth_email_callback_server.dart';
 import 'join_link_service.dart';
 import 'trainee_profile_snapshot_store.dart';
+import 'trainee_progression_snapshot_store.dart';
 import 'windows_google_oauth_flow.dart';
 
 /// Account-scoped phrase used as a deliberate-action safeguard in the UI.
@@ -86,6 +87,7 @@ class AuthService extends ChangeNotifier {
     Future<void> Function()? accountScopeTeardownBarrier,
     Future<void> Function(String userId)? purgePendingSessions,
     TraineeProfileSnapshotStore? traineeProfileSnapshotStore,
+    TraineeProgressionSnapshotStore? traineeProgressionSnapshotStore,
     Duration? profileRestorationTimeout,
   }) : _repository =
            repository ??
@@ -119,6 +121,8 @@ class AuthService extends ChangeNotifier {
        _purgePendingSessions = purgePendingSessions,
        _traineeProfileSnapshotStore =
            traineeProfileSnapshotStore ?? TraineeProfileSnapshotStore(),
+       _traineeProgressionSnapshotStore =
+           traineeProgressionSnapshotStore ?? TraineeProgressionSnapshotStore(),
        _profileRestorationTimeout =
            profileRestorationTimeout ?? const Duration(seconds: 8) {
     _joinLinkService?.authCallbackHandler = handleEmailActionCallback;
@@ -155,6 +159,7 @@ class AuthService extends ChangeNotifier {
   final Future<void> Function()? _accountScopeTeardownBarrier;
   final Future<void> Function(String userId)? _purgePendingSessions;
   final TraineeProfileSnapshotStore _traineeProfileSnapshotStore;
+  final TraineeProgressionSnapshotStore _traineeProgressionSnapshotStore;
   final Duration _profileRestorationTimeout;
 
   // Lazily constructed so tests that never touch profile-image upload do not
@@ -1156,6 +1161,7 @@ class AuthService extends ChangeNotifier {
     await _repository.clearCurrentUser();
     if (userId != null && userId.isNotEmpty) {
       await _purgeTraineeProfileSnapshot(userId);
+      await _purgeTraineeProgressionSnapshot(userId);
     }
   }
 
@@ -1327,6 +1333,16 @@ class AuthService extends ChangeNotifier {
       // cache cleanup remains best effort and cannot resurrect that identity.
       if (kDebugMode) {
         debugPrint('Trainee profile snapshot purge failed: $error');
+      }
+    }
+  }
+
+  Future<void> _purgeTraineeProgressionSnapshot(String userId) async {
+    try {
+      await _traineeProgressionSnapshotStore.purge(userId);
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Trainee progression snapshot purge failed: $error');
       }
     }
   }
@@ -1995,6 +2011,7 @@ class AuthService extends ChangeNotifier {
     // temporary evidence only after the authoritative account deletion wins.
     await _purgePendingSessions?.call(userId);
     await _purgeTraineeProfileSnapshot(userId);
+    await _purgeTraineeProgressionSnapshot(userId);
     _clearPendingEmailChange(clearError: true);
     _currentUser = null;
     _providerKinds = const {};

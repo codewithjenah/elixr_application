@@ -7,6 +7,7 @@ import '../core/progression/matrix_test_access.dart';
 import '../core/progression/progression_catalog.dart';
 import '../data/models/leaderboard_entry.dart';
 import '../data/repositories/leaderboard_repository.dart';
+import 'trainee_progression_snapshot_store.dart';
 
 /// Already-resolved trainee XP/level for personal progression surfaces.
 ///
@@ -15,9 +16,12 @@ import '../data/repositories/leaderboard_repository.dart';
 class TraineeProgressionService extends ChangeNotifier {
   TraineeProgressionService({
     LeaderboardRepository? leaderboardRepository,
+    TraineeProgressionSnapshotStore? progressionSnapshotStore,
     MatrixTestAccessPolicy matrixTestAccessPolicy =
         const MatrixTestAccessPolicy(),
   }) : _leaderboardRepository = leaderboardRepository,
+       _progressionSnapshotStore =
+           progressionSnapshotStore ?? TraineeProgressionSnapshotStore(),
        _matrixTestAccessPolicy = matrixTestAccessPolicy;
 
   /// Test/harness constructor with an already-known XP total.
@@ -26,11 +30,13 @@ class TraineeProgressionService extends ChangeNotifier {
     MatrixTestAccessPolicy matrixTestAccessPolicy =
         const MatrixTestAccessPolicy(),
   }) : _leaderboardRepository = null,
+       _progressionSnapshotStore = null,
        _matrixTestAccessPolicy = matrixTestAccessPolicy,
        _ready = true,
        _totalXp = totalXp;
 
   final LeaderboardRepository? _leaderboardRepository;
+  final TraineeProgressionSnapshotStore? _progressionSnapshotStore;
   final MatrixTestAccessPolicy _matrixTestAccessPolicy;
   StreamSubscription<LeaderboardEntry?>? _sub;
   String? _userId;
@@ -58,13 +64,14 @@ class TraineeProgressionService extends ChangeNotifier {
     final next = normalized == null || normalized.isEmpty ? null : normalized;
     if (_userId == next && _ready) return;
     final generation = ++_generation;
-    await _sub?.cancel();
-    if (_disposed || generation != _generation) return;
+    final previousSubscription = _sub;
     _sub = null;
     _userId = next;
     _ready = false;
     _totalXp = 0;
     notifyListeners();
+    await previousSubscription?.cancel();
+    if (_disposed || generation != _generation) return;
     final uid = _userId;
     final repo = _leaderboardRepository;
     if (uid == null || repo == null) {
@@ -72,26 +79,66 @@ class TraineeProgressionService extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    final snapshotStore = _progressionSnapshotStore;
+    if (snapshotStore != null) {
+      TraineeProgressionSnapshot? snapshot;
+      try {
+        snapshot = await snapshotStore.load(uid);
+      } catch (_) {
+        // Cache availability never changes the fail-closed progression policy.
+      }
+      if (_disposed || generation != _generation || _userId != uid) return;
+      if (snapshot != null) {
+        _totalXp = snapshot.totalXp;
+        _ready = true;
+        notifyListeners();
+      }
+    }
     _sub = repo
         .watchPlayer(uid)
         .listen(
-          (entry) {
-            if (_disposed || generation != _generation || _userId != uid) {
-              return;
-            }
-            _totalXp = entry?.totalXp ?? 0;
-            _ready = true;
-            notifyListeners();
-          },
+          (entry) => unawaited(
+            _applyAuthoritativeEntry(
+              entry: entry,
+              uid: uid,
+              generation: generation,
+            ),
+          ),
           onError: (_) {
             if (_disposed || generation != _generation || _userId != uid) {
               return;
             }
-            // Fail closed: keep not-ready so gated personal actions do not unlock.
-            _ready = false;
-            notifyListeners();
+            // Retain an already loaded authoritative snapshot. Without one,
+            // remain fail-closed so gated personal actions cannot unlock.
+            if (!_ready) notifyListeners();
           },
         );
+  }
+
+  Future<void> _applyAuthoritativeEntry({
+    required LeaderboardEntry? entry,
+    required String uid,
+    required int generation,
+  }) async {
+    if (_disposed || generation != _generation || _userId != uid) return;
+    final totalXp = entry?.totalXp ?? 0;
+    _totalXp = totalXp;
+    _ready = true;
+    notifyListeners();
+    final store = _progressionSnapshotStore;
+    if (store == null) return;
+    try {
+      await store.save(
+        TraineeProgressionSnapshot(
+          userId: uid,
+          totalXp: totalXp,
+          authoritativeSnapshotAt: DateTime.now().toUtc(),
+        ),
+      );
+    } catch (_) {
+      // Storage is an availability enhancement; a failed cache write must not
+      // change the currently authoritative in-memory progression.
+    }
   }
 
   @override

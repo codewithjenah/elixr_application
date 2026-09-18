@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
@@ -13,18 +15,26 @@ import 'widgets/movements_header.dart';
 const _kMovementsContentMaxWidth = 1280.0;
 
 class MovementsScreen extends StatefulWidget {
-  const MovementsScreen({super.key});
+  const MovementsScreen({super.key, this.sessionRepository, this.userId});
+
+  final SessionRepository? sessionRepository;
+
+  /// Test-only override for the authenticated Trainee's UID. Production reads
+  /// the current account from [AuthService].
+  final String? userId;
 
   @override
   State<MovementsScreen> createState() => _MovementsScreenState();
 }
 
 class _MovementsScreenState extends State<MovementsScreen> {
-  final _sessionRepo = SessionRepository();
+  late final SessionRepository _sessionRepo =
+      widget.sessionRepository ?? SessionRepository();
   Map<String, MovementStats> _movementStats = const {};
   Map<String, MovementStats> _variantStats = const {};
   Set<String> _practicedVariants = const {};
   SessionService? _sessionService;
+  int _statsRequestGeneration = 0;
 
   @override
   void initState() {
@@ -49,10 +59,26 @@ class _MovementsScreenState extends State<MovementsScreen> {
   }
 
   Future<void> _loadStats() async {
-    final user = context.read<AuthService>().currentUser;
-    if (user?.id == null) return;
-    final sessions = await _sessionRepo.getSessionsForUser(user!.id!);
-    if (!mounted) return;
+    final userId = widget.userId ?? context.read<AuthService>().currentUser?.id;
+    if (userId == null || userId.isEmpty) return;
+    final requestGeneration = ++_statsRequestGeneration;
+    List<Session> sessions;
+    try {
+      sessions = await _sessionRepo.getSessionsForUser(userId);
+    } catch (_) {
+      // Remote history is a visual summary only. Offline failure must not
+      // prevent the catalog (whose access is local progression/tutorial state)
+      // from rendering.
+      if (kDebugMode) debugPrint('Movement history load failed for $userId');
+      return;
+    }
+    final activeUserId =
+        widget.userId ?? context.read<AuthService>().currentUser?.id;
+    if (!mounted ||
+        requestGeneration != _statsRequestGeneration ||
+        activeUserId != userId) {
+      return;
+    }
     setState(() {
       _movementStats = aggregateMovementStats(sessions);
       _variantStats = aggregatePracticeVariantStats(sessions);

@@ -52,6 +52,7 @@ import 'services/pending_session_sync_coordinator.dart';
 import 'services/settings_service.dart';
 import 'services/tutorial_progress_service.dart';
 import 'services/trainee_progression_service.dart';
+import 'services/trainee_progression_snapshot_store.dart';
 import 'services/join_code_resolver.dart';
 import 'services/join_link_service.dart';
 import 'services/message_unread_service.dart';
@@ -88,6 +89,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   late final SessionService _sessionService;
   late final PendingSessionSyncCoordinator _pendingSessionSyncCoordinator;
   late final TraineeProgressionService _traineeProgressionService;
+  late final TraineeProgressionSnapshotStore _traineeProgressionSnapshotStore;
   late final PublicProfileRepository _publicProfileRepository;
   late final LeaderboardRepository _leaderboardRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
@@ -115,6 +117,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     _joinLinkService = JoinLinkService();
     _chatRepository = FirebaseChatRepository();
     _pendingSessionStore = PendingSessionStore();
+    _traineeProgressionSnapshotStore = TraineeProgressionSnapshotStore();
     _sessionService = SessionService(
       publicProfileRepository: _publicProfileRepository,
       teacherRelationshipRepository: _teacherRelationshipRepository,
@@ -132,6 +135,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
         await _pendingSessionSyncCoordinator.purgeAccount(userId);
         await _sessionService.purgeLocalSessionEvidencePreference(userId);
       },
+      traineeProgressionSnapshotStore: _traineeProgressionSnapshotStore,
     );
     unawaited(_authService.initialize());
     _settingsService = SettingsService()..initialize();
@@ -147,6 +151,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     _tutorialProgressService = TutorialProgressService();
     _traineeProgressionService = TraineeProgressionService(
       leaderboardRepository: _leaderboardRepository,
+      progressionSnapshotStore: _traineeProgressionSnapshotStore,
     );
     // Subscription setup is synchronous on the first call, so cold links are
     // retained before the router begins evaluating redirects.
@@ -180,6 +185,12 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   Future<void> _refreshAuthenticatedForegroundState() async {
     await _authService.refreshAuthoritativeProfileOnForeground();
     _authService.touchLeaderboardPresence();
+    final userId = _authService.currentUser?.isTrainee == true
+        ? _authService.currentUser?.id
+        : null;
+    if (userId != null) {
+      await _sessionService.syncSessionEvidencePreference(userId);
+    }
     await _pendingSessionSyncCoordinator.syncPendingForActiveTrainee();
   }
 
