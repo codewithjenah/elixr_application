@@ -26,6 +26,7 @@ class ElixDialog extends StatelessWidget {
     this.showCloseButton = true,
     this.expandSingleAction = true,
     this.showFooterDivider = false,
+    this.showScrollbars = true,
   });
 
   final String title;
@@ -61,6 +62,10 @@ class ElixDialog extends StatelessWidget {
   /// instructional content.
   final bool showFooterDivider;
 
+  /// Whether desktop scroll indicators are shown for scrollable content.
+  /// Disabling the indicator does not disable mouse-wheel or keyboard scroll.
+  final bool showScrollbars;
+
   static Future<T?> show<T>(
     BuildContext context, {
     required String title,
@@ -78,6 +83,7 @@ class ElixDialog extends StatelessWidget {
     bool showCloseButton = true,
     bool expandSingleAction = true,
     bool showFooterDivider = false,
+    bool showScrollbars = true,
   }) {
     Widget dialog() => ElixDialog(
       title: title,
@@ -94,6 +100,7 @@ class ElixDialog extends StatelessWidget {
       showCloseButton: showCloseButton,
       expandSingleAction: expandSingleAction,
       showFooterDivider: showFooterDivider,
+      showScrollbars: showScrollbars,
     );
     if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
       return showDialog<T>(
@@ -547,28 +554,39 @@ class ElixDialog extends StatelessWidget {
       ),
     );
     if (highContrast || shad.ShadTheme.maybeOf(context) == null) {
-      return legacyBody;
+      return _withScrollbarVisibility(context, legacyBody);
     }
-    return shad.ShadDialog(
-      key: const ValueKey('elix-shad-dialog'),
-      constraints: BoxConstraints(
-        maxWidth: maxWidth,
-        maxHeight: dialogMaxHeight,
+    return _withScrollbarVisibility(
+      context,
+      shad.ShadDialog(
+        key: const ValueKey('elix-shad-dialog'),
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          maxHeight: dialogMaxHeight,
+        ),
+        padding: EdgeInsets.zero,
+        backgroundColor: context.elixCardSurface,
+        border: Border.all(color: context.elixColors.borderSubtle),
+        shadows: const [],
+        // The shared footer owns its responsive layout and its explicit inner
+        // spacing, rather than relying on ShadDialog defaults with zero padding.
+        expandActionsWhenTiny: false,
+        actions: dialogActions,
+        scrollable: scrollableContent,
+        // ShadDialog treats a supplied close widget as an override for its
+        // theme-provided X. The empty widget removes only this dialog's visual
+        // affordance; ESC and route dismissal remain unchanged.
+        closeIcon: showCloseButton ? null : const SizedBox.shrink(),
+        child: stackedContents,
       ),
-      padding: EdgeInsets.zero,
-      backgroundColor: context.elixCardSurface,
-      border: Border.all(color: context.elixColors.borderSubtle),
-      shadows: const [],
-      // The shared footer owns its responsive layout and its explicit inner
-      // spacing, rather than relying on ShadDialog defaults with zero padding.
-      expandActionsWhenTiny: false,
-      actions: dialogActions,
-      scrollable: scrollableContent,
-      // ShadDialog treats a supplied close widget as an override for its
-      // theme-provided X. The empty widget removes only this dialog's visual
-      // affordance; ESC and route dismissal remain unchanged.
-      closeIcon: showCloseButton ? null : const SizedBox.shrink(),
-      child: stackedContents,
+    );
+  }
+
+  Widget _withScrollbarVisibility(BuildContext context, Widget child) {
+    if (showScrollbars) return child;
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: child,
     );
   }
 

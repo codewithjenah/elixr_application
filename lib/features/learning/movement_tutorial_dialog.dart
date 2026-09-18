@@ -38,6 +38,7 @@ class MovementTutorialDialog extends StatelessWidget {
     showCloseButton: false,
     expandSingleAction: false,
     showFooterDivider: true,
+    showScrollbars: false,
     content: LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 620;
