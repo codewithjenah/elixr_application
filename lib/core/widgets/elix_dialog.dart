@@ -23,6 +23,9 @@ class ElixDialog extends StatelessWidget {
     this.maxWidth = 480,
     this.maxHeight,
     this.scrollableContent = false,
+    this.showCloseButton = true,
+    this.expandSingleAction = true,
+    this.showFooterDivider = false,
   });
 
   final String title;
@@ -45,6 +48,19 @@ class ElixDialog extends StatelessWidget {
   /// expanding the dialog past the viewport.
   final bool scrollableContent;
 
+  /// Controls only the visual Shad dialog close affordance. Keyboard and
+  /// barrier dismissal continue to follow the route's existing behavior.
+  final bool showCloseButton;
+
+  /// Keeps the historical full-width treatment for one footer action by
+  /// default. Information-dense desktop dialogs can opt into an end-aligned
+  /// action instead.
+  final bool expandSingleAction;
+
+  /// Adds restrained separation when a pinned footer belongs to scrollable
+  /// instructional content.
+  final bool showFooterDivider;
+
   static Future<T?> show<T>(
     BuildContext context, {
     required String title,
@@ -59,6 +75,9 @@ class ElixDialog extends StatelessWidget {
     double? maxHeight,
     bool barrierDismissible = true,
     bool scrollableContent = false,
+    bool showCloseButton = true,
+    bool expandSingleAction = true,
+    bool showFooterDivider = false,
   }) {
     Widget dialog() => ElixDialog(
       title: title,
@@ -72,6 +91,9 @@ class ElixDialog extends StatelessWidget {
       maxWidth: maxWidth,
       maxHeight: maxHeight,
       scrollableContent: scrollableContent,
+      showCloseButton: showCloseButton,
+      expandSingleAction: expandSingleAction,
+      showFooterDivider: showFooterDivider,
     );
     if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null) {
       return showDialog<T>(
@@ -464,6 +486,8 @@ class ElixDialog extends StatelessWidget {
             _ElixDialogFooter(
               actions: actions!,
               uniformActionSize: uniformActionSize,
+              expandSingleAction: expandSingleAction,
+              showDivider: showFooterDivider,
             ),
           ];
     final legacyBody = Material(
@@ -540,6 +564,10 @@ class ElixDialog extends StatelessWidget {
       expandActionsWhenTiny: false,
       actions: dialogActions,
       scrollable: scrollableContent,
+      // ShadDialog treats a supplied close widget as an override for its
+      // theme-provided X. The empty widget removes only this dialog's visual
+      // affordance; ESC and route dismissal remain unchanged.
+      closeIcon: showCloseButton ? null : const SizedBox.shrink(),
       child: stackedContents,
     );
   }
@@ -565,10 +593,17 @@ class ElixDialog extends StatelessWidget {
 }
 
 class _ElixDialogFooter extends StatelessWidget {
-  const _ElixDialogFooter({required this.actions, this.uniformActionSize});
+  const _ElixDialogFooter({
+    required this.actions,
+    this.uniformActionSize,
+    required this.expandSingleAction,
+    required this.showDivider,
+  });
 
   final List<Widget> actions;
   final Size? uniformActionSize;
+  final bool expandSingleAction;
+  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
@@ -580,29 +615,36 @@ class _ElixDialogFooter extends StatelessWidget {
           SizedBox.fromSize(size: uniformActionSize, child: action),
     ];
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.sm,
-        AppSpacing.xl,
-        AppSpacing.xl,
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (actions.length == 1) {
-            final action = actionWidgets.single;
-            if (constraints.hasBoundedWidth) {
-              return SizedBox(width: constraints.maxWidth, child: action);
+    return DecoratedBox(
+      decoration: showDivider
+          ? BoxDecoration(
+              border: Border(top: BorderSide(color: context.elixBorder)),
+            )
+          : const BoxDecoration(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl,
+          AppSpacing.md,
+          AppSpacing.xl,
+          AppSpacing.xl,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (actions.length == 1) {
+              final action = actionWidgets.single;
+              if (expandSingleAction && constraints.hasBoundedWidth) {
+                return SizedBox(width: constraints.maxWidth, child: action);
+              }
+              return Align(alignment: Alignment.centerRight, child: action);
             }
-            return action;
-          }
-          return Wrap(
-            alignment: WrapAlignment.end,
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: actionWidgets,
-          );
-        },
+            return Wrap(
+              alignment: WrapAlignment.end,
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: actionWidgets,
+            );
+          },
+        ),
       ),
     );
   }

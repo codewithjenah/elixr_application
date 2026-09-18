@@ -17,13 +17,20 @@ import 'package:elixr_application/features/practice/widgets/training_status_row.
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 bool _searchingForTest = true;
 
-Widget _wrap(Widget child, {Brightness brightness = Brightness.dark}) {
+Widget _wrap(
+  Widget child, {
+  Brightness brightness = Brightness.dark,
+  bool useShadTheme = false,
+}) {
   return FluentApp(
     theme: brightness == Brightness.dark ? AppTheme.dark : AppTheme.light,
-    home: ScaffoldPage(content: child),
+    home: ScaffoldPage(
+      content: useShadTheme ? ElixShadThemeBridge(child: child) : child,
+    ),
   );
 }
 
@@ -543,6 +550,7 @@ void main() {
               ),
             ),
           ),
+          useShadTheme: true,
         ),
       );
       await tester.pump();
@@ -555,6 +563,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tutorialOpened, isTrue);
+      expect(find.byIcon(shad.LucideIcons.x), findsNothing);
       expect(find.text('Hand Stall'), findsWidgets);
       expect(find.text('Cocktail Shaker'), findsOneWidget);
       expect(find.text('HOW TO PERFORM'), findsOneWidget);
@@ -621,6 +630,32 @@ void main() {
       expect(find.text('Normal Grip'), findsOneWidget);
       expect(find.text('Bottle'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tutorial dialog builds with Shad light and dark themes', (
+      tester,
+    ) async {
+      final movement = movementCatalog.first;
+      for (final brightness in [Brightness.light, Brightness.dark]) {
+        await tester.pumpWidget(
+          _wrap(
+            Center(
+              child: MovementTutorialDialog(
+                movement: movement,
+                prop: TrainingProp.bottle,
+                lesson: MovementLesson.forMovement(movement),
+              ),
+            ),
+            brightness: brightness,
+            useShadTheme: true,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('Normal Grip'), findsOneWidget);
+        expect(find.byIcon(shad.LucideIcons.x), findsNothing);
+        expect(tester.takeException(), isNull);
+      }
     });
   });
 }

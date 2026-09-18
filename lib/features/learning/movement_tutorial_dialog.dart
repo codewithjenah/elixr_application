@@ -30,14 +30,17 @@ class MovementTutorialDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ElixDialog(
     title: movement.name,
-    subtitle: movement.difficulty,
+    subtitle: '${movement.difficulty}  •  ${prop.displayLabel}',
     icon: FluentIcons.reading_mode,
-    maxWidth: 760,
-    maxHeight: 720,
+    maxWidth: 880,
+    maxHeight: 760,
     scrollableContent: true,
+    showCloseButton: false,
+    expandSingleAction: false,
+    showFooterDivider: true,
     content: LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 560;
+        final wide = constraints.maxWidth >= 620;
         final hero = _TutorialHero(
           movement: movement,
           prop: prop,
@@ -65,9 +68,9 @@ class MovementTutorialDialog extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(flex: 5, child: hero),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(flex: 6, child: technique),
+                  Expanded(flex: 6, child: hero),
+                  const SizedBox(width: AppSpacing.lg),
+                  Expanded(flex: 5, child: technique),
                 ],
               )
             else ...[
@@ -110,6 +113,7 @@ class MovementTutorialDialog extends StatelessWidget {
     actions: [
       ElixPrimaryButton(
         label: 'Back to Training',
+        icon: FluentIcons.back,
         expanded: false,
         onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
       ),
@@ -148,25 +152,38 @@ class _TutorialHero extends StatelessWidget {
           prop.displayLabel,
           style: AppTheme.body.copyWith(fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.md),
         Container(
-          height: 170,
+          height: 230,
           width: double.infinity,
           decoration: BoxDecoration(
             color: context.elixBackground.withValues(alpha: .48),
             borderRadius: BorderRadius.circular(ElixRadius.card),
           ),
           child: Center(
-            child: MovementImage(movementName: movement.name, size: 145),
+            child: MovementImage(movementName: movement.name, size: 190),
           ),
         ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          lesson.framing,
-          style: AppTheme.bodySecondary.copyWith(
-            color: context.elixTextSecondary,
-            height: 1.35,
-          ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              FluentIcons.camera,
+              size: 15,
+              color: context.elixColors.brandPrimary,
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                lesson.framing,
+                style: AppTheme.bodySecondary.copyWith(
+                  color: context.elixTextSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     ),
@@ -263,7 +280,7 @@ class _TutorialStep extends StatelessWidget {
   final String text;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.only(bottom: AppSpacing.sm + 2),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
