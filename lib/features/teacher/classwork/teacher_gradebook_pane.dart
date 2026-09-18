@@ -253,12 +253,16 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
           label: 'Cancel',
           expanded: false,
           variant: ElixButtonVariant.secondary,
-          onPressed: () => Navigator.pop(context),
+          // ElixDialog uses a Shad dialog route in the standard desktop theme.
+          // The pane's context belongs to the page route, so explicitly dismiss
+          // the root navigator that owns the dialog route.
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
         ),
         ElixPrimaryButton(
           label: 'Export',
           expanded: false,
-          onPressed: () => Navigator.pop(context, format),
+          onPressed: () =>
+              Navigator.of(context, rootNavigator: true).pop(format),
         ),
       ],
     );
