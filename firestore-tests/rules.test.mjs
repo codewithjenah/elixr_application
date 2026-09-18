@@ -4268,7 +4268,9 @@ describe('users role constraints', () => {
       updateDoc(doc(alice, 'users', 'alice'), {
         session_evidence_enabled: true,
         session_evidence_policy_version: 'v1',
-        session_evidence_decision_at: Timestamp.now(),
+        // A client value must never satisfy the server-timestamp audit rule.
+        // Use a fixed stale value so this negative case cannot race request.time.
+        session_evidence_decision_at: Timestamp.fromMillis(0),
       }),
     );
 

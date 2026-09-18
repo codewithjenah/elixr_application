@@ -14,10 +14,9 @@ void main() {
     'sidebar has one Plan & History destination and no Calendar or History items',
     () {
       final labels = elixSidebarItems.map((item) => item.label).toList();
-      expect(
-        labels.where((label) => label == 'Plan & History'),
-        ['Plan & History'],
-      );
+      expect(labels.where((label) => label == 'Plan & History'), [
+        'Plan & History',
+      ]);
       expect(labels.contains('Calendar'), isFalse);
       expect(labels.contains('History'), isFalse);
       expect(labels.contains('Assigned Movements'), isFalse);

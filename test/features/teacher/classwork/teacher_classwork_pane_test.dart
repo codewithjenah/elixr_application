@@ -172,10 +172,10 @@ void main() {
       );
 
       expect(find.text('Tin Balance'), findsOneWidget);
-    expect(find.text('Turned in'), findsWidgets);
-    expect(find.text('To Review'), findsWidgets);
-    expect(find.text('Checked'), findsWidgets);
-    expect(find.text('Not turned in'), findsWidgets);
+      expect(find.text('Turned in'), findsWidgets);
+      expect(find.text('To Review'), findsWidgets);
+      expect(find.text('Checked'), findsWidgets);
+      expect(find.text('Not turned in'), findsWidgets);
       expect(
         find.byKey(const Key('teacher_classwork_filter_all')),
         findsOneWidget,
@@ -424,6 +424,10 @@ void main() {
   testWidgets('scheduled assignments retain Edit when editing is available', (
     tester,
   ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 720);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
     final scheduled = assignments.assignments['assignment']!.copyWith(
       status: GroupAssignmentStatus.scheduled,
       publishAt: DateTime.utc(2026, 9, 15),

@@ -1041,7 +1041,10 @@ void main() {
       for (var index = 0; index < 3; index++) {
         final card = _card('official-$index');
         expect(card, findsOneWidget);
-        expect(_cardSize(tester, 'official-$index').width, closeTo(normalCardWidth, 0.5));
+        expect(
+          _cardSize(tester, 'official-$index').width,
+          closeTo(normalCardWidth, 0.5),
+        );
       }
       _expectNoOverflow(tester);
     },

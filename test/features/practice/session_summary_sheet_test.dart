@@ -1077,7 +1077,8 @@ void main() {
     expect(find.text('Try Again'), findsOneWidget);
     expect(find.text('Back to movements'), findsOneWidget);
     expect(
-      tester.widget<HyperlinkButton>(find.byType(HyperlinkButton).last)
+      tester
+          .widget<HyperlinkButton>(find.byType(HyperlinkButton).last)
           .onPressed,
       isNull,
     );
@@ -1431,10 +1432,7 @@ void main() {
 
       await tester.tap(_primaryButton, warnIfMissed: false);
       await tester.tap(find.text('Try Again'), warnIfMissed: false);
-      await tester.tap(
-        find.text('Back to movements'),
-        warnIfMissed: false,
-      );
+      await tester.tap(find.text('Back to movements'), warnIfMissed: false);
       await tester.pump(const Duration(milliseconds: 60));
 
       expect(saveCalls, 1);

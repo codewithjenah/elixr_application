@@ -72,10 +72,10 @@ class _MovementsScreenState extends State<MovementsScreen> {
       if (kDebugMode) debugPrint('Movement history load failed for $userId');
       return;
     }
+    if (!mounted) return;
     final activeUserId =
         widget.userId ?? context.read<AuthService>().currentUser?.id;
-    if (!mounted ||
-        requestGeneration != _statsRequestGeneration ||
+    if (requestGeneration != _statsRequestGeneration ||
         activeUserId != userId) {
       return;
     }
