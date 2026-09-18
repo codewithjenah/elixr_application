@@ -56,6 +56,8 @@ typedef AssignedSessionAtomicSaver =
 typedef SessionEvidencePreferenceRemoteWriter =
     Future<void> Function({required String userId, required bool enabled});
 
+typedef SessionEvidencePreferenceRetryDelay = Duration Function(int attempt);
+
 /// Thrown when a caller tries to persist an official session for a movement
 /// that is not one of the 15 catalog identities.
 class UnofficialMovementException implements Exception {
@@ -82,6 +84,8 @@ class SessionService extends ChangeNotifier {
     SessionEvidenceRepository? evidenceRepository,
     SessionEvidencePreferenceStore? evidencePreferenceStore,
     SessionEvidencePreferenceRemoteWriter? evidencePreferenceRemoteWriter,
+    Duration evidencePreferenceWriteTimeout = const Duration(seconds: 15),
+    SessionEvidencePreferenceRetryDelay? evidencePreferenceRetryDelay,
     TeacherRelationshipRepository? teacherRelationshipRepository,
   }) : _repositoryOrNull = repository,
        _leaderboardRepositoryOrNull = leaderboardRepository,
@@ -95,6 +99,9 @@ class SessionService extends ChangeNotifier {
        _evidencePreferenceStore =
            evidencePreferenceStore ?? SessionEvidencePreferenceStore(),
        _evidencePreferenceRemoteWriter = evidencePreferenceRemoteWriter,
+       _evidencePreferenceWriteTimeout = evidencePreferenceWriteTimeout,
+       _evidencePreferenceRetryDelay =
+           evidencePreferenceRetryDelay ?? _defaultEvidencePreferenceRetryDelay,
        _teacherRelationshipRepository = teacherRelationshipRepository;
 
   SessionRepository? _repositoryOrNull;
@@ -108,10 +115,15 @@ class SessionService extends ChangeNotifier {
   SessionEvidenceRepository? _evidenceRepositoryOrNull;
   final SessionEvidencePreferenceStore _evidencePreferenceStore;
   final SessionEvidencePreferenceRemoteWriter? _evidencePreferenceRemoteWriter;
+  final Duration _evidencePreferenceWriteTimeout;
+  final SessionEvidencePreferenceRetryDelay _evidencePreferenceRetryDelay;
   final TeacherRelationshipRepository? _teacherRelationshipRepository;
   final Map<String, ({int revision, bool enabled})> _pendingEvidenceSync = {};
   final Set<String> _evidenceSyncingUsers = <String>{};
   final Map<String, int> _evidenceRevisions = <String, int>{};
+  final Map<String, Timer> _evidenceSyncRetryTimers = {};
+  final Map<String, int> _evidenceSyncFailureCounts = {};
+  bool _disposed = false;
 
   SessionRepository get repository => _repositoryOrNull ??= SessionRepository();
 
@@ -173,6 +185,8 @@ class SessionService extends ChangeNotifier {
     required String userId,
     required bool enabled,
   }) {
+    if (_disposed) return;
+    _evidenceSyncRetryTimers.remove(userId)?.cancel();
     final revision = (_evidenceRevisions[userId] ?? 0) + 1;
     _evidenceRevisions[userId] = revision;
     _pendingEvidenceSync[userId] = (revision: revision, enabled: enabled);
@@ -188,21 +202,19 @@ class SessionService extends ChangeNotifier {
         final pending = _pendingEvidenceSync[userId];
         if (pending == null) return;
         try {
-          final writer = _evidencePreferenceRemoteWriter;
-          if (writer != null) {
-            await writer(userId: userId, enabled: pending.enabled);
-          } else {
-            await FirestoreHelper.instance.updateUserProfileField(userId, {
-              'session_evidence_enabled': pending.enabled,
-              'session_evidence_policy_version': 'v1',
-              'session_evidence_decision_at': FieldValue.serverTimestamp(),
-            });
-          }
+          await _writeSessionEvidencePreferenceRemotely(
+            userId: userId,
+            enabled: pending.enabled,
+          );
         } catch (_) {
-          // The latest desired value is retained for a foreground retry.
+          // The latest desired value remains locally durable. A timed-out
+          // Firestore write cannot hold session completion hostage, but it also
+          // cannot leave the Storage-rule consent field absent until the next
+          // app resume.
           completedWithoutFailure = false;
           return;
         }
+        _evidenceSyncFailureCounts.remove(userId);
         final latest = _pendingEvidenceSync[userId];
         if (latest?.revision == pending.revision) {
           _pendingEvidenceSync.remove(userId);
@@ -218,8 +230,78 @@ class SessionService extends ChangeNotifier {
           userId: userId,
           enabled: latest.enabled,
         );
+      } else if (!completedWithoutFailure && latest != null) {
+        _scheduleSessionEvidencePreferenceRetry(userId);
       }
     }
+  }
+
+  Future<void> _writeSessionEvidencePreferenceRemotely({
+    required String userId,
+    required bool enabled,
+  }) async {
+    final writer = _evidencePreferenceRemoteWriter;
+    final write = writer != null
+        ? writer(userId: userId, enabled: enabled)
+        : FirestoreHelper.instance.updateUserProfileField(userId, {
+            'session_evidence_enabled': enabled,
+            'session_evidence_policy_version': 'v1',
+            'session_evidence_decision_at': FieldValue.serverTimestamp(),
+          });
+    var timedOut = false;
+    try {
+      await write.timeout(_evidencePreferenceWriteTimeout);
+    } on TimeoutException {
+      timedOut = true;
+      rethrow;
+    } finally {
+      if (timedOut) {
+        // The original client write can still reach Firestore after its timeout.
+        // Re-project the latest locally durable value when it settles so an old
+        // opt-in can never win over a newer opt-out.
+        unawaited(
+          write.then<void>(
+            (_) => _resyncLatestSessionEvidencePreference(userId),
+            onError: (_) {},
+          ),
+        );
+      }
+    }
+  }
+
+  void _scheduleSessionEvidencePreferenceRetry(String userId) {
+    if (_disposed ||
+        _pendingEvidenceSync[userId] == null ||
+        _evidenceSyncRetryTimers.containsKey(userId)) {
+      return;
+    }
+    final attempt = (_evidenceSyncFailureCounts[userId] ?? 0) + 1;
+    _evidenceSyncFailureCounts[userId] = attempt;
+    _evidenceSyncRetryTimers[userId] = Timer(
+      _evidencePreferenceRetryDelay(attempt),
+      () {
+        _evidenceSyncRetryTimers.remove(userId);
+        if (_disposed ||
+            _pendingEvidenceSync[userId] == null ||
+            !_evidenceSyncingUsers.add(userId)) {
+          return;
+        }
+        unawaited(_drainSessionEvidencePreferenceSync(userId));
+      },
+    );
+  }
+
+  Future<void> _resyncLatestSessionEvidencePreference(String userId) async {
+    if (_disposed) return;
+    final enabled = await _evidencePreferenceStore.read(userId);
+    if (enabled != null && !_disposed) {
+      _scheduleSessionEvidencePreferenceSync(userId: userId, enabled: enabled);
+    }
+  }
+
+  static Duration _defaultEvidencePreferenceRetryDelay(int attempt) {
+    final exponent = (attempt - 1).clamp(0, 5).toInt();
+    return Duration(seconds: 1 << exponent);
   }
 
   Future<void> revokeSessionEvidence(String userId) async {
@@ -237,6 +319,8 @@ class SessionService extends ChangeNotifier {
   Future<void> purgeLocalSessionEvidencePreference(String userId) async {
     _evidenceRevisions[userId] = (_evidenceRevisions[userId] ?? 0) + 1;
     _pendingEvidenceSync.remove(userId);
+    _evidenceSyncRetryTimers.remove(userId)?.cancel();
+    _evidenceSyncFailureCounts.remove(userId);
     await _evidencePreferenceStore.purge(userId);
   }
 
@@ -520,5 +604,15 @@ class SessionService extends ChangeNotifier {
       );
     }
     return feedbacks;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    for (final timer in _evidenceSyncRetryTimers.values) {
+      timer.cancel();
+    }
+    _evidenceSyncRetryTimers.clear();
+    super.dispose();
   }
 }

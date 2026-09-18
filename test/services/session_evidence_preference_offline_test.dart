@@ -86,6 +86,77 @@ void main() {
     expect(await store.read('trainee-a'), isFalse);
   });
 
+  test(
+    'a temporary remote preference write failure retries the durable choice',
+    () async {
+      final store = await createStore();
+      final retried = Completer<void>();
+      var attempts = 0;
+      final service = SessionService(
+        evidencePreferenceStore: store,
+        evidencePreferenceRetryDelay: (_) => Duration.zero,
+        evidencePreferenceRemoteWriter:
+            ({required userId, required enabled}) async {
+              attempts++;
+              if (attempts == 1) throw StateError('temporary network failure');
+              retried.complete();
+            },
+      );
+      addTearDown(service.dispose);
+
+      await service.setSessionEvidenceEnabled(
+        userId: 'trainee-a',
+        enabled: true,
+      );
+      await retried.future;
+
+      expect(attempts, 2);
+      expect(await store.read('trainee-a'), isTrue);
+    },
+  );
+
+  test(
+    'a late old remote write reprojects the latest local decision',
+    () async {
+      final store = await createStore();
+      final oldOptIn = Completer<void>();
+      final oldOptInStarted = Completer<void>();
+      final writes = <bool>[];
+      final service = SessionService(
+        evidencePreferenceStore: store,
+        evidencePreferenceWriteTimeout: const Duration(milliseconds: 1),
+        evidencePreferenceRetryDelay: (_) => const Duration(days: 1),
+        evidencePreferenceRemoteWriter:
+            ({required userId, required enabled}) async {
+              writes.add(enabled);
+              if (enabled && writes.where((value) => value).length == 1) {
+                oldOptInStarted.complete();
+                await oldOptIn.future;
+              }
+            },
+      );
+      addTearDown(service.dispose);
+
+      await service.setSessionEvidenceEnabled(
+        userId: 'trainee-a',
+        enabled: true,
+      );
+      await oldOptInStarted.future;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await service.setSessionEvidenceEnabled(
+        userId: 'trainee-a',
+        enabled: false,
+      );
+      await pumpEventQueue();
+      oldOptIn.complete();
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(writes, [true, false, false]);
+      expect(await store.read('trainee-a'), isFalse);
+    },
+  );
+
   test('false consent remains local and is never converted to true', () async {
     final store = await createStore();
     final service = SessionService(

@@ -218,6 +218,26 @@ void main() {
     expect(evidence.downloads, ['trainee:session-1', 'trainee:session-1']);
   });
 
+  test(
+    'permission denial remains an error rather than no saved image',
+    () async {
+      seedApprovedMembership();
+      final session = sampleSession(evidenceAvailable: true);
+      progress.inner.sessions['trainee'] = [session];
+      evidence.errors[session.sessionId] = StateError('storage/unauthorized');
+      await boot();
+      await pumpEventQueue();
+
+      await controller.loadEvidence(session);
+
+      expect(
+        controller.evidenceStateFor(session.sessionId),
+        TeacherEvidenceState.error,
+      );
+      expect(controller.evidenceErrorFor(session.sessionId), isA<StateError>());
+    },
+  );
+
   test('classroom membership removed clears visible progress', () async {
     seedApprovedMembership();
     progress.inner.setSummary('trainee', sampleSummary());

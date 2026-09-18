@@ -252,6 +252,16 @@ async function uploadSavedImage() {
 }
 
 describe('assignment_submissions Storage', () => {
+  test('Trainee owner can read a saved image regardless of sharing preference', async () => {
+    await seedClassroomEvidence({enabled: false});
+    await uploadSavedImage();
+    await assertSucceeds(
+      getBytes(
+        ref(context('trainee').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+      ),
+    );
+  });
+
   test('approved classroom Teacher can read saved image while enabled', async () => {
     await seedClassroomEvidence();
     await uploadSavedImage();
@@ -270,6 +280,34 @@ describe('assignment_submissions Storage', () => {
         session_evidence_enabled: false,
       }, { merge: true });
     });
+    await assertFails(
+      getBytes(
+        ref(context('teacher').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+      ),
+    );
+  });
+
+  test('Teacher profile without the canonical claim cannot read a shared image', async () => {
+    await seedClassroomEvidence();
+    await uploadSavedImage();
+    await assertFails(
+      getBytes(
+        ref(
+          context('teacher', {teacherClaim: false}).storage(),
+          'users/trainee/session_evidence/session-1.jpg',
+        ),
+      ),
+    );
+  });
+
+  test('missing classroom access context denies a Teacher saved-image read', async () => {
+    await seedClassroom({membership: 'approved'});
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'users', 'trainee'), {
+        session_evidence_enabled: true,
+      }, {merge: true});
+    });
+    await uploadSavedImage();
     await assertFails(
       getBytes(
         ref(context('teacher').storage(), 'users/trainee/session_evidence/session-1.jpg'),

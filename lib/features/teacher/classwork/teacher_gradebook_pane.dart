@@ -518,14 +518,22 @@ class _GradeCell extends StatelessWidget {
       attemptUnavailable: controller.hasAttemptLoadError(assignment.id),
       now: now,
     );
+    // A student row is intentionally compact (56 px). Two lines of grade
+    // information need more than the 40 px left by the standard 8 px vertical
+    // padding, particularly with the Windows text metrics used by Fluent.
     final content = Padding(
-      padding: const EdgeInsets.all(AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             cell.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: cell.state == TeacherGradebookCellState.scored
                   ? FontWeight.w700
@@ -536,6 +544,8 @@ class _GradeCell extends StatelessWidget {
           if (cell.detail != null && cell.detail!.isNotEmpty)
             Text(
               cell.detail!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppTheme.bodySecondary.copyWith(
                 fontSize: 11,
                 color: context.elixTextSecondary,
