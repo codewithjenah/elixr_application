@@ -204,6 +204,41 @@ class PendingEmailChangeRecoveryResult {
   }
 }
 
+/// The outcome of restoring an already-persisted Firebase identity's ELIXR
+/// profile. This deliberately distinguishes an unavailable backend from an
+/// invalid account so callers can make a safe offline decision.
+enum PersistedProfileRestorationStatus {
+  authoritative,
+  signedOut,
+  unavailable,
+  invalidProfile,
+}
+
+class PersistedProfileRestoration {
+  const PersistedProfileRestoration._(this.status, [this.user]);
+
+  final PersistedProfileRestorationStatus status;
+  final User? user;
+
+  const PersistedProfileRestoration.authoritative(User user)
+    : this._(PersistedProfileRestorationStatus.authoritative, user);
+
+  const PersistedProfileRestoration.signedOut()
+    : this._(PersistedProfileRestorationStatus.signedOut);
+
+  const PersistedProfileRestoration.unavailable()
+    : this._(PersistedProfileRestorationStatus.unavailable);
+
+  const PersistedProfileRestoration.invalidProfile()
+    : this._(PersistedProfileRestorationStatus.invalidProfile);
+}
+
+/// A locally retained Firebase user was rejected during refresh for a reason
+/// other than backend availability. It must never authorize an offline cache.
+class InvalidPersistedAuthIdentityException implements Exception {
+  const InvalidPersistedAuthIdentityException();
+}
+
 abstract class AuthRepositoryBase {
   Future<User> register({
     required String firstName,
@@ -288,6 +323,13 @@ abstract class AuthRepositoryBase {
     required String recoveryPassword,
     String? originalEmail,
   });
+}
+
+/// Optional capability so existing product-specific repositories and test
+/// doubles remain source compatible while the Firebase implementation can
+/// expose safe offline-restoration semantics.
+abstract class PersistedProfileRestorationRepository {
+  Future<PersistedProfileRestoration> restorePersistedProfile();
 }
 
 /// Optional provider-aware contract kept separate so existing password-only
@@ -879,7 +921,8 @@ class AuthRepository
         TeacherRegistrationRepositoryBase,
         TeacherAuthorizationRepositoryBase,
         TeacherGoogleAuthRepositoryBase,
-        TeacherProfileBorderRepositoryBase {
+        TeacherProfileBorderRepositoryBase,
+        PersistedProfileRestorationRepository {
   AuthRepository({
     fb.FirebaseAuth? auth,
     UserProfileStore? db,
@@ -1695,19 +1738,54 @@ class AuthRepository
 
   @override
   Future<User?> loadPersistedUser() async {
+    final result = await restorePersistedProfile();
+    return result.user;
+  }
+
+  @override
+  Future<PersistedProfileRestoration> restorePersistedProfile() async {
     final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) return null;
+    if (firebaseUser == null) {
+      return const PersistedProfileRestoration.signedOut();
+    }
     try {
-      return await _loadUserProfile(
+      final user = await _loadUserProfile(
         firebaseUser,
         reload: true,
         tolerateReloadFailure: true,
       );
+      return PersistedProfileRestoration.authoritative(user);
     } on MissingUserProfileException {
       await _signOutIgnoringErrors();
-      return null;
+      return const PersistedProfileRestoration.invalidProfile();
+    } on InvalidPersistedAuthIdentityException {
+      await _signOutIgnoringErrors();
+      return const PersistedProfileRestoration.invalidProfile();
+    } on TimeoutException {
+      return const PersistedProfileRestoration.unavailable();
+    } on SocketException {
+      return const PersistedProfileRestoration.unavailable();
+    } on HttpException {
+      return const PersistedProfileRestoration.unavailable();
+    } on HandshakeException {
+      return const PersistedProfileRestoration.unavailable();
+    } on fb.FirebaseAuthException catch (error) {
+      if (_isBackendUnavailable(error.code)) {
+        return const PersistedProfileRestoration.unavailable();
+      }
+      rethrow;
+    } on FirebaseException catch (error) {
+      if (_isBackendUnavailable(error.code)) {
+        return const PersistedProfileRestoration.unavailable();
+      }
+      rethrow;
     }
   }
+
+  static bool _isBackendUnavailable(String code) => switch (code) {
+    'unavailable' || 'network-request-failed' || 'deadline-exceeded' => true,
+    _ => false,
+  };
 
   @override
   Future<void> clearCurrentUser() {
@@ -2604,6 +2682,9 @@ class AuthRepository
       try {
         await firebaseUser.reload().timeout(_authOperationTimeout);
       } on fb.FirebaseAuthException catch (e) {
+        if (tolerateReloadFailure && !_isBackendUnavailable(e.code)) {
+          throw const InvalidPersistedAuthIdentityException();
+        }
         if (!tolerateReloadFailure) {
           throw Exception(_messageForAuthError(e));
         }

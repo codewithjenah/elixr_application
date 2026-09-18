@@ -15,6 +15,7 @@ import '../data/repositories/public_profile_repository.dart';
 import '../firebase_options.dart';
 import 'auth_email_callback_server.dart';
 import 'join_link_service.dart';
+import 'trainee_profile_snapshot_store.dart';
 import 'windows_google_oauth_flow.dart';
 
 /// Account-scoped phrase used as a deliberate-action safeguard in the UI.
@@ -84,6 +85,8 @@ class AuthService extends ChangeNotifier {
     @visibleForTesting String? Function()? currentFirebaseAuthUid,
     Future<void> Function()? accountScopeTeardownBarrier,
     Future<void> Function(String userId)? purgePendingSessions,
+    TraineeProfileSnapshotStore? traineeProfileSnapshotStore,
+    Duration? profileRestorationTimeout,
   }) : _repository =
            repository ??
            AuthRepository(
@@ -113,7 +116,11 @@ class AuthService extends ChangeNotifier {
        _firebaseAuthUidChangesOverride = firebaseAuthUidChanges,
        _currentFirebaseAuthUidOverride = currentFirebaseAuthUid,
        _accountScopeTeardownBarrier = accountScopeTeardownBarrier,
-       _purgePendingSessions = purgePendingSessions {
+       _purgePendingSessions = purgePendingSessions,
+       _traineeProfileSnapshotStore =
+           traineeProfileSnapshotStore ?? TraineeProfileSnapshotStore(),
+       _profileRestorationTimeout =
+           profileRestorationTimeout ?? const Duration(seconds: 8) {
     _joinLinkService?.authCallbackHandler = handleEmailActionCallback;
   }
 
@@ -147,6 +154,8 @@ class AuthService extends ChangeNotifier {
   final String? Function()? _currentFirebaseAuthUidOverride;
   final Future<void> Function()? _accountScopeTeardownBarrier;
   final Future<void> Function(String userId)? _purgePendingSessions;
+  final TraineeProfileSnapshotStore _traineeProfileSnapshotStore;
+  final Duration _profileRestorationTimeout;
 
   // Lazily constructed so tests that never touch profile-image upload do not
   // need Firebase Storage initialized.
@@ -163,6 +172,7 @@ class AuthService extends ChangeNotifier {
   AuthInitializationFailure? _initializationFailure;
   Future<void>? _initializationInFlight;
   bool? _emailVerified;
+  bool _isOfflineRestoredTrainee = false;
   bool _disposed = false;
   bool _checkingPendingEmail = false;
   _PendingEmailChangeState? _pendingEmailChange;
@@ -195,6 +205,7 @@ class AuthService extends ChangeNotifier {
   bool get isGoogleOnly =>
       _providerKinds.contains(AuthProviderKind.google) && !hasPasswordProvider;
   bool get isLoading => _isLoading;
+  bool get isOfflineRestoredTrainee => _isOfflineRestoredTrainee;
   AuthInitializationState get initializationState => _initializationState;
   AuthInitializationFailure? get initializationFailure =>
       _initializationFailure;
@@ -290,26 +301,79 @@ class AuthService extends ChangeNotifier {
         await _waitForInitialFirebaseAuthState();
       }
 
-      final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
-      if (restoredGoogle is PendingGoogleSignIn) {
-        // The access code is deliberately not durable. A restored incomplete
-        // flow must make the user choose a role again and re-enter the code for
-        // Teacher completion.
+      final firebaseUid = _readCurrentFirebaseAuthUid();
+      if (firebaseUid == null || firebaseUid.isEmpty) {
+        final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
+        if (restoredGoogle is PendingGoogleSignIn) {
+          // The access code is deliberately not durable. A restored incomplete
+          // flow must make the user choose a role again and re-enter the code
+          // for Teacher completion.
+          _completeInitialization(
+            currentUser: null,
+            pendingGoogleProfile: restoredGoogle.profile.copyWith(
+              intent: GoogleOnboardingIntent.unspecified,
+              clearTeacherAccessCode: true,
+            ),
+            providerKinds: const {AuthProviderKind.google},
+            emailVerified: null,
+          );
+          return;
+        }
+        if (restoredGoogle is ExistingGoogleProfile) {
+          if (!_hasSupportedProductRole(restoredGoogle.user)) {
+            await _repository.clearCurrentUser();
+            _completeInitialization(
+              currentUser: null,
+              providerKinds: const {},
+              emailVerified: null,
+            );
+            return;
+          }
+          await _completeAuthoritativeInitialization(
+            restoredGoogle.user,
+            firebaseUid: null,
+          );
+          return;
+        }
+      }
+      final restoration = await _restorePersistedProfile(firebaseUid);
+      if (restoration.status == PersistedProfileRestorationStatus.unavailable) {
+        final offlineSnapshot = firebaseUid == null
+            ? null
+            : await _traineeProfileSnapshotStore.load(firebaseUid);
+        if (offlineSnapshot != null &&
+            offlineSnapshot.userId == firebaseUid &&
+            offlineSnapshot.user.isTrainee) {
+          _isOfflineRestoredTrainee = true;
+          _completeInitialization(
+            currentUser: offlineSnapshot.user,
+            providerKinds: const {},
+            emailVerified: offlineSnapshot.emailVerified,
+          );
+          return;
+        }
+        // A locally restored Firebase identity without a matching,
+        // authoritative Trainee snapshot cannot enter the product offline.
         _completeInitialization(
           currentUser: null,
-          pendingGoogleProfile: restoredGoogle.profile.copyWith(
-            intent: GoogleOnboardingIntent.unspecified,
-            clearTeacherAccessCode: true,
-          ),
-          providerKinds: const {AuthProviderKind.google},
+          providerKinds: const {},
           emailVerified: null,
         );
         return;
       }
 
-      final loadedUser = restoredGoogle is ExistingGoogleProfile
-          ? restoredGoogle.user
-          : await _repository.loadPersistedUser();
+      if (restoration.status == PersistedProfileRestorationStatus.signedOut ||
+          restoration.status ==
+              PersistedProfileRestorationStatus.invalidProfile) {
+        _completeInitialization(
+          currentUser: null,
+          providerKinds: const {},
+          emailVerified: null,
+        );
+        return;
+      }
+
+      final loadedUser = restoration.user;
       if (loadedUser != null && !_hasSupportedProductRole(loadedUser)) {
         // Preserve the existing fail-closed unsupported-role behavior without
         // publishing the malformed profile or emitting an intermediate ready
@@ -325,13 +389,9 @@ class AuthService extends ChangeNotifier {
 
       // Teacher claim finalization remains mandatory. Nothing is published to
       // currentUser until this and the remaining restoration reads succeed.
-      if (loadedUser != null) await _ensureTeacherRoleClaim(loadedUser);
-      final providerKinds = await _loadProviderKinds(loadedUser);
-      final emailVerified = await _loadEmailVerificationState(loadedUser);
-      _completeInitialization(
-        currentUser: loadedUser,
-        providerKinds: providerKinds,
-        emailVerified: emailVerified,
+      await _completeAuthoritativeInitialization(
+        loadedUser,
+        firebaseUid: firebaseUid,
       );
     } catch (error, stackTrace) {
       _failInitialization(error, stackTrace);
@@ -341,6 +401,56 @@ class AuthService extends ChangeNotifier {
       }
       if (!completer.isCompleted) completer.complete();
     }
+  }
+
+  Future<PersistedProfileRestoration> _restorePersistedProfile(
+    String? firebaseUid,
+  ) async {
+    // The production repository exposes a typed outcome. The legacy path is
+    // retained for existing focused test doubles, but it never permits a
+    // cached offline fallback because it cannot prove the Firebase identity.
+    final restorationRepository =
+        _repository is PersistedProfileRestorationRepository
+        ? _repository as PersistedProfileRestorationRepository
+        : null;
+    if (restorationRepository == null) {
+      if (firebaseUid == null || firebaseUid.isEmpty) {
+        return const PersistedProfileRestoration.signedOut();
+      }
+      final user = await _repository.loadPersistedUser().timeout(
+        _profileRestorationTimeout,
+        onTimeout: () => null,
+      );
+      return user == null
+          ? const PersistedProfileRestoration.signedOut()
+          : PersistedProfileRestoration.authoritative(user);
+    }
+    if (firebaseUid == null || firebaseUid.isEmpty) {
+      return const PersistedProfileRestoration.signedOut();
+    }
+    return restorationRepository.restorePersistedProfile().timeout(
+      _profileRestorationTimeout,
+      onTimeout: () => const PersistedProfileRestoration.unavailable(),
+    );
+  }
+
+  Future<void> _completeAuthoritativeInitialization(
+    User? user, {
+    required String? firebaseUid,
+  }) async {
+    if (user != null) await _ensureTeacherRoleClaim(user);
+    final providerKinds = await _loadProviderKinds(user);
+    final emailVerified = await _loadEmailVerificationState(user);
+    await _cacheAuthoritativeTraineeSnapshot(
+      user,
+      emailVerified: emailVerified == true,
+      expectedFirebaseUid: firebaseUid,
+    );
+    _completeInitialization(
+      currentUser: user,
+      providerKinds: providerKinds,
+      emailVerified: emailVerified,
+    );
   }
 
   Future<void> _waitForInitialFirebaseAuthState() {
@@ -421,6 +531,7 @@ class AuthService extends ChangeNotifier {
     _currentUser = null;
     _providerKinds = const {};
     _emailVerified = null;
+    _isOfflineRestoredTrainee = false;
   }
 
   void _markAuthenticatedSessionReady() {
@@ -457,6 +568,7 @@ class AuthService extends ChangeNotifier {
     _pendingGoogleProfile = null;
     _providerKinds = const {};
     _emailVerified = null;
+    _isOfflineRestoredTrainee = false;
     _clearTeacherAuthMessages();
     _initializationFailure = null;
     _initializationState = AuthInitializationState.loading;
@@ -490,6 +602,7 @@ class AuthService extends ChangeNotifier {
     _pendingGoogleProfile = null;
     _providerKinds = const {};
     _emailVerified = null;
+    _isOfflineRestoredTrainee = false;
     _initializationFailure = _initializationFailureFor(error);
     _initializationState = AuthInitializationState.failed;
     _isLoading = false;
@@ -1029,6 +1142,7 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    final userId = _currentUser?.id?.trim();
     await _beginFirebaseAuthTransition();
     _clearPendingEmailChange(clearError: true);
     _clearTeacherAuthMessages();
@@ -1040,6 +1154,9 @@ class AuthService extends ChangeNotifier {
     _clearVerificationResendCooldown();
     await _stopEmailCallbackServer();
     await _repository.clearCurrentUser();
+    if (userId != null && userId.isNotEmpty) {
+      await _purgeTraineeProfileSnapshot(userId);
+    }
   }
 
   Future<bool> resendVerificationEmail() async {
@@ -1148,6 +1265,11 @@ class AuthService extends ChangeNotifier {
 
   Future<void> _refreshEmailVerificationState() async {
     _emailVerified = await _loadEmailVerificationState(_currentUser);
+    await _cacheAuthoritativeTraineeSnapshot(
+      _currentUser,
+      emailVerified: _emailVerified == true,
+      expectedFirebaseUid: _readCurrentFirebaseAuthUid(),
+    );
   }
 
   Future<bool?> _loadEmailVerificationState(User? user) async {
@@ -1156,6 +1278,56 @@ class AuthService extends ChangeNotifier {
       return await _repository.isCurrentEmailVerified();
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<void> _cacheAuthoritativeTraineeSnapshot(
+    User? user, {
+    required bool emailVerified,
+    required String? expectedFirebaseUid,
+  }) async {
+    // Only the production typed restoration capability proves the semantics
+    // required for an offline-auth cache. Legacy repositories remain online
+    // only and therefore cannot create one.
+    if (_repository is! PersistedProfileRestorationRepository) return;
+    if (user == null || !user.isTrainee) return;
+    final userId = user.id?.trim();
+    // An explicit expected UID is supplied on production cold start. Never
+    // write a cache entry until the Firebase and ELIXR identities agree.
+    if (userId == null || userId.isEmpty) return;
+    if (expectedFirebaseUid != null && expectedFirebaseUid != userId) return;
+    if (expectedFirebaseUid == null &&
+        _currentFirebaseAuthUidOverride == null &&
+        _readCurrentFirebaseAuthUid() != userId) {
+      return;
+    }
+    final snapshot = TraineeProfileSnapshot.fromAuthoritativeUser(
+      user,
+      emailVerified: emailVerified,
+    );
+    if (snapshot == null) return;
+    try {
+      await _traineeProfileSnapshotStore.save(snapshot);
+    } catch (error) {
+      // Snapshot persistence is an availability enhancement, never an
+      // authorization dependency. A local-storage failure must not invalidate
+      // an otherwise authoritative Firebase session.
+      if (kDebugMode) {
+        debugPrint('Trainee profile snapshot write failed: $error');
+      }
+    }
+  }
+
+  Future<void> _purgeTraineeProfileSnapshot(String userId) async {
+    if (_repository is! PersistedProfileRestorationRepository) return;
+    try {
+      await _traineeProfileSnapshotStore.purge(userId);
+    } catch (error) {
+      // Account deletion/sign-out has already changed Firebase state; local
+      // cache cleanup remains best effort and cannot resurrect that identity.
+      if (kDebugMode) {
+        debugPrint('Trainee profile snapshot purge failed: $error');
+      }
     }
   }
 
@@ -1685,10 +1857,45 @@ class AuthService extends ChangeNotifier {
       return _currentUser;
     }
 
-    final refreshed = await _repository.refreshAuthenticatedUser();
+    final previousUserId = _currentUser?.id?.trim();
+    final refreshed = await _repository.refreshAuthenticatedUser().timeout(
+      _profileRestorationTimeout,
+    );
+    final firebaseUid = _readCurrentFirebaseAuthUid();
+    final mustValidateFirebaseIdentity =
+        _repository is PersistedProfileRestorationRepository;
+    if (refreshed != null &&
+        (previousUserId == null ||
+            previousUserId.isEmpty ||
+            refreshed.id?.trim() != previousUserId ||
+            (mustValidateFirebaseIdentity && firebaseUid != previousUserId))) {
+      _invalidatePublishedAccount();
+      notifyListeners();
+      return null;
+    }
     _currentUser = refreshed;
+    if (refreshed != null) {
+      _isOfflineRestoredTrainee = false;
+      await _refreshEmailVerificationState();
+    }
     notifyListeners();
     return _currentUser;
+  }
+
+  /// A bounded, foreground-only attempt to replace an offline snapshot with
+  /// the authoritative profile. Failure leaves the valid offline Trainee
+  /// session intact; no polling loop is started.
+  Future<void> refreshAuthoritativeProfileOnForeground() async {
+    if (!_isOfflineRestoredTrainee || _currentUser?.isTrainee != true) return;
+    try {
+      await refreshAuthenticatedUser();
+    } on TimeoutException {
+      // Offline or an unavailable backend: retain the verified local session.
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Authoritative foreground profile refresh failed: $error');
+      }
+    }
   }
 
   Future<PendingEmailChangeRecoveryStatus?> checkPendingEmailChange({
@@ -1787,6 +1994,7 @@ class AuthService extends ChangeNotifier {
     // Permanent deletion is different: remove this UID's local outbox and
     // temporary evidence only after the authoritative account deletion wins.
     await _purgePendingSessions?.call(userId);
+    await _purgeTraineeProfileSnapshot(userId);
     _clearPendingEmailChange(clearError: true);
     _currentUser = null;
     _providerKinds = const {};

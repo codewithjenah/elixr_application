@@ -348,7 +348,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(
-      find.text('Network error. Check your connection and try again.'),
+      find.text(
+        'Internet connection is required to sign in. Offline mode is '
+        'available after you have signed in on this device at least once.',
+      ),
       findsOneWidget,
     );
   });

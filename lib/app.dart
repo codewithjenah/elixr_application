@@ -173,9 +173,14 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _authService.touchLeaderboardPresence();
-      unawaited(_pendingSessionSyncCoordinator.syncPendingForActiveTrainee());
+      unawaited(_refreshAuthenticatedForegroundState());
     }
+  }
+
+  Future<void> _refreshAuthenticatedForegroundState() async {
+    await _authService.refreshAuthoritativeProfileOnForeground();
+    _authService.touchLeaderboardPresence();
+    await _pendingSessionSyncCoordinator.syncPendingForActiveTrainee();
   }
 
   @override

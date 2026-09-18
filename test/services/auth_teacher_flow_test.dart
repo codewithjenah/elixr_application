@@ -252,6 +252,7 @@ void main() {
     final auth = AuthService(
       repository: repository,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'tr1',
     );
     await auth.initialize();
 
@@ -296,6 +297,7 @@ void main() {
     final auth = AuthService(
       repository: repository,
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'tr1',
     );
     await auth.initialize();
 
@@ -355,6 +357,7 @@ void main() {
       final auth = AuthService(
         repository: repository,
         awaitInitialAuthState: () async {},
+        currentFirebaseAuthUid: () => 'legacy-teacher',
       );
       addTearDown(auth.dispose);
 
@@ -550,6 +553,7 @@ void main() {
       final auth = AuthService(
         repository: repository,
         awaitInitialAuthState: () async {},
+        currentFirebaseAuthUid: () => 'admin-1',
       );
       await auth.initialize();
 

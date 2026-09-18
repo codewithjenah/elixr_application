@@ -74,7 +74,8 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _error = switch (failure.kind) {
           AuthFailureKind.network =>
-            'Network error. Check your connection and try again.',
+            'Internet connection is required to sign in. Offline mode is '
+                'available after you have signed in on this device at least once.',
           AuthFailureKind.rateLimited =>
             'Too many attempts. Wait a moment and try again.',
           AuthFailureKind.disabledAccount =>
