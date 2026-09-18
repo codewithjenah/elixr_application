@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -11,6 +10,7 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../core/router/navigation_helpers.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
@@ -190,7 +190,10 @@ class _TeacherHistorySessionRowState extends State<_TeacherHistorySessionRow> {
   bool _expanded = false, _hovered = false, _focused = false;
   void _toggle() {
     setState(() => _expanded = !_expanded);
-    if (_expanded && widget.session.evidenceAvailable == true) {
+    // Null is unknown for legacy/stale projections, not proof that no
+    // authorized evidence object exists. Explicit false avoids a needless
+    // Storage request.
+    if (_expanded && widget.session.evidenceAvailable != false) {
       widget.controller.loadEvidence(widget.session);
     }
   }
@@ -425,7 +428,7 @@ class _TeacherHistoryDetails extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         _AssessmentDetails(session: session),
         const SizedBox(height: AppSpacing.md),
-        if (session.evidenceAvailable == true)
+        if (session.evidenceAvailable != false)
           _HistoryEvidence(controller: controller, session: session)
         else
           Text(
@@ -514,13 +517,19 @@ class _HistoryEvidence extends StatelessWidget {
     if (state == TeacherEvidenceState.loaded && bytes != null) {
       return _EvidencePreview(session: session, bytes: bytes);
     }
+    if (state == TeacherEvidenceState.unavailable) {
+      return Text(
+        'No confirmed movement image',
+        style: AppTheme.bodySecondary.copyWith(
+          color: context.elixTextSecondary,
+        ),
+      );
+    }
     return Row(
       children: [
         Expanded(
           child: Text(
-            state == TeacherEvidenceState.unavailable
-                ? 'Saved image is unavailable.'
-                : 'Saved image could not be loaded.',
+            'Saved image could not be loaded.',
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
         ),
@@ -630,7 +639,5 @@ void _showEvidence(
 );
 String _historyDate(String? value) {
   final parsed = value == null ? null : DateTime.tryParse(value);
-  return parsed == null
-      ? 'Date unavailable'
-      : DateFormat('MMM d, y · h:mm a').format(parsed.toLocal());
+  return parsed == null ? 'Date unavailable' : formatElixrDateTime(parsed);
 }

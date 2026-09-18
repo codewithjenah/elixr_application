@@ -503,7 +503,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
       sessions = [
         ...sessions,
         ...page.sessions.where((item) => known.add(item.sessionId)),
-      ];
+      ]..sort(_compareSessionsByMostRecent);
       _cursor = page.nextCursor;
       hasMore = page.hasMore;
       _firstPageSettled = true;
@@ -624,7 +624,10 @@ class TeacherStudentDetailController extends ChangeNotifier {
   }
 
   Future<void> loadEvidence(PublicProfileSession session) async {
-    if (session.evidenceAvailable != true ||
+    // A missing projection flag is unknown for older/stale public-profile
+    // documents. The deterministic object path may still be authorized and
+    // available, so only an explicit false skips the on-demand probe.
+    if (session.evidenceAvailable == false ||
         !hasClassroomAuthorization ||
         !sessions.any((item) => item.sessionId == session.sessionId)) {
       return;
@@ -681,6 +684,29 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _evidenceBySessionId.clear();
     _evidenceErrors.clear();
   }
+
+  /// Matches History's most-recent semantics while protecting the teacher
+  /// paging UI from malformed or stale projection timestamps. The repository
+  /// cursor remains server-owned; this only orders already loaded rows.
+  static int _compareSessionsByMostRecent(
+    PublicProfileSession a,
+    PublicProfileSession b,
+  ) {
+    final aCreatedAt = _parseCreatedAt(a.createdAt);
+    final bCreatedAt = _parseCreatedAt(b.createdAt);
+    if (aCreatedAt != null && bCreatedAt != null) {
+      final comparison = bCreatedAt.compareTo(aCreatedAt);
+      if (comparison != 0) return comparison;
+    } else if (aCreatedAt != null) {
+      return -1;
+    } else if (bCreatedAt != null) {
+      return 1;
+    }
+    return a.sessionId.compareTo(b.sessionId);
+  }
+
+  static DateTime? _parseCreatedAt(String? value) =>
+      value == null ? null : DateTime.tryParse(value);
 
   @override
   void dispose() {

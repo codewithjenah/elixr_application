@@ -19,7 +19,20 @@ class FirebaseTeacherEvidenceRepository implements TeacherEvidenceRepository {
   Future<Uint8List?> downloadEvidence({
     required String traineeId,
     required String sessionId,
-  }) => _storage
-      .ref(pathFor(traineeId: traineeId, sessionId: sessionId))
-      .getData(TeacherEvidenceRepository.maximumBytes);
+  }) async {
+    try {
+      return await _storage
+          .ref(pathFor(traineeId: traineeId, sessionId: sessionId))
+          .getData(TeacherEvidenceRepository.maximumBytes);
+    } on FirebaseException catch (error) {
+      // A stale/legacy projection is allowed to be uncertain. A missing
+      // deterministic object is an expected no-image state, while denied and
+      // transient Storage failures must remain visible and retryable.
+      if (isObjectNotFound(error)) return null;
+      rethrow;
+    }
+  }
+
+  static bool isObjectNotFound(Object error) =>
+      error is FirebaseException && error.code == 'object-not-found';
 }

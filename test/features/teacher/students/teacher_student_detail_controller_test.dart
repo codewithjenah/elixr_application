@@ -176,6 +176,26 @@ void main() {
     expect(evidence.downloads, ['trainee:session-1']);
   });
 
+  test(
+    'unknown evidence availability still probes authorized evidence',
+    () async {
+      seedApprovedMembership();
+      final session = sampleSession();
+      progress.inner.sessions['trainee'] = [session];
+      evidence.responses[session.sessionId] = Uint8List.fromList([1, 2, 3]);
+      await boot();
+      await pumpEventQueue();
+
+      await controller.loadEvidence(session);
+
+      expect(evidence.downloads, ['trainee:session-1']);
+      expect(
+        controller.evidenceStateFor(session.sessionId),
+        TeacherEvidenceState.loaded,
+      );
+    },
+  );
+
   test('saved image unavailable state can be retried', () async {
     seedApprovedMembership();
     final session = sampleSession(evidenceAvailable: true);
@@ -249,6 +269,52 @@ void main() {
     await pumpEventQueue();
     expect(controller.sessions, isNotEmpty);
   });
+
+  test(
+    'merged history is newest-first with stable invalid timestamp ordering',
+    () async {
+      controller.dispose();
+      controller = TeacherStudentDetailController(
+        groupRepository: groups,
+        relationshipRepository: links,
+        progressRepository: progress,
+        evidenceRepository: evidence,
+        publicProfileRepository: profiles,
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+        initialPracticePageSize: 2,
+      );
+      seedApprovedMembership();
+      progress.inner.sessions['trainee'] = [
+        _historySession('old', '2026-08-01T10:00:00Z'),
+        _historySession('null-date', null),
+        _historySession('tie-b', '2026-08-03T10:00:00Z'),
+        _historySession('invalid-date', 'not-a-date'),
+        _historySession('new', '2026-08-04T10:00:00Z'),
+        _historySession('tie-a', '2026-08-03T10:00:00Z'),
+        _historySession('duplicate', '2026-08-02T10:00:00Z'),
+        _historySession('duplicate', '2026-08-01T09:00:00Z'),
+      ];
+      await boot();
+      await pumpEventQueue();
+      await controller.loadMore();
+      await pumpEventQueue();
+
+      expect(controller.sessions.map((session) => session.sessionId), [
+        'new',
+        'tie-a',
+        'tie-b',
+        'duplicate',
+        'old',
+        'invalid-date',
+        'null-date',
+      ]);
+      expect(
+        controller.sessions.map((session) => session.sessionId).toSet(),
+        hasLength(controller.sessions.length),
+      );
+    },
+  );
 
   test('selected group id resolves to the Teacher group name', () async {
     seedApprovedMembership();
@@ -340,6 +406,18 @@ void main() {
     },
   );
 }
+
+PublicProfileSession _historySession(String id, String? createdAt) =>
+    PublicProfileSession(
+      sessionId: id,
+      userId: 'trainee',
+      movementName: 'Hand Stall',
+      difficulty: 'Easy',
+      legacyScore: 80,
+      durationSeconds: 60,
+      propType: TrainingProp.bottle,
+      createdAt: createdAt,
+    );
 
 class _FailingTeacherGroupsRepository implements GroupRepository {
   _FailingTeacherGroupsRepository(this.inner);

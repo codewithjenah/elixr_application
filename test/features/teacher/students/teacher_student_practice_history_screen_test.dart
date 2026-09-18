@@ -136,6 +136,7 @@ void main() {
   ) async {
     final session = sampleSession(evidenceAvailable: true);
     progress.inner.sessions['trainee'] = [session];
+    evidence.errors[session.sessionId] = StateError('temporary Storage error');
     await pumpScreen(tester);
 
     expect(evidence.downloads, isEmpty);
@@ -154,8 +155,9 @@ void main() {
     expect(find.text('Prop positioning: 2/3'), findsOneWidget);
     expect(find.textContaining('Assessment V2'), findsNothing);
     expect(find.textContaining('Rubric total'), findsNothing);
-    expect(find.text('Saved image is unavailable.'), findsOneWidget);
+    expect(find.text('Saved image could not be loaded.'), findsOneWidget);
 
+    evidence.errors.remove(session.sessionId);
     evidence.responses[session.sessionId] = Uint8List.fromList(_tinyPng);
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
@@ -173,17 +175,50 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets(
-    'rows without retained evidence never offer or request an image',
-    (tester) async {
-      progress.inner.sessions['trainee'] = [sampleSession()];
-      await pumpScreen(tester, size: const Size(340, 720));
+  testWidgets('unknown evidence is loaded only when its row is expanded', (
+    tester,
+  ) async {
+    progress.inner.sessions['trainee'] = [sampleSession()];
+    evidence.responses['session-1'] = Uint8List.fromList(_tinyPng);
+    await pumpScreen(tester, size: const Size(340, 720));
 
-      expect(find.text('View saved image'), findsNothing);
-      expect(evidence.downloads, isEmpty);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(evidence.downloads, isEmpty);
+    await tester.tap(find.byKey(const Key('teacher_history_row_session-1')));
+    await tester.pumpAndSettle();
+    expect(evidence.downloads, ['trainee:session-1']);
+    expect(
+      find.byKey(const Key('teacher_history_evidence_preview_session-1')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('known unavailable evidence does not start a download', (
+    tester,
+  ) async {
+    progress.inner.sessions['trainee'] = [
+      sampleSession(evidenceAvailable: false),
+    ];
+    await pumpScreen(tester);
+
+    await tester.tap(find.byKey(const Key('teacher_history_row_session-1')));
+    await tester.pumpAndSettle();
+    expect(evidence.downloads, isEmpty);
+    expect(find.text('No confirmed movement image'), findsOneWidget);
+  });
+
+  testWidgets('a missing evidence object resolves to the no-image state', (
+    tester,
+  ) async {
+    progress.inner.sessions['trainee'] = [sampleSession()];
+    await pumpScreen(tester);
+
+    await tester.tap(find.byKey(const Key('teacher_history_row_session-1')));
+    await tester.pumpAndSettle();
+    expect(evidence.downloads, ['trainee:session-1']);
+    expect(find.text('No confirmed movement image'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+  });
 
   testWidgets('older scores use normal teacher-facing wording', (tester) async {
     progress.inner.sessions['trainee'] = const [
