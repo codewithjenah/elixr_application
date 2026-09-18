@@ -22,6 +22,7 @@ import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
 import '../data/repositories/session_repository.dart';
 import '../data/repositories/session_evidence_repository.dart';
+import 'session_evidence_preference_store.dart';
 
 typedef LeaderboardSessionRecorder =
     Future<void> Function({
@@ -76,6 +77,7 @@ class SessionService extends ChangeNotifier {
     LeaderboardSessionRecorder? recordCompletedSessionOverride,
     PublicProfileSessionProjector? projectSessionOverride,
     SessionEvidenceRepository? evidenceRepository,
+    SessionEvidencePreferenceStore? evidencePreferenceStore,
     TeacherRelationshipRepository? teacherRelationshipRepository,
   }) : _repositoryOrNull = repository,
        _leaderboardRepositoryOrNull = leaderboardRepository,
@@ -86,6 +88,8 @@ class SessionService extends ChangeNotifier {
        _recordCompletedSessionOverride = recordCompletedSessionOverride,
        _projectSessionOverride = projectSessionOverride,
        _evidenceRepositoryOrNull = evidenceRepository,
+       _evidencePreferenceStore =
+           evidencePreferenceStore ?? SessionEvidencePreferenceStore(),
        _teacherRelationshipRepository = teacherRelationshipRepository;
 
   SessionRepository? _repositoryOrNull;
@@ -97,6 +101,7 @@ class SessionService extends ChangeNotifier {
   final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
   final PublicProfileSessionProjector? _projectSessionOverride;
   SessionEvidenceRepository? _evidenceRepositoryOrNull;
+  final SessionEvidencePreferenceStore _evidencePreferenceStore;
   final TeacherRelationshipRepository? _teacherRelationshipRepository;
 
   SessionRepository get repository => _repositoryOrNull ??= SessionRepository();
@@ -117,20 +122,43 @@ class SessionService extends ChangeNotifier {
 
   /// Null means no evidence decision has been recorded yet.
   Future<bool?> sessionEvidenceEnabled(String userId) async {
-    return (await FirestoreHelper.instance.getUserById(
-      userId,
-    ))?.sessionEvidenceEnabled;
+    final cached = await _evidencePreferenceStore.read(userId);
+    if (cached != null) return cached;
+    final remote = FirestoreHelper.instance.getUserById(userId);
+    unawaited(
+      remote
+          .then((user) async {
+            final enabled = user?.sessionEvidenceEnabled;
+            if (enabled != null) {
+              await _evidencePreferenceStore.write(userId, enabled);
+            }
+          })
+          .catchError((_) {}),
+    );
+    // A profile read is not the local durability boundary. Do not leave the
+    // completion flow waiting indefinitely when Firebase is unreachable.
+    try {
+      final user = await remote.timeout(const Duration(seconds: 2));
+      final enabled = user?.sessionEvidenceEnabled;
+      if (enabled != null) {
+        await _evidencePreferenceStore.write(userId, enabled);
+      }
+      return enabled;
+    } on TimeoutException {
+      return null;
+    }
   }
 
   Future<void> setSessionEvidenceEnabled({
     required String userId,
     required bool enabled,
-  }) {
-    return FirestoreHelper.instance.updateUserProfileField(userId, {
+  }) async {
+    await FirestoreHelper.instance.updateUserProfileField(userId, {
       'session_evidence_enabled': enabled,
       'session_evidence_policy_version': 'v1',
       'session_evidence_decision_at': FieldValue.serverTimestamp(),
     });
+    await _evidencePreferenceStore.write(userId, enabled);
   }
 
   Future<void> revokeSessionEvidence(String userId) async {
@@ -141,8 +169,12 @@ class SessionService extends ChangeNotifier {
     );
     await _evidenceRepository.deleteAllForUser(userId);
     await setSessionEvidenceEnabled(userId: userId, enabled: false);
+    await _evidencePreferenceStore.purge(userId);
     notifyListeners();
   }
+
+  Future<void> purgeLocalSessionEvidencePreference(String userId) =>
+      _evidencePreferenceStore.purge(userId);
 
   Future<String> saveCompletedSession({
     required String userId,

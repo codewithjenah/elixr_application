@@ -83,6 +83,7 @@ class AuthService extends ChangeNotifier {
     @visibleForTesting Stream<String?>? firebaseAuthUidChanges,
     @visibleForTesting String? Function()? currentFirebaseAuthUid,
     Future<void> Function()? accountScopeTeardownBarrier,
+    Future<void> Function(String userId)? purgePendingSessions,
   }) : _repository =
            repository ??
            AuthRepository(
@@ -111,7 +112,8 @@ class AuthService extends ChangeNotifier {
        _awaitInitialAuthState = awaitInitialAuthState,
        _firebaseAuthUidChangesOverride = firebaseAuthUidChanges,
        _currentFirebaseAuthUidOverride = currentFirebaseAuthUid,
-       _accountScopeTeardownBarrier = accountScopeTeardownBarrier {
+       _accountScopeTeardownBarrier = accountScopeTeardownBarrier,
+       _purgePendingSessions = purgePendingSessions {
     _joinLinkService?.authCallbackHandler = handleEmailActionCallback;
   }
 
@@ -144,6 +146,7 @@ class AuthService extends ChangeNotifier {
   final Stream<String?>? _firebaseAuthUidChangesOverride;
   final String? Function()? _currentFirebaseAuthUidOverride;
   final Future<void> Function()? _accountScopeTeardownBarrier;
+  final Future<void> Function(String userId)? _purgePendingSessions;
 
   // Lazily constructed so tests that never touch profile-image upload do not
   // need Firebase Storage initialized.
@@ -1779,6 +1782,11 @@ class AuthService extends ChangeNotifier {
     }
     _accountDeletedMessage =
         'Your account and associated data have been permanently deleted.';
+    // Normal sign-out intentionally retains account-scoped pending attempts:
+    // the same Firebase UID may authenticate later and finish their replay.
+    // Permanent deletion is different: remove this UID's local outbox and
+    // temporary evidence only after the authoritative account deletion wins.
+    await _purgePendingSessions?.call(userId);
     _clearPendingEmailChange(clearError: true);
     _currentUser = null;
     _providerKinds = const {};

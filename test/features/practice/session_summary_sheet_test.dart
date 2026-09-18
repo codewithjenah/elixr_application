@@ -364,6 +364,45 @@ bool _isFullyVisible(WidgetTester tester, Finder finder, Size viewport) {
 }
 
 void main() {
+  testWidgets('teacher preview summary is non-persistent and offers retry', (
+    tester,
+  ) async {
+    SessionSummaryResult? result;
+    await tester.pumpWidget(
+      FluentApp(
+        home: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async {
+              result = await SessionSummarySheet.showPreview(
+                context,
+                movement: 'Hand Stall',
+                durationSeconds: 45,
+                assessment: _standardSummaryAssessment(),
+              );
+            },
+            child: const Text('Open preview'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open preview'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Teacher Preview · This result was not saved'),
+      findsOneWidget,
+    );
+    expect(
+      find.widgetWithText(GameActionButton, 'Back to Activity Library'),
+      findsOneWidget,
+    );
+    expect(find.text('Session saved'), findsNothing);
+
+    await tester.tap(find.text('Try Again'));
+    await tester.pumpAndSettle();
+    expect(result, SessionSummaryResult.tryAgain);
+  });
+
   testWidgets('timeout summary shows Game Over and Time\'s Up', (tester) async {
     await _openSummary(
       tester,

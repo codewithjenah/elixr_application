@@ -47,6 +47,8 @@ import 'services/app_background_music_service.dart';
 import 'services/backend_service.dart';
 import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
+import 'services/pending_session_store.dart';
+import 'services/pending_session_sync_coordinator.dart';
 import 'services/settings_service.dart';
 import 'services/tutorial_progress_service.dart';
 import 'services/trainee_progression_service.dart';
@@ -82,6 +84,9 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   late final NotificationAudioService _notificationAudioService;
   late final CameraDeviceService _cameraDeviceService;
   late final TutorialProgressService _tutorialProgressService;
+  late final PendingSessionStore _pendingSessionStore;
+  late final SessionService _sessionService;
+  late final PendingSessionSyncCoordinator _pendingSessionSyncCoordinator;
   late final TraineeProgressionService _traineeProgressionService;
   late final PublicProfileRepository _publicProfileRepository;
   late final LeaderboardRepository _leaderboardRepository;
@@ -109,11 +114,24 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     _joinCodeResolver = JoinCodeResolver(groupRepository: _groupRepository);
     _joinLinkService = JoinLinkService();
     _chatRepository = FirebaseChatRepository();
+    _pendingSessionStore = PendingSessionStore();
+    _sessionService = SessionService(
+      publicProfileRepository: _publicProfileRepository,
+      teacherRelationshipRepository: _teacherRelationshipRepository,
+    );
+    _pendingSessionSyncCoordinator = PendingSessionSyncCoordinator(
+      store: _pendingSessionStore,
+      sessionService: _sessionService,
+    );
     _authService = AuthService(
       leaderboardRepository: _leaderboardRepository,
       publicProfileRepository: _publicProfileRepository,
       joinLinkService: _joinLinkService,
       accountScopeTeardownBarrier: () => SchedulerBinding.instance.endOfFrame,
+      purgePendingSessions: (userId) async {
+        await _pendingSessionSyncCoordinator.purgeAccount(userId);
+        await _sessionService.purgeLocalSessionEvidencePreference(userId);
+      },
     );
     unawaited(_authService.initialize());
     _settingsService = SettingsService()..initialize();
@@ -156,6 +174,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _authService.touchLeaderboardPresence();
+      unawaited(_pendingSessionSyncCoordinator.syncPendingForActiveTrainee());
     }
   }
 
@@ -169,6 +188,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     _cameraDeviceService.dispose();
     _joinLinkService.dispose();
     _traineeProgressionService.dispose();
+    _sessionService.dispose();
     _router.dispose();
     super.dispose();
   }
@@ -220,11 +240,19 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
             return progression;
           },
         ),
-        ChangeNotifierProvider(
-          create: (_) => SessionService(
-            publicProfileRepository: _publicProfileRepository,
-            teacherRelationshipRepository: _teacherRelationshipRepository,
-          ),
+        ChangeNotifierProvider.value(value: _sessionService),
+        ChangeNotifierProxyProvider<AuthService, PendingSessionSyncCoordinator>(
+          create: (_) => _pendingSessionSyncCoordinator,
+          update: (_, auth, coordinator) {
+            coordinator ??= _pendingSessionSyncCoordinator;
+            coordinator.setActiveTrainee(
+              auth.isAuthenticatedSessionReady &&
+                      auth.currentUser?.isTrainee == true
+                  ? auth.currentUser?.id
+                  : null,
+            );
+            return coordinator;
+          },
         ),
         Provider<PublicProfileRepository>.value(
           value: _publicProfileRepository,

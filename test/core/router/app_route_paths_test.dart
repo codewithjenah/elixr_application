@@ -17,4 +17,18 @@ void main() {
       'prop': 'bottle&shaker',
     });
   });
+
+  test('teacher preview route preserves the exact official variant', () {
+    final location = AppRoutePaths.teacherPreviewMovement(
+      movement: 'Hand & Stall / A',
+      prop: 'bottle&shaker',
+    );
+    final uri = Uri.parse(location);
+
+    expect(uri.path, AppRoutePaths.teacherMovementPreview);
+    expect(uri.queryParameters, {
+      'movement': 'Hand & Stall / A',
+      'prop': 'bottle&shaker',
+    });
+  });
 }

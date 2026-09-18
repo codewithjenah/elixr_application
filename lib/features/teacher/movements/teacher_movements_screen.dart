@@ -1,5 +1,6 @@
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
@@ -7,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
 import '../../../core/layout/balanced_card_grid.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
@@ -436,6 +438,12 @@ class _OfficialList extends StatelessWidget {
                 official: step.movement,
                 officialProp: step.prop,
               ),
+              onTryMovement: () => context.go(
+                AppRoutePaths.teacherPreviewMovement(
+                  movement: step.movement.name,
+                  prop: step.prop.protocolValue,
+                ),
+              ),
             );
           }, childCount: activities.length),
           gridDelegate: BalancedSliverGridDelegate(
@@ -444,8 +452,8 @@ class _OfficialList extends StatelessWidget {
             mainAxisExtent: _cardExtent(
               context,
               // Five-column cards use the compact vertical layout.
-              base: 430,
-              growth: 180,
+              base: 490,
+              growth: 210,
             ),
             crossAxisSpacing: AppSpacing.md,
             mainAxisSpacing: AppSpacing.md,
@@ -573,6 +581,7 @@ class _OfficialMovementCard extends StatelessWidget {
     required this.busy,
     required this.onViewGuide,
     required this.onAssign,
+    required this.onTryMovement,
   });
 
   final Movement movement;
@@ -580,6 +589,7 @@ class _OfficialMovementCard extends StatelessWidget {
   final bool busy;
   final VoidCallback onViewGuide;
   final VoidCallback onAssign;
+  final VoidCallback onTryMovement;
 
   @override
   Widget build(BuildContext context) {
@@ -602,6 +612,7 @@ class _OfficialMovementCard extends StatelessWidget {
               prop: prop,
               busy: busy,
               onAssign: onAssign,
+              onTryMovement: onTryMovement,
             );
             if (!horizontal) {
               return Column(
@@ -700,21 +711,41 @@ class _OfficialMovementActions extends StatelessWidget {
     required this.prop,
     required this.busy,
     required this.onAssign,
+    required this.onTryMovement,
   });
 
   final Movement movement;
   final TrainingProp prop;
   final bool busy;
   final VoidCallback onAssign;
+  final VoidCallback onTryMovement;
 
   @override
   Widget build(BuildContext context) {
     final variantKey = _officialVariantKey(movement.name, prop);
-    return ElixPrimaryButton(
-      key: Key('teacher_movement_assign_official_$variantKey'),
-      label: 'Assign to class',
-      onPressed: busy ? null : onAssign,
-      dense: true,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Tooltip(
+          message:
+              'Test this movement exactly as a trainee would experience it.',
+          child: ElixPrimaryButton(
+            key: Key('teacher_movement_try_official_$variantKey'),
+            label: 'Try movement',
+            onPressed: busy ? null : onTryMovement,
+            variant: ElixButtonVariant.outline,
+            dense: true,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        ElixPrimaryButton(
+          key: Key('teacher_movement_assign_official_$variantKey'),
+          label: 'Assign to class',
+          onPressed: busy ? null : onAssign,
+          dense: true,
+        ),
+      ],
     );
   }
 }

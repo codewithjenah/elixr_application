@@ -22,7 +22,7 @@ import 'widgets/training_performance.dart';
 
 enum SessionSummaryResult { saved, discarded, tryAgain, next }
 
-enum SessionSaveState { saving, saved, failed }
+enum SessionSaveState { saving, pendingSync, saved, failed }
 
 /// Owns the one authoritative persistence operation for a completed attempt.
 ///
@@ -32,14 +32,18 @@ enum SessionSaveState { saving, saved, failed }
 /// save state survive summary rebuilds without giving UI actions a second way
 /// to initiate the first write.
 class SessionSummarySaveController extends ChangeNotifier {
-  SessionSummarySaveController({required Future<void> Function() save})
-    : _save = save;
+  SessionSummarySaveController({
+    required Future<void> Function() save,
+    this.completeAsPendingSync = false,
+  }) : _save = save;
 
   final Future<void> Function() _save;
+  final bool completeAsPendingSync;
   SessionSaveState _state = SessionSaveState.saving;
   String? _error;
   Future<void>? _inFlight;
   bool _disposed = false;
+  bool _remoteSyncConfirmed = false;
 
   SessionSaveState get state => _state;
   String? get error => _error;
@@ -62,21 +66,35 @@ class SessionSummarySaveController extends ChangeNotifier {
     _notify();
 
     late final Future<void> pending;
-    pending = Future<void>.sync(_save).then(
-      (_) {
-        _state = SessionSaveState.saved;
-        _notify();
-      },
-      onError: (Object error, StackTrace _) {
-        _error = SessionSummarySheet._formatSaveError(error);
-        _state = SessionSaveState.failed;
-        _notify();
-      },
-    ).whenComplete(() {
-      if (identical(_inFlight, pending)) _inFlight = null;
-    });
+    pending = Future<void>.sync(_save)
+        .then(
+          (_) {
+            _state = _remoteSyncConfirmed || !completeAsPendingSync
+                ? SessionSaveState.saved
+                : SessionSaveState.pendingSync;
+            _notify();
+          },
+          onError: (Object error, StackTrace _) {
+            _error = SessionSummarySheet._formatSaveError(error);
+            _state = SessionSaveState.failed;
+            _notify();
+          },
+        )
+        .whenComplete(() {
+          if (identical(_inFlight, pending)) _inFlight = null;
+        });
     _inFlight = pending;
     return pending;
+  }
+
+  /// The outbox calls this only after the existing authoritative session save
+  /// returned. It is intentionally separate from local durability.
+  void markRemotelySynced() {
+    _remoteSyncConfirmed = true;
+    if (_state == SessionSaveState.pendingSync) {
+      _state = SessionSaveState.saved;
+      _notify();
+    }
   }
 
   void _notify() {
@@ -126,6 +144,7 @@ class SessionSummarySheet extends StatelessWidget {
     this.nextMovementName,
     this.evidenceJpegBytes,
     this.timedOut = false,
+    this.isTeacherPreview = false,
   });
 
   final String movement;
@@ -139,6 +158,7 @@ class SessionSummarySheet extends StatelessWidget {
   final String? nextMovementName;
   final Uint8List? evidenceJpegBytes;
   final bool timedOut;
+  final bool isTeacherPreview;
 
   RubricAssessment get _rubric => assessment.rubric;
 
@@ -184,6 +204,7 @@ class SessionSummarySheet extends StatelessWidget {
                     : SessionSummaryResult.saved,
               );
             }
+
             final reduceMotion = MediaQuery.disableAnimationsOf(context);
             return Stack(
               children: [
@@ -211,7 +232,8 @@ class SessionSummarySheet extends StatelessWidget {
                           evidenceJpegBytes: evidenceJpegBytes,
                           timedOut: timedOut,
                           onDiscard: () {
-                            if (saveState != SessionSaveState.saved) {
+                            if (saveState != SessionSaveState.saved &&
+                                saveState != SessionSaveState.pendingSync) {
                               return;
                             }
                             Navigator.of(
@@ -220,7 +242,10 @@ class SessionSummarySheet extends StatelessWidget {
                             ).pop(SessionSummaryResult.discarded);
                           },
                           onTryAgain: () {
-                            if (saveState != SessionSaveState.saved) return;
+                            if (saveState != SessionSaveState.saved &&
+                                saveState != SessionSaveState.pendingSync) {
+                              return;
+                            }
                             Navigator.of(
                               ctx,
                               rootNavigator: true,
@@ -235,6 +260,63 @@ class SessionSummarySheet extends StatelessWidget {
               ],
             );
           },
+        );
+      },
+    );
+  }
+
+  /// Shows the same calculated rubric and feedback without creating a save
+  /// controller or implying that this runtime-only result was persisted.
+  static Future<SessionSummaryResult?> showPreview(
+    BuildContext context, {
+    required String movement,
+    required int durationSeconds,
+    required SessionAssessment assessment,
+    bool timedOut = false,
+  }) {
+    return showDialog<SessionSummaryResult>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: const Color(0xE6080812),
+      useRootNavigator: true,
+      builder: (ctx) {
+        final reduceMotion = MediaQuery.disableAnimationsOf(ctx);
+        return Stack(
+          children: [
+            if (!timedOut &&
+                celebrates(assessment.performanceLevel) &&
+                !reduceMotion)
+              const Positioned.fill(child: ConfettiOverlay()),
+            SafeArea(
+              child: Center(
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: _AnimatedEntrance(
+                    child: SessionSummarySheet(
+                      movement: movement,
+                      durationSeconds: durationSeconds,
+                      assessment: assessment,
+                      saveState: SessionSaveState.saved,
+                      timedOut: timedOut,
+                      isTeacherPreview: true,
+                      onPrimaryAction: () => Navigator.of(
+                        ctx,
+                        rootNavigator: true,
+                      ).pop(SessionSummaryResult.saved),
+                      onDiscard: () => Navigator.of(
+                        ctx,
+                        rootNavigator: true,
+                      ).pop(SessionSummaryResult.discarded),
+                      onTryAgain: () => Navigator.of(
+                        ctx,
+                        rootNavigator: true,
+                      ).pop(SessionSummaryResult.tryAgain),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -396,6 +478,7 @@ class SessionSummarySheet extends StatelessWidget {
                     onTryAgain: onTryAgain,
                     regularLayout:
                         maxWidth >= _SummaryLayout.actionsRegularBreakpoint,
+                    isTeacherPreview: isTeacherPreview,
                   ),
                 ],
               ),
@@ -1641,6 +1724,7 @@ class _SummaryActions extends StatelessWidget {
     required this.onTryAgain,
     required this.nextMovementName,
     required this.regularLayout,
+    required this.isTeacherPreview,
   });
 
   final SessionSaveState saveState;
@@ -1650,14 +1734,19 @@ class _SummaryActions extends StatelessWidget {
   final VoidCallback onTryAgain;
   final String? nextMovementName;
   final bool regularLayout;
+  final bool isTeacherPreview;
 
   @override
   Widget build(BuildContext context) {
     final hasNext = nextMovementName != null;
     final saving = saveState == SessionSaveState.saving;
     final failed = saveState == SessionSaveState.failed;
-    final saved = saveState == SessionSaveState.saved;
-    final primaryLabel = failed
+    final saved =
+        saveState == SessionSaveState.saved ||
+        saveState == SessionSaveState.pendingSync;
+    final primaryLabel = isTeacherPreview
+        ? 'Back to Activity Library'
+        : failed
         ? 'Retry Save'
         : (hasNext ? 'Next: $nextMovementName' : 'Finish');
     final primaryButton = GameActionButton(
@@ -1693,28 +1782,35 @@ class _SummaryActions extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _SaveStatus(state: saveState, error: saveError),
+          _SaveStatus(
+            state: saveState,
+            error: saveError,
+            isTeacherPreview: isTeacherPreview,
+          ),
           const SizedBox(height: AppSpacing.sm),
           if (regularLayout)
             Row(
               children: [
-                Flexible(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: HyperlinkButton(
-                      onPressed: saved ? onDiscard : null,
-                      child: Text(
-                        'Back to movements',
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
+                if (!isTeacherPreview)
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: HyperlinkButton(
+                        onPressed: saved ? onDiscard : null,
+                        child: Text(
+                          'Back to movements',
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
+                  )
+                else
+                  const Spacer(),
                 const SizedBox(width: AppSpacing.sm),
                 _TryAgainButton(
-                    onPressed: saved ? onTryAgain : null,
+                  onPressed: saved ? onTryAgain : null,
                   expanded: false,
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -1741,17 +1837,18 @@ class _SummaryActions extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: AppSpacing.xs),
-                Center(
-                  child: HyperlinkButton(
-                    onPressed: saved ? onDiscard : null,
-                    child: Text(
-                      'Back to movements',
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
+                if (!isTeacherPreview)
+                  Center(
+                    child: HyperlinkButton(
+                      onPressed: saved ? onDiscard : null,
+                      child: Text(
+                        'Back to movements',
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
         ],
@@ -1761,31 +1858,47 @@ class _SummaryActions extends StatelessWidget {
 }
 
 class _SaveStatus extends StatelessWidget {
-  const _SaveStatus({required this.state, this.error});
+  const _SaveStatus({
+    required this.state,
+    this.error,
+    this.isTeacherPreview = false,
+  });
 
   final SessionSaveState state;
   final String? error;
+  final bool isTeacherPreview;
 
   @override
   Widget build(BuildContext context) {
-    final (message, icon, color) = switch (state) {
-      SessionSaveState.saving => (
-        'Saving session...',
-        FluentIcons.sync,
-        AppColors.primary,
-      ),
-      SessionSaveState.saved => (
-        'Session saved',
-        FluentIcons.completed,
-        AppColors.success,
-      ),
-      SessionSaveState.failed => (
-        error ??
-            'Could not save your session. Check your connection and try again.',
-        FluentIcons.error,
-        AppColors.error,
-      ),
-    };
+    final (message, icon, color) = isTeacherPreview
+        ? (
+            'Teacher Preview · This result was not saved',
+            FluentIcons.preview_link,
+            AppColors.primary,
+          )
+        : switch (state) {
+            SessionSaveState.saving => (
+              'Saving session...',
+              FluentIcons.sync,
+              AppColors.primary,
+            ),
+            SessionSaveState.pendingSync => (
+              'Saved on this device. It will sync automatically when you\'re online.',
+              FluentIcons.cloud_download,
+              AppColors.primary,
+            ),
+            SessionSaveState.saved => (
+              'Session saved',
+              FluentIcons.completed,
+              AppColors.success,
+            ),
+            SessionSaveState.failed => (
+              error ??
+                  'Could not save your session. Check your connection and try again.',
+              FluentIcons.error,
+              AppColors.error,
+            ),
+          };
     return Semantics(
       container: true,
       liveRegion: true,

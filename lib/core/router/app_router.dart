@@ -586,6 +586,34 @@ class AppRouter {
               },
             ),
             GoRoute(
+              path: AppRoutePaths.teacherMovementPreview,
+              redirect: (context, state) =>
+                  resolveStrictPracticeRouteVariant(
+                        movementName: state.uri.queryParameters['movement'],
+                        propProtocolValue: state.uri.queryParameters['prop'],
+                      ) ==
+                      null
+                  ? AppRoutePaths.teacherMovements
+                  : null,
+              pageBuilder: (context, state) {
+                final step = resolveStrictPracticeRouteVariant(
+                  movementName: state.uri.queryParameters['movement'],
+                  propProtocolValue: state.uri.queryParameters['prop'],
+                )!;
+                return fadeTransitionPage(
+                  key: ValueKey(
+                    'teacher-preview:${step.movement.name}|${step.prop.protocolValue}',
+                  ),
+                  child: PracticeScreen(
+                    movement: step.movement.name,
+                    difficulty: step.movement.difficulty,
+                    prop: step.prop,
+                    executionMode: PracticeExecutionMode.teacherPreview,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
               path: AppRoutePaths.teacherMovements,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,

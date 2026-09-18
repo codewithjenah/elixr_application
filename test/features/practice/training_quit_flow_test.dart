@@ -15,6 +15,7 @@ import 'package:elixr_application/data/repositories/in_memory_assignment_submiss
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/practice/freestyle/freestyle_models.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
+import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/features/practice/practice_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -135,10 +136,14 @@ class _GatedSettingsService extends SettingsService {
 
 class _TestSessionService extends SessionService {
   int completedSaveCalls = 0;
+  int reservedSessionIdCalls = 0;
   String? existingSessionId;
 
   @override
-  String reserveSessionId() => 'test-session-id';
+  String reserveSessionId() {
+    reservedSessionIdCalls++;
+    return 'test-session-id';
+  }
 
   @override
   Future<String> saveCompletedSession({
@@ -202,12 +207,15 @@ void main() {
   });
 
   Future<GlobalKey<PracticeScreenState>> pumpPractice(
-    WidgetTester tester,
-    {SessionService? sessionService}
-  ) async {
+    WidgetTester tester, {
+    SessionService? sessionService,
+    PracticeExecutionMode executionMode = PracticeExecutionMode.trainee,
+  }) async {
     final practiceKey = GlobalKey<PracticeScreenState>();
     final router = GoRouter(
-      initialLocation: AppRoutePaths.practice,
+      initialLocation: executionMode == PracticeExecutionMode.teacherPreview
+          ? AppRoutePaths.teacherMovementPreview
+          : AppRoutePaths.practice,
       routes: [
         GoRoute(
           path: AppRoutePaths.practice,
@@ -215,6 +223,17 @@ void main() {
             key: practiceKey,
             movement: 'Hand Stall',
             difficulty: 'Easy',
+            executionMode: executionMode,
+            websocketService: ws,
+          ),
+        ),
+        GoRoute(
+          path: AppRoutePaths.teacherMovementPreview,
+          builder: (context, state) => PracticeScreen(
+            key: practiceKey,
+            movement: 'Hand Stall',
+            difficulty: 'Easy',
+            executionMode: executionMode,
             websocketService: ws,
           ),
         ),
@@ -225,6 +244,11 @@ void main() {
         GoRoute(
           path: AppRoutePaths.dashboard,
           builder: (context, state) => const Text('dashboard-destination'),
+        ),
+        GoRoute(
+          path: AppRoutePaths.teacherMovements,
+          builder: (context, state) =>
+              const Text('teacher-movements-destination'),
         ),
       ],
     );
@@ -333,6 +357,39 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+  });
+
+  testWidgets('teacher preview completion stays in memory', (tester) async {
+    final sessions = _TestSessionService();
+    final screenKey = await pumpPractice(
+      tester,
+      sessionService: sessions,
+      executionMode: PracticeExecutionMode.teacherPreview,
+    );
+    final run = screenKey.currentState!.debugRun;
+
+    run.beginPreparing(onTimeout: () {});
+    run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+    run.enterCountdown();
+    run.enterActive();
+    run.debugAdvanceActiveSeconds(60);
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+
+    expect(
+      find.text('Teacher Preview · This result was not saved'),
+      findsOneWidget,
+    );
+    expect(sessions.reservedSessionIdCalls, 0);
+    expect(sessions.completedSaveCalls, 0);
+    expect(find.text('Next:'), findsNothing);
+
+    await tester.tap(
+      find.widgetWithText(GameActionButton, 'Back to Activity Library'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('teacher-movements-destination'), findsOneWidget);
   });
 
   testWidgets(

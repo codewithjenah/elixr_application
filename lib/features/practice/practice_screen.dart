@@ -26,6 +26,8 @@ import '../../services/app_background_music_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/session_service.dart';
+import '../../services/pending_session_store.dart';
+import '../../services/pending_session_sync_coordinator.dart';
 import '../../services/settings_service.dart';
 import '../../services/startup_diagnostics.dart';
 import '../../services/tutorial_progress_service.dart';
@@ -38,6 +40,7 @@ import 'camera_recovery_presentation.dart';
 import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
 import 'practice_run_phase.dart';
+import 'session_assessment.dart';
 import 'session_summary_sheet.dart';
 import 'training_quit_guard.dart';
 import 'widgets/readiness_checklist_panel.dart';
@@ -58,6 +61,12 @@ const _emptyRubric = RubricAssessment(
   propPositioning: 0,
 );
 
+/// Controls whether a completed guided-practice attempt is authoritative.
+///
+/// Teacher previews run the same camera and CV lifecycle but deliberately
+/// stop at the in-memory summary boundary.
+enum PracticeExecutionMode { trainee, teacherPreview }
+
 class PracticeScreen extends StatefulWidget {
   const PracticeScreen({
     super.key,
@@ -69,6 +78,7 @@ class PracticeScreen extends StatefulWidget {
     this.onChallengeComplete,
     this.challengeReturnLocation,
     this.previousChallengeBest,
+    this.executionMode = PracticeExecutionMode.trainee,
     @visibleForTesting this.websocketService,
   });
 
@@ -85,6 +95,7 @@ class PracticeScreen extends StatefulWidget {
   onChallengeComplete;
   final String? challengeReturnLocation;
   final int? previousChallengeBest;
+  final PracticeExecutionMode executionMode;
 
   /// Test injection. Production constructs [WebSocketService] in [createState].
   @visibleForTesting
@@ -175,6 +186,9 @@ class PracticeScreenState extends State<PracticeScreen>
   static const _maxContentWidth = AppSpacing.practiceMaxContentWidth;
   static const _desktopBreakpoint = AppSpacing.practiceDesktopBreakpoint;
   static const _compactBreakpoint = AppSpacing.practiceCompactBreakpoint;
+
+  bool get _isTeacherPreview =>
+      widget.executionMode == PracticeExecutionMode.teacherPreview;
 
   @override
   void initState() {
@@ -548,9 +562,11 @@ class PracticeScreenState extends State<PracticeScreen>
       }
 
       if (!_run.onConfirmReadinessAccepted()) return;
-      unawaited(
-        context.read<TutorialProgressService>().markCameraSetupComplete(),
-      );
+      if (!_isTeacherPreview) {
+        unawaited(
+          context.read<TutorialProgressService>().markCameraSetupComplete(),
+        );
+      }
       setState(() {});
       unawaited(_startGuidedCountdownOverlay());
     } catch (error) {
@@ -661,7 +677,7 @@ class PracticeScreenState extends State<PracticeScreen>
     if (!_run.isPreparingCamera) return;
 
     _ws.startupDiagnostics.annotate(
-      sessionMode: 'guided',
+      sessionMode: _isTeacherPreview ? 'teacher_preview' : 'guided',
       movement: _movement,
       camera: cameraDiagnosticIdentity(
         deviceId: cameraDeviceId,
@@ -886,12 +902,7 @@ class PracticeScreenState extends State<PracticeScreen>
       }
 
       final router = GoRouter.of(context);
-      final sessionService = context.read<SessionService>();
-      final authUser = context.read<AuthService>().currentUser;
-      final userId = authUser?.id;
-      final displayName = authUser?.fullName ?? 'Trainee';
       final settings = context.read<SettingsService>();
-      final tutorialProgress = context.read<TutorialProgressService>();
       final sfxVolume = settings.soundEnabled ? settings.musicVolume : 0.0;
 
       await _stopWebSocketSession();
@@ -914,19 +925,8 @@ class PracticeScreenState extends State<PracticeScreen>
         }
       }
 
-      if (userId == null) {
-        _run.cancelToIdle();
-        _clearSessionState();
-        if (mounted && !_leaving) setState(() {});
-        if (mounted && !_leaving) {
-          router.go(_practiceExitLocation(catalog: true));
-        }
-        return;
-      }
-
-      // Assessment V2 requires a rubric to persist. A session that ended before
-      // any assessment frame arrived saves an explicit all-zero rubric rather
-      // than fabricating criterion scores.
+      // Assessment V2 requires a rubric. A session that ended before any
+      // assessment frame arrived uses an explicit all-zero rubric.
       final summaryRubric =
           _feedback.latestFeedback?.assessment ?? _emptyRubric;
       final summaryDuration = _run.elapsedSeconds;
@@ -936,6 +936,35 @@ class PracticeScreenState extends State<PracticeScreen>
         rubric: summaryRubric,
         heldSteady: heldSteady,
       );
+
+      // Preview ends at the runtime summary. It must not inspect evidence
+      // preferences, reserve a session ID, or touch SessionService/tutorial
+      // progression at all.
+      if (_isTeacherPreview) {
+        await _showTeacherPreviewSummary(
+          router: router,
+          assessment: sessionAssessment,
+          durationSeconds: summaryDuration,
+          timedOut: timedOut,
+          sfxVolume: sfxVolume,
+        );
+        return;
+      }
+
+      final sessionService = context.read<SessionService>();
+      final authUser = context.read<AuthService>().currentUser;
+      final userId = authUser?.id;
+      final displayName = authUser?.fullName ?? 'Trainee';
+      final tutorialProgress = context.read<TutorialProgressService>();
+      if (userId == null) {
+        _run.cancelToIdle();
+        _clearSessionState();
+        if (mounted && !_leaving) setState(() {});
+        if (mounted && !_leaving) {
+          router.go(_practiceExitLocation(catalog: true));
+        }
+        return;
+      }
       var saveEvidence = false;
       final evidence = _confirmedEvidenceJpegBytes;
       if (heldSteady && evidence != null) {
@@ -970,37 +999,79 @@ class PracticeScreenState extends State<PracticeScreen>
         // write committed but the client received an ambiguous failure.
         final reservedSessionId = sessionService.reserveSessionId();
         ClassChallengeCompletionReceipt? challengeReceipt;
-        String? persistedSessionId;
-        var challengeCompleted = false;
-        saveController = SessionSummarySaveController(
-          save: () async {
-            // Preserve this immutable completion snapshot across retries. If a
-            // transport error is ambiguous, SessionService receives the same
-            // reserved ID and its atomic save remains idempotent.
-            final sessionId = persistedSessionId ??=
-                await sessionService.saveCompletedSession(
-                  existingSessionId: reservedSessionId,
-                  userId: userId,
-                  displayName: displayName,
-                  profilePictureUrl: authUser?.profilePictureUrl,
-                  movementName: _movement,
-                  difficulty: _difficulty,
-                  prop: _prop,
-                  rubric: summaryRubric,
-                  durationSeconds: summaryDuration,
-                  sessionImprovements: sessionAssessment.improvementFeedbacks,
-                  evidenceJpegBytes: evidence,
-                  saveEvidence: saveEvidence,
-                  assignmentContext: widget.assignmentContext,
-                  challengeContext: widget.challengeContext,
-                );
-            final complete = widget.onChallengeComplete;
-            if (complete != null && !challengeCompleted) {
-              challengeReceipt = await complete(sessionId);
-              challengeCompleted = true;
-            }
-          },
+        final outbox = Provider.of<PendingSessionSyncCoordinator?>(
+          context,
+          listen: false,
         );
+        // Class Challenge completion/ranking is a server-derived callable
+        // contract. It must not be represented as locally completed while
+        // disconnected. Personal and official assignment sessions, however,
+        // can safely replay the existing deterministic atomic writer.
+        if (outbox != null && widget.challengeContext == null) {
+          final retainEvidence = saveEvidence && evidence != null;
+          final evidenceBytes = retainEvidence ? evidence : null;
+          final pending = PendingSession(
+            sessionId: reservedSessionId,
+            userId: userId,
+            displayName: displayName,
+            profilePictureUrl: authUser?.profilePictureUrl,
+            movementName: _movement,
+            difficulty: _difficulty,
+            prop: _prop,
+            rubric: summaryRubric,
+            durationSeconds: summaryDuration,
+            improvements: List.unmodifiable(
+              sessionAssessment.improvementFeedbacks,
+            ),
+            completedAt: DateTime.now(),
+            assignmentContext: widget.assignmentContext,
+            evidenceFileName: retainEvidence ? '$reservedSessionId.jpg' : null,
+            evidenceSizeBytes: evidenceBytes?.lengthInBytes,
+          );
+          saveController = SessionSummarySaveController(
+            completeAsPendingSync: true,
+            save: () async {
+              await outbox.enqueue(pending, evidenceBytes: evidenceBytes);
+              unawaited(
+                outbox.syncSession(pending).then((synced) {
+                  if (synced) saveController?.markRemotelySynced();
+                }),
+              );
+            },
+          );
+        } else {
+          String? persistedSessionId;
+          var challengeCompleted = false;
+          saveController = SessionSummarySaveController(
+            save: () async {
+              // Preserve this immutable completion snapshot across retries. If
+              // a transport error is ambiguous, SessionService receives the
+              // same reserved ID and its atomic save remains idempotent.
+              final sessionId = persistedSessionId ??= await sessionService
+                  .saveCompletedSession(
+                    existingSessionId: reservedSessionId,
+                    userId: userId,
+                    displayName: displayName,
+                    profilePictureUrl: authUser?.profilePictureUrl,
+                    movementName: _movement,
+                    difficulty: _difficulty,
+                    prop: _prop,
+                    rubric: summaryRubric,
+                    durationSeconds: summaryDuration,
+                    sessionImprovements: sessionAssessment.improvementFeedbacks,
+                    evidenceJpegBytes: evidence,
+                    saveEvidence: saveEvidence,
+                    assignmentContext: widget.assignmentContext,
+                    challengeContext: widget.challengeContext,
+                  );
+              final complete = widget.onChallengeComplete;
+              if (complete != null && !challengeCompleted) {
+                challengeReceipt = await complete(sessionId);
+                challengeCompleted = true;
+              }
+            },
+          );
+        }
         // Persistence begins at completed/scored state, not on a navigation
         // button in the summary. The controller serializes retries and keeps
         // this logical attempt tied to [reservedSessionId].
@@ -1080,6 +1151,46 @@ class PracticeScreenState extends State<PracticeScreen>
     }
   }
 
+  Future<void> _showTeacherPreviewSummary({
+    required GoRouter router,
+    required SessionAssessment assessment,
+    required int durationSeconds,
+    required bool timedOut,
+    required double sfxVolume,
+  }) async {
+    _isShowingSummary = true;
+    if (mounted) setState(() {});
+    try {
+      if (!timedOut) unawaited(_playCongratsBestEffort(sfxVolume));
+      final result = await SessionSummarySheet.showPreview(
+        context,
+        movement: _movement,
+        durationSeconds: durationSeconds,
+        assessment: assessment,
+        timedOut: timedOut,
+      );
+      if (!mounted || _leaving) return;
+      if (result == SessionSummaryResult.tryAgain) {
+        await _sfx.stop();
+        _clearSessionState();
+        _run.cancelToIdle();
+        setState(() {});
+        await _startSession();
+        return;
+      }
+      // Do not let platform audio teardown delay navigation from the
+      // non-persistent preview summary.
+      unawaited(_sfx.stop());
+      if (!mounted || _leaving) return;
+      _clearSessionState();
+      _run.cancelToIdle();
+      setState(() {});
+      router.go(AppRoutePaths.teacherMovements);
+    } finally {
+      _isShowingSummary = false;
+    }
+  }
+
   Future<void> _showChallengeResult({
     required int score,
     required ClassChallengeCompletionReceipt receipt,
@@ -1135,6 +1246,7 @@ class PracticeScreenState extends State<PracticeScreen>
   }
 
   String _practiceExitLocation({required bool catalog}) {
+    if (_isTeacherPreview) return AppRoutePaths.teacherMovements;
     final challengeLocation = widget.challengeReturnLocation;
     if (challengeLocation != null) return challengeLocation;
     final assignment = widget.assignmentContext;
@@ -1277,12 +1389,16 @@ class PracticeScreenState extends State<PracticeScreen>
 
                 final header = TrainingSessionHeader(
                   onBack: _onBack,
-                  title: widget.challengeContext == null
+                  title: _isTeacherPreview
+                      ? 'Teacher Preview · $_movement'
+                      : widget.challengeContext == null
                       ? _movement
                       : 'Class Challenge · $_movement',
                   statusPill: _difficulty,
                   statusPillColor: trainingDifficultyColor(_difficulty),
-                  instruction: _instructionForMovement(_movement),
+                  instruction: _isTeacherPreview
+                      ? 'Test this movement exactly as a trainee would experience it. Preview only — this result will not be saved.'
+                      : _instructionForMovement(_movement),
                   connectionState: _ws.connectionState,
                   connecting: _connecting,
                   wideLayout: isDesktop || isCompact,

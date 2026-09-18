@@ -372,6 +372,33 @@ void main() {
     );
   });
 
+  test('teacher preview is teacher-only without opening trainee practice', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _teacher(),
+          location: AppRoutePaths.teacherPreviewMovement(
+            movement: 'Hand Stall',
+            prop: 'bottle',
+          ),
+        ),
+      ),
+      isNull,
+    );
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.teacherPreviewMovement(
+            movement: 'Hand Stall',
+            prop: 'bottle',
+          ),
+        ),
+      ),
+      AppRoutePaths.dashboard,
+    );
+  });
+
   test('verified teacher can stay on teacher public profile', () {
     expect(
       resolveAppRedirect(

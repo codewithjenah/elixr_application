@@ -50,6 +50,7 @@ abstract final class AppRoutePaths {
   /// Legacy deep link retained only to redirect existing URLs to Analytics.
   static const teacherProgress = '/teacher/progress';
   static const teacherMovements = '/teacher/movements';
+  static const teacherMovementPreview = '/teacher/movements/preview';
   static const teacherToReview = '/teacher/to-review';
   static const teacherGrades = '/teacher/grades';
   static const teacherGradesGroupQuery = 'groupId';
@@ -192,6 +193,14 @@ abstract final class AppRoutePaths {
   }) =>
       '$practice?movement=${Uri.encodeComponent(movement)}'
       '&difficulty=${Uri.encodeComponent(difficulty)}'
+      '&prop=${Uri.encodeComponent(prop)}';
+
+  /// Teacher-only, non-persistent preview of an official catalog variant.
+  static String teacherPreviewMovement({
+    required String movement,
+    required String prop,
+  }) =>
+      '$teacherMovementPreview?movement=${Uri.encodeComponent(movement)}'
       '&prop=${Uri.encodeComponent(prop)}';
 
   static String movementLesson({
