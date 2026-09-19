@@ -24,6 +24,23 @@ import '../../data/repositories/activity_learning_material_repository.dart';
 typedef ActivityLearningMaterialFilePicker =
     Future<XFile?> Function({required List<XTypeGroup> acceptedTypeGroups});
 
+typedef ActivityLearningMaterialSaveLocationPicker =
+    Future<String?> Function({
+      required String suggestedName,
+      required List<XTypeGroup> acceptedTypeGroups,
+    });
+
+Future<String?> selectActivityLearningMaterialSaveLocation({
+  required String suggestedName,
+  required List<XTypeGroup> acceptedTypeGroups,
+}) async {
+  final location = await getSaveLocation(
+    suggestedName: suggestedName,
+    acceptedTypeGroups: acceptedTypeGroups,
+  );
+  return location?.path;
+}
+
 /// Mirrors the server's current limits for early, friendly feedback only.
 /// Functions still validates bytes and content before publishing a material.
 abstract final class ActivityLearningMaterialLimits {
@@ -53,6 +70,24 @@ String activityLearningMaterialTypeLabel(ActivityLearningMaterialType type) =>
       ActivityLearningMaterialType.video => 'Video',
       ActivityLearningMaterialType.link => 'Link',
     };
+
+String activityLearningMaterialOpenLabel(ActivityLearningMaterialType type) =>
+    switch (type) {
+      ActivityLearningMaterialType.pdf => 'Open',
+      ActivityLearningMaterialType.image => 'View',
+      ActivityLearningMaterialType.video => 'Watch',
+      ActivityLearningMaterialType.link => 'Open link',
+    };
+
+Future<void> openActivityLearningMaterialLink(Uri? url) async {
+  if (url == null ||
+      !url.hasAuthority ||
+      url.userInfo.isNotEmpty ||
+      (url.scheme != 'http' && url.scheme != 'https')) {
+    throw const FormatException('Enter a valid HTTP or HTTPS resource link.');
+  }
+  await Process.start('explorer.exe', [url.toString()]);
+}
 
 /// A compact, assignment-scoped Teacher manager. It deliberately does not
 /// update assignment documents: Functions remain the sole material authority.
@@ -86,9 +121,11 @@ class _ActivityLearningMaterialsPanelState
   final List<_PendingUpload> _pending = [];
   List<ActivityLearningMaterial> _materials = const [];
   final Set<String> _removing = {};
+  String? _previewing;
   bool _loading = true;
   String? _loadError;
   bool _disposed = false;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -97,8 +134,37 @@ class _ActivityLearningMaterialsPanelState
   }
 
   @override
+  void didUpdateWidget(covariant ActivityLearningMaterialsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.assignmentId == widget.assignmentId &&
+        identical(oldWidget.repository, widget.repository)) {
+      return;
+    }
+    for (final item in _pending) {
+      item.cancelled = true;
+      if (item.materialId != null) {
+        unawaited(
+          _removeReservedMaterial(
+            item,
+            repository: oldWidget.repository,
+            assignmentId: oldWidget.assignmentId,
+          ),
+        );
+      }
+    }
+    _pending.clear();
+    _materials = const [];
+    _removing.clear();
+    _previewing = null;
+    _loading = true;
+    _loadError = null;
+    unawaited(_load());
+  }
+
+  @override
   void dispose() {
     _disposed = true;
+    _loadGeneration += 1;
     for (final item in _pending) {
       item.cancelled = true;
     }
@@ -106,11 +172,12 @@ class _ActivityLearningMaterialsPanelState
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    final repository = widget.repository;
+    final assignmentId = widget.assignmentId;
     try {
-      final materials = await widget.repository.list(
-        assignmentId: widget.assignmentId,
-      );
-      if (!_disposed) {
+      final materials = await repository.list(assignmentId: assignmentId);
+      if (!_disposed && generation == _loadGeneration) {
         setState(() {
           _materials = materials;
           _loading = false;
@@ -118,7 +185,7 @@ class _ActivityLearningMaterialsPanelState
         });
       }
     } catch (_) {
-      if (!_disposed) {
+      if (!_disposed && generation == _loadGeneration) {
         setState(() {
           _loading = false;
           _loadError = 'Learning materials could not be loaded.';
@@ -128,6 +195,7 @@ class _ActivityLearningMaterialsPanelState
   }
 
   Future<void> _showAddMenu() async {
+    final generation = _loadGeneration;
     final type = await ElixDialog.show<ActivityLearningMaterialType>(
       context,
       title: 'Add material',
@@ -163,7 +231,7 @@ class _ActivityLearningMaterialsPanelState
         ),
       ],
     );
-    if (type == null || !mounted) return;
+    if (type == null || !mounted || generation != _loadGeneration) return;
     if (type == ActivityLearningMaterialType.link) {
       await _showAddLink();
     } else {
@@ -172,14 +240,20 @@ class _ActivityLearningMaterialsPanelState
   }
 
   Future<void> _pickFile(ActivityLearningMaterialType type) async {
+    final generation = _loadGeneration;
+    final repository = widget.repository;
+    final assignmentId = widget.assignmentId;
     final config = activityLearningMaterialFileConfig(type);
     final selected = await widget.filePicker(
       acceptedTypeGroups: [config.group],
     );
-    if (selected == null || !mounted) return;
+    if (selected == null || !mounted || generation != _loadGeneration) {
+      return;
+    }
     final file = File(selected.path);
     try {
       final stat = await file.stat();
+      if (!mounted || generation != _loadGeneration) return;
       if (stat.type != FileSystemEntityType.file || stat.size < 1) {
         throw const FormatException('Choose a non-empty file.');
       }
@@ -204,7 +278,14 @@ class _ActivityLearningMaterialsPanelState
             : config.contentType,
       );
       setState(() => _pending.add(item));
-      unawaited(_upload(item));
+      unawaited(
+        _upload(
+          item,
+          repository: repository,
+          assignmentId: assignmentId,
+          generation: generation,
+        ),
+      );
     } on FormatException catch (error) {
       _showError(error.message);
     } on FileSystemException {
@@ -213,6 +294,9 @@ class _ActivityLearningMaterialsPanelState
   }
 
   Future<void> _showAddLink() async {
+    final generation = _loadGeneration;
+    final repository = widget.repository;
+    final assignmentId = widget.assignmentId;
     final name = TextEditingController();
     final url = TextEditingController();
     final requestId = newActivityLearningMaterialRequestId();
@@ -254,6 +338,10 @@ class _ActivityLearningMaterialsPanelState
               onPressed: adding
                   ? null
                   : () async {
+                      if (generation != _loadGeneration) {
+                        Navigator.pop(dialogContext);
+                        return;
+                      }
                       final parsed = Uri.tryParse(url.text.trim());
                       if (name.text.trim().isEmpty ||
                           parsed == null ||
@@ -269,23 +357,25 @@ class _ActivityLearningMaterialsPanelState
                       }
                       try {
                         setDialogState(() => adding = true);
-                        final material = await widget.repository.addLink(
-                          assignmentId: widget.assignmentId,
+                        final material = await repository.addLink(
+                          assignmentId: assignmentId,
                           displayName: name.text.trim(),
                           url: parsed,
                           requestId: requestId,
                         );
                         if (!dialogContext.mounted) return;
-                        if (mounted) {
+                        if (mounted && generation == _loadGeneration) {
                           setState(
                             () => _materials = [..._materials, material],
                           );
                         }
                         Navigator.pop(dialogContext);
                       } catch (_) {
-                        setDialogState(
-                          () => error = 'The link could not be added.',
-                        );
+                        if (generation == _loadGeneration) {
+                          setDialogState(
+                            () => error = 'The link could not be added.',
+                          );
+                        }
                       } finally {
                         if (dialogContext.mounted) {
                           setDialogState(() => adding = false);
@@ -301,10 +391,15 @@ class _ActivityLearningMaterialsPanelState
     url.dispose();
   }
 
-  Future<void> _upload(_PendingUpload item) async {
+  Future<void> _upload(
+    _PendingUpload item, {
+    required ActivityLearningMaterialRepository repository,
+    required String assignmentId,
+    required int generation,
+  }) async {
     try {
-      final upload = await widget.repository.beginUpload(
-        assignmentId: widget.assignmentId,
+      final upload = await repository.beginUpload(
+        assignmentId: assignmentId,
         requestId: item.requestId,
         type: item.type,
         displayName: item.displayName,
@@ -313,27 +408,38 @@ class _ActivityLearningMaterialsPanelState
       );
       item.uploadId = upload.uploadId;
       item.materialId = upload.materialId;
-      if (item.cancelled || _disposed) {
-        await _removeReservedMaterial(item);
+      if (item.cancelled || _disposed || generation != _loadGeneration) {
+        await _removeReservedMaterial(
+          item,
+          repository: repository,
+          assignmentId: assignmentId,
+        );
         return;
       }
-      await widget.repository.uploadStagedFile(
-        upload: upload,
-        file: item.file!,
-      );
-      if (item.cancelled || _disposed) return;
+      await repository.uploadStagedFile(upload: upload, file: item.file!);
+      if (item.cancelled || _disposed || generation != _loadGeneration) {
+        return;
+      }
       item.status = _PendingStatus.processing;
       if (mounted) setState(() {});
       for (
         var attempt = 0;
-        attempt < widget.maximumPollCount && !item.cancelled && !_disposed;
+        attempt < widget.maximumPollCount &&
+            !item.cancelled &&
+            !_disposed &&
+            generation == _loadGeneration;
         attempt++
       ) {
         await Future<void>.delayed(widget.pollingInterval);
-        if (item.cancelled || _disposed) return;
-        final status = await widget.repository.getUploadStatus(
+        if (item.cancelled || _disposed || generation != _loadGeneration) {
+          return;
+        }
+        final status = await repository.getUploadStatus(
           uploadId: upload.uploadId,
         );
+        if (item.cancelled || _disposed || generation != _loadGeneration) {
+          return;
+        }
         if (status.state == ActivityMaterialUploadState.ready &&
             status.material != null) {
           if (mounted) {
@@ -353,11 +459,13 @@ class _ActivityLearningMaterialsPanelState
       }
       item.status = _PendingStatus.processing;
       item.message = 'Still processing. Check again shortly.';
-      if (mounted) setState(() {});
+      if (mounted && generation == _loadGeneration) setState(() {});
     } catch (_) {
       item.status = _PendingStatus.failed;
       item.message = 'The upload could not be completed.';
-      if (mounted && !item.cancelled) setState(() {});
+      if (mounted && !item.cancelled && generation == _loadGeneration) {
+        setState(() {});
+      }
     }
   }
 
@@ -365,11 +473,12 @@ class _ActivityLearningMaterialsPanelState
     final uploadId = item.uploadId;
     if (uploadId == null || item.checking || item.cancelled) return;
     item.checking = true;
+    final generation = _loadGeneration;
+    final repository = widget.repository;
     if (mounted) setState(() {});
     try {
-      final status = await widget.repository.getUploadStatus(
-        uploadId: uploadId,
-      );
+      final status = await repository.getUploadStatus(uploadId: uploadId);
+      if (!mounted || generation != _loadGeneration) return;
       if (status.state == ActivityMaterialUploadState.ready &&
           status.material != null) {
         if (mounted) {
@@ -386,22 +495,32 @@ class _ActivityLearningMaterialsPanelState
       item.message = 'Still processing. Check again shortly.';
     } finally {
       item.checking = false;
-      if (mounted) setState(() {});
+      if (mounted && generation == _loadGeneration) setState(() {});
     }
   }
 
   Future<void> _cancel(_PendingUpload item) async {
+    final repository = widget.repository;
+    final assignmentId = widget.assignmentId;
     item.cancelled = true;
     if (mounted) setState(() => _pending.remove(item));
-    await _removeReservedMaterial(item);
+    await _removeReservedMaterial(
+      item,
+      repository: repository,
+      assignmentId: assignmentId,
+    );
   }
 
-  Future<void> _removeReservedMaterial(_PendingUpload item) async {
+  Future<void> _removeReservedMaterial(
+    _PendingUpload item, {
+    required ActivityLearningMaterialRepository repository,
+    required String assignmentId,
+  }) async {
     final materialId = item.materialId;
     if (materialId == null) return;
     try {
-      await widget.repository.remove(
-        assignmentId: widget.assignmentId,
+      await repository.remove(
+        assignmentId: assignmentId,
         materialId: materialId,
       );
     } catch (_) {
@@ -411,13 +530,16 @@ class _ActivityLearningMaterialsPanelState
 
   Future<void> _remove(ActivityLearningMaterial material) async {
     if (_removing.contains(material.id)) return;
+    final generation = _loadGeneration;
+    final repository = widget.repository;
+    final assignmentId = widget.assignmentId;
     setState(() => _removing.add(material.id));
     try {
-      await widget.repository.remove(
-        assignmentId: widget.assignmentId,
+      await repository.remove(
+        assignmentId: assignmentId,
         materialId: material.id,
       );
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(
           () => _materials = _materials
               .where((item) => item.id != material.id)
@@ -425,9 +547,46 @@ class _ActivityLearningMaterialsPanelState
         );
       }
     } catch (_) {
-      _showError('The material could not be removed. Please try again.');
+      if (generation == _loadGeneration) {
+        _showError('The material could not be removed. Please try again.');
+      }
     } finally {
-      if (mounted) setState(() => _removing.remove(material.id));
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _removing.remove(material.id));
+      }
+    }
+  }
+
+  Future<void> _preview(ActivityLearningMaterial material) async {
+    if (_previewing != null || _removing.contains(material.id)) return;
+    final generation = _loadGeneration;
+    final repository = widget.repository;
+    setState(() => _previewing = material.id);
+    try {
+      if (material.type == ActivityLearningMaterialType.link) {
+        await openActivityLearningMaterialLink(material.externalUrl);
+      } else {
+        final file = await repository.openFile(material);
+        if (_disposed || !mounted || generation != _loadGeneration) return;
+        await showActivityLearningMaterialViewer(
+          context: context,
+          material: material,
+          file: file,
+        );
+      }
+    } catch (_) {
+      if (generation == _loadGeneration) {
+        _showError(
+          'This material is no longer available or could not be opened.',
+        );
+      }
+    } finally {
+      if (!_disposed &&
+          mounted &&
+          generation == _loadGeneration &&
+          _previewing == material.id) {
+        setState(() => _previewing = null);
+      }
     }
   }
 
@@ -472,7 +631,9 @@ class _ActivityLearningMaterialsPanelState
         for (final material in _materials)
           _TeacherMaterialRow(
             material: material,
+            previewing: _previewing == material.id,
             removing: _removing.contains(material.id),
+            onPreview: () => _preview(material),
             onRemove: () => _remove(material),
           ),
         for (final pending in _pending)
@@ -501,9 +662,11 @@ class ActivityLearningMaterialsTraineeSection extends StatefulWidget {
     super.key,
     required this.assignmentId,
     required this.repository,
+    this.saveLocationPicker = selectActivityLearningMaterialSaveLocation,
   });
   final String assignmentId;
   final ActivityLearningMaterialRepository repository;
+  final ActivityLearningMaterialSaveLocationPicker saveLocationPicker;
   @override
   State<ActivityLearningMaterialsTraineeSection> createState() =>
       _ActivityLearningMaterialsTraineeSectionState();
@@ -514,6 +677,7 @@ class _ActivityLearningMaterialsTraineeSectionState
   List<ActivityLearningMaterial>? _materials;
   String? _error;
   String? _opening;
+  String? _downloading;
   int _loadGeneration = 0;
 
   @override
@@ -526,6 +690,7 @@ class _ActivityLearningMaterialsTraineeSectionState
       _materials = null;
       _error = null;
       _opening = null;
+      _downloading = null;
       unawaited(_load());
     }
   }
@@ -556,23 +721,16 @@ class _ActivityLearningMaterialsTraineeSectionState
   }
 
   Future<void> _open(ActivityLearningMaterial material) async {
-    if (_opening != null) return;
+    if (_opening != null || _downloading != null) return;
     final generation = _loadGeneration;
     setState(() => _opening = material.id);
     try {
       if (material.type == ActivityLearningMaterialType.link) {
-        final url = material.externalUrl;
-        if (url == null ||
-            !url.hasAuthority ||
-            url.userInfo.isNotEmpty ||
-            (url.scheme != 'http' && url.scheme != 'https')) {
-          throw const FormatException();
-        }
-        await Process.start('explorer.exe', [url.toString()]);
+        await openActivityLearningMaterialLink(material.externalUrl);
       } else {
         final file = await widget.repository.openFile(material);
         if (!mounted || generation != _loadGeneration) return;
-        await _showTraineeMaterialViewer(
+        await showActivityLearningMaterialViewer(
           context: context,
           material: material,
           file: file,
@@ -589,6 +747,45 @@ class _ActivityLearningMaterialsTraineeSectionState
     } finally {
       if (mounted && generation == _loadGeneration) {
         setState(() => _opening = null);
+      }
+    }
+  }
+
+  Future<void> _download(ActivityLearningMaterial material) async {
+    if (material.type == ActivityLearningMaterialType.link ||
+        _opening != null ||
+        _downloading != null) {
+      return;
+    }
+    final generation = _loadGeneration;
+    final config = activityLearningMaterialFileConfig(material.type);
+    setState(() => _downloading = material.id);
+    try {
+      final destination = await widget.saveLocationPicker(
+        suggestedName: _suggestedMaterialFileName(material, config),
+        acceptedTypeGroups: [config.group],
+      );
+      if (destination == null || !mounted || generation != _loadGeneration) {
+        return;
+      }
+      final source = await widget.repository.openFile(material);
+      if (!mounted || generation != _loadGeneration) return;
+      await source.copy(destination);
+      if (!mounted || generation != _loadGeneration) return;
+      ElixToast.showSuccess(
+        context,
+        message: '${material.displayName} was downloaded.',
+      );
+    } catch (_) {
+      if (mounted && generation == _loadGeneration) {
+        ElixToast.showError(
+          context,
+          message: 'This material could not be downloaded. Please try again.',
+        );
+      }
+    } finally {
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _downloading = null);
       }
     }
   }
@@ -619,7 +816,9 @@ class _ActivityLearningMaterialsTraineeSectionState
             _TraineeMaterialRow(
               material: material,
               opening: _opening == material.id,
+              downloading: _downloading == material.id,
               onOpen: () => _open(material),
+              onDownload: () => _download(material),
             ),
         ],
       ),
@@ -650,7 +849,7 @@ class _MaterialVideoPlayerState extends State<_MaterialVideoPlayer> {
   );
 }
 
-Future<void> _showTraineeMaterialViewer({
+Future<void> showActivityLearningMaterialViewer({
   required BuildContext context,
   required ActivityLearningMaterial material,
   required File file,
@@ -846,110 +1045,200 @@ class _TraineeMaterialRow extends StatelessWidget {
   const _TraineeMaterialRow({
     required this.material,
     required this.opening,
+    required this.downloading,
     required this.onOpen,
+    required this.onDownload,
   });
   final ActivityLearningMaterial material;
   final bool opening;
+  final bool downloading;
   final VoidCallback onOpen;
+  final VoidCallback onDownload;
   @override
   Widget build(BuildContext context) {
-    final actionLabel = material.type == ActivityLearningMaterialType.image
-        ? 'View'
-        : material.type == ActivityLearningMaterialType.video
-        ? 'Watch'
-        : material.type == ActivityLearningMaterialType.link
-        ? 'Open link'
-        : 'Open';
+    final actionLabel = activityLearningMaterialOpenLabel(material.type);
+    final busy = opening || downloading;
+    final actions = Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      alignment: WrapAlignment.end,
+      children: [
+        ElixPrimaryButton(
+          label: actionLabel,
+          expanded: false,
+          dense: true,
+          variant: ElixButtonVariant.outline,
+          onPressed: busy ? null : onOpen,
+        ),
+        if (material.type != ActivityLearningMaterialType.link)
+          ElixPrimaryButton(
+            label: 'Download',
+            expanded: false,
+            dense: true,
+            variant: ElixButtonVariant.secondary,
+            onPressed: busy ? null : onDownload,
+          ),
+        if (busy) const SizedBox(width: 22, height: 22, child: ProgressRing()),
+      ],
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        children: [
-          Icon(activityLearningMaterialIcon(material.type)),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Tooltip(
-              message: material.displayName,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    material.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final details = Row(
+            children: [
+              Icon(activityLearningMaterialIcon(material.type)),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Tooltip(
+                  message: material.displayName,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        material.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}',
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
-          if (opening)
-            const SizedBox(width: 22, height: 22, child: ProgressRing())
-          else
-            ElixPrimaryButton(
-              label: actionLabel,
-              expanded: false,
-              dense: true,
-              variant: ElixButtonVariant.outline,
-              onPressed: onOpen,
-            ),
-        ],
+            ],
+          );
+          if (constraints.maxWidth < 460) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                details,
+                const SizedBox(height: AppSpacing.xs),
+                Align(alignment: Alignment.centerRight, child: actions),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: details),
+              const SizedBox(width: AppSpacing.sm),
+              actions,
+            ],
+          );
+        },
       ),
     );
   }
 }
 
+String _suggestedMaterialFileName(
+  ActivityLearningMaterial material,
+  ActivityLearningMaterialFileConfig config,
+) {
+  final name = material.displayName.trim().isEmpty
+      ? 'learning-material'
+      : material.displayName.trim();
+  final lowerName = name.toLowerCase();
+  if (config.extensions.any(
+    (extension) => lowerName.endsWith('.${extension.toLowerCase()}'),
+  )) {
+    return name;
+  }
+  return '$name.${config.extensions.first}';
+}
+
 class _TeacherMaterialRow extends StatelessWidget {
   const _TeacherMaterialRow({
     required this.material,
+    required this.previewing,
     required this.removing,
+    required this.onPreview,
     required this.onRemove,
   });
   final ActivityLearningMaterial material;
+  final bool previewing;
   final bool removing;
+  final VoidCallback onPreview;
   final VoidCallback onRemove;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(top: AppSpacing.sm),
-    child: Row(
-      children: [
-        Icon(activityLearningMaterialIcon(material.type)),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Tooltip(
-            message: material.displayName,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  material.displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final details = Row(
+          children: [
+            Icon(activityLearningMaterialIcon(material.type)),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Tooltip(
+                message: material.displayName,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      material.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-        Tooltip(
-          message: 'Remove material',
-          child: IconButton(
-            icon: removing
-                ? const ProgressRing()
-                : const Icon(FluentIcons.delete),
-            onPressed: removing ? null : onRemove,
-          ),
-        ),
-      ],
+          ],
+        );
+        final actions = Wrap(
+          spacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            ElixPrimaryButton(
+              key: ValueKey('teacher-material-preview-${material.id}'),
+              label: activityLearningMaterialOpenLabel(material.type),
+              expanded: false,
+              dense: true,
+              variant: ElixButtonVariant.outline,
+              onPressed: previewing || removing ? null : onPreview,
+            ),
+            Tooltip(
+              message: 'Remove material',
+              child: IconButton(
+                icon: removing
+                    ? const ProgressRing()
+                    : const Icon(FluentIcons.delete),
+                onPressed: previewing || removing ? null : onRemove,
+              ),
+            ),
+            if (previewing)
+              const SizedBox(width: 22, height: 22, child: ProgressRing()),
+          ],
+        );
+        if (constraints.maxWidth < 420) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              details,
+              const SizedBox(height: AppSpacing.xs),
+              Align(alignment: Alignment.centerRight, child: actions),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: details),
+            const SizedBox(width: AppSpacing.sm),
+            actions,
+          ],
+        );
+      },
     ),
   );
 }

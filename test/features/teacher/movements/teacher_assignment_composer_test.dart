@@ -217,7 +217,9 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   final List<Uri> linkedUrls = [];
   final List<String> linkRequestIds = [];
   final List<String> removedMaterialIds = [];
+  final List<ActivityLearningMaterial> openCalls = [];
   List<ActivityLearningMaterial> materials = const [];
+  Future<File>? openFuture;
   bool failList = false;
   int remainingLinkFailures = 0;
   Object? nextLinkFailure;
@@ -302,8 +304,10 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   }
 
   @override
-  Future<File> openFile(ActivityLearningMaterial material) =>
-      throw UnimplementedError();
+  Future<File> openFile(ActivityLearningMaterial material) {
+    openCalls.add(material);
+    return openFuture ?? Future.error(StateError('No test file'));
+  }
 
   @override
   Future<void> remove({
@@ -1618,6 +1622,131 @@ void main() {
     expect(materials.beginUploadCalls, 1);
     expect(materials.uploadStagedFileCalls, 1);
     expect(materials.uploadStatusCalls, 1);
+  });
+
+  testWidgets('queued local material previews before assignment publish', (
+    tester,
+  ) async {
+    final directory = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('elixr_material_preview_'),
+    ))!;
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}${Platform.pathSeparator}preview.png');
+    await tester.runAsync(
+      () => file.writeAsBytes(const [0x89, 0x50, 0x4e, 0x47]),
+    );
+    final materials = _MaterialRepository();
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+      materialRepository: materials,
+      materialFilePicker: ({required acceptedTypeGroups}) async =>
+          XFile(file.path, name: 'preview.png'),
+    );
+
+    final chooseFile = find.byKey(
+      const Key('teacher_assignment_choose_material_file'),
+    );
+    await tester.ensureVisible(chooseFile);
+    await tester.tap(chooseFile);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+    final preview = find.text('View');
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('Close'), findsOneWidget);
+    expect(materials.openCalls, isEmpty);
+    expect(materials.beginUploadCalls, 0);
+    expect(assignments.officialCalls, 0);
+    expect(find.text('preview.png'), findsWidgets);
+  });
+
+  testWidgets('persisted material preview uses authorized repository access', (
+    tester,
+  ) async {
+    final assignment = await service().create(
+      group: group,
+      officialMovement: movementCatalog.first,
+    );
+    const material = ActivityLearningMaterial(
+      id: 'persisted-preview',
+      assignmentId: 'assignment',
+      type: ActivityLearningMaterialType.image,
+      displayName: 'Persisted preview.png',
+      storagePath: 'server-only-path',
+    );
+    final directory = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('elixr_persisted_preview_'),
+    ))!;
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}${Platform.pathSeparator}preview.png');
+    await tester.runAsync(
+      () => file.writeAsBytes(const [0x89, 0x50, 0x4e, 0x47]),
+    );
+    final materials = _MaterialRepository()
+      ..materials = const [material]
+      ..openFuture = Future.value(file);
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: assignment,
+      materialRepository: materials,
+    );
+
+    final preview = find.byKey(
+      const ValueKey('persisted-material-preview-persisted-preview'),
+    );
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(materials.openCalls, const [material]);
+    expect(materials.removeCalls, 0);
+    expect(materials.beginUploadCalls, 0);
+    expect(find.text('Close'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(shad.ShadButton, 'Remove'), findsOneWidget);
+  });
+
+  testWidgets('learning material row actions wrap in a narrow studio', (
+    tester,
+  ) async {
+    final assignment = await service().create(
+      group: group,
+      officialMovement: movementCatalog.first,
+    );
+    final materials = _MaterialRepository()
+      ..materials = const [
+        ActivityLearningMaterial(
+          id: 'narrow-material',
+          assignmentId: 'assignment',
+          type: ActivityLearningMaterialType.pdf,
+          displayName: 'A long persisted learning material filename.pdf',
+          storagePath: 'server-only-path',
+        ),
+      ];
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      existingAssignment: assignment,
+      materialRepository: materials,
+      size: const Size(500, 900),
+    );
+
+    final preview = find.byKey(
+      const ValueKey('persisted-material-preview-narrow-material'),
+    );
+    await tester.ensureVisible(preview);
+    expect(find.widgetWithText(shad.ShadButton, 'Remove'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('edit preloads activity configuration and existing materials', (

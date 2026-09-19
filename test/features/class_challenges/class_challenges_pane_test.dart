@@ -123,6 +123,48 @@ void main() {
     expect(narrow.maxHeight, 436);
   });
 
+  testWidgets('challenge card shows artwork for its movement and prop', (
+    tester,
+  ) async {
+    final movement = movementCatalog.firstWhere(
+      (item) => item.name == 'Forearm Stall',
+    );
+    final challenge = ClassChallenge(
+      id: 'forearm-stall-shaker',
+      groupId: 'group-1',
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Coach',
+      title: 'Forearm Stall challenge',
+      description: 'Hold the stall cleanly.',
+      movementName: movement.name,
+      difficulty: movement.difficulty,
+      prop: TrainingProp.shaker,
+      startAt: DateTime.utc(2026, 9, 1),
+      deadline: DateTime.utc(2026, 10, 1),
+    );
+
+    await _pumpTeacherPane(
+      tester,
+      const Size(1440, 900),
+      repository: _FakeClassChallengeRepository(challenges: [challenge]),
+    );
+
+    final artwork = find.byKey(
+      const Key('class_challenge_movement_image_forearm-stall-shaker'),
+    );
+    expect(artwork, findsOneWidget);
+    final movementImage = tester.widget<MovementImage>(artwork);
+    expect(movementImage.movementName, challenge.movementName);
+    expect(movementImage.prop, challenge.prop);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('class_challenge_card_forearm-stall-shaker')),
+        matching: find.byType(MovementImage),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('create dialog is wide and shows movement artwork', (
     tester,
   ) async {
@@ -803,7 +845,7 @@ Future<void> _pumpTeacherPane(
                   participantCount: 0,
                   onOpenLeaderboard: (_) {},
                 ),
-              )
+            )
             : ClassChallengesPane(
           repository: repository ?? _FakeClassChallengeRepository(),
           groupId: 'group-1',

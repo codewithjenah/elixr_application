@@ -581,6 +581,7 @@ class _TeacherMovementBuilderDialogState
       rubric: _draft.rubricTemplate.displayLabel,
       recordingDurationSeconds: _draft.recordingDurationSeconds,
       readiness: _readinessSummaryLabel,
+      showDemonstration: _isAssignmentEditor,
       hasDemonstration: _draft.demonstrationVideo != null,
       ready: _isDraftReady,
       actions: actions,
@@ -1113,17 +1114,17 @@ class _TeacherMovementBuilderDialogState
                             ],
                           ),
                         ),
-                        const SizedBox(height: AppSpacing.lg),
-                        _DemoMediaSection(
-                          metadata: _draft.demonstrationVideo,
-                          localFile: _demoFile,
-                          playback: _demoPlayback,
-                          busy: _saving || _uploadingDemo,
-                          onPickUpload: _pickAndUploadDemo,
-                          onRecord: _recordDemoWithElixr,
-                          onRemove: _removeDemo,
-                        ),
                         if (_isAssignmentEditor) ...[
+                          const SizedBox(height: AppSpacing.lg),
+                          _DemoMediaSection(
+                            metadata: _draft.demonstrationVideo,
+                            localFile: _demoFile,
+                            playback: _demoPlayback,
+                            busy: _saving || _uploadingDemo,
+                            onPickUpload: _pickAndUploadDemo,
+                            onRecord: _recordDemoWithElixr,
+                            onRemove: _removeDemo,
+                          ),
                           const SizedBox(height: AppSpacing.lg),
                           _AssignmentSettingsSection(
                             hasDueDate: _hasDueDate,
@@ -1298,6 +1299,7 @@ class _ActivitySummaryCard extends StatelessWidget {
     required this.rubric,
     required this.recordingDurationSeconds,
     required this.readiness,
+    required this.showDemonstration,
     required this.hasDemonstration,
     required this.ready,
     required this.actions,
@@ -1309,6 +1311,7 @@ class _ActivitySummaryCard extends StatelessWidget {
   final String rubric;
   final int recordingDurationSeconds;
   final String readiness;
+  final bool showDemonstration;
   final bool hasDemonstration;
   final bool ready;
   final Widget actions;
@@ -1400,12 +1403,14 @@ class _ActivitySummaryCard extends StatelessWidget {
                   label: 'Readiness',
                   value: readiness,
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                _ActivitySummaryItem(
-                  icon: FluentIcons.video,
-                  label: 'Demonstration',
-                  value: hasDemonstration ? 'Attached' : 'Not attached',
-                ),
+                if (showDemonstration) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _ActivitySummaryItem(
+                    icon: FluentIcons.video,
+                    label: 'Demonstration',
+                    value: hasDemonstration ? 'Attached' : 'Not attached',
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 _ActivitySummaryReadiness(ready: ready),
               ],

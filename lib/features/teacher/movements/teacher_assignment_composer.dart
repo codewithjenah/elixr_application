@@ -469,6 +469,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   final Map<String, String> _materialRemovalErrors = <String, String>{};
   bool _loadingPersistedMaterials = false;
   String? _persistedMaterialsError;
+  String? _previewingMaterial;
+  int _materialPreviewGeneration = 0;
   GroupAssignment? _createdAssignment;
   GroupAssignment? _savedEditAssignment;
 
@@ -1050,6 +1052,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   @override
   void dispose() {
+    _materialPreviewGeneration += 1;
     unawaited(_movementSubscription?.cancel());
     unawaited(_rosterSubscription?.cancel());
     _maxScoreController.dispose();
@@ -1733,11 +1736,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           for (final material in _persistedMaterials)
             _PersistedMaterialRow(
               material: material,
+              previewing: _previewingMaterial == 'persisted:${material.id}',
               markedForRemoval: _materialsMarkedForRemoval.contains(
                 material.id,
               ),
               errorMessage: _materialRemovalErrors[material.id],
               enabled: !_submitting,
+              onPreview: () => _previewPersistedMaterial(material),
               onRemove: () => setState(() {
                 _materialsMarkedForRemoval.add(material.id);
                 _materialRemovalErrors.remove(material.id);
@@ -1754,7 +1759,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           for (final material in _queuedMaterials)
             _QueuedMaterialRow(
               material: material,
+              previewing: _previewingMaterial == 'queued:${material.requestId}',
+              canPreview: !_submitting && !material.isSaving,
               canRemove: !_submitting && !material.isPersisted,
+              onPreview: () => _previewQueuedMaterial(material),
               onRemove: () => setState(() => _queuedMaterials.remove(material)),
             ),
         ] else if ((!_isEditing || _persistedMaterials.isEmpty) &&
@@ -1900,6 +1908,85 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _loadingPersistedMaterials = false;
         _persistedMaterialsError = 'Learning materials could not be loaded.';
       });
+    }
+  }
+
+  Future<void> _previewPersistedMaterial(
+    ActivityLearningMaterial material,
+  ) async {
+    final repository = widget.materialRepository;
+    if (_submitting || _previewingMaterial != null || repository == null) {
+      return;
+    }
+    final operationId = 'persisted:${material.id}';
+    final generation = _materialPreviewGeneration;
+    setState(() => _previewingMaterial = operationId);
+    try {
+      if (material.type == ActivityLearningMaterialType.link) {
+        await openActivityLearningMaterialLink(material.externalUrl);
+      } else {
+        final file = await repository.openFile(material);
+        if (!mounted || generation != _materialPreviewGeneration) return;
+        await showActivityLearningMaterialViewer(
+          context: context,
+          material: material,
+          file: file,
+        );
+      }
+    } catch (_) {
+      if (mounted && generation == _materialPreviewGeneration) {
+        ElixToast.showError(
+          context,
+          message:
+              'This material is no longer available or could not be opened.',
+        );
+      }
+    } finally {
+      if (mounted &&
+          generation == _materialPreviewGeneration &&
+          _previewingMaterial == operationId) {
+        setState(() => _previewingMaterial = null);
+      }
+    }
+  }
+
+  Future<void> _previewQueuedMaterial(_QueuedMaterialDraft draft) async {
+    if (_submitting || _previewingMaterial != null || draft.isSaving) return;
+    final operationId = 'queued:${draft.requestId}';
+    final generation = _materialPreviewGeneration;
+    setState(() => _previewingMaterial = operationId);
+    try {
+      if (draft.type == ActivityLearningMaterialType.link) {
+        await openActivityLearningMaterialLink(draft.url);
+      } else {
+        final file = draft.file;
+        if (file == null) throw const FileSystemException('File unavailable.');
+        if (!mounted || generation != _materialPreviewGeneration) return;
+        await showActivityLearningMaterialViewer(
+          context: context,
+          material: ActivityLearningMaterial(
+            id: draft.requestId,
+            assignmentId: _editingAssignment?.id ?? 'queued',
+            type: draft.type,
+            displayName: draft.displayName,
+            sizeBytes: draft.sizeBytes,
+          ),
+          file: file,
+        );
+      }
+    } catch (_) {
+      if (mounted && generation == _materialPreviewGeneration) {
+        ElixToast.showError(
+          context,
+          message: 'This material could not be opened. Please try again.',
+        );
+      }
+    } finally {
+      if (mounted &&
+          generation == _materialPreviewGeneration &&
+          _previewingMaterial == operationId) {
+        setState(() => _previewingMaterial = null);
+      }
     }
   }
 
@@ -3422,12 +3509,18 @@ class _QueuedMaterialDraft {
 class _QueuedMaterialRow extends StatelessWidget {
   const _QueuedMaterialRow({
     required this.material,
+    required this.previewing,
+    required this.canPreview,
     required this.canRemove,
+    required this.onPreview,
     required this.onRemove,
   });
 
   final _QueuedMaterialDraft material;
+  final bool previewing;
+  final bool canPreview;
   final bool canRemove;
+  final VoidCallback onPreview;
   final VoidCallback onRemove;
 
   @override
@@ -3449,34 +3542,72 @@ class _QueuedMaterialRow extends StatelessWidget {
           color: context.elixCardSurface,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Row(
-          children: [
-            Icon(activityLearningMaterialIcon(material.type), size: 16),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(material.displayName, overflow: TextOverflow.ellipsis),
-                  Text(
-                    '$metadata · $status',
-                    style: AppTheme.caption.copyWith(
-                      color: material.status == _QueuedMaterialStatus.failed
-                          ? AppColors.error
-                          : context.elixTextSecondary,
-                    ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final details = Row(
+              children: [
+                Icon(activityLearningMaterialIcon(material.type), size: 16),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        material.displayName,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        '$metadata · $status',
+                        style: AppTheme.caption.copyWith(
+                          color: material.status == _QueuedMaterialStatus.failed
+                              ? AppColors.error
+                              : context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+              ],
+            );
+            final actions = Wrap(
+              spacing: AppSpacing.xs,
+              runSpacing: AppSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _ComposerSecondaryButton(
+                  key: ValueKey(
+                    'queued-material-preview-${material.requestId}',
+                  ),
+                  onPressed: canPreview && !previewing ? onPreview : null,
+                  child: Text(activityLearningMaterialOpenLabel(material.type)),
+                ),
+                if (material.isSaving || previewing)
+                  const SizedBox(width: 16, height: 16, child: ProgressRing()),
+                if (canRemove)
+                  _ComposerSecondaryButton(
+                    onPressed: previewing ? null : onRemove,
+                    child: const Text('Remove'),
+                  ),
+              ],
+            );
+            if (constraints.maxWidth < 460) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  details,
+                  const SizedBox(height: AppSpacing.xs),
+                  Align(alignment: Alignment.centerRight, child: actions),
                 ],
-              ),
-            ),
-            if (material.isSaving)
-              const SizedBox(width: 16, height: 16, child: ProgressRing()),
-            if (canRemove)
-              _ComposerSecondaryButton(
-                onPressed: onRemove,
-                child: const Text('Remove'),
-              ),
-          ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: details),
+                const SizedBox(width: AppSpacing.sm),
+                actions,
+              ],
+            );
+          },
         ),
       ),
     );
@@ -3486,17 +3617,21 @@ class _QueuedMaterialRow extends StatelessWidget {
 class _PersistedMaterialRow extends StatelessWidget {
   const _PersistedMaterialRow({
     required this.material,
+    required this.previewing,
     required this.markedForRemoval,
     required this.errorMessage,
     required this.enabled,
+    required this.onPreview,
     required this.onRemove,
     required this.onRestore,
   });
 
   final ActivityLearningMaterial material;
+  final bool previewing;
   final bool markedForRemoval;
   final String? errorMessage;
   final bool enabled;
+  final VoidCallback onPreview;
   final VoidCallback onRemove;
   final VoidCallback onRestore;
 
@@ -3514,38 +3649,73 @@ class _PersistedMaterialRow extends StatelessWidget {
               : context.elixBorder,
         ),
       ),
-      child: Row(
-        children: [
-          Icon(activityLearningMaterialIcon(material.type), size: 16),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(material.displayName, overflow: TextOverflow.ellipsis),
-                Text(
-                  errorMessage ??
-                      (markedForRemoval
-                          ? 'Will be removed when you save changes'
-                          : '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}'),
-                  style: AppTheme.caption.copyWith(
-                    color: errorMessage != null
-                        ? AppColors.error
-                        : markedForRemoval
-                        ? context.elixColors.warning
-                        : context.elixTextSecondary,
-                  ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final details = Row(
+            children: [
+              Icon(activityLearningMaterialIcon(material.type), size: 16),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(material.displayName, overflow: TextOverflow.ellipsis),
+                    Text(
+                      errorMessage ??
+                          (markedForRemoval
+                              ? 'Will be removed when you save changes'
+                              : '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}'),
+                      style: AppTheme.caption.copyWith(
+                        color: errorMessage != null
+                            ? AppColors.error
+                            : markedForRemoval
+                            ? context.elixColors.warning
+                            : context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+            ],
+          );
+          final actions = Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _ComposerSecondaryButton(
+                key: ValueKey('persisted-material-preview-${material.id}'),
+                onPressed: enabled && !previewing ? onPreview : null,
+                child: Text(activityLearningMaterialOpenLabel(material.type)),
+              ),
+              if (previewing)
+                const SizedBox(width: 16, height: 16, child: ProgressRing()),
+              _ComposerSecondaryButton(
+                onPressed: enabled && !previewing
+                    ? (markedForRemoval ? onRestore : onRemove)
+                    : null,
+                child: Text(markedForRemoval ? 'Keep' : 'Remove'),
+              ),
+            ],
+          );
+          if (constraints.maxWidth < 460) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                details,
+                const SizedBox(height: AppSpacing.xs),
+                Align(alignment: Alignment.centerRight, child: actions),
               ],
-            ),
-          ),
-          _ComposerSecondaryButton(
-            onPressed: enabled
-                ? (markedForRemoval ? onRestore : onRemove)
-                : null,
-            child: Text(markedForRemoval ? 'Keep' : 'Remove'),
-          ),
-        ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: details),
+              const SizedBox(width: AppSpacing.sm),
+              actions,
+            ],
+          );
+        },
       ),
     ),
   );

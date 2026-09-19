@@ -344,7 +344,12 @@ class _ChallengeCard extends StatelessWidget {
                   color: const Color(0x33FF2FA8),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(FluentIcons.trophy, color: Color(0xFFFF2FA8)),
+                child: MovementImage(
+                  key: Key('class_challenge_movement_image_${challenge.id}'),
+                  movementName: challenge.movementName,
+                  prop: challenge.prop,
+                  size: 42,
+                ),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(

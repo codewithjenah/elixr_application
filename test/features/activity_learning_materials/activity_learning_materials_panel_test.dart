@@ -5,12 +5,14 @@ import 'dart:io';
 import 'package:elixr_application/core/widgets/elix_form_field.dart';
 import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
+import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/activity_learning_material.dart';
 import 'package:elixr_application/data/repositories/activity_learning_material_repository.dart';
 import 'package:elixr_application/features/activity_learning_materials/activity_learning_materials_panel.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _MaterialsRepository implements ActivityLearningMaterialRepository {
   _MaterialsRepository({this.materials = const []});
@@ -185,10 +187,23 @@ ActivityMaterialUploadStatus _status(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<void> pump(WidgetTester tester, Widget child) async {
+  Future<void> pump(
+    WidgetTester tester,
+    Widget child, {
+    Size size = const Size(800, 900),
+  }) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = size;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       FluentApp(
-        home: ScaffoldPage(content: SingleChildScrollView(child: child)),
+        theme: AppTheme.dark,
+        home: ElixShadThemeBridge(
+          child: shad.ShadToaster(
+            child: ScaffoldPage(content: SingleChildScrollView(child: child)),
+          ),
+        ),
       ),
     );
     await tester.pump();
@@ -575,11 +590,254 @@ void main() {
     expect(find.text('View'), findsOneWidget);
     expect(find.text('Watch'), findsOneWidget);
     expect(find.text('Open link'), findsOneWidget);
+    expect(find.text('Download'), findsNWidgets(3));
     expect(find.textContaining('Start'), findsNothing);
     expect(
       tester.widget<Text>(find.text(image.displayName)).overflow,
       TextOverflow.ellipsis,
     );
+  });
+
+  testWidgets('trainee link has no download action', (tester) async {
+    final link = ActivityLearningMaterial(
+      id: 'link-only',
+      assignmentId: 'assignment-1',
+      type: ActivityLearningMaterialType.link,
+      displayName: 'Reference',
+      externalUrl: Uri.parse('https://example.com/reference'),
+    );
+    await pump(
+      tester,
+      ActivityLearningMaterialsTraineeSection(
+        assignmentId: 'assignment-1',
+        repository: _MaterialsRepository(materials: [link]),
+      ),
+    );
+
+    expect(find.text('Open link'), findsOneWidget);
+    expect(find.text('Download'), findsNothing);
+  });
+
+  testWidgets('trainee download cancellation does not open the repository', (
+    tester,
+  ) async {
+    final repository = _MaterialsRepository(materials: [_pdf]);
+    await pump(
+      tester,
+      ActivityLearningMaterialsTraineeSection(
+        assignmentId: 'assignment-1',
+        repository: repository,
+        saveLocationPicker:
+            ({required suggestedName, required acceptedTypeGroups}) async =>
+                null,
+      ),
+    );
+
+    await tester.tap(find.text('Download'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await flush(tester);
+    await tester.pump();
+
+    expect(repository.openCalls, isEmpty);
+    final button = tester.widget<ElixPrimaryButton>(
+      find.ancestor(
+        of: find.text('Download'),
+        matching: find.byType(ElixPrimaryButton),
+      ),
+    );
+    expect(button.onPressed, isNotNull);
+  });
+
+  testWidgets('trainee download saves authorized bytes and returns idle', (
+    tester,
+  ) async {
+    final source = await testPdf();
+    final outputDirectory = Directory.systemTemp.createTempSync(
+      'elixr-material-download-',
+    );
+    addTearDown(() {
+      if (outputDirectory.existsSync()) {
+        outputDirectory.deleteSync(recursive: true);
+      }
+    });
+    final destination = File(
+      '${outputDirectory.path}${Platform.pathSeparator}saved.pdf',
+    );
+    final repository = _MaterialsRepository(materials: [_pdf])
+      ..openFuture = Future.value(source);
+    await pump(
+      tester,
+      ActivityLearningMaterialsTraineeSection(
+        assignmentId: 'assignment-1',
+        repository: repository,
+        saveLocationPicker:
+            ({required suggestedName, required acceptedTypeGroups}) async {
+              expect(suggestedName, 'Safety Guidelines.pdf');
+              expect(acceptedTypeGroups.single.extensions, contains('pdf'));
+              return destination.path;
+            },
+      ),
+    );
+
+    await tester.tap(find.text('Download'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await flush(tester);
+
+    expect(repository.openCalls, [_pdf]);
+    expect(destination.readAsBytesSync(), source.readAsBytesSync());
+    expect(find.text('Safety Guidelines.pdf was downloaded.'), findsOneWidget);
+    final button = tester.widget<ElixPrimaryButton>(
+      find.ancestor(
+        of: find.text('Download'),
+        matching: find.byType(ElixPrimaryButton),
+      ),
+    );
+    expect(button.onPressed, isNotNull);
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('trainee download failure returns idle with a safe error', (
+    tester,
+  ) async {
+    final repository = _MaterialsRepository(materials: [_pdf])
+      ..openFailure = StateError('forbidden');
+    await pump(
+      tester,
+      ActivityLearningMaterialsTraineeSection(
+        assignmentId: 'assignment-1',
+        repository: repository,
+        saveLocationPicker:
+            ({required suggestedName, required acceptedTypeGroups}) async =>
+                '${Directory.systemTemp.path}${Platform.pathSeparator}unused.pdf',
+      ),
+    );
+
+    await tester.tap(find.text('Download'));
+    await flush(tester);
+
+    expect(repository.openCalls, [_pdf]);
+    expect(
+      find.text('This material could not be downloaded. Please try again.'),
+      findsOneWidget,
+    );
+    final button = tester.widget<ElixPrimaryButton>(
+      find.ancestor(
+        of: find.text('Download'),
+        matching: find.byType(ElixPrimaryButton),
+      ),
+    );
+    expect(button.onPressed, isNotNull);
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('teacher previews an authorized file and remove remains intact', (
+    tester,
+  ) async {
+    const image = ActivityLearningMaterial(
+      id: 'teacher-image',
+      assignmentId: 'assignment-1',
+      type: ActivityLearningMaterialType.image,
+      displayName: 'Teacher preview.png',
+      storagePath: 'server-only-image-path',
+    );
+    final file = File('teacher-preview-missing.png');
+    final repository = _MaterialsRepository(materials: [image])
+      ..openFuture = Future.value(file);
+    await pump(tester, teacherPanel(repository));
+
+    await tester.tap(
+      find.byKey(const ValueKey('teacher-material-preview-teacher-image')),
+    );
+    await flush(tester);
+
+    expect(repository.openCalls, [image]);
+    expect(find.byType(ElixDialog), findsOneWidget);
+    expect(find.text('Close'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await flush(tester);
+    await tester.tap(find.byIcon(FluentIcons.delete));
+    await flush(tester);
+    expect(repository.removeCalls.single.materialId, image.id);
+  });
+
+  testWidgets('teacher manager discards preview after assignment changes', (
+    tester,
+  ) async {
+    const oldMaterial = ActivityLearningMaterial(
+      id: 'old-image',
+      assignmentId: 'assignment-1',
+      type: ActivityLearningMaterialType.image,
+      displayName: 'Old preview.png',
+      storagePath: 'old-server-path',
+    );
+    const newMaterial = ActivityLearningMaterial(
+      id: 'new-pdf',
+      assignmentId: 'assignment-2',
+      type: ActivityLearningMaterialType.pdf,
+      displayName: 'New guide.pdf',
+      storagePath: 'new-server-path',
+    );
+    final oldOpen = Completer<File>();
+    final repositoryA = _MaterialsRepository(materials: [oldMaterial])
+      ..openFuture = oldOpen.future;
+    final repositoryB = _MaterialsRepository(materials: [newMaterial]);
+    await pump(tester, teacherPanel(repositoryA));
+
+    await tester.tap(
+      find.byKey(const ValueKey('teacher-material-preview-old-image')),
+    );
+    await tester.pump();
+    expect(repositoryA.openCalls, [oldMaterial]);
+
+    await pump(
+      tester,
+      ActivityLearningMaterialsPanel(
+        assignmentId: 'assignment-2',
+        repository: repositoryB,
+        filePicker: ({required acceptedTypeGroups}) async => null,
+        pollingInterval: const Duration(milliseconds: 1),
+      ),
+    );
+    expect(find.text('New guide.pdf'), findsOneWidget);
+    expect(find.text('Old preview.png'), findsNothing);
+
+    oldOpen.complete(File('stale-preview.png'));
+    await flush(tester);
+
+    expect(find.byType(ElixDialog), findsNothing);
+    expect(find.text('New guide.pdf'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('material actions wrap without overflow at narrow width', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      Column(
+        children: [
+          teacherPanel(_MaterialsRepository(materials: [_pdf])),
+          ActivityLearningMaterialsTraineeSection(
+            assignmentId: 'assignment-1',
+            repository: _MaterialsRepository(materials: [_pdf]),
+            saveLocationPicker:
+                ({required suggestedName, required acceptedTypeGroups}) async =>
+                    null,
+          ),
+        ],
+      ),
+      size: const Size(360, 900),
+    );
+    await tester.pump();
+
+    expect(find.text('Download'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

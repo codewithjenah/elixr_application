@@ -10,7 +10,9 @@ import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
+import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement.dart';
+import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/teacher_movement_revision_spec.dart';
@@ -126,6 +128,8 @@ void main() {
     TeacherReviewedSaveCallback? onCreate,
     TeacherActivitySaveCallback? onCreateActivity,
     TeacherActivitySaveCallback? onEditActivity,
+    GroupAssignment? assignment,
+    TeacherAssignmentActivitySaveCallback? onEditAssignment,
     Size size = const Size(1280, 900),
     FluentThemeData? theme,
     TextScaler? textScaler,
@@ -174,6 +178,21 @@ void main() {
                 ),
           onCreateActivity: onCreateActivity,
           onEditActivity: onEditActivity,
+          assignment: assignment,
+          onEditAssignment: assignment == null
+              ? null
+              : onEditAssignment ??
+                    ({
+                      required title,
+                      required instructions,
+                      required requiredProp,
+                      required assessment,
+                      required attemptPolicy,
+                      required audience,
+                      dueAt,
+                      safetyGuidance,
+                      topic,
+                    }) async {},
         ),
       ),
     );
@@ -246,10 +265,11 @@ void main() {
     expect(find.text('Recording duration'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('builder-demo-media-placeholder')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.byKey(const ValueKey('builder-demo-upload')), findsOneWidget);
-    expect(find.byKey(const ValueKey('builder-demo-record')), findsOneWidget);
+    expect(find.byKey(const ValueKey('builder-demo-upload')), findsNothing);
+    expect(find.byKey(const ValueKey('builder-demo-record')), findsNothing);
+    expect(find.text('Demonstration'), findsNothing);
     expect(find.text('Template scored'), findsNothing);
     expect(find.text('Live Test'), findsNothing);
     expect(find.text('Create Teacher Activity'), findsOneWidget);
@@ -365,6 +385,9 @@ void main() {
     expect(find.text('Save revision'), findsOneWidget);
     expect(find.text('Template scored'), findsNothing);
     expect(find.text('Live Test'), findsNothing);
+    expect(find.byKey(const ValueKey('builder-demo-upload')), findsNothing);
+    expect(find.byKey(const ValueKey('builder-demo-record')), findsNothing);
+    expect(find.text('Demonstration'), findsNothing);
 
     await tester.enterText(
       find.byKey(const ValueKey('builder-instructions')),
@@ -378,6 +401,99 @@ void main() {
       movements.revisions.values.last.spec,
       isA<TeacherReviewedMovementSpec>(),
     );
+  });
+
+  testWidgets(
+    'reusable edit preserves legacy demonstration metadata without controls',
+    (tester) async {
+      final demonstration = TeacherActivityVideoMetadata(
+        storagePath: 'teacher-1/demos/legacy.mp4',
+        contentType: 'video/mp4',
+        sizeBytes: 2048,
+        durationMs: 12000,
+        source: TeacherActivityDemoSource.uploaded,
+      );
+      final existing = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Legacy activity',
+        instructions: 'Keep the bottle upright.',
+        requiredProp: TrainingProp.bottle,
+        assessment: TeacherActivityAssessmentConfig(
+          readiness: const TeacherActivityReadinessSpec(),
+          rubric: TeacherActivityRubric.builtIn(
+            TeacherActivityRubricTemplate.standardTechnique,
+            50,
+          ),
+          recordingDurationSeconds: 30,
+          demonstrationVideo: demonstration,
+        ),
+      );
+      final revision = await movements.getRevision(
+        movementId: existing.id,
+        revisionId: existing.currentRevisionId,
+      );
+      TeacherActivityAssessmentConfig? saved;
+
+      await pumpBuilder(
+        tester,
+        existing: existing,
+        existingRevision: revision,
+        onEditActivity:
+            ({
+              required title,
+              required instructions,
+              required requiredProp,
+              required assessment,
+              safetyGuidance,
+            }) async {
+              saved = assessment;
+            },
+      );
+      expect(find.byKey(const ValueKey('builder-demo-upload')), findsNothing);
+      await tester.enterText(
+        find.byKey(const ValueKey('builder-instructions')),
+        'Keep the bottle upright and controlled.',
+      );
+      await tester.tap(find.text('Save revision'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.demonstrationVideo, same(demonstration));
+    },
+  );
+
+  testWidgets('legacy assignment editor retains demonstration controls', (
+    tester,
+  ) async {
+    final assessment = TeacherActivityAssessmentConfig(
+      readiness: const TeacherActivityReadinessSpec(),
+      rubric: TeacherActivityRubric.builtIn(
+        TeacherActivityRubricTemplate.standardTechnique,
+        50,
+      ),
+      recordingDurationSeconds: 30,
+    );
+    final assignment = GroupAssignment(
+      id: 'assignment-legacy',
+      teacherId: 'teacher-1',
+      groupId: 'group-1',
+      movementId: 'movement-1',
+      revisionId: 'revision-1',
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.teacherReviewed,
+      status: GroupAssignmentStatus.active,
+      displayTitle: 'Classroom activity',
+      teacherDisplayName: 'Grace Hopper',
+      groupName: 'Flair 101',
+      displayInstructions: 'Keep the bottle upright.',
+      allowedProp: TrainingProp.bottle,
+      maxScore: 50,
+      activityAssessment: assessment,
+    );
+
+    await pumpBuilder(tester, assignment: assignment);
+
+    expect(find.byKey(const ValueKey('builder-demo-upload')), findsOneWidget);
+    expect(find.byKey(const ValueKey('builder-demo-record')), findsOneWidget);
   });
 
   testWidgets(
