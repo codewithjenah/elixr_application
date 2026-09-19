@@ -327,10 +327,10 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     }
   }
 
-  List<DashboardQuest> get _claimableDailyQuests {
+  List<DashboardQuest> get _activeDailyQuests {
     final board = _dailyQuestBoard;
     if (board == null) return const [];
-    return buildClaimableDailyQuests(
+    return buildActiveDashboardQuests(
       board: board,
       claimedQuestIds: _claimedQuestIds,
       sessions: _sessions,
@@ -350,7 +350,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       return;
     }
     DashboardQuest? quest;
-    for (final candidate in _claimableDailyQuests) {
+    for (final candidate in _activeDailyQuests) {
       if (candidate.id == questId) {
         quest = candidate;
         break;
@@ -645,17 +645,27 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                             ),
                             const SizedBox(height: AppSpacing.md),
                           ],
-                          ReadyToClaimSection(
-                            quests: _claimableDailyQuests,
-                            achievements: _claimableAchievements,
-                            loadingQuests:
-                                !progression.isReady || _questBoardLoading,
-                            questLoadError: _questBoardError,
+                          DailyQuestSection(
+                            quests: _activeDailyQuests,
+                            loading: !progression.isReady || _questBoardLoading,
+                            loadError: _questBoardError,
                             claimingQuestIds: _claimingQuestIds,
+                            claimedCount: _claimedQuestIds.length,
+                            totalCount: _dailyQuestBoard?.questIds.length ?? 0,
+                            boardComplete:
+                                _dailyQuestBoard != null &&
+                                isDailyBoardComplete(
+                                  board: _dailyQuestBoard!,
+                                  claimedQuestIds: _claimedQuestIds,
+                                ),
+                            onClaim: _claimQuest,
+                            onRetry: _retryQuestBoard,
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          ReadyToClaimSection(
+                            achievements: _claimableAchievements,
                             claimingAchievementId: _claimingId,
-                            onClaimQuest: _claimQuest,
                             onClaimAchievement: _claim,
-                            onRetryQuests: _retryQuestBoard,
                           ),
                           const SizedBox(height: AppSpacing.lg),
                           const HowToEarnXpSection(),

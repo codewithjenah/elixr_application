@@ -13,30 +13,18 @@ import '../../dashboard/dashboard_quests.dart';
 class ReadyToClaimSection extends StatelessWidget {
   const ReadyToClaimSection({
     super.key,
-    required this.quests,
     required this.achievements,
-    required this.loadingQuests,
-    required this.questLoadError,
-    required this.claimingQuestIds,
     required this.claimingAchievementId,
-    required this.onClaimQuest,
     required this.onClaimAchievement,
-    required this.onRetryQuests,
   });
 
-  final List<DashboardQuest> quests;
   final List<AchievementViewData> achievements;
-  final bool loadingQuests;
-  final String? questLoadError;
-  final Set<String> claimingQuestIds;
   final String? claimingAchievementId;
-  final ValueChanged<String> onClaimQuest;
   final ValueChanged<String> onClaimAchievement;
-  final VoidCallback onRetryQuests;
 
   @override
   Widget build(BuildContext context) {
-    final hasClaimableRewards = quests.isNotEmpty || achievements.isNotEmpty;
+    final hasClaimableRewards = achievements.isNotEmpty;
     return Container(
       key: const Key('ready_to_claim_section'),
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -55,11 +43,7 @@ class ReadyToClaimSection extends StatelessWidget {
             color: context.elixBorder.withValues(alpha: 0.5),
           ),
           const SizedBox(height: AppSpacing.md),
-          if (loadingQuests)
-            const _LoadingState()
-          else if (questLoadError != null)
-            _LoadErrorState(onRetry: onRetryQuests)
-          else if (!hasClaimableRewards)
+          if (!hasClaimableRewards)
             const _EmptyClaimState()
           else
             LayoutBuilder(
@@ -73,15 +57,6 @@ class ReadyToClaimSection extends StatelessWidget {
                   spacing: gap,
                   runSpacing: gap,
                   children: [
-                    for (final quest in quests)
-                      SizedBox(
-                        width: width,
-                        child: _ClaimableQuestCard(
-                          quest: quest,
-                          claiming: claimingQuestIds.contains(quest.id),
-                          onClaim: () => onClaimQuest(quest.id),
-                        ),
-                      ),
                     for (final achievement in achievements)
                       SizedBox(
                         width: width,
@@ -147,8 +122,8 @@ class _ReadyToClaimHeader extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 hasClaimableRewards
-                    ? 'Collect your completed quest XP and rewards.'
-                    : 'Your completed rewards will appear here.',
+                    ? 'Collect your completed achievement rewards.'
+                    : 'Completed achievement rewards will appear here.',
                 style: AppTheme.caption.copyWith(
                   color: context.elixTextSecondary,
                   height: 1.3,
@@ -171,6 +146,197 @@ class _ReadyToClaimHeader extends StatelessWidget {
               fontSize: 9,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.7,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Presentation-only Daily Quest section. The parent owns board loading,
+/// Manila-window progress evaluation, claims, and the claim subscription.
+class DailyQuestSection extends StatelessWidget {
+  const DailyQuestSection({
+    super.key,
+    required this.quests,
+    required this.loading,
+    required this.loadError,
+    required this.claimingQuestIds,
+    required this.claimedCount,
+    required this.totalCount,
+    required this.boardComplete,
+    required this.onClaim,
+    required this.onRetry,
+  });
+
+  final List<DashboardQuest> quests;
+  final bool loading;
+  final String? loadError;
+  final Set<String> claimingQuestIds;
+  final int claimedCount;
+  final int totalCount;
+  final bool boardComplete;
+  final ValueChanged<String> onClaim;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('daily_quest_section'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: context.elixColors.surfaceRaised.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: context.elixBorder.withValues(alpha: 0.72)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _SectionHeading(
+            icon: FluentIcons.checkbox_composite,
+            title: "Today's Quests",
+            subtitle: 'Quests reset daily. Complete and claim them to earn XP.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (loading)
+            const _LoadingState(label: "Loading today's quests…")
+          else if (loadError != null)
+            _LoadErrorState(message: loadError!, onRetry: onRetry)
+          else if (boardComplete)
+            const _DailyQuestCompleteState()
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 840 ? 2 : 1;
+                const gap = AppSpacing.sm;
+                final width = columns == 1
+                    ? constraints.maxWidth
+                    : (constraints.maxWidth - gap) / 2;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (final quest in quests)
+                      SizedBox(
+                        width: width,
+                        child: _DailyQuestCard(
+                          quest: quest,
+                          claiming: claimingQuestIds.contains(quest.id),
+                          claimDisabled: claimingQuestIds.isNotEmpty,
+                          onClaim: () => onClaim(quest.id),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          if (!loading && loadError == null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _DailyQuestGauge(
+              claimedCount: claimedCount,
+              totalCount: totalCount,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DailyQuestCompleteState extends StatelessWidget {
+  const _DailyQuestCompleteState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('daily_quest_complete_state'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: context.elixColors.success.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            FluentIcons.trophy2,
+            size: 18,
+            color: context.elixColors.success,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              'Daily board complete. See you tomorrow!',
+              style: TextStyle(
+                color: context.elixTextPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DailyQuestGauge extends StatelessWidget {
+  const _DailyQuestGauge({
+    required this.claimedCount,
+    required this.totalCount,
+  });
+
+  final int claimedCount;
+  final int totalCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = totalCount == 0 ? 0.0 : claimedCount / totalCount;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                claimedCount >= totalCount && totalCount > 0
+                    ? 'All quests claimed'
+                    : claimedCount > 0
+                    ? 'Keep going — claim more XP'
+                    : 'Complete and claim quests for XP',
+                style: TextStyle(
+                  color: context.elixTextSecondary,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+            Text(
+              '$claimedCount/$totalCount',
+              style: TextStyle(
+                color: context.elixTextPrimary,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            height: 4,
+            child: Stack(
+              children: [
+                Container(color: context.elixBorder.withValues(alpha: 0.5)),
+                FractionallySizedBox(
+                  widthFactor: progress.clamp(0.0, 1.0),
+                  child: Container(
+                    color: context.elixColors.brandPrimary.withValues(
+                      alpha: 0.85,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -304,25 +470,36 @@ class _SectionHeading extends StatelessWidget {
   }
 }
 
-class _ClaimableQuestCard extends StatelessWidget {
-  const _ClaimableQuestCard({
+class _DailyQuestCard extends StatelessWidget {
+  const _DailyQuestCard({
     required this.quest,
     required this.claiming,
+    required this.claimDisabled,
     required this.onClaim,
   });
 
   final DashboardQuest quest;
   final bool claiming;
+  final bool claimDisabled;
   final VoidCallback onClaim;
 
   @override
   Widget build(BuildContext context) {
     final color = _tierColor(quest.tier);
+    final progress = quest.target <= 0
+        ? 0.0
+        : (quest.current / quest.target).clamp(0.0, 1.0);
+    final claimable = quest.completed;
+    final progressLabel = claimable
+        ? '${quest.current}/${quest.target} complete — ready to claim'
+        : '${quest.current}/${quest.target} complete';
     return Container(
-      key: Key('ready_quest_${quest.id}'),
+      key: Key('daily_quest_${quest.id}'),
       padding: const EdgeInsets.all(AppSpacing.sm),
       decoration: BoxDecoration(
-        color: context.elixColors.surfaceRaised.withValues(alpha: 0.84),
+        color: claimable
+            ? context.elixColors.success.withValues(alpha: 0.07)
+            : context.elixColors.surfaceRaised.withValues(alpha: 0.84),
         borderRadius: BorderRadius.circular(11),
         border: Border.all(color: color.withValues(alpha: 0.24)),
       ),
@@ -347,12 +524,43 @@ class _ClaimableQuestCard extends StatelessWidget {
           const SizedBox(height: 7),
           Text(
             quest.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: context.elixTextPrimary,
               fontSize: 13,
               fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            progressLabel,
+            style: TextStyle(
+              color: claimable
+                  ? context.elixColors.success
+                  : context.elixTextSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              height: 4,
+              child: Stack(
+                children: [
+                  Container(color: context.elixBorder.withValues(alpha: 0.5)),
+                  FractionallySizedBox(
+                    widthFactor: progress,
+                    child: Container(
+                      color:
+                          (claimable
+                                  ? context.elixColors.success
+                                  : context.elixColors.brandSecondary)
+                              .withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -368,19 +576,20 @@ class _ClaimableQuestCard extends StatelessWidget {
                   ),
                 ),
               ),
-              SizedBox(
-                height: 30,
-                child: Button(
-                  onPressed: claiming ? null : onClaim,
-                  child: claiming
-                      ? const SizedBox(
-                          width: 13,
-                          height: 13,
-                          child: ProgressRing(strokeWidth: 2),
-                        )
-                      : const Text('Claim'),
+              if (claimable)
+                SizedBox(
+                  height: 30,
+                  child: Button(
+                    onPressed: claimDisabled ? null : onClaim,
+                    child: claiming
+                        ? const SizedBox(
+                            width: 13,
+                            height: 13,
+                            child: ProgressRing(strokeWidth: 2),
+                          )
+                        : const Text('Claim'),
+                  ),
                 ),
-              ),
             ],
           ),
         ],
@@ -574,17 +783,23 @@ class _XpSourceCard extends StatelessWidget {
 }
 
 class _LoadingState extends StatelessWidget {
-  const _LoadingState();
+  const _LoadingState({required this.label});
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       child: Row(
         children: [
-          SizedBox(width: 16, height: 16, child: ProgressRing(strokeWidth: 2)),
-          SizedBox(width: AppSpacing.sm),
-          Text('Checking completed rewards…'),
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: ProgressRing(strokeWidth: 2),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Text(label),
         ],
       ),
     );
@@ -592,8 +807,9 @@ class _LoadingState extends StatelessWidget {
 }
 
 class _LoadErrorState extends StatelessWidget {
-  const _LoadErrorState({required this.onRetry});
+  const _LoadErrorState({required this.message, required this.onRetry});
 
+  final String message;
   final VoidCallback onRetry;
 
   @override
@@ -602,7 +818,7 @@ class _LoadErrorState extends StatelessWidget {
       children: [
         Expanded(
           child: Text(
-            'Could not load today\'s quest rewards.',
+            message,
             style: TextStyle(color: context.elixTextSecondary, fontSize: 12),
           ),
         ),
@@ -669,7 +885,7 @@ class _EmptyClaimState extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Complete your quests and achievements to unlock rewards.',
+                  'Complete an achievement to unlock its reward.',
                   style: TextStyle(
                     color: context.elixTextSecondary,
                     fontSize: 11,

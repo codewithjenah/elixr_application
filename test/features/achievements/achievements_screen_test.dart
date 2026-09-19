@@ -164,21 +164,31 @@ class _FakeGamificationRepository extends GamificationRepository {
     DailyQuestBoard? board,
     Set<String> claimedIds = const {},
     this.throwOnClaim = false,
+    this.failBoardLoads = 0,
   }) : _board = board ?? _todayBoard(),
        claimed = {...claimedIds};
 
   final DailyQuestBoard _board;
   final Set<String> claimed;
   final bool throwOnClaim;
+  int failBoardLoads;
   final _claimedController = StreamController<Set<String>>.broadcast();
   int claimCalls = 0;
+  int boardLoadCalls = 0;
 
   @override
   Future<DailyQuestBoard> getOrCreateDailyBoard({
     required String userId,
     required int currentLevel,
     DateTime? nowUtc,
-  }) async => _board;
+  }) async {
+    boardLoadCalls++;
+    if (failBoardLoads > 0) {
+      failBoardLoads--;
+      throw StateError('board load failed');
+    }
+    return _board;
+  }
 
   @override
   Stream<Set<String>> watchClaimedQuestIds({
@@ -282,9 +292,13 @@ Future<void> settleUi(WidgetTester tester) async {
 }
 
 Future<void> _openAchievementFilterMenu(WidgetTester tester) async {
-  await tester.tap(
-    find.byWidgetPredicate((widget) => widget is shad.ShadSelect),
+  final select = find.byWidgetPredicate((widget) => widget is shad.ShadSelect);
+  await tester.drag(
+    find.byKey(const Key('achievements_page_scroll')),
+    const Offset(0, -600),
   );
+  await settleUi(tester);
+  await tester.tap(select);
   await settleUi(tester);
 }
 
@@ -767,7 +781,9 @@ void main() {
       expect(find.text('Achievement collection'), findsOneWidget);
     });
 
-    testWidgets('shows only completed, unclaimed Daily Quests', (tester) async {
+    testWidgets('shows active Daily Quests with canonical progress', (
+      tester,
+    ) async {
       final repository = _FakeGamificationRepository();
       addTearDown(repository.close);
 
@@ -782,20 +798,35 @@ void main() {
       );
 
       expect(
-        find.byKey(const Key('ready_quest_session_count_1')),
+        find.byKey(const Key('daily_quest_session_count_1')),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('ready_quest_duration_20min')), findsNothing);
+      expect(
+        find.byKey(const Key('daily_quest_duration_20min')),
+        findsOneWidget,
+      );
       expect(
         find.descendant(
-          of: find.byKey(const Key('ready_quest_session_count_1')),
+          of: find.byKey(const Key('daily_quest_session_count_1')),
           matching: find.text('Reward: +10 XP'),
         ),
         findsOneWidget,
       );
+      expect(find.text('60/1200 complete'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('daily_quest_duration_20min')),
+          matching: find.text('Claim'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('ready_quest_session_count_1')),
+        findsNothing,
+      );
     });
 
-    testWidgets('renders the compact empty state when nothing is claimable', (
+    testWidgets('keeps the achievement-only empty claim state separate', (
       tester,
     ) async {
       final repository = _FakeGamificationRepository(
@@ -815,11 +846,11 @@ void main() {
 
       expect(find.text('Nothing to claim yet'), findsOneWidget);
       expect(
-        find.text('Complete your quests and achievements to unlock rewards.'),
+        find.text('Complete an achievement to unlock its reward.'),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('ready_quest_session_count_1')),
+        find.byKey(const Key('daily_quest_session_count_1')),
         findsNothing,
       );
     });
@@ -840,7 +871,7 @@ void main() {
         ),
       );
 
-      final card = find.byKey(const Key('ready_quest_session_count_1'));
+      final card = find.byKey(const Key('daily_quest_session_count_1'));
       final claimButton = find.descendant(
         of: card,
         matching: find.text('Claim'),
@@ -871,7 +902,7 @@ void main() {
         ),
       );
 
-      final card = find.byKey(const Key('ready_quest_session_count_1'));
+      final card = find.byKey(const Key('daily_quest_session_count_1'));
       await tester.tap(find.descendant(of: card, matching: find.text('Claim')));
       await settleUi(tester);
 
@@ -879,6 +910,83 @@ void main() {
       expect(
         find.text('Could not claim this quest. Please try again.'),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('shows the completed-board state once every quest is claimed', (
+      tester,
+    ) async {
+      final board = _todayBoard(
+        questIds: const ['session_count_1', 'duration_20min', 'score_95'],
+      );
+      final repository = _FakeGamificationRepository(
+        board: board,
+        claimedIds: board.questIds.toSet(),
+      );
+      addTearDown(repository.close);
+
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: [_todaySession()],
+          claimedIds: const {'first_steps'},
+          gamificationRepository: repository,
+        ),
+      );
+
+      expect(
+        find.byKey(const Key('daily_quest_complete_state')),
+        findsOneWidget,
+      );
+      expect(find.text('All quests claimed'), findsOneWidget);
+    });
+
+    testWidgets('retries a failed Daily Quest board load', (tester) async {
+      final repository = _FakeGamificationRepository(failBoardLoads: 1);
+      addTearDown(repository.close);
+
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: const [],
+          claimedIds: const {'first_steps'},
+          gamificationRepository: repository,
+        ),
+      );
+
+      expect(
+        find.text("Could not load today's quest rewards."),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Retry'));
+      await settleUi(tester);
+
+      expect(repository.boardLoadCalls, 2);
+      expect(find.byKey(const Key('daily_quest_section')), findsOneWidget);
+      expect(find.text("Could not load today's quest rewards."), findsNothing);
+    });
+
+    testWidgets('claimable achievement rewards remain in Ready to claim', (
+      tester,
+    ) async {
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: const [_sampleSession],
+        ),
+      );
+
+      expect(find.byKey(const Key('ready_to_claim_section')), findsOneWidget);
+      expect(
+        find.byKey(const Key('ready_achievement_first_steps')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ready_quest_session_count_1')),
+        findsNothing,
       );
     });
 
@@ -907,7 +1015,7 @@ void main() {
       await settleUi(tester);
 
       expect(
-        find.byKey(const Key('ready_quest_session_count_1')),
+        find.byKey(const Key('daily_quest_session_count_1')),
         findsNothing,
       );
       expect(repository.claimCalls, 1);
@@ -931,7 +1039,7 @@ void main() {
       );
 
       final achievementsCard = find.byKey(
-        const Key('ready_quest_session_count_1'),
+        const Key('daily_quest_session_count_1'),
       );
       await tester.tap(
         find.descendant(of: achievementsCard, matching: find.text('Claim')),
