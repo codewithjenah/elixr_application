@@ -2632,7 +2632,7 @@ void main() {
   });
 
   testWidgets(
-    'wide assignment activity picker keeps five official cards in a row',
+    'wide assignment activity picker keeps five readable official cards in a row',
     (tester) async {
       await pumpComposer(tester, creationService: service());
 
@@ -2641,17 +2641,40 @@ void main() {
         matching: find.text(name),
       );
 
-      final firstRow = tester.getTopLeft(cardTitle('Body Grip')).dy;
-      for (final name in [
+      final names = [
         'Normal Grip',
         "Bartender's Grip",
         'Reverse Grip',
         'Claw Grip',
-      ]) {
+      ];
+      final firstRow = tester.getTopLeft(cardTitle('Body Grip')).dy;
+      for (final name in names) {
         expect(tester.getTopLeft(cardTitle(name)).dy, closeTo(firstRow, 1));
+        expect(cardTitle(name), findsOneWidget);
+        expect(tester.getSize(cardTitle(name)).width, greaterThan(120));
       }
+      expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('narrow assignment activity picker reduces columns cleanly', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      size: const Size(760, 900),
+    );
+
+    Finder cardTitle(String name) => find.descendant(
+      of: find.byKey(Key('teacher_assignment_official_$name')),
+      matching: find.text(name),
+    );
+
+    final firstRow = tester.getTopLeft(cardTitle('Normal Grip')).dy;
+    expect(tester.getTopLeft(cardTitle('Body Grip')).dy, greaterThan(firstRow));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Teacher Activity can create and select a new activity', (
     tester,

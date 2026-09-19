@@ -4293,9 +4293,9 @@ class _MovementChoiceList extends StatelessWidget {
               availableWidth: constraints.maxWidth,
               itemCount: children.length,
               spacing: AppSpacing.md,
-              // The composer reserves room for its assignment controls, so
-              // its compact selectable cards use the same five-column desktop
-              // density within a narrower content pane.
+              // The vertically composed cards keep the full title width at
+              // this compact desktop size. Below it, reduce columns instead
+              // of crushing the card content.
               minCardWidth: 140,
             );
             final itemWidth =
@@ -4607,58 +4607,66 @@ class _MovementChoiceCard extends StatelessWidget {
             child: Button(
               key: selectionKey,
               onPressed: enabled ? onPressed : null,
+              // Button supplies horizontal padding by default. The card owns
+              // its compact padding so the title can use the full card width.
+              style: const ButtonStyle(
+                padding: WidgetStatePropertyAll(EdgeInsets.zero),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(AppSpacing.sm),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(9),
-                      child: MovementImage(
-                        movementName: movementName,
-                        size: 56,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(9),
+                          child: MovementImage(
+                            movementName: movementName,
+                            size: 48,
+                          ),
+                        ),
+                        Icon(
+                          selected
+                              ? FluentIcons.completed_solid
+                              : FluentIcons.circle_ring,
+                          size: 18,
+                          color: selected ? accent : context.elixTextSecondary,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    SizedBox(
+                      height: 44,
+                      child: Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.body.copyWith(
+                          color: context.elixTextPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.body.copyWith(
-                              color: context.elixTextPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            metadata,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.caption.copyWith(color: accent),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
+                    const SizedBox(height: 2),
+                    Text(
+                      metadata,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(color: accent),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Icon(
-                      selected
-                          ? FluentIcons.completed_solid
-                          : FluentIcons.circle_ring,
-                      size: 18,
-                      color: selected ? accent : context.elixTextSecondary,
+                    const SizedBox(height: 2),
+                    SizedBox(
+                      height: 32,
+                      child: Text(
+                        description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
                     ),
                   ],
                 ),
