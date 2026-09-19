@@ -12,6 +12,48 @@ import '../models/daily_quest_board.dart';
 import '../models/quest_claim.dart';
 import '../models/session.dart';
 
+/// The reason a trusted quest-claim request could not be completed.
+enum QuestClaimServiceError {
+  unauthorized,
+  unavailable,
+  malformedResponse,
+  timedOut,
+  network,
+}
+
+/// A controlled failure from the trusted daily-quest claim service.
+///
+/// This deliberately contains only a safe HTTP status diagnostic. It never
+/// includes an ID token, response headers, or a raw response body.
+class QuestClaimServiceException implements Exception {
+  const QuestClaimServiceException(this.error, {this.statusCode});
+
+  final QuestClaimServiceError error;
+  final int? statusCode;
+
+  @override
+  String toString() {
+    final status = statusCode == null ? '' : ' (HTTP $statusCode)';
+    return switch (error) {
+      QuestClaimServiceError.unauthorized =>
+        'Quest claim authorization failed$status.',
+      QuestClaimServiceError.unavailable =>
+        'Quest claim service is unavailable$status.',
+      QuestClaimServiceError.malformedResponse =>
+        'Quest claim service returned an invalid response$status.',
+      QuestClaimServiceError.timedOut => 'Quest claim service timed out.',
+      QuestClaimServiceError.network => 'Quest claim service is unavailable.',
+    };
+  }
+}
+
+/// Supplies an authenticated Firebase token in repository tests.
+///
+/// Production construction leaves this unset and verifies the current
+/// Firebase user's UID before requesting its token. The Function still
+/// verifies every supplied token server-side.
+typedef QuestClaimTokenProvider = Future<String?> Function(String userId);
+
 /// Persistence for the daily quest board and quest claims.
 ///
 /// Local quest evaluation is only a progress prediction for the UI. Claiming
@@ -23,11 +65,13 @@ class GamificationRepository {
     FirebaseAuth? auth,
     Uri? apiBaseUri,
     HttpClient Function()? httpClientFactory,
+    QuestClaimTokenProvider? tokenProvider,
     this.requestTimeout = const Duration(seconds: 12),
   }) : _injectedFirestore = firestore,
        _injectedAuth = auth,
        apiBaseUri = apiBaseUri ?? Uri.parse(_configuredApiBaseUrl),
-       _httpClientFactory = httpClientFactory ?? HttpClient.new;
+       _httpClientFactory = httpClientFactory ?? HttpClient.new,
+       _tokenProvider = tokenProvider;
 
   static const _configuredApiBaseUrl = String.fromEnvironment(
     'ELIXR_ASSIGNMENTS_API_BASE_URL',
@@ -38,6 +82,7 @@ class GamificationRepository {
   final FirebaseAuth? _injectedAuth;
   final Uri apiBaseUri;
   final HttpClient Function() _httpClientFactory;
+  final QuestClaimTokenProvider? _tokenProvider;
   final Duration requestTimeout;
 
   FirebaseFirestore get _firestore =>
@@ -131,11 +176,7 @@ class GamificationRepository {
     // Local progress is advisory only. A user-initiated claim must reach the
     // server because cached or filtered client sessions can be stale.
     quest.evaluate(sessionsToday);
-    final user = _auth.currentUser;
-    if (user == null || user.uid != userId) {
-      throw StateError('A matching authenticated user is required.');
-    }
-    final token = await user.getIdToken(true);
+    final token = await _resolveToken(userId);
     if (token == null || token.isEmpty) {
       throw StateError('Unable to authenticate quest claim.');
     }
@@ -152,31 +193,111 @@ class GamificationRepository {
           .bind(response)
           .join()
           .timeout(requestTimeout);
-      final decoded = raw.isEmpty ? <String, dynamic>{} : jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException('Malformed quest response');
-      }
-      final status = decoded['status'] ?? decoded['error'];
-      return switch (status) {
-        'claimed' => QuestClaimResult.claimed(
-          (decoded['xp_awarded'] as num?)?.toInt() ?? 0,
-        ),
-        'already_claimed' => const QuestClaimResult.alreadyClaimed(),
-        'quest_not_completed' ||
-        'invalid_evidence' => const QuestClaimResult.questNotCompleted(),
-        'board_missing' => const QuestClaimResult.boardMissing(),
-        'leaderboard_missing' => const QuestClaimResult.leaderboardMissing(),
-        'invalid_quest' => const QuestClaimResult.invalidQuest(),
-        _ => throw StateError(
-          'Quest claim service unavailable (${response.statusCode}).',
-        ),
-      };
+      return parseQuestClaimResponse(
+        statusCode: response.statusCode,
+        contentType: response.headers.contentType?.mimeType,
+        rawBody: raw,
+      );
+    } on QuestClaimServiceException {
+      rethrow;
     } on TimeoutException {
-      throw StateError('Quest claim service timed out.');
+      throw const QuestClaimServiceException(QuestClaimServiceError.timedOut);
     } on SocketException {
-      throw StateError('Quest claim service is unavailable.');
+      throw const QuestClaimServiceException(QuestClaimServiceError.network);
     } finally {
       client.close(force: true);
     }
   }
+
+  Future<String?> _resolveToken(String userId) async {
+    final tokenProvider = _tokenProvider;
+    if (tokenProvider != null) return tokenProvider(userId);
+
+    final user = _auth.currentUser;
+    if (user == null || user.uid != userId) {
+      throw StateError('A matching authenticated user is required.');
+    }
+    return user.getIdToken(true);
+  }
+}
+
+/// Converts the Function's JSON contract into the existing typed outcomes.
+///
+/// The Function is authoritative for eligibility and awards. This parser
+/// accepts only its known JSON responses; gateway HTML, empty bodies, and
+/// malformed payloads become controlled service errors instead of leaking a
+/// [FormatException] to the UI.
+QuestClaimResult parseQuestClaimResponse({
+  required int statusCode,
+  required String? contentType,
+  required String rawBody,
+}) {
+  if (statusCode == HttpStatus.unauthorized ||
+      statusCode == HttpStatus.forbidden) {
+    throw QuestClaimServiceException(
+      QuestClaimServiceError.unauthorized,
+      statusCode: statusCode,
+    );
+  }
+  if (statusCode != HttpStatus.ok && statusCode != HttpStatus.badRequest) {
+    throw QuestClaimServiceException(
+      QuestClaimServiceError.unavailable,
+      statusCode: statusCode,
+    );
+  }
+  if (rawBody.trim().isEmpty ||
+      (contentType != null &&
+          contentType.toLowerCase() != 'application/json')) {
+    throw QuestClaimServiceException(
+      QuestClaimServiceError.malformedResponse,
+      statusCode: statusCode,
+    );
+  }
+
+  final Object decoded;
+  try {
+    decoded = jsonDecode(rawBody);
+  } on FormatException {
+    throw QuestClaimServiceException(
+      QuestClaimServiceError.malformedResponse,
+      statusCode: statusCode,
+    );
+  }
+  if (decoded is! Map) {
+    throw QuestClaimServiceException(
+      QuestClaimServiceError.malformedResponse,
+      statusCode: statusCode,
+    );
+  }
+
+  final response = Map<String, dynamic>.from(decoded);
+  final status = response['status'] ?? response['error'];
+  if (statusCode == HttpStatus.badRequest && status != 'invalid_quest') {
+    throw QuestClaimServiceException(
+      QuestClaimServiceError.unavailable,
+      statusCode: statusCode,
+    );
+  }
+  return switch (status) {
+    'claimed' when statusCode == HttpStatus.ok => QuestClaimResult.claimed(
+      (response['xp_awarded'] as num?)?.toInt() ?? 0,
+    ),
+    'already_claimed' when statusCode == HttpStatus.ok =>
+      const QuestClaimResult.alreadyClaimed(),
+    'quest_not_completed' || 'invalid_evidence'
+        when statusCode == HttpStatus.ok =>
+      const QuestClaimResult.questNotCompleted(),
+    'board_missing' when statusCode == HttpStatus.ok =>
+      const QuestClaimResult.boardMissing(),
+    'leaderboard_missing' when statusCode == HttpStatus.ok =>
+      const QuestClaimResult.leaderboardMissing(),
+    'invalid_quest'
+        when statusCode == HttpStatus.badRequest ||
+            statusCode == HttpStatus.ok =>
+      const QuestClaimResult.invalidQuest(),
+    _ => throw QuestClaimServiceException(
+      QuestClaimServiceError.unavailable,
+      statusCode: statusCode,
+    ),
+  };
 }

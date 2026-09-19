@@ -443,6 +443,40 @@ test('daily quest claim handler rejects unauthenticated and extra client authori
   assert.equal(response.body.error, 'invalid_request');
 });
 
+test('daily quest claim handler returns JSON for direct rejection paths', async () => {
+  const cases = [
+    {
+      request: {method: 'GET', body: {}, get: () => ''},
+      options: {verifyToken: async () => ({uid: 'alice'})},
+      expectedStatus: 405,
+      expectedError: 'method_not_allowed',
+    },
+    {
+      request: {method: 'POST', body: {}, get: () => ''},
+      options: {verifyToken: async () => ({uid: 'alice'})},
+      expectedStatus: 400,
+      expectedError: 'invalid_request',
+    },
+    {
+      request: {method: 'POST', body: {quest_id: 'session_count_1'}, get: () => ''},
+      options: {
+        verifyToken: async () => ({uid: 'alice'}),
+        databaseFactory: () => {
+          throw new Error('database unavailable');
+        },
+      },
+      expectedStatus: 503,
+      expectedError: 'unavailable',
+    },
+  ];
+  for (const {request, options, expectedStatus, expectedError} of cases) {
+    const response = fakeResponse();
+    await claimDailyQuestHandler(request, response, options);
+    assert.equal(response.statusCode, expectedStatus);
+    assert.deepEqual(response.body, {error: expectedError});
+  }
+});
+
 test('Manila day boundary is derived from server time', () => {
   assert.equal(manilaDay(new Date('2026-01-01T15:59:59.000Z')).dayKey, '20260101');
   assert.equal(manilaDay(new Date('2026-01-01T16:00:00.000Z')).dayKey, '20260102');
