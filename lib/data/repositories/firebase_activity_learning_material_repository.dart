@@ -56,6 +56,7 @@ class FirebaseActivityLearningMaterialRepository
   @override
   Future<ActivityMaterialUpload> beginUpload({
     required String assignmentId,
+    required String requestId,
     required ActivityLearningMaterialType type,
     required String displayName,
     required String declaredContentType,
@@ -63,6 +64,7 @@ class FirebaseActivityLearningMaterialRepository
   }) async {
     final decoded = await _post('beginActivityMaterialUpload', {
       'assignment_id': assignmentId,
+      'request_id': requestId,
       'type': type.wireValue,
       'display_name': displayName.trim(),
       'declared_content_type': declaredContentType.trim().toLowerCase(),
@@ -111,11 +113,13 @@ class FirebaseActivityLearningMaterialRepository
     required String assignmentId,
     required String displayName,
     required Uri url,
+    required String requestId,
   }) async {
     final decoded = await _post('addActivityLearningMaterialLink', {
       'assignment_id': assignmentId,
       'display_name': displayName.trim(),
       'url': url.toString(),
+      'request_id': requestId,
     });
     final material = ActivityLearningMaterial.tryFromMap(decoded);
     if (material == null) {
@@ -275,15 +279,20 @@ class FirebaseActivityLearningMaterialRepository
           .join()
           .timeout(requestTimeout);
       Object? decoded;
+      var receivedNonJson = false;
       try {
         decoded = text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
       } on FormatException {
-        if (response.statusCode == HttpStatus.ok) rethrow;
+        receivedNonJson = true;
       }
       if (response.statusCode != HttpStatus.ok) {
-        throw _functionFailure(response.statusCode, decoded);
+        throw activityLearningMaterialFunctionFailure(
+          response.statusCode,
+          decoded,
+          receivedNonJson: receivedNonJson,
+        );
       }
-      if (decoded is! Map) {
+      if (receivedNonJson || decoded is! Map) {
         throw const ClassroomException(ClassroomError.malformed);
       }
       return Map<String, dynamic>.from(decoded);
@@ -301,21 +310,33 @@ class FirebaseActivityLearningMaterialRepository
       client.close(force: true);
     }
   }
+}
 
-  static ClassroomException _functionFailure(int statusCode, Object? body) {
-    final serverCode = body is Map ? body['error'] : null;
-    final code = switch (statusCode) {
-      HttpStatus.unauthorized ||
-      HttpStatus.forbidden => ClassroomError.forbidden,
-      HttpStatus.notFound => ClassroomError.notFound,
-      HttpStatus.badRequest => ClassroomError.malformed,
-      HttpStatus.conflict => ClassroomError.conflict,
-      _ => ClassroomError.invalidState,
-    };
+/// Maps only the safe, structured part of a Function response. In particular,
+/// HTML from a gateway or wrong endpoint is never retained in an exception.
+ClassroomException activityLearningMaterialFunctionFailure(
+  int statusCode,
+  Object? body, {
+  required bool receivedNonJson,
+}) {
+  if (receivedNonJson) {
     return ClassroomException.fromFunction(
-      code,
+      ClassroomError.endpointUnavailable,
       httpStatus: statusCode,
-      serverCode: serverCode is String ? serverCode : null,
+      serverCode: 'non_json_function_response',
     );
   }
+  final serverCode = body is Map ? body['error'] : null;
+  final code = switch (statusCode) {
+    HttpStatus.unauthorized || HttpStatus.forbidden => ClassroomError.forbidden,
+    HttpStatus.notFound => ClassroomError.notFound,
+    HttpStatus.badRequest => ClassroomError.malformed,
+    HttpStatus.conflict => ClassroomError.conflict,
+    _ => ClassroomError.invalidState,
+  };
+  return ClassroomException.fromFunction(
+    code,
+    httpStatus: statusCode,
+    serverCode: serverCode is String ? serverCode : null,
+  );
 }

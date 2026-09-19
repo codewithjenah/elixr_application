@@ -237,6 +237,49 @@ void main() {
     expect(find.textContaining('1 students'), findsOneWidget);
   });
 
+  testWidgets(
+    'grade matrix exposes a horizontal scrollbar for many assignments',
+    (tester) async {
+      final seeded = await seedClassroom(
+        id: 'group-a',
+        name: 'Class A',
+        traineeId: 't-ada',
+        traineeName: 'Ada Lovelace',
+        movementName: 'Normal Grip',
+      );
+      for (var index = 0; index < 6; index++) {
+        await assignments.createOfficialAssignment(
+          teacherId: 'teacher',
+          teacherDisplayName: 'Grace Hopper',
+          group: seeded.group,
+          officialMovementName: 'Normal Grip',
+          allowedProp: TrainingProp.bottle,
+        );
+      }
+      await pumpGrades(
+        tester,
+        location: AppRoutePaths.teacherGradesForGroup(seeded.group.id),
+      );
+
+      final matrix = find.byKey(const Key('teacher_gradebook_matrix_scroll'));
+      final scrollable = find.descendant(
+        of: matrix,
+        matching: find.byType(Scrollable),
+      );
+      expect(matrix, findsOneWidget);
+      expect(scrollable, findsOneWidget);
+      expect(find.byType(Scrollbar), findsOneWidget);
+
+      await tester.drag(matrix, const Offset(-800, 0));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.state<ScrollableState>(scrollable).position.pixels,
+        greaterThan(0),
+      );
+    },
+  );
+
   testWidgets('requested classroom loads that gradebook among several', (
     tester,
   ) async {

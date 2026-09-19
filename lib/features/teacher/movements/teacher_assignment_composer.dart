@@ -3079,7 +3079,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         setState(() {
           _submitting = false;
           _validationError =
-              'The assignment was created, but some learning materials could not be saved. Retry to save only the remaining materials.';
+              'The assignment was created, but some learning materials could not be saved. ${_queuedMaterialRetryMessage()}';
         });
         return;
       }
@@ -3126,12 +3126,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             assignmentId: assignmentId,
             displayName: item.displayName,
             url: item.url!,
+            requestId: item.requestId,
           );
         } else {
           var upload = item.upload;
           if (upload == null) {
             upload = await repository.beginUpload(
               assignmentId: assignmentId,
+              requestId: item.requestId,
               type: item.type,
               displayName: item.displayName,
               declaredContentType: item.contentType!,
@@ -3146,7 +3148,16 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           await _waitForMaterialReady(repository, item, upload);
         }
         item.markPersisted();
-      } catch (_) {
+      } on ClassroomException catch (error) {
+        item.fail(_materialFailureMessage(error));
+        allSaved = false;
+      } catch (error) {
+        assert(() {
+          // Keep unexpected diagnostics out of the end-user surface while
+          // retaining them in debug runs.
+          debugPrint('Learning material save failed: $error');
+          return true;
+        }());
         item.fail('This material could not be saved. Please try again.');
         allSaved = false;
       }
@@ -3155,18 +3166,46 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return allSaved && _queuedMaterials.every((item) => item.isPersisted);
   }
 
+  String _materialFailureMessage(
+    ClassroomException error,
+  ) => switch (error.code) {
+    ClassroomError.forbidden =>
+      'Your Teacher access could not be confirmed. Refresh your sign-in and retry.',
+    ClassroomError.notFound =>
+      'This assignment or material is no longer available. Refresh and try again.',
+    ClassroomError.malformed =>
+      'The material details were not accepted. Check the link or file and retry.',
+    ClassroomError.conflict =>
+      'This material cannot be changed in the assignment’s current state. Refresh and retry.',
+    ClassroomError.endpointUnavailable =>
+      'The material service returned an unexpected response. Please retry shortly.',
+    ClassroomError.uploadFailed =>
+      'The uploaded file could not be validated. Choose the file again and retry.',
+    _ => 'The material service is temporarily unavailable. Please retry.',
+  };
+
+  String _queuedMaterialRetryMessage() =>
+      _queuedMaterials
+          .where((item) => !item.isPersisted && item.message != null)
+          .map((item) => item.message!)
+          .firstOrNull ??
+      'Retry to save only the remaining materials.';
+
   Future<void> _waitForMaterialReady(
     ActivityLearningMaterialRepository repository,
     _QueuedMaterialDraft item,
     ActivityMaterialUpload upload,
   ) async {
-    for (var attempt = 0; attempt < 60; attempt++) {
+    // Finalization also rebuilds the fail-closed access projection. It can
+    // legitimately outlast a short Storage upload, especially after a cold
+    // Functions instance, so do not show a false failure after only 30s.
+    for (var attempt = 0; attempt < 180; attempt++) {
       final status = await repository.getUploadStatus(
         uploadId: upload.uploadId,
       );
       if (status.state == ActivityMaterialUploadState.ready) return;
       if (status.state == ActivityMaterialUploadState.rejected) {
-        throw StateError('The uploaded file was rejected.');
+        throw const ClassroomException(ClassroomError.uploadFailed);
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
@@ -3240,7 +3279,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         setState(() {
           _submitting = false;
           _validationError =
-              'Assignment changes were saved, but some learning material changes need to be retried.';
+              'Assignment changes were saved. ${_queuedMaterialRetryMessage()}';
         });
         return;
       }
@@ -3293,7 +3332,20 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _persistedMaterials = _persistedMaterials
             .where((material) => material.id != materialId)
             .toList(growable: false);
-      } catch (_) {
+      } on ClassroomException catch (error) {
+        allRemoved = false;
+        final material = _persistedMaterials
+            .where((candidate) => candidate.id == materialId)
+            .firstOrNull;
+        if (material != null) {
+          _materialRemovalErrors[materialId] =
+              'Could not remove “${material.displayName}”. ${_materialFailureMessage(error)}';
+        }
+      } catch (error) {
+        assert(() {
+          debugPrint('Learning material removal failed: $error');
+          return true;
+        }());
         allRemoved = false;
         final material = _persistedMaterials
             .where((candidate) => candidate.id == materialId)
@@ -3332,6 +3384,7 @@ class _QueuedMaterialDraft {
   final File? file;
   final int? sizeBytes;
   final String? contentType;
+  final String requestId = newActivityLearningMaterialRequestId();
   ActivityMaterialUpload? upload;
   bool fileUploaded = false;
   _QueuedMaterialStatus status = _QueuedMaterialStatus.queued;

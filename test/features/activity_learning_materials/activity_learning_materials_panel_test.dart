@@ -36,6 +36,7 @@ class _MaterialsRepository implements ActivityLearningMaterialRepository {
     required String assignmentId,
     required String displayName,
     required Uri url,
+    required String requestId,
   }) async {
     linkCalls.add(_LinkCall(assignmentId, displayName, url));
     final failure = linkFailure;
@@ -52,6 +53,7 @@ class _MaterialsRepository implements ActivityLearningMaterialRepository {
   @override
   Future<ActivityMaterialUpload> beginUpload({
     required String assignmentId,
+    required String requestId,
     required ActivityLearningMaterialType type,
     required String displayName,
     required String declaredContentType,

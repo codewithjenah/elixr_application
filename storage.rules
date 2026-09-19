@@ -55,8 +55,13 @@ service firebase.storage {
 
     function canCreateActivityMaterialStaging(teacherId, assignmentId, uploadId) {
       let stage = firestore.get(stagingUploadPath(teacherId, assignmentId, uploadId)).data;
-      return isTeacherClaim()
-        && isOwner(teacherId)
+      // beginActivityMaterialUpload is the Teacher-authorized authority that
+      // creates this short-lived, client-immutable capability. Firebase
+      // Storage on Windows can briefly use an older ID token after the
+      // Function has forced a claim refresh, so repeating the role-claim check
+      // here rejects a legitimately reserved upload. The exact owner, path,
+      // expiry, byte count and MIME type remain fail-closed below.
+      return isOwner(teacherId)
         && stage.schema_version == 1
         && stage.state == 'staging'
         && stage.upload_id == uploadId
@@ -69,6 +74,28 @@ service firebase.storage {
         && stage.declared_size_bytes > 0
         && request.resource.size == stage.declared_size_bytes
         && request.resource.contentType == stage.declared_content_type
+        && (request.resource.metadata == null || request.resource.metadata.size() == 0);
+    }
+
+    function canBootstrapActivityMaterialStaging(teacherId, assignmentId, uploadId) {
+      let stage = firestore.get(stagingUploadPath(teacherId, assignmentId, uploadId)).data;
+      return isOwner(teacherId)
+        && stage.schema_version == 1
+        && stage.state in ['staging', 'validating']
+        && stage.upload_id == uploadId
+        && stage.assignment_id == assignmentId
+        && stage.owner_teacher_id == teacherId
+        && stage.staging_path == 'activity_material_staging/' + teacherId + '/' + assignmentId + '/' + uploadId
+        && stage.expires_at is timestamp
+        && request.time < stage.expires_at
+        && stage.declared_size_bytes is int
+        && request.resource.size == stage.declared_size_bytes
+        && resource.size == stage.declared_size_bytes
+        && request.resource.size == resource.size
+        && request.resource.md5Hash == resource.md5Hash
+        && request.resource.crc32c == resource.crc32c
+        && request.resource.contentType == stage.declared_content_type
+        && resource.contentType == stage.declared_content_type
         && (request.resource.metadata == null || request.resource.metadata.size() == 0);
     }
 
@@ -427,7 +454,15 @@ service firebase.storage {
         && assignmentId.matches('^[A-Za-z0-9_-]+$')
         && uploadId.matches('^[A-Za-z0-9-]+$')
         && canCreateActivityMaterialStaging(teacherId, assignmentId, uploadId);
-      allow read, update, delete: if false;
+      // Firebase C++ desktop can CREATE the bytes and then issue a redundant
+      // metadata PATCH before completing putFile. Permit only that immutable
+      // bootstrap transition; clients still cannot read, replace or delete a
+      // staging object.
+      allow update: if teacherId.matches('^[A-Za-z0-9_-]+$')
+        && assignmentId.matches('^[A-Za-z0-9_-]+$')
+        && uploadId.matches('^[A-Za-z0-9-]+$')
+        && canBootstrapActivityMaterialStaging(teacherId, assignmentId, uploadId);
+      allow read, delete: if false;
     }
 
     // Published objects are written only by Admin SDK validation code. A

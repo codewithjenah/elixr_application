@@ -586,6 +586,8 @@ async function cascadeAssignment({firestore, storage, assignmentRef, assignmentD
   await deleteMaterialAccessForAssignment(firestore, assignmentId);
   await materialAccessStateRef(firestore, assignmentId).delete();
   await deleteQueryDocuments(firestore, assignmentRef.collection('learning_materials'));
+  await deleteQueryDocuments(firestore, assignmentRef.collection('learning_material_requests'));
+  await deleteQueryDocuments(firestore, assignmentRef.collection('learning_material_upload_requests'));
   await deleteQueryDocuments(
     firestore,
     assignmentRef.collection('assignment_recipients'),
@@ -2739,10 +2741,11 @@ async function beginActivityMaterialUploadHandler(request, response, {
   if (!uid) return response.status(401).json({error: 'unauthenticated'});
   const body = request.body && typeof request.body === 'object' ? request.body : {};
   const type = body.type;
+  const requestId = body.request_id;
   const displayName = boundedText(body.display_name, ACTIVITY_MATERIAL_LIMITS.displayNameLength);
   const declaredContentType = typeof body.declared_content_type === 'string'
     ? body.declared_content_type.toLowerCase().trim() : '';
-  if (!validId(body.assignment_id) || !['pdf', 'image', 'video'].includes(type) ||
+  if (!validId(body.assignment_id) || !validId(requestId) || !['pdf', 'image', 'video'].includes(type) ||
       !displayName || !ACTIVITY_UPLOAD_CONTENT_TYPES[type].has(declaredContentType) ||
       !Number.isInteger(body.size_bytes) || body.size_bytes < 1 ||
       body.size_bytes > materialMaximumBytes(type)) {
@@ -2750,6 +2753,7 @@ async function beginActivityMaterialUploadHandler(request, response, {
   }
   const firestore = databaseFactory();
   const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+  const requestRef = assignmentRef.collection('learning_material_upload_requests').doc(requestId);
   const uploadId = randomUUID();
   const materialId = randomUUID();
   try {
@@ -2766,6 +2770,11 @@ async function beginActivityMaterialUploadHandler(request, response, {
       if (!['draft', 'scheduled', 'active'].includes(assignment.status) ||
           assignment.deletion_state === 'deleting') {
         const error = new Error('assignment_unavailable'); error.code = 'assignment_unavailable'; throw error;
+      }
+      const existingRequest = await transaction.get(requestRef);
+      if (existingRequest.exists) {
+        return {path: existingRequest.get('staging_path'), expiresAt: existingRequest.get('expires_at'),
+          uploadId: existingRequest.get('upload_id'), materialId: existingRequest.get('material_id')};
       }
       const retained = materialSnapshot.docs.filter((doc) =>
         !['deleted', 'rejected'].includes(doc.get('status')),
@@ -2791,10 +2800,16 @@ async function beginActivityMaterialUploadHandler(request, response, {
         staging_path: path, state: 'staging', schema_version: 1,
         created_at: now, expires_at: expiresAt,
       });
-      return {path, expiresAt};
+      transaction.create(requestRef, {
+        request_id: requestId, upload_id: uploadId, material_id: materialId,
+        assignment_id: body.assignment_id, owner_teacher_id: uid, type, display_name: displayName,
+        declared_content_type: declaredContentType, size_bytes: body.size_bytes,
+        staging_path: path, expires_at: expiresAt, created_at: now,
+      });
+      return {path, expiresAt, uploadId, materialId};
     });
     return response.status(200).json({
-      upload_id: uploadId, material_id: materialId, staging_path: result.path,
+      upload_id: result.uploadId, material_id: result.materialId, staging_path: result.path,
       declared_content_type: declaredContentType,
       expires_at: result.expiresAt.toDate().toISOString(),
     });
@@ -2819,11 +2834,16 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
   const body = request.body && typeof request.body === 'object' ? request.body : {};
   const displayName = boundedText(body.display_name, ACTIVITY_MATERIAL_LIMITS.displayNameLength);
   const url = normalizeActivityMaterialLink(body.url);
-  if (!validId(body.assignment_id) || !displayName || !url) {
+  // The client retains this opaque UUID while retrying one queued link. It
+  // never becomes a material ID or download capability; it only lets the
+  // server return a link that was committed before a projection/HTTP failure.
+  const requestId = body.request_id;
+  if (!validId(body.assignment_id) || !validId(requestId) || !displayName || !url) {
     return response.status(400).json({error: 'invalid_payload'});
   }
   const firestore = databaseFactory();
   const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+  const requestRef = assignmentRef.collection('learning_material_requests').doc(requestId);
   const materialId = randomUUID();
   try {
     const assignment = await firestore.runTransaction(async (transaction) => {
@@ -2838,6 +2858,19 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
           assignmentSnapshot.get('deletion_state') === 'deleting') {
         const error = new Error('assignment_unavailable'); error.code = 'assignment_unavailable'; throw error;
       }
+      const existingRequest = await transaction.get(requestRef);
+      if (existingRequest.exists) {
+        // A retry must describe the exact same operation. Treat a mismatched
+        // reused key as invalid rather than allowing it to select a material.
+        if (existingRequest.get('owner_teacher_id') !== uid ||
+            existingRequest.get('assignment_id') !== body.assignment_id ||
+            existingRequest.get('display_name') !== displayName ||
+            existingRequest.get('external_url') !== url ||
+            !validId(existingRequest.get('material_id'))) {
+          const error = new Error('invalid_payload'); error.code = 'invalid_payload'; throw error;
+        }
+        return {assignment: assignmentSnapshot.data(), materialId: existingRequest.get('material_id')};
+      }
       if (materials.docs.filter((doc) =>
         !['deleted', 'rejected'].includes(doc.get('status')),
       ).length >=
@@ -2850,20 +2883,27 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
         projection_sync_state: 'pending', schema_version: 1,
         created_at: Timestamp.now(), updated_at: Timestamp.now(),
       });
-      return assignmentSnapshot.data();
+      transaction.create(requestRef, {
+        request_id: requestId, material_id: materialId,
+        assignment_id: body.assignment_id, owner_teacher_id: uid,
+        display_name: displayName, external_url: url,
+        created_at: Timestamp.now(),
+      });
+      return {assignment: assignmentSnapshot.data(), materialId};
     });
-    await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment});
+    await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment.assignment});
     await markMaterialProjectionSynchronized(firestore,
-      assignmentRef.collection('learning_materials').doc(materialId),
+      assignmentRef.collection('learning_materials').doc(assignment.materialId),
     );
     return response.status(200).json({
-      material_id: materialId, assignment_id: body.assignment_id, type: 'link',
+      material_id: assignment.materialId, assignment_id: body.assignment_id, type: 'link',
       display_name: displayName, external_url: url,
     });
   } catch (error) {
     if (['not_found', 'forbidden', 'assignment_unavailable', 'material_limit'].includes(error.code)) {
       return response.status(error.code === 'forbidden' ? 403 : 409).json({error: error.code});
     }
+    if (error.code === 'invalid_payload') return response.status(400).json({error: 'invalid_payload'});
     console.error('Activity material link creation failed', error);
     return response.status(503).json({error: 'unavailable'});
   }
@@ -2935,6 +2975,14 @@ async function removeActivityLearningMaterialHandler(request, response, {
       await storageFactory().bucket().file(material.storage_path).delete({ignoreNotFound: true});
     }
     await materialRef.delete();
+    await deleteQueryDocuments(
+      firestore,
+      assignmentRef.collection('learning_material_requests').where('material_id', '==', body.material_id),
+    );
+    await deleteQueryDocuments(
+      firestore,
+      assignmentRef.collection('learning_material_upload_requests').where('material_id', '==', body.material_id),
+    );
     await clearActivityMaterialAccessRevocation(firestore, body.assignment_id, body.material_id);
     // Do not rebuild the assignment generation here: its other materials have
     // unchanged authoritative recipients and must not have a user-visible

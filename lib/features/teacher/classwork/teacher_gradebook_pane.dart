@@ -44,6 +44,7 @@ class TeacherGradebookPane extends StatefulWidget {
 
 class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
   final _searchController = TextEditingController();
+  final _matrixScrollController = ScrollController();
   TeacherGradebookScope _scope = TeacherGradebookScope.all;
   bool _exporting = false;
   String? _exportMessage;
@@ -51,6 +52,7 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
   @override
   void dispose() {
     _searchController.dispose();
+    _matrixScrollController.dispose();
     super.dispose();
   }
 
@@ -197,17 +199,25 @@ class _TeacherGradebookPaneState extends State<TeacherGradebookPane> {
           else
             ElixPanelCard(
               padding: EdgeInsets.zero,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: _GradeMatrix(
-                  students: students,
-                  assignments: assignments,
-                  controller: controller,
-                  now: controller.gradebookReferenceNow,
-                  profilePictureUrlFor: widget.profilePictureUrlFor,
-                  onOpenStudent: widget.onOpenStudent,
-                  onOpenAssignment: widget.onOpenAssignment,
-                  onOpenCell: widget.onOpenCell,
+              child: Scrollbar(
+                controller: _matrixScrollController,
+                thumbVisibility: true,
+                scrollbarOrientation: ScrollbarOrientation.bottom,
+                child: SingleChildScrollView(
+                  key: const Key('teacher_gradebook_matrix_scroll'),
+                  controller: _matrixScrollController,
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _GradeMatrix(
+                    students: students,
+                    assignments: assignments,
+                    controller: controller,
+                    now: controller.gradebookReferenceNow,
+                    profilePictureUrlFor: widget.profilePictureUrlFor,
+                    onOpenStudent: widget.onOpenStudent,
+                    onOpenAssignment: widget.onOpenAssignment,
+                    onOpenCell: widget.onOpenCell,
+                  ),
                 ),
               ),
             ),

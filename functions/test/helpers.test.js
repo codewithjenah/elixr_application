@@ -766,7 +766,10 @@ function fakeMaterialBeginDatabase({
     },
     collection(name) {
       assert.equal(kind, 'assignment');
-      assert.equal(name, 'learning_materials');
+      assert.ok(['learning_materials', 'learning_material_upload_requests'].includes(name));
+      if (name === 'learning_material_upload_requests') {
+        return {doc: (requestId) => document('upload_request', requestId, null)};
+      }
       const materials = document(
         'materials', id, materialStatuses.map((status) => ({status})),
       );
@@ -808,6 +811,7 @@ test('Learning Material upload initialization rejects unauthenticated and non-ow
   await beginActivityMaterialUploadHandler(
     {method: 'POST', body: {
       assignment_id: 'assignment', type: 'pdf', display_name: 'Sheet',
+      request_id: 'request-1',
       declared_content_type: 'application/pdf', size_bytes: 8,
     }}, forbidden,
     {authenticate: async () => 'other', databaseFactory: () => fakeMaterialBeginDatabase()},
@@ -821,6 +825,7 @@ test('Learning Material upload initialization reserves opaque server IDs and exa
   await beginActivityMaterialUploadHandler(
     {method: 'POST', body: {
       assignment_id: 'assignment', type: 'image', display_name: '  Setup photo ',
+      request_id: 'request-1',
       declared_content_type: 'image/png', size_bytes: 8,
     }}, response,
     {authenticate: async () => 'teacher', databaseFactory: () => database},
@@ -830,9 +835,10 @@ test('Learning Material upload initialization reserves opaque server IDs and exa
   assert.match(response.body.material_id, /^[0-9a-f-]{36}$/);
   assert.equal(response.body.staging_path,
     `activity_material_staging/teacher/assignment/${response.body.upload_id}`);
-  assert.equal(database.writes.length, 2);
+  assert.equal(database.writes.length, 3);
   assert.equal(database.writes.find((write) => write.kind === 'material').data.status, 'staging');
   assert.equal(database.writes.find((write) => write.kind === 'stage').data.state, 'staging');
+  assert.equal(database.writes.find((write) => write.kind === 'upload_request').data.request_id, 'request-1');
 });
 
 function fakeUploadStatusDatabase({
@@ -2584,6 +2590,9 @@ function fakeMaterialRemovalDatabase() {
     id: 'assignment',
     get: async () => snapshot(assignmentValue),
     collection(name) {
+      if (['learning_material_requests', 'learning_material_upload_requests'].includes(name)) {
+        return {where: () => ({limit: () => ({get: async () => ({docs: [], empty: true, size: 0})})})};
+      }
       assert.equal(name, 'learning_materials');
       return {
         doc: () => materialRef,

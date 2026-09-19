@@ -30,10 +30,12 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     required String assignmentId,
     required String displayName,
     required Uri url,
+    required String requestId,
   }) => throw UnimplementedError();
   @override
   Future<ActivityMaterialUpload> beginUpload({
     required String assignmentId,
+    required String requestId,
     required ActivityLearningMaterialType type,
     required String displayName,
     required String declaredContentType,

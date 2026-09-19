@@ -1195,6 +1195,10 @@ Future<void> _showMovementGuide(
     maxWidth: dialogWidth,
     maxHeight: screen.height * 0.85,
     scrollableContent: true,
+    // The footer provides the single clear dismissal action for this
+    // instructional dialog. Keep scrolling available without a visual rail.
+    showCloseButton: false,
+    showScrollbars: false,
     content: LayoutBuilder(
       builder: (context, constraints) {
         final twoColumn = constraints.maxWidth >= 760;

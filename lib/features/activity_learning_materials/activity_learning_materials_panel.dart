@@ -212,6 +212,7 @@ class _ActivityLearningMaterialsPanelState
   Future<void> _showAddLink() async {
     final name = TextEditingController();
     final url = TextEditingController();
+    final requestId = newActivityLearningMaterialRequestId();
     String? error;
     var adding = false;
     await showDialog<void>(
@@ -269,6 +270,7 @@ class _ActivityLearningMaterialsPanelState
                           assignmentId: widget.assignmentId,
                           displayName: name.text.trim(),
                           url: parsed,
+                          requestId: requestId,
                         );
                         if (!dialogContext.mounted) return;
                         if (mounted) {
@@ -300,6 +302,7 @@ class _ActivityLearningMaterialsPanelState
     try {
       final upload = await widget.repository.beginUpload(
         assignmentId: widget.assignmentId,
+        requestId: item.requestId,
         type: item.type,
         displayName: item.displayName,
         declaredContentType: item.contentType!,
@@ -901,6 +904,7 @@ class _PendingUpload {
   final String displayName;
   final int? sizeBytes;
   final String? contentType;
+  final String requestId = newActivityLearningMaterialRequestId();
   _PendingStatus status = _PendingStatus.uploading;
   String? message;
   String? uploadId;

@@ -5,6 +5,7 @@ import '../models/activity_learning_material.dart';
 abstract class ActivityLearningMaterialRepository {
   Future<ActivityMaterialUpload> beginUpload({
     required String assignmentId,
+    required String requestId,
     required ActivityLearningMaterialType type,
     required String displayName,
     required String declaredContentType,
@@ -28,6 +29,7 @@ abstract class ActivityLearningMaterialRepository {
     required String assignmentId,
     required String displayName,
     required Uri url,
+    required String requestId,
   });
 
   Future<void> remove({

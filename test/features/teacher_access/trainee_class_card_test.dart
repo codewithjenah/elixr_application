@@ -135,79 +135,11 @@ void main() {
     expect(find.text('1 assignment'), findsOneWidget);
     expect(find.text('Open classwork'), findsNothing);
     expect(find.text('No upcoming classwork'), findsNothing);
-    expect(find.byKey(const Key('class_card_people_group-1')), findsOneWidget);
-    expect(find.byKey(const Key('class_card_folder_group-1')), findsOneWidget);
+    expect(find.byKey(const Key('class_card_people_group-1')), findsNothing);
+    expect(find.byKey(const Key('class_card_folder_group-1')), findsNothing);
 
     await tester.tap(find.byKey(const Key('teacher_access_group_group-1')));
     expect(opened, isTrue);
-  });
-
-  testWidgets('footer icons open the class', (tester) async {
-    var opened = 0;
-    await tester.pumpWidget(
-      FluentApp(
-        theme: AppTheme.dark,
-        home: ScaffoldPage(
-          content: Center(
-            child: SizedBox(
-              width: 320,
-              child: TraineeClassCard(
-                groupId: 'group-2',
-                className: 'BSHM 4A',
-                teacherName: 'Grace Hopper',
-                onOpen: () => opened += 1,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('No upcoming classwork'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('class_card_people_group-2')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('class_card_folder_group-2')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(opened, 2);
-  });
-
-  testWidgets('people and classwork callbacks stay independent of open', (
-    tester,
-  ) async {
-    var opened = 0;
-    var people = 0;
-    var classwork = 0;
-    await tester.pumpWidget(
-      FluentApp(
-        theme: AppTheme.dark,
-        home: ScaffoldPage(
-          content: Center(
-            child: SizedBox(
-              width: 320,
-              child: TraineeClassCard(
-                groupId: 'group-3',
-                className: 'BSHM 4A',
-                teacherName: 'Grace Hopper',
-                onOpen: () => opened += 1,
-                onOpenPeople: () => people += 1,
-                onOpenClasswork: () => classwork += 1,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.byKey(const Key('class_card_people_group-3')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('class_card_folder_group-3')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(people, 1);
-    expect(classwork, 1);
-    expect(opened, 0);
   });
 
   testWidgets('overflow menu keeps its key and flyout actions', (tester) async {
@@ -316,7 +248,7 @@ void main() {
     );
   });
 
-  testWidgets('cards in a row share height, work baseline, and footer', (
+  testWidgets('cards in a row share height and work baseline', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -375,20 +307,21 @@ void main() {
     expect(a.height, b.height);
     expect(a.bottom, b.bottom);
 
-    final peopleA = tester.getRect(
+    expect(
       find.byKey(const Key('class_card_people_grid-a')),
+      findsNothing,
     );
-    final peopleB = tester.getRect(
+    expect(
       find.byKey(const Key('class_card_people_grid-b')),
+      findsNothing,
     );
-    expect(peopleA.center.dy, closeTo(peopleB.center.dy, 0.5));
 
     final firstWork = tester.getRect(find.text('Normal Grip'));
     final emptyWork = tester.getRect(find.text('No upcoming classwork'));
     expect(firstWork.top, closeTo(emptyWork.top, 8));
   });
 
-  testWidgets('high contrast keeps status, actions, and avatar readable', (
+  testWidgets('high contrast keeps status and avatar readable', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -425,7 +358,7 @@ void main() {
 
     expect(find.text('Archived'), findsOneWidget);
     expect(find.text('Grace Hopper'), findsOneWidget);
-    expect(find.byKey(const Key('class_card_people_group-hc')), findsOneWidget);
+    expect(find.byKey(const Key('class_card_people_group-hc')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

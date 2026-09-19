@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import { deleteField, doc, setDoc, Timestamp } from 'firebase/firestore';
-import { getBytes, ref, uploadBytes } from 'firebase/storage';
+import { getBytes, ref, updateMetadata, uploadBytes } from 'firebase/storage';
 
 const PROJECT_ID = 'demo-elixr';
 const ASSIGNMENT_ID = 'assignment-1';
@@ -88,7 +88,14 @@ function firestore(uid) {
 
 describe('Learning Material Storage quarantine and access projection', () => {
   test('only the server-authorized owning Teacher can create the exact staging object', async () => {
-    await assertSucceeds(uploadBytes(ref(storage('teacher'), STAGING_PATH),
+    // The Function has already authorized this UID as a Teacher and created
+    // the exact short-lived stage. Storage may briefly see the pre-refresh
+    // token on Windows, so the stage capability—not the cached role claim—is
+    // the authoritative second hop.
+    const staleTeacherStorage = testEnv.authenticatedContext('teacher', {
+      email: 'teacher@example.com', email_verified: true,
+    }).storage();
+    await assertSucceeds(uploadBytes(ref(staleTeacherStorage, STAGING_PATH),
       new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
     await assertFails(uploadBytes(ref(storage('otherTeacher'), STAGING_PATH),
       new Uint8Array([1]), {contentType: 'application/pdf'}));
@@ -105,6 +112,15 @@ describe('Learning Material Storage quarantine and access projection', () => {
     await assertFails(getBytes(ref(storage('teacher'), STAGING_PATH)));
     await assertFails(uploadBytes(ref(storage('teacher'), STAGING_PATH),
       new Uint8Array([4]), {contentType: 'application/pdf'}));
+  });
+
+  test('Windows metadata bootstrap preserves staged bytes and declared type', async () => {
+    const staged = ref(storage('teacher'), STAGING_PATH);
+    await assertSucceeds(uploadBytes(staged,
+      new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+    await assertSucceeds(updateMetadata(staged, {contentType: 'application/pdf'}));
+    await assertFails(updateMetadata(staged, {contentType: 'image/png'}));
+    await assertFails(updateMetadata(staged, {customMetadata: {capability: 'forged'}}));
   });
 
   test('final material reads succeed within the two-document Storage rule lookup budget', async () => {

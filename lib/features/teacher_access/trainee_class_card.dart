@@ -138,8 +138,6 @@ class TraineeClassCard extends StatefulWidget {
     this.ownerInitials,
     this.cardKey,
     this.menuItems,
-    this.onOpenPeople,
-    this.onOpenClasswork,
   });
 
   final String groupId;
@@ -153,15 +151,12 @@ class TraineeClassCard extends StatefulWidget {
   final String? ownerInitials;
   final Key? cardKey;
   final List<MenuFlyoutItem> Function(BuildContext context)? menuItems;
-  final VoidCallback? onOpenPeople;
-  final VoidCallback? onOpenClasswork;
 
   static const double _headerHeight = 92;
   static const double _avatarSize = 40;
   static const double _cardHeight = 272;
   static const double _radius = 16;
   static const double _identityHeight = 56;
-  static const double _footerHeight = 44;
   static const int _workSlotCount = 2;
 
   @override
@@ -325,7 +320,8 @@ class _TraineeClassCardState extends State<TraineeClassCard> {
                                     i < TraineeClassCard._workSlotCount;
                                     i++
                                   )
-                                    Expanded(
+                                    SizedBox(
+                                      height: 44,
                                       child: i < widget.workItems.length
                                           ? _ClassCardWorkLine(
                                               item: widget.workItems[i],
@@ -334,48 +330,6 @@ class _TraineeClassCardState extends State<TraineeClassCard> {
                                     ),
                                 ],
                               ),
-                      ),
-                    ),
-                    SizedBox(
-                      height: TraineeClassCard._footerHeight,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          border: Border(
-                            top: BorderSide(
-                              color: highContrast
-                                  ? colors.borderStrong
-                                  : colors.borderSubtle.withValues(
-                                      alpha: isDark ? 0.7 : 0.9,
-                                    ),
-                            ),
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              _ClassCardActionButton(
-                                buttonKey: Key(
-                                  'class_card_people_${widget.groupId}',
-                                ),
-                                tooltip: 'People',
-                                icon: FluentIcons.people,
-                                onPressed: widget.onOpenPeople ?? widget.onOpen,
-                              ),
-                              const SizedBox(width: 2),
-                              _ClassCardActionButton(
-                                buttonKey: Key(
-                                  'class_card_folder_${widget.groupId}',
-                                ),
-                                tooltip: 'Classwork',
-                                icon: FluentIcons.folder,
-                                onPressed:
-                                    widget.onOpenClasswork ?? widget.onOpen,
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                     ),
                   ],
@@ -888,95 +842,6 @@ class _ClassCardEmptyWork extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ClassCardActionButton extends StatefulWidget {
-  const _ClassCardActionButton({
-    required this.buttonKey,
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final Key buttonKey;
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  State<_ClassCardActionButton> createState() => _ClassCardActionButtonState();
-}
-
-class _ClassCardActionButtonState extends State<_ClassCardActionButton> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    final colors = context.elixColors;
-    final focusedWidth = highContrast
-        ? ElixFocus.ringWidthHighContrast
-        : ElixFocus.ringWidth;
-    return Tooltip(
-      message: widget.tooltip,
-      child: FocusableActionDetector(
-        mouseCursor: SystemMouseCursors.click,
-        onShowHoverHighlight: (hovered) {
-          if (_hovered != hovered) setState(() => _hovered = hovered);
-        },
-        onShowFocusHighlight: (focused) {
-          if (_focused != focused) setState(() => _focused = focused);
-        },
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              widget.onPressed();
-              return null;
-            },
-          ),
-        },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            key: widget.buttonKey,
-            duration: ElixMotion.duration(context, ElixMotion.micro),
-            curve: ElixMotion.microCurve,
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: highContrast
-                  ? context.elixCardSurface
-                  : (_hovered
-                        ? colors.interactiveHover
-                        : colors.surfaceInteractive.withValues(
-                            alpha: context.isDarkTheme ? 0.55 : 0.85,
-                          )),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: _focused
-                    ? colors.focusRing
-                    : (highContrast
-                          ? colors.borderStrong
-                          : colors.borderSubtle.withValues(
-                              alpha: _hovered ? 0.95 : 0.5,
-                            )),
-                width: _focused ? focusedWidth : 1,
-              ),
-            ),
-            child: Center(
-              child: Icon(
-                widget.icon,
-                size: 15,
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

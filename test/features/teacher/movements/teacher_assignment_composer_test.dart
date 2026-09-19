@@ -215,10 +215,12 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   final List<String> listedAssignmentIds = [];
   final List<String> linkedAssignmentIds = [];
   final List<Uri> linkedUrls = [];
+  final List<String> linkRequestIds = [];
   final List<String> removedMaterialIds = [];
   List<ActivityLearningMaterial> materials = const [];
   bool failList = false;
   int remainingLinkFailures = 0;
+  Object? nextLinkFailure;
   bool failRemove = false;
   int removeCalls = 0;
   int beginUploadCalls = 0;
@@ -230,9 +232,14 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     required String assignmentId,
     required String displayName,
     required Uri url,
+    required String requestId,
   }) {
     linkedAssignmentIds.add(assignmentId);
     linkedUrls.add(url);
+    linkRequestIds.add(requestId);
+    final explicitFailure = nextLinkFailure;
+    nextLinkFailure = null;
+    if (explicitFailure != null) return Future.error(explicitFailure);
     if (remainingLinkFailures > 0) {
       remainingLinkFailures--;
       return Future.error(StateError('link failed'));
@@ -251,6 +258,7 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   @override
   Future<ActivityMaterialUpload> beginUpload({
     required String assignmentId,
+    required String requestId,
     required ActivityLearningMaterialType type,
     required String displayName,
     required String declaredContentType,
@@ -1439,6 +1447,7 @@ void main() {
         Uri.parse('https://example.com/second'),
         Uri.parse('https://example.com/first'),
       ]);
+      expect(materials.linkRequestIds[0], materials.linkRequestIds[2]);
     },
   );
 

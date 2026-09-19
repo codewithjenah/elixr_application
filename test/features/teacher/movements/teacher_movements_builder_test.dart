@@ -921,6 +921,8 @@ void main() {
     }
     final dialog = tester.widget<ElixDialog>(find.byType(ElixDialog));
     expect(dialog.maxWidth, greaterThan(1200));
+    expect(dialog.showCloseButton, isFalse);
+    expect(dialog.showScrollbars, isFalse);
     expect(
       find.descendant(
         of: find.byType(ElixDialog),

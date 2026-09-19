@@ -46,4 +46,9 @@ enum ClassroomError {
   conflict,
   attemptLimitConflict,
   invalidRecipient,
+
+  /// A Function endpoint returned a response that was not part of ELIXR's
+  /// authenticated JSON contract. This is diagnostic-only; callers must not
+  /// surface the response body.
+  endpointUnavailable,
 }
