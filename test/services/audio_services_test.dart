@@ -8,6 +8,7 @@ import 'package:elixr_application/services/app_background_music_service.dart';
 import 'package:elixr_application/services/audio_player_handle.dart';
 import 'package:elixr_application/services/practice_music_service.dart';
 import 'package:elixr_application/services/notification_audio_service.dart';
+import 'package:elixr_application/services/practice_sfx_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -233,6 +234,44 @@ void main() {
     },
   );
 
+  test('Practice completion defers background music until released', () async {
+    final auth = ValueNotifier<String?>('trainee-1');
+    final backgroundPlayer = _FakeAudioPlayer();
+    final background = AppBackgroundMusicService(
+      authListenable: auth,
+      authenticatedAccountId: () => auth.value,
+      settings: settings,
+      player: backgroundPlayer,
+    );
+    background.setAuthenticatedAreaVisible(true);
+    await background.settled;
+
+    final practicePlayer = _FakeAudioPlayer();
+    final practice = PracticeMusicService(
+      settings: settings,
+      appBackgroundMusic: background,
+      player: practicePlayer,
+    );
+    await practice.start(
+      selectedTrackId: musicTrackCatalog.first.id,
+      customTracks: const <MusicTrack>[],
+    );
+
+    await practice.stop(resumeBackgroundMusic: false);
+    await background.settled;
+    expect(background.practiceLeaseCount, 1);
+    expect(backgroundPlayer.resumeCount, 0);
+
+    await practice.resumeBackgroundMusic();
+    await background.settled;
+    expect(background.practiceLeaseCount, 0);
+    expect(backgroundPlayer.resumeCount, 1);
+
+    await practice.dispose();
+    await background.dispose();
+    auth.dispose();
+  });
+
   test('appearance changes do not enqueue audio work', () async {
     final auth = ValueNotifier<String?>('trainee-1');
     final backgroundPlayer = _FakeAudioPlayer();
@@ -309,6 +348,58 @@ void main() {
     await background.dispose();
     auth.dispose();
   });
+
+  test('Practice SFX serializes completion playback and shutdown', () async {
+    final player = _FakeAudioPlayer();
+    final service = PracticeSfxService(player: player);
+
+    final playback = service.playCongrats(volume: 0.65);
+    final stop = service.stop();
+    await Future.wait([playback, stop]);
+
+    expect(player.operations, [
+      'volume:0.65',
+      'stop',
+      'release:ReleaseMode.release',
+      'asset:music/congrats.mp3',
+      'stop',
+    ]);
+
+    await service.dispose();
+    await service.dispose();
+    final operationsAfterDisposal = List<String>.of(player.operations);
+
+    await service.playCongrats(volume: 0.2);
+    await service.stop();
+
+    expect(player.operations, operationsAfterDisposal);
+    expect(player.disposeCount, 1);
+  });
+
+  test(
+    'Practice SFX queues settings volume after an active completion',
+    () async {
+      final player = _FakeAudioPlayer();
+      final service = PracticeSfxService(player: player);
+      service.bindSettings(settings);
+      await service.settled;
+      player.operations.clear();
+
+      final playback = service.playCongrats(volume: 0.4);
+      await settings.setMusicVolume(0.8);
+      await playback;
+      await service.settled;
+
+      expect(player.operations, [
+        'volume:0.4',
+        'stop',
+        'release:ReleaseMode.release',
+        'asset:music/congrats.mp3',
+        'volume:0.8',
+      ]);
+      await service.dispose();
+    },
+  );
 }
 
 class _FakeAudioPlayer implements AudioPlayerHandle {
@@ -317,9 +408,11 @@ class _FakeAudioPlayer implements AudioPlayerHandle {
   final playedFiles = <String>[];
   final releaseModes = <ReleaseMode>[];
   final volumes = <double>[];
+  final operations = <String>[];
   int pauseCount = 0;
   int resumeCount = 0;
   int stopCount = 0;
+  int disposeCount = 0;
   bool throwOnStop = false;
 
   void complete() => _completions.add(null);
@@ -328,13 +421,24 @@ class _FakeAudioPlayer implements AudioPlayerHandle {
   Stream<void> get onPlayerComplete => _completions.stream;
 
   @override
-  Future<void> dispose() => _completions.close();
+  Future<void> dispose() async {
+    disposeCount++;
+    operations.add('dispose');
+    await _completions.close();
+  }
 
   @override
   Future<void> pause() async => pauseCount++;
 
   @override
-  Future<void> playAsset(String assetPath) async => playedAssets.add(assetPath);
+  Future<void> playAsset(String assetPath) async {
+    playedAssets.add(assetPath);
+    operations.add('asset:$assetPath');
+  }
+
+  @override
+  Future<void> playAssetAtPosition(String assetPath, {Duration? position}) =>
+      playAsset(assetPath);
 
   @override
   Future<void> playFile(String filePath) async => playedFiles.add(filePath);
@@ -343,14 +447,26 @@ class _FakeAudioPlayer implements AudioPlayerHandle {
   Future<void> resume() async => resumeCount++;
 
   @override
-  Future<void> setReleaseMode(ReleaseMode mode) async => releaseModes.add(mode);
+  Future<void> setReleaseMode(ReleaseMode mode) async {
+    releaseModes.add(mode);
+    operations.add('release:$mode');
+  }
 
   @override
-  Future<void> setVolume(double volume) async => volumes.add(volume);
+  Future<void> setSourceAsset(String assetPath) async {
+    operations.add('source:$assetPath');
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    volumes.add(volume);
+    operations.add('volume:$volume');
+  }
 
   @override
   Future<void> stop() async {
     stopCount++;
+    operations.add('stop');
     if (throwOnStop) throw StateError('stop failed');
   }
 }

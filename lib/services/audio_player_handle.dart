@@ -7,7 +7,9 @@ abstract interface class AudioPlayerHandle {
 
   Future<void> setReleaseMode(ReleaseMode mode);
   Future<void> setVolume(double volume);
+  Future<void> setSourceAsset(String assetPath);
   Future<void> playAsset(String assetPath);
+  Future<void> playAssetAtPosition(String assetPath, {Duration? position});
   Future<void> playFile(String filePath);
   Future<void> pause();
   Future<void> resume();
@@ -30,8 +32,16 @@ class AudioplayersHandle implements AudioPlayerHandle {
   Future<void> setVolume(double volume) => _player.setVolume(volume);
 
   @override
+  Future<void> setSourceAsset(String assetPath) =>
+      _player.setSource(AssetSource(assetPath));
+
+  @override
   Future<void> playAsset(String assetPath) =>
       _player.play(AssetSource(assetPath));
+
+  @override
+  Future<void> playAssetAtPosition(String assetPath, {Duration? position}) =>
+      _player.play(AssetSource(assetPath), position: position);
 
   @override
   Future<void> playFile(String filePath) =>

@@ -497,8 +497,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   Future<void> _startCountdownOverlay() async {
     final settings = context.read<SettingsService>();
-    await _sfx.setVolume(settings.soundEnabled ? settings.musicVolume : 0.0);
-    await _sfx.playCountdown();
+    await _sfx.playCountdown(
+      volume: settings.soundEnabled ? settings.musicVolume : 0.0,
+    );
     if (!mounted || !_run.isPreparingCamera) return;
     if (!_run.countdownTriggered) return;
     _run.enterCountdown();
@@ -564,8 +565,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       }
       if (!_run.onConfirmReadinessAccepted()) return;
       final settings = context.read<SettingsService>();
-      await _sfx.setVolume(settings.soundEnabled ? settings.musicVolume : 0.0);
-      await _sfx.playCountdown();
+      await _sfx.playCountdown(
+        volume: settings.soundEnabled ? settings.musicVolume : 0.0,
+      );
     } catch (_) {
       if (!mounted || generation != _run.lifecycleGeneration) return;
       _run.onConfirmReadinessRejected();

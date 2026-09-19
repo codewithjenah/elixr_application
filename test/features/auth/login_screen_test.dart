@@ -356,6 +356,29 @@ void main() {
     );
   });
 
+  testWidgets('does not mislabel a safe operational failure as bad credentials', (
+    tester,
+  ) async {
+    repository.loginError = const AuthFailure(
+      AuthFailureKind.unknown,
+      'ELIXR could not load this account profile. Check your connection and try again.',
+    );
+    await pumpLogin(tester);
+    await tester.enterText(field('Email address'), 'user@example.com');
+    await tester.enterText(field('Password'), 'old123');
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign in'));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(
+      find.text(
+        'ELIXR could not load this account profile. Check your connection and try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Email or password is incorrect.'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('coalesces repeated login submissions while in flight', (
     tester,
   ) async {

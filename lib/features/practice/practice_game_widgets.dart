@@ -595,6 +595,9 @@ class RankBadge extends StatelessWidget {
   }
 }
 
+/// Visual hierarchy for game-style call-to-action buttons.
+enum GameActionButtonVariant { primary, secondary }
+
 /// Gradient game-style call-to-action button with restrained elevation.
 class GameActionButton extends StatefulWidget {
   const GameActionButton({
@@ -604,6 +607,7 @@ class GameActionButton extends StatefulWidget {
     this.onPressed,
     this.isLoading = false,
     this.danger = false,
+    this.variant = GameActionButtonVariant.primary,
   });
 
   final String label;
@@ -611,6 +615,7 @@ class GameActionButton extends StatefulWidget {
   final VoidCallback? onPressed;
   final bool isLoading;
   final bool danger;
+  final GameActionButtonVariant variant;
 
   @override
   State<GameActionButton> createState() => _GameActionButtonState();
@@ -619,6 +624,7 @@ class GameActionButton extends StatefulWidget {
 class _GameActionButtonState extends State<GameActionButton> {
   static const _kIconSize = 18.0;
   static const _kIconLaneWidth = AppSpacing.md + _kIconSize + AppSpacing.sm;
+  static const _kBorderRadius = 16.0;
 
   bool _hovering = false;
   bool _pressed = false;
@@ -628,6 +634,8 @@ class _GameActionButtonState extends State<GameActionButton> {
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null && !widget.isLoading;
     final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final isSecondary =
+        !widget.danger && widget.variant == GameActionButtonVariant.secondary;
 
     final labelColor = widget.danger
         ? (enabled ? AppColors.error : AppColors.error.withValues(alpha: 0.45))
@@ -635,6 +643,8 @@ class _GameActionButtonState extends State<GameActionButton> {
 
     final iconColor = widget.danger
         ? labelColor
+        : isSecondary
+        ? AppColors.primarySoft.withValues(alpha: enabled ? 1 : 0.45)
         : Colors.white.withValues(alpha: enabled ? 1 : 0.55);
 
     return Semantics(
@@ -671,7 +681,9 @@ class _GameActionButtonState extends State<GameActionButton> {
               height: 54,
               transform: Matrix4.translationValues(
                 0,
-                _hovering && enabled && !_pressed ? -1.5 : 0,
+                _hovering && enabled && !_pressed
+                    ? -2
+                    : (_pressed && enabled ? 1 : 0),
                 0,
               ),
               decoration: _buildDecoration(
@@ -697,17 +709,34 @@ class _GameActionButtonState extends State<GameActionButton> {
                         SizedBox(
                           width: _kIconLaneWidth,
                           child: Center(
-                            child: AnimatedSlide(
+                            child: AnimatedContainer(
                               duration: const Duration(milliseconds: 180),
                               curve: Curves.easeOutCubic,
-                              offset: Offset(
+                              width: 30,
+                              height: 30,
+                              transform: Matrix4.translationValues(
                                 _hovering &&
                                         enabled &&
                                         !_pressed &&
                                         !MediaQuery.disableAnimationsOf(context)
-                                    ? 0.14
+                                    ? 2
                                     : 0,
                                 0,
+                                0,
+                              ),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: widget.danger
+                                    ? AppColors.error.withValues(
+                                        alpha: enabled ? 0.12 : 0.06,
+                                      )
+                                    : isSecondary
+                                    ? AppColors.primary.withValues(
+                                        alpha: enabled ? 0.14 : 0.07,
+                                      )
+                                    : Colors.white.withValues(
+                                        alpha: enabled ? 0.16 : 0.08,
+                                      ),
                               ),
                               child: Icon(
                                 widget.icon,
@@ -751,7 +780,7 @@ class _GameActionButtonState extends State<GameActionButton> {
         color: enabled
             ? AppColors.error.withValues(alpha: isDark ? 0.14 : 0.1)
             : AppColors.error.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(_kBorderRadius),
         border: Border.all(
           color: focused
               ? AppColors.error
@@ -761,16 +790,49 @@ class _GameActionButtonState extends State<GameActionButton> {
       );
     }
 
+    if (widget.variant == GameActionButtonVariant.secondary) {
+      return BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: enabled
+              ? const [AppColors.interactiveSurface, AppColors.panelSurface]
+              : [
+                  AppColors.interactiveSurface.withValues(alpha: 0.45),
+                  AppColors.panelSurface.withValues(alpha: 0.45),
+                ],
+        ),
+        borderRadius: BorderRadius.circular(_kBorderRadius),
+        border: Border.all(
+          color: focused
+              ? AppColors.primarySoft
+              : AppColors.primary.withValues(alpha: enabled ? 0.38 : 0.16),
+          width: focused ? 1.5 : 1,
+        ),
+        boxShadow: enabled
+            ? [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : null,
+      );
+    }
+
     return BoxDecoration(
       gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
         colors: enabled
-            ? const [AppColors.primary, AppColors.accent]
+            ? const [AppColors.primarySoft, AppColors.primary, AppColors.accent]
             : [
                 AppColors.primary.withValues(alpha: 0.35),
                 AppColors.accent.withValues(alpha: 0.35),
               ],
       ),
-      borderRadius: BorderRadius.circular(15),
+      borderRadius: BorderRadius.circular(_kBorderRadius),
       border: Border.all(
         color: focused
             ? Colors.white.withValues(alpha: 0.55)
@@ -781,10 +843,15 @@ class _GameActionButtonState extends State<GameActionButton> {
           ? [
               BoxShadow(
                 color: AppColors.primary.withValues(
-                  alpha: _hovering && !_pressed ? 0.22 : 0.12,
+                  alpha: _hovering && !_pressed ? 0.28 : 0.18,
                 ),
-                blurRadius: _hovering && !_pressed ? 14 : 10,
-                offset: Offset(0, _hovering && !_pressed ? 3 : 2),
+                blurRadius: _hovering && !_pressed ? 24 : 18,
+                offset: Offset(0, _hovering && !_pressed ? 10 : 7),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.28),
+                blurRadius: 2,
+                offset: const Offset(0, 2),
               ),
             ]
           : null,

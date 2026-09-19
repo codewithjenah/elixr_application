@@ -208,6 +208,7 @@ class PracticeScreenState extends State<PracticeScreen>
   bool _pendingHeldSteady = false;
   bool _pendingTimedOut = false;
   Uint8List? _confirmedEvidenceJpegBytes;
+  int _completionAudioGeneration = 0;
 
   late final AnimationController _scorePulseController;
   late final Animation<double> _scorePulse;
@@ -622,8 +623,9 @@ class PracticeScreenState extends State<PracticeScreen>
   /// [_beginSessionAfterCountdown] via [onCountdownComplete].
   Future<void> _startGuidedCountdownOverlay() async {
     final settings = context.read<SettingsService>();
-    await _sfx.setVolume(settings.soundEnabled ? settings.musicVolume : 0.0);
-    await _sfx.playCountdown();
+    await _sfx.playCountdown(
+      volume: settings.soundEnabled ? settings.musicVolume : 0.0,
+    );
     // SFX completes; the overlay drives the rest via onCountdownComplete.
   }
 
@@ -937,9 +939,10 @@ class PracticeScreenState extends State<PracticeScreen>
 
       await _stopWebSocketSession();
       if (_leaving || !mounted) return;
-      unawaited(_music.stop());
-      // Do not await _sfx.stop() here. playCongrats() already stops then
-      // plays on the same AudioPlayer; a parallel stop can race and mute it.
+      // Retain the background-music lease until completion SFX teardown.
+      // This prevents hcc.mp3 from resuming while the congratulations player
+      // is stopping and loading its next source on Windows.
+      final musicStopped = _music.stop(resumeBackgroundMusic: false);
 
       if (!_hasSessionData && _run.elapsedSeconds == 0) {
         // Still show summary for an activated session with zero elapsed when
@@ -977,6 +980,7 @@ class PracticeScreenState extends State<PracticeScreen>
           durationSeconds: summaryDuration,
           timedOut: timedOut,
           sfxVolume: sfxVolume,
+          musicStopped: musicStopped,
         );
         return;
       }
@@ -1018,7 +1022,14 @@ class PracticeScreenState extends State<PracticeScreen>
       SessionSummarySaveController? saveController;
       try {
         if (!timedOut) {
-          unawaited(_playCongratsBestEffort(sfxVolume));
+          final audioGeneration = ++_completionAudioGeneration;
+          unawaited(
+            _playCongratsBestEffort(
+              musicStopped: musicStopped,
+              volume: sfxVolume,
+              generation: audioGeneration,
+            ),
+          );
         }
         if (!mounted || _leaving) return;
         final progression = context.read<TraineeProgressionService>();
@@ -1131,6 +1142,7 @@ class PracticeScreenState extends State<PracticeScreen>
         if (!mounted || _leaving) return;
 
         if (result == SessionSummaryResult.tryAgain) {
+          _completionAudioGeneration++;
           await _sfx.stop();
           _clearSessionState();
           _run.cancelToIdle();
@@ -1142,8 +1154,9 @@ class PracticeScreenState extends State<PracticeScreen>
         if (result == SessionSummaryResult.next && nextStep != null) {
           // Session was already persisted by the summary primary action.
           unawaited(tutorialProgress.completeFirstSessionGuidance());
-          // Don't block navigation on SFX teardown.
-          unawaited(_sfx.stop());
+          _completionAudioGeneration++;
+          await _sfx.stop();
+          await _music.resumeBackgroundMusic();
           _clearSessionState();
           _run.cancelToIdle();
           router.go(
@@ -1159,7 +1172,9 @@ class PracticeScreenState extends State<PracticeScreen>
         // End congrats before leaving practice. Do NOT stop again in finally —
         // Try Again starts preparation on the same player and a finally stop
         // would silence it immediately.
+        _completionAudioGeneration++;
         await _sfx.stop();
+        await _music.resumeBackgroundMusic();
         if (_leaving || !mounted) return;
 
         if (result == SessionSummaryResult.saved) {
@@ -1197,11 +1212,21 @@ class PracticeScreenState extends State<PracticeScreen>
     required int durationSeconds,
     required bool timedOut,
     required double sfxVolume,
+    required Future<void> musicStopped,
   }) async {
     _isShowingSummary = true;
     if (mounted) setState(() {});
     try {
-      if (!timedOut) unawaited(_playCongratsBestEffort(sfxVolume));
+      if (!timedOut) {
+        final audioGeneration = ++_completionAudioGeneration;
+        unawaited(
+          _playCongratsBestEffort(
+            musicStopped: musicStopped,
+            volume: sfxVolume,
+            generation: audioGeneration,
+          ),
+        );
+      }
       final result = await SessionSummarySheet.showPreview(
         context,
         movement: _movement,
@@ -1211,6 +1236,7 @@ class PracticeScreenState extends State<PracticeScreen>
       );
       if (!mounted || _leaving) return;
       if (result == SessionSummaryResult.tryAgain) {
+        _completionAudioGeneration++;
         await _sfx.stop();
         _clearSessionState();
         _run.cancelToIdle();
@@ -1218,9 +1244,9 @@ class PracticeScreenState extends State<PracticeScreen>
         await _startSession();
         return;
       }
-      // Do not let platform audio teardown delay navigation from the
-      // non-persistent preview summary.
-      unawaited(_sfx.stop());
+      _completionAudioGeneration++;
+      await _sfx.stop();
+      await _music.resumeBackgroundMusic();
       if (!mounted || _leaving) return;
       _clearSessionState();
       _run.cancelToIdle();
@@ -1250,10 +1276,15 @@ class PracticeScreenState extends State<PracticeScreen>
     );
   }
 
-  Future<void> _playCongratsBestEffort(double volume) async {
+  Future<void> _playCongratsBestEffort({
+    required Future<void> musicStopped,
+    required double volume,
+    required int generation,
+  }) async {
     try {
-      await _sfx.setVolume(volume);
-      await _sfx.playCongrats();
+      await musicStopped;
+      if (_leaving || generation != _completionAudioGeneration) return;
+      await _sfx.playCongrats(volume: volume);
     } catch (error, stackTrace) {
       debugPrint('Congrats SFX failed: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -1306,6 +1337,7 @@ class PracticeScreenState extends State<PracticeScreen>
   Future<void> _abandonAndLeave() async {
     if (_leaving || _isShowingSummary || _stopInFlight) return;
     _leaving = true;
+    _completionAudioGeneration++;
     final router = GoRouter.of(context);
     final location = _practiceExitLocation(catalog: true);
     final feedbackSub = _feedbackSub;

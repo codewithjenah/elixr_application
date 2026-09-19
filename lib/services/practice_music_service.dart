@@ -43,6 +43,7 @@ class PracticeMusicService {
   String? _currentTrackId;
   Future<void> _operation = Future<void>.value();
   bool _sessionActive = false;
+  bool _backgroundLeaseHeld = false;
   bool _disposed = false;
   late bool _lastSoundEnabled;
   late double _lastMusicVolume;
@@ -65,6 +66,7 @@ class PracticeMusicService {
     _sessionActive = true;
     return _queue(() async {
       await _appBackgroundMusic?.suspendForPractice(this);
+      _backgroundLeaseHeld = _appBackgroundMusic != null;
       await _startCurrentMode();
     });
   }
@@ -167,17 +169,38 @@ class PracticeMusicService {
     }
   }
 
-  Future<void> stop() {
-    if (_disposed || !_sessionActive) return Future<void>.value();
+  /// Stops the Practice player. Completion can retain the background-music
+  /// lease until its one-shot congratulations SFX has finished or been
+  /// stopped, preventing concurrent Media Foundation work across players.
+  Future<void> stop({bool resumeBackgroundMusic = true}) {
+    if (_disposed) return Future<void>.value();
+    final wasSessionActive = _sessionActive;
+    if (!wasSessionActive &&
+        (!resumeBackgroundMusic || !_backgroundLeaseHeld)) {
+      return _operation;
+    }
     _sessionActive = false;
     _currentTrackId = null;
     return _queue(() async {
       try {
-        await _player.stop();
+        if (wasSessionActive) await _player.stop();
       } finally {
-        await _appBackgroundMusic?.resumeAfterPractice(this);
+        if (resumeBackgroundMusic) await _resumeBackgroundMusicIfHeld();
       }
     });
+  }
+
+  /// Releases a lease retained by [stop] for completion audio. It does not
+  /// issue another command to the Practice player.
+  Future<void> resumeBackgroundMusic() {
+    if (_disposed || !_backgroundLeaseHeld) return _operation;
+    return _queue(_resumeBackgroundMusicIfHeld);
+  }
+
+  Future<void> _resumeBackgroundMusicIfHeld() async {
+    if (!_backgroundLeaseHeld) return;
+    _backgroundLeaseHeld = false;
+    await _appBackgroundMusic?.resumeAfterPractice(this);
   }
 
   Future<void> _queue(Future<void> Function() action) {
@@ -206,7 +229,7 @@ class PracticeMusicService {
       );
     }
     try {
-      await _appBackgroundMusic?.resumeAfterPractice(this);
+      await _resumeBackgroundMusicIfHeld();
     } catch (error, stack) {
       debugPrint(
         'Practice background music failed to resume during disposal: '

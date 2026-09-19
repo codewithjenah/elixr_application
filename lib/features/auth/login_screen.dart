@@ -81,7 +81,13 @@ class _LoginScreenState extends State<LoginScreen> {
           AuthFailureKind.disabledAccount =>
             'This account has been disabled. Contact support for help.',
           AuthFailureKind.missingProfile => failure.message,
-          _ => 'Email or password is incorrect.',
+          // Only an explicit credential failure may use this deliberately
+          // non-enumerating message. A valid Firebase credential can still
+          // fail while its ELIXR profile is being loaded, and labelling that
+          // condition as a bad password prevents the user from recovering.
+          AuthFailureKind.invalidCredentials =>
+            'Email or password is incorrect.',
+          _ => failure.message,
         };
       });
     } catch (_) {

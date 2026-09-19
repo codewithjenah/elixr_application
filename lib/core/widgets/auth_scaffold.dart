@@ -733,7 +733,10 @@ class AuthErrorBanner extends StatelessWidget {
     return AnimatedSwitcher(
       duration: ElixMotion.duration(context, ElixMotion.micro),
       child: Container(
-        key: ValueKey(message),
+        // AuthErrorSlot also animates the message. Keep this key distinct
+        // from its parent switcher's key so a repeated login failure cannot
+        // create duplicate keyed children during overlapping transitions.
+        key: ValueKey('auth-error-banner-$message'),
         width: double.infinity,
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
@@ -795,7 +798,7 @@ class AuthErrorSlot extends StatelessWidget {
               width: double.infinity,
             )
           : Padding(
-              key: ValueKey(message),
+              key: ValueKey('auth-error-slot-$message'),
               padding: const EdgeInsets.only(top: AppSpacing.md),
               child: AuthErrorBanner(message: message!),
             ),

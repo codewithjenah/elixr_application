@@ -1762,12 +1762,14 @@ class _SummaryActions extends StatelessWidget {
       label: 'Try Again',
       icon: FluentIcons.refresh,
       onPressed: saved ? onTryAgain : null,
+      variant: GameActionButtonVariant.secondary,
     );
     final backToMovementsButton = GameActionButton(
       key: const ValueKey('session-summary-back-to-movements'),
       label: 'Back to movements',
       icon: FluentIcons.chrome_back,
       onPressed: saved ? onDiscard : null,
+      variant: GameActionButtonVariant.secondary,
     );
     final previewTryAgainButton = _TryAgainButton(
       onPressed: saved ? onTryAgain : null,
