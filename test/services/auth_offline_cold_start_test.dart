@@ -16,6 +16,7 @@ class _OfflineRestoreRepository
   bool emailVerified = true;
   bool clearCalled = false;
   bool deleteCalled = false;
+  Object? loginError;
 
   @override
   Future<PersistedProfileRestoration> restorePersistedProfile() async =>
@@ -28,8 +29,13 @@ class _OfflineRestoreRepository
   Future<void> clearCurrentUser() async => clearCalled = true;
 
   @override
-  Future<User> login({required String email, required String password}) =>
-      throw UnimplementedError();
+  Future<User> login({required String email, required String password}) async {
+    final error = loginError;
+    if (error != null) throw error;
+    return traineeForLogin ?? (throw UnimplementedError());
+  }
+
+  User? traineeForLogin;
 
   @override
   Future<User> register({
@@ -191,6 +197,88 @@ void main() {
       expect(auth.isAuthenticatedSessionReady, isTrue);
     },
   );
+
+  test(
+    'password login falls back to matching retained identity while offline',
+    () async {
+      final (store, progressionStore, _) = await createStore();
+      await saveTrainee(store, trainee);
+      final repository =
+          _OfflineRestoreRepository(
+              const PersistedProfileRestoration.unavailable(),
+            )
+            ..loginError = const AuthFailure(
+              AuthFailureKind.network,
+              'Network error. Check your connection and try again.',
+            );
+      final auth = service(
+        repository: repository,
+        store: store,
+        progressionStore: progressionStore,
+        firebaseUid: () => 'trainee-A',
+      );
+      addTearDown(auth.dispose);
+
+      await auth.login(email: 'ADA@example.test', password: 'not-cached');
+
+      expect(auth.currentUser?.id, 'trainee-A');
+      expect(auth.isOfflineRestoredTrainee, isTrue);
+      expect(auth.isAuthenticatedSessionReady, isTrue);
+    },
+  );
+
+  test('offline password fallback rejects a different email', () async {
+    final (store, progressionStore, _) = await createStore();
+    await saveTrainee(store, trainee);
+    final failure = const AuthFailure(
+      AuthFailureKind.network,
+      'Network error. Check your connection and try again.',
+    );
+    final repository = _OfflineRestoreRepository(
+      const PersistedProfileRestoration.unavailable(),
+    )..loginError = failure;
+    final auth = service(
+      repository: repository,
+      store: store,
+      progressionStore: progressionStore,
+      firebaseUid: () => 'trainee-A',
+    );
+    addTearDown(auth.dispose);
+
+    await expectLater(
+      auth.login(email: 'other@example.test', password: 'not-cached'),
+      throwsA(same(failure)),
+    );
+
+    expect(auth.currentUser, isNull);
+    expect(auth.isOfflineRestoredTrainee, isFalse);
+  });
+
+  test('credential failures never use the offline snapshot', () async {
+    final (store, progressionStore, _) = await createStore();
+    await saveTrainee(store, trainee);
+    final failure = const AuthFailure(
+      AuthFailureKind.invalidCredentials,
+      'Email or password is incorrect.',
+    );
+    final repository = _OfflineRestoreRepository(
+      const PersistedProfileRestoration.unavailable(),
+    )..loginError = failure;
+    final auth = service(
+      repository: repository,
+      store: store,
+      progressionStore: progressionStore,
+      firebaseUid: () => 'trainee-A',
+    );
+    addTearDown(auth.dispose);
+
+    await expectLater(
+      auth.login(email: trainee.email, password: 'wrong'),
+      throwsA(same(failure)),
+    );
+
+    expect(auth.currentUser, isNull);
+  });
 
   test('no Firebase identity does not authenticate from a cache', () async {
     final (store, progressionStore, _) = await createStore();

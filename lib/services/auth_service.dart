@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:elixr_core/models/coach_code.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/auth/teacher_auth_messages.dart';
@@ -758,16 +760,21 @@ class AuthService extends ChangeNotifier {
     User user;
     try {
       user = await _repository.login(email: email, password: password);
-    } on AuthFailure catch (failure) {
-      if (failure.kind == AuthFailureKind.missingProfile &&
-          failure.pendingProfile != null) {
+    } catch (error, stackTrace) {
+      if (_isBackendAvailabilityFailure(error) &&
+          await _restoreOfflineTraineeForLogin(email)) {
+        return;
+      }
+      if (error is AuthFailure &&
+          error.kind == AuthFailureKind.missingProfile &&
+          error.pendingProfile != null) {
         _currentUser = null;
-        _pendingGoogleProfile = failure.pendingProfile;
+        _pendingGoogleProfile = error.pendingProfile;
         _providerKinds = const {AuthProviderKind.password};
         _emailVerified = null;
         notifyListeners();
       }
-      rethrow;
+      Error.throwWithStackTrace(error, stackTrace);
     }
     if (!_hasSupportedProductRole(user)) {
       await _repository.clearCurrentUser();
@@ -782,6 +789,63 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
     _scheduleLeaderboardPresenceTouch();
+  }
+
+  /// Re-enters a previously authenticated Trainee session after an online
+  /// password sign-in cannot reach Firebase.
+  ///
+  /// The password is deliberately not checked or retained locally. The
+  /// security boundary is the Firebase identity already persisted on this
+  /// device, and both its UID and the entered email must match the locally
+  /// cached authoritative profile. Explicit logout removes that profile and
+  /// clears the Firebase identity, so it cannot use this path.
+  Future<bool> _restoreOfflineTraineeForLogin(String email) async {
+    if (_repository is! PersistedProfileRestorationRepository) return false;
+    final firebaseUid = _readCurrentFirebaseAuthUid();
+    if (firebaseUid == null || firebaseUid.isEmpty) return false;
+    final snapshot = await _traineeProfileSnapshotStore.load(firebaseUid);
+    if (snapshot == null ||
+        snapshot.userId != firebaseUid ||
+        !snapshot.user.isTrainee ||
+        snapshot.user.email.trim().toLowerCase() !=
+            email.trim().toLowerCase()) {
+      return false;
+    }
+    _isOfflineRestoredTrainee = true;
+    _currentUser = snapshot.user;
+    _pendingGoogleProfile = null;
+    _providerKinds = const {};
+    _emailVerified = snapshot.emailVerified;
+    _markAuthenticatedSessionReady();
+    notifyListeners();
+    return true;
+  }
+
+  bool _isBackendAvailabilityFailure(Object error) {
+    if (error is AuthFailure) {
+      if (error.kind == AuthFailureKind.network) return true;
+      if (error.kind != AuthFailureKind.unknown) return false;
+      final message = error.message.toLowerCase();
+      return message.contains('network') ||
+          message.contains('connection') ||
+          message.contains('unavailable') ||
+          message.contains('timed out');
+    }
+    if (error is TimeoutException ||
+        error is SocketException ||
+        error is HttpException ||
+        error is HandshakeException) {
+      return true;
+    }
+    if (error is fb.FirebaseAuthException || error is FirebaseException) {
+      final code = error is fb.FirebaseAuthException
+          ? error.code
+          : (error as FirebaseException).code;
+      return code == 'network-request-failed' ||
+          code == 'unavailable' ||
+          code == 'deadline-exceeded';
+    }
+    return false;
   }
 
   Future<void> signInWithGoogle() async {
