@@ -165,12 +165,14 @@ class _FakeGamificationRepository extends GamificationRepository {
     Set<String> claimedIds = const {},
     this.throwOnClaim = false,
     this.failBoardLoads = 0,
+    this.claimResult = const QuestClaimResult.claimed(10),
   }) : _board = board ?? _todayBoard(),
        claimed = {...claimedIds};
 
   final DailyQuestBoard _board;
   final Set<String> claimed;
   final bool throwOnClaim;
+  QuestClaimResult claimResult;
   int failBoardLoads;
   final _claimedController = StreamController<Set<String>>.broadcast();
   int claimCalls = 0;
@@ -208,7 +210,7 @@ class _FakeGamificationRepository extends GamificationRepository {
   }) async {
     claimCalls++;
     if (throwOnClaim) throw StateError('claim failed');
-    const result = QuestClaimResult.claimed(10);
+    final result = claimResult;
     if (result.status == QuestClaimStatus.claimed ||
         result.status == QuestClaimStatus.alreadyClaimed) {
       claimed.add(questId);
@@ -351,14 +353,16 @@ Widget _wrapAchievementsScreen({
     child: FluentApp(
       theme: AppTheme.dark,
       home: ElixShadThemeBridge(
-        child: AchievementsScreen(
-          achievementRepository: _FakeAchievementRepository(
-            claimedIdsStream ?? Stream.value(claimedIds),
+        child: shad.ShadToaster(
+          child: AchievementsScreen(
+            achievementRepository: _FakeAchievementRepository(
+              claimedIdsStream ?? Stream.value(claimedIds),
+            ),
+            leaderboardRepository: _FakeLeaderboardRepository(_entry()),
+            sessionRepository: _FakeSessionRepository(sessions),
+            gamificationRepository:
+                gamificationRepository ?? _FakeGamificationRepository(),
           ),
-          leaderboardRepository: _FakeLeaderboardRepository(_entry()),
-          sessionRepository: _FakeSessionRepository(sessions),
-          gamificationRepository:
-              gamificationRepository ?? _FakeGamificationRepository(),
         ),
       ),
     ),
@@ -383,29 +387,33 @@ Widget _wrapAchievementsAndDashboard({
     ],
     child: FluentApp(
       theme: AppTheme.dark,
-      home: ScaffoldPage(
-        content: Row(
-          children: [
-            Expanded(
-              child: AchievementsScreen(
-                achievementRepository: _FakeAchievementRepository(
-                  Stream.value(const {'first_steps'}),
+      home: ElixShadThemeBridge(
+        child: shad.ShadToaster(
+          child: ScaffoldPage(
+            content: Row(
+              children: [
+                Expanded(
+                  child: AchievementsScreen(
+                    achievementRepository: _FakeAchievementRepository(
+                      Stream.value(const {'first_steps'}),
+                    ),
+                    leaderboardRepository: _FakeLeaderboardRepository(_entry()),
+                    sessionRepository: _FakeSessionRepository(sessions),
+                    gamificationRepository: gamificationRepository,
+                  ),
                 ),
-                leaderboardRepository: _FakeLeaderboardRepository(_entry()),
-                sessionRepository: _FakeSessionRepository(sessions),
-                gamificationRepository: gamificationRepository,
-              ),
+                SizedBox(
+                  width: 380,
+                  child: DashboardQuestCard(
+                    userId: _testUserId,
+                    sessions: sessions,
+                    streakDays: 0,
+                    repository: gamificationRepository,
+                  ),
+                ),
+              ],
             ),
-            SizedBox(
-              width: 380,
-              child: DashboardQuestCard(
-                userId: _testUserId,
-                sessions: sessions,
-                streakDays: 0,
-                repository: gamificationRepository,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     ),
@@ -883,9 +891,43 @@ void main() {
       expect(repository.claimCalls, 1);
       expect(card, findsNothing);
       expect(
-        find.text('+10 XP claimed from Complete 1 Practice Session.'),
+        find.text('+10 XP • Complete 1 Practice Session claimed'),
         findsOneWidget,
       );
+      expect(find.byKey(const Key('quest_reward_effect')), findsOneWidget);
+    });
+
+    testWidgets('an already claimed Daily Quest does not replay XP feedback', (
+      tester,
+    ) async {
+      final repository = _FakeGamificationRepository(
+        claimResult: const QuestClaimResult.alreadyClaimed(),
+      );
+      addTearDown(repository.close);
+
+      await _pumpAchievementsScreen(
+        tester,
+        screen: _wrapAchievementsScreen(
+          authService: authService,
+          sessions: [_todaySession()],
+          claimedIds: const {'first_steps'},
+          gamificationRepository: repository,
+        ),
+      );
+
+      final card = find.byKey(const Key('daily_quest_session_count_1'));
+      await tester.tap(find.descendant(of: card, matching: find.text('Claim')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(repository.claimCalls, 1);
+      expect(card, findsNothing);
+      expect(find.byKey(const Key('quest_reward_effect')), findsNothing);
+      expect(
+        find.text('This quest reward was already claimed.'),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 100));
     });
 
     testWidgets('claim failure keeps the reward available', (tester) async {
@@ -911,6 +953,8 @@ void main() {
         find.text('Could not claim this quest. Please try again.'),
         findsOneWidget,
       );
+      expect(find.byKey(const Key('quest_reward_effect')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 100));
     });
 
     testWidgets('shows the completed-board state once every quest is claimed', (

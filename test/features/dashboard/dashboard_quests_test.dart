@@ -16,6 +16,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 final _dayStart = DateTime.utc(2026, 8, 3, 16, 0, 0); // Manila 2026-08-04 00:00
 const _insideWindow = '2026-08-04T03:00:00.000Z';
@@ -458,6 +459,120 @@ void main() {
       expect(find.text('Complete an Easy-Difficulty Session'), findsOneWidget);
     });
 
+    testWidgets(
+      'a confirmed claim shows its awarded XP toast and reward effect',
+      (tester) async {
+        final repo = _FakeGamificationRepository(board: _widgetBoard);
+        addTearDown(repo.dispose);
+        final session = Session(
+          userId: 'u1',
+          movementName: 'Normal Grip',
+          difficulty: 'Easy',
+          durationSeconds: 60,
+          createdAt: _insideWindow,
+        );
+
+        await _pumpQuestCard(
+          tester,
+          repository: repo,
+          progression: TraineeProgressionService.ready(),
+          sessions: [session],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Claim'));
+        await tester.tap(find.text('Claim'));
+        await tester.pump();
+        await tester.pump();
+
+        expect(repo.claimCalls, 1);
+        expect(find.byKey(const Key('quest_reward_effect')), findsOneWidget);
+        expect(
+          find.text('+10 XP • Complete 1 Practice Session claimed'),
+          findsOneWidget,
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('Complete 1 Practice Session'), findsNothing);
+        expect(
+          find.text('Complete an Easy-Difficulty Session'),
+          findsOneWidget,
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      },
+    );
+
+    testWidgets('already claimed does not replay the reward effect', (
+      tester,
+    ) async {
+      final repo = _FakeGamificationRepository(
+        board: _widgetBoard,
+        claimResult: const QuestClaimResult.alreadyClaimed(),
+      );
+      addTearDown(repo.dispose);
+      final session = Session(
+        userId: 'u1',
+        movementName: 'Normal Grip',
+        difficulty: 'Easy',
+        durationSeconds: 60,
+        createdAt: _insideWindow,
+      );
+
+      await _pumpQuestCard(
+        tester,
+        repository: repo,
+        progression: TraineeProgressionService.ready(),
+        sessions: [session],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Claim'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(repo.claimCalls, 1);
+      expect(find.byKey(const Key('quest_reward_effect')), findsNothing);
+      expect(
+        find.text('This quest reward was already claimed.'),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+    });
+
+    testWidgets('a failed claim does not show success feedback', (
+      tester,
+    ) async {
+      final repo = _FakeGamificationRepository(
+        board: _widgetBoard,
+        throwOnClaim: true,
+      );
+      addTearDown(repo.dispose);
+      final session = Session(
+        userId: 'u1',
+        movementName: 'Normal Grip',
+        difficulty: 'Easy',
+        durationSeconds: 60,
+        createdAt: _insideWindow,
+      );
+
+      await _pumpQuestCard(
+        tester,
+        repository: repo,
+        progression: TraineeProgressionService.ready(),
+        sessions: [session],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Claim'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(repo.claimCalls, 1);
+      expect(find.byKey(const Key('quest_reward_effect')), findsNothing);
+      expect(find.text('Could not claim this quest. Try again.'), findsWidgets);
+      await tester.pump(const Duration(milliseconds: 100));
+    });
+
     testWidgets('quest-board error and retry remain functional', (
       tester,
     ) async {
@@ -523,12 +638,17 @@ class _FakeGamificationRepository extends GamificationRepository {
   _FakeGamificationRepository({
     DailyQuestBoard? board,
     this.throwOnCreate = false,
+    this.throwOnClaim = false,
+    this.claimResult = const QuestClaimResult.claimed(10),
   }) : _board = board;
 
   DailyQuestBoard? _board;
   bool throwOnCreate;
+  bool throwOnClaim;
+  QuestClaimResult claimResult;
   int getOrCreateCalls = 0;
   int generateCalls = 0;
+  int claimCalls = 0;
   final claimed = <String>{};
   final _claimedController = StreamController<Set<String>>.broadcast();
 
@@ -579,9 +699,17 @@ class _FakeGamificationRepository extends GamificationRepository {
     required List<Session> sessionsToday,
     DateTime? nowUtc,
   }) async {
-    claimed.add(questId);
-    _claimedController.add({...claimed});
-    return QuestClaimResult.claimed(questById(questId)?.xp ?? 0);
+    claimCalls++;
+    if (throwOnClaim) throw StateError('claim unavailable');
+    if (claimResult.status == QuestClaimStatus.claimed ||
+        claimResult.status == QuestClaimStatus.alreadyClaimed) {
+      claimed.add(questId);
+      _claimedController.add({...claimed});
+    }
+    return claimResult.status == QuestClaimStatus.claimed &&
+            claimResult.xpAwarded == 10
+        ? QuestClaimResult.claimed(questById(questId)?.xp ?? 0)
+        : claimResult;
   }
 }
 
@@ -628,6 +756,8 @@ Future<void> _pumpQuestCard(
       value: progression,
       child: FluentApp.router(
         theme: AppTheme.dark,
+        builder: (context, child) =>
+            ElixShadThemeBridge(child: shad.ShadToaster(child: child!)),
         routeInformationParser: router.routeInformationParser,
         routerDelegate: router.routerDelegate,
         routeInformationProvider: router.routeInformationProvider,

@@ -166,6 +166,7 @@ class DailyQuestSection extends StatelessWidget {
     required this.claimedCount,
     required this.totalCount,
     required this.boardComplete,
+    this.rewardFeedback,
     required this.onClaim,
     required this.onRetry,
   });
@@ -177,6 +178,7 @@ class DailyQuestSection extends StatelessWidget {
   final int claimedCount;
   final int totalCount;
   final bool boardComplete;
+  final Widget? rewardFeedback;
   final ValueChanged<String> onClaim;
   final VoidCallback onRetry;
 
@@ -199,6 +201,7 @@ class DailyQuestSection extends StatelessWidget {
             subtitle: 'Quests reset daily. Complete and claim them to earn XP.',
           ),
           const SizedBox(height: AppSpacing.md),
+          ?rewardFeedback,
           if (loading)
             const _LoadingState(label: "Loading today's quests…")
           else if (loadError != null)

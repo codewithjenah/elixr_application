@@ -10,6 +10,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/manila_day.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_toast.dart';
+import '../../core/widgets/quest_reward_effect.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/achievement.dart';
@@ -131,6 +133,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   String? _questBoardError;
   String? _claimFeedback;
   InfoBarSeverity _claimFeedbackSeverity = InfoBarSeverity.success;
+  _QuestReward? _questRewardFeedback;
+  int _questRewardFeedbackSequence = 0;
   _AchievementFilter _filter = _AchievementFilter.all;
 
   @override
@@ -190,6 +194,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     _questBoardLoading = true;
     _questBoardLoadInFlight = false;
     _questBoardError = null;
+    _questRewardFeedback = null;
   }
 
   void _checkDayRollover() {
@@ -346,7 +351,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     final board = _dailyQuestBoard;
     if (userId == null ||
         board == null ||
-        _claimingQuestIds.contains(questId)) {
+        _claimingQuestIds.contains(questId) ||
+        _claimedQuestIds.contains(questId)) {
       return;
     }
     DashboardQuest? quest;
@@ -372,54 +378,61 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       if (!mounted || _userId != userId) return;
       switch (result.status) {
         case QuestClaimStatus.claimed:
+          ElixToast.showSuccess(
+            context,
+            message: '+${result.xpAwarded} XP • $questTitle claimed',
+          );
           setState(() {
             _claimedQuestIds = {..._claimedQuestIds, questId};
-            _claimFeedback =
-                '+${result.xpAwarded} XP claimed from $questTitle.';
-            _claimFeedbackSeverity = InfoBarSeverity.success;
+            _questRewardFeedback = _QuestReward(
+              eventId: '$questId-${++_questRewardFeedbackSequence}',
+              xp: result.xpAwarded,
+              questTitle: questTitle,
+            );
           });
           break;
         case QuestClaimStatus.alreadyClaimed:
+          ElixToast.showInfo(
+            context,
+            message: 'This quest reward was already claimed.',
+          );
           setState(() {
             _claimedQuestIds = {..._claimedQuestIds, questId};
-            _claimFeedback = 'That quest reward was already claimed.';
-            _claimFeedbackSeverity = InfoBarSeverity.info;
           });
           break;
         case QuestClaimStatus.boardExpired:
         case QuestClaimStatus.boardMissing:
-          setState(() {
-            _claimFeedback = 'Today\'s quest board changed. Refreshing it now.';
-            _claimFeedbackSeverity = InfoBarSeverity.info;
-          });
+          ElixToast.showInfo(
+            context,
+            message: 'Today\'s quest board changed. Refreshing it now.',
+          );
           _retryQuestBoard();
           break;
         case QuestClaimStatus.leaderboardMissing:
-          setState(() {
-            _claimFeedback =
-                'Your XP profile is still loading. Try claiming again shortly.';
-            _claimFeedbackSeverity = InfoBarSeverity.warning;
-          });
+          ElixToast.showInfo(
+            context,
+            message: 'Your XP profile is still loading. Try again shortly.',
+          );
           break;
         case QuestClaimStatus.questNotCompleted:
-          setState(() {
-            _claimFeedback = 'This quest is not complete yet.';
-            _claimFeedbackSeverity = InfoBarSeverity.warning;
-          });
+          ElixToast.showInfo(
+            context,
+            message: 'This quest is not complete yet.',
+          );
           break;
         case QuestClaimStatus.invalidQuest:
-          setState(() {
-            _claimFeedback = 'This quest is no longer available.';
-            _claimFeedbackSeverity = InfoBarSeverity.error;
-          });
+          ElixToast.showError(
+            context,
+            message: 'This quest is no longer available.',
+          );
           break;
       }
     } catch (_) {
       if (!mounted || _userId != userId) return;
-      setState(() {
-        _claimFeedback = 'Could not claim this quest. Please try again.';
-        _claimFeedbackSeverity = InfoBarSeverity.error;
-      });
+      ElixToast.showError(
+        context,
+        message: 'Could not claim this quest. Please try again.',
+      );
     } finally {
       if (mounted && _userId == userId) {
         setState(() {
@@ -658,6 +671,14 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                                   board: _dailyQuestBoard!,
                                   claimedQuestIds: _claimedQuestIds,
                                 ),
+                            rewardFeedback: _questRewardFeedback == null
+                                ? null
+                                : QuestRewardEffect(
+                                    eventId: _questRewardFeedback!.eventId,
+                                    xp: _questRewardFeedback!.xp,
+                                    questTitle:
+                                        _questRewardFeedback!.questTitle,
+                                  ),
                             onClaim: _claimQuest,
                             onRetry: _retryQuestBoard,
                           ),
@@ -717,6 +738,18 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
             ),
     );
   }
+}
+
+class _QuestReward {
+  const _QuestReward({
+    required this.eventId,
+    required this.xp,
+    required this.questTitle,
+  });
+
+  final String eventId;
+  final int xp;
+  final String questTitle;
 }
 
 class _AchievementsSectionToolbar extends StatelessWidget {

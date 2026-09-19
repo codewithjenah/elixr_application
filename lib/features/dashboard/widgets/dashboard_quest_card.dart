@@ -13,6 +13,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/utils/manila_day.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_toast.dart';
+import '../../../core/widgets/quest_reward_effect.dart';
 import '../../../data/models/daily_quest.dart';
 import '../../../data/models/daily_quest_board.dart';
 import '../../../data/models/quest_claim.dart';
@@ -59,6 +61,8 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
   String? _claimingQuestId;
   String? _retryableLeaderboardMissingQuestId;
   String? _claimErrorMessage;
+  _QuestReward? _rewardFeedback;
+  int _rewardFeedbackSequence = 0;
 
   @override
   void initState() {
@@ -87,6 +91,7 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
       _loadedDayKey = null;
       _error = null;
       _loadInFlight = false;
+      _rewardFeedback = null;
       _ensureBoardLoaded();
     }
   }
@@ -105,6 +110,7 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
       _board = null;
       _error = null;
       _loadInFlight = false;
+      _rewardFeedback = null;
       _ensureBoardLoaded();
     }
   }
@@ -179,7 +185,23 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
 
   Future<void> _claim(String questId) async {
     final board = _board;
-    if (board == null || _claimingQuestId != null) return;
+    if (board == null ||
+        _claimingQuestId != null ||
+        _claimedIds.contains(questId)) {
+      return;
+    }
+    DashboardQuest? quest;
+    for (final candidate in buildActiveDashboardQuests(
+      board: board,
+      claimedQuestIds: _claimedIds,
+      sessions: widget.sessions,
+    )) {
+      if (candidate.id == questId) {
+        quest = candidate;
+        break;
+      }
+    }
+    final questTitle = quest?.title ?? 'Daily Quest';
 
     setState(() {
       _claimingQuestId = questId;
@@ -199,23 +221,57 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
 
       switch (result.status) {
         case QuestClaimStatus.claimed:
+          ElixToast.showSuccess(
+            context,
+            message: '+${result.xpAwarded} XP • $questTitle claimed',
+          );
+          setState(() {
+            _claimedIds = {..._claimedIds, questId};
+            _rewardFeedback = _QuestReward(
+              eventId: '$questId-${++_rewardFeedbackSequence}',
+              xp: result.xpAwarded,
+              questTitle: questTitle,
+            );
+          });
+          break;
         case QuestClaimStatus.alreadyClaimed:
+          ElixToast.showInfo(
+            context,
+            message: 'This quest reward was already claimed.',
+          );
+          setState(() => _claimedIds = {..._claimedIds, questId});
           break;
         case QuestClaimStatus.boardExpired:
         case QuestClaimStatus.boardMissing:
+          ElixToast.showInfo(
+            context,
+            message: 'Today\'s quest board changed. Refreshing it now.',
+          );
           _board = null;
           _error = null;
           unawaited(_loadBoard());
           break;
         case QuestClaimStatus.leaderboardMissing:
+          ElixToast.showInfo(
+            context,
+            message: 'Your XP profile is still loading. Try again shortly.',
+          );
           setState(() => _retryableLeaderboardMissingQuestId = questId);
           break;
         case QuestClaimStatus.questNotCompleted:
+          ElixToast.showInfo(
+            context,
+            message: 'This quest is not complete yet.',
+          );
           setState(
             () => _claimErrorMessage = 'Not quite there yet — keep practicing!',
           );
           break;
         case QuestClaimStatus.invalidQuest:
+          ElixToast.showError(
+            context,
+            message: 'This quest is no longer available.',
+          );
           setState(
             () => _claimErrorMessage = 'This quest is no longer available.',
           );
@@ -228,6 +284,10 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
         );
       }
       if (mounted) {
+        ElixToast.showError(
+          context,
+          message: 'Could not claim this quest. Try again.',
+        );
         setState(
           () => _claimErrorMessage = 'Could not claim this quest. Try again.',
         );
@@ -352,6 +412,12 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
         ),
         const SizedBox(height: AppSpacing.sm),
       ],
+      if (_rewardFeedback case final reward?)
+        QuestRewardEffect(
+          eventId: reward.eventId,
+          xp: reward.xp,
+          questTitle: reward.questTitle,
+        ),
       AnimatedSwitcher(
         duration: ElixMotion.duration(
           context,
@@ -386,6 +452,18 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
       ),
     ];
   }
+}
+
+class _QuestReward {
+  const _QuestReward({
+    required this.eventId,
+    required this.xp,
+    required this.questTitle,
+  });
+
+  final String eventId;
+  final int xp;
+  final String questTitle;
 }
 
 class _QuestAction extends StatelessWidget {
