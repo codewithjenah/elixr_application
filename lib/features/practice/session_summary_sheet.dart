@@ -1750,12 +1750,28 @@ class _SummaryActions extends StatelessWidget {
         ? 'Retry Save'
         : (hasNext ? 'Next: $nextMovementName' : 'Finish');
     final primaryButton = GameActionButton(
+      key: const ValueKey('session-summary-primary-action'),
       label: primaryLabel,
       icon: failed
           ? FluentIcons.sync
           : (hasNext ? FluentIcons.chevron_right : FluentIcons.check_mark),
       onPressed: saving ? null : onPrimaryAction,
       isLoading: saving,
+    );
+    final tryAgainButton = GameActionButton(
+      label: 'Try Again',
+      icon: FluentIcons.refresh,
+      onPressed: saved ? onTryAgain : null,
+    );
+    final backToMovementsButton = GameActionButton(
+      key: const ValueKey('session-summary-back-to-movements'),
+      label: 'Back to movements',
+      icon: FluentIcons.chrome_back,
+      onPressed: saved ? onDiscard : null,
+    );
+    final previewTryAgainButton = _TryAgainButton(
+      onPressed: saved ? onTryAgain : null,
+      expanded: false,
     );
 
     return Container(
@@ -1788,31 +1804,12 @@ class _SummaryActions extends StatelessWidget {
             isTeacherPreview: isTeacherPreview,
           ),
           const SizedBox(height: AppSpacing.sm),
-          if (regularLayout)
+          if (regularLayout && isTeacherPreview)
             Row(
               children: [
-                if (!isTeacherPreview)
-                  Flexible(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: HyperlinkButton(
-                        onPressed: saved ? onDiscard : null,
-                        child: Text(
-                          'Back to movements',
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  const Spacer(),
+                const Spacer(),
                 const SizedBox(width: AppSpacing.sm),
-                _TryAgainButton(
-                  onPressed: saved ? onTryAgain : null,
-                  expanded: false,
-                ),
+                previewTryAgainButton,
                 const SizedBox(width: AppSpacing.sm),
                 SizedBox(
                   width: _SummaryLayout.primaryActionWidth,
@@ -1820,35 +1817,38 @@ class _SummaryActions extends StatelessWidget {
                 ),
               ],
             )
+          else if (regularLayout)
+            Row(
+              children: [
+                Expanded(child: backToMovementsButton),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: tryAgainButton),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: primaryButton),
+              ],
+            )
+          else if (isTeacherPreview)
+            Row(
+              children: [
+                Expanded(
+                  child: _TryAgainButton(
+                    onPressed: saved ? onTryAgain : null,
+                    expanded: true,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(flex: 2, child: primaryButton),
+              ],
+            )
           else
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _TryAgainButton(
-                        onPressed: saved ? onTryAgain : null,
-                        expanded: true,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(flex: 2, child: primaryButton),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                if (!isTeacherPreview)
-                  Center(
-                    child: HyperlinkButton(
-                      onPressed: saved ? onDiscard : null,
-                      child: Text(
-                        'Back to movements',
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
+                backToMovementsButton,
+                const SizedBox(height: AppSpacing.sm),
+                tryAgainButton,
+                const SizedBox(height: AppSpacing.sm),
+                primaryButton,
               ],
             ),
         ],
@@ -1938,6 +1938,8 @@ class _SaveStatus extends StatelessWidget {
   }
 }
 
+/// Teacher preview keeps its established secondary retry treatment. Trainee
+/// summaries use the uniform game-action set above.
 class _TryAgainButton extends StatelessWidget {
   const _TryAgainButton({required this.onPressed, required this.expanded});
 

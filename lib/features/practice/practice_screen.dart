@@ -9,6 +9,8 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/progression/practice_variant.dart';
+import '../../core/progression/progression_access.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_dialog.dart';
@@ -30,6 +32,7 @@ import '../../services/pending_session_store.dart';
 import '../../services/pending_session_sync_coordinator.dart';
 import '../../services/settings_service.dart';
 import '../../services/startup_diagnostics.dart';
+import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
 import '../learning/movement_lesson_content.dart';
@@ -66,6 +69,33 @@ const _emptyRubric = RubricAssessment(
 /// Teacher previews run the same camera and CV lifecycle but deliberately
 /// stop at the in-memory summary boundary.
 enum PracticeExecutionMode { trainee, teacherPreview }
+
+/// Returns the immediate catalog successor only when personal access permits
+/// direct practice. Assignment sessions deliberately retain no catalog auto-next.
+///
+/// The catalog owns sequencing; [evaluatePersonal] remains the sole authority
+/// for trainee level and exact tutorial readiness.
+PracticeCatalogStep? nextPracticeSummaryStep({
+  required String movementName,
+  required TrainingProp prop,
+  required bool assignmentScoped,
+  required int? currentLevel,
+  required bool? Function(PracticeVariant variant) tutorialCompleted,
+}) {
+  if (assignmentScoped) return null;
+  final candidate = nextEnabledPracticeAfter(movementName, prop);
+  if (candidate == null) return null;
+  final variant = PracticeVariant(
+    movementName: candidate.movement.name,
+    trainingProp: candidate.prop,
+  );
+  final access = evaluatePersonal(
+    variant: variant,
+    currentLevel: currentLevel,
+    tutorialCompleted: tutorialCompleted(variant),
+  );
+  return access == ProgressionAccessResult.personalReady ? candidate : null;
+}
 
 class PracticeScreen extends StatefulWidget {
   const PracticeScreen({
@@ -991,9 +1021,19 @@ class PracticeScreenState extends State<PracticeScreen>
           unawaited(_playCongratsBestEffort(sfxVolume));
         }
         if (!mounted || _leaving) return;
-        final nextStep = widget.assignmentContext == null
-            ? nextEnabledPracticeAfter(_movement, _prop)
-            : null;
+        final progression = context.read<TraineeProgressionService>();
+        final nextStep = nextPracticeSummaryStep(
+          movementName: _movement,
+          prop: _prop,
+          assignmentScoped: widget.assignmentContext != null,
+          currentLevel: progression.currentLevelOrNull,
+          tutorialCompleted: (variant) => tutorialProgress.isInitialized
+              ? tutorialProgress.hasCompletedLesson(
+                  variant.movementName,
+                  variant.trainingProp,
+                )
+              : null,
+        );
         // Reserve before the first write. The completion operation retains
         // this identifier on every retry, including when the first atomic
         // write committed but the client received an ambiguous failure.

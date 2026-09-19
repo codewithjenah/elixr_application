@@ -8,6 +8,7 @@ import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
+import 'package:elixr_application/features/practice/practice_screen.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
 import 'package:elixr_application/features/practice/session_summary_sheet.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -328,11 +329,15 @@ Future<SessionSummaryResult?> _showWithAutoSave(
   ).whenComplete(saveController.dispose);
 }
 
-Finder get _primaryButton => find.byType(GameActionButton);
+Finder get _primaryButton =>
+    find.byKey(const ValueKey('session-summary-primary-action'));
 
 Finder get _scrollView => find.byKey(const Key('session-summary-scroll'));
 
 Finder get _actions => find.byKey(const Key('session-summary-actions'));
+
+Finder get _backToMovements =>
+    find.byKey(const ValueKey('session-summary-back-to-movements'));
 
 Finder get _recommendation =>
     find.byKey(const Key('session-summary-recommendation'));
@@ -731,6 +736,8 @@ void main() {
       expect(find.text('Finish'), findsOneWidget);
       expect(find.text('Save & Continue'), findsNothing);
       expect(_primaryButton, findsOneWidget);
+      expect(_backToMovements, findsOneWidget);
+      expect(tester.getSize(_backToMovements).height, 54);
 
       expect(_isFullyVisible(tester, _recommendation, size), isTrue);
       expect(_isFullyVisible(tester, _actions, size), isTrue);
@@ -770,6 +777,14 @@ void main() {
         isTrue,
       );
       expect(_isFullyVisible(tester, _primaryButton, size), isTrue);
+
+      final backSize = tester.getSize(_backToMovements);
+      final retrySize = tester.getSize(
+        find.widgetWithText(GameActionButton, 'Try Again'),
+      );
+      final finishSize = tester.getSize(_primaryButton);
+      expect(backSize, retrySize);
+      expect(backSize, finishSize);
     });
 
     testWidgets('1280x720 standard summary is fully visible without overflow', (
@@ -1076,12 +1091,7 @@ void main() {
     expect(find.textContaining('Could not save your session'), findsOneWidget);
     expect(find.text('Try Again'), findsOneWidget);
     expect(find.text('Back to movements'), findsOneWidget);
-    expect(
-      tester
-          .widget<HyperlinkButton>(find.byType(HyperlinkButton).last)
-          .onPressed,
-      isNull,
-    );
+    expect(tester.widget<GameActionButton>(_backToMovements).onPressed, isNull);
     expect(_primaryButton, findsOneWidget);
   });
 
@@ -1329,6 +1339,30 @@ void main() {
       expect(find.text('Save & Continue'), findsNothing);
       expect(_primaryButton, findsOneWidget);
     });
+
+    testWidgets(
+      'locked catalog successor is omitted so the summary offers Finish',
+      (tester) async {
+        final nextStep = nextPracticeSummaryStep(
+          movementName: 'Normal Grip',
+          prop: TrainingProp.bottle,
+          assignmentScoped: false,
+          currentLevel: 1,
+          tutorialCompleted: (_) => true,
+        );
+
+        await _openSummary(
+          tester,
+          assessment: _standardSummaryAssessment(),
+          nextMovement: nextStep?.movement,
+          nextProp: nextStep?.prop,
+          onSave: (_) async => 'session-locked-next',
+        );
+
+        expect(find.text("Next: Bartender's Grip"), findsNothing);
+        expect(find.text('Finish'), findsOneWidget);
+      },
+    );
 
     testWidgets('Next navigates after automatic save without saving again', (
       tester,

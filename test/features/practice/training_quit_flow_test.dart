@@ -262,6 +262,9 @@ void main() {
           ChangeNotifierProvider<SessionService>(
             create: (_) => sessionService ?? _TestSessionService(),
           ),
+          ChangeNotifierProvider<TraineeProgressionService>(
+            create: (_) => TraineeProgressionService.ready(totalXp: 20 * 250),
+          ),
           ChangeNotifierProvider<TutorialProgressService>(
             create: (_) => _ReadyTutorials(),
           ),
