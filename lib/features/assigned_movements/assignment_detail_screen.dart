@@ -26,6 +26,7 @@ import '../../core/widgets/elixr_video_player.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
+import '../../data/models/movement_origin.dart';
 import '../../data/repositories/activity_learning_material_repository.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/teacher_activity_assessment.dart';
@@ -1181,16 +1182,28 @@ class _YourWork extends StatelessWidget {
         ? controller.latestActivityWorkflowAttempt
         : current;
     final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
-    final consumedAttempts = controller.activityAttempts
-        .where((attempt) => attempt.recordingStartedAt != null)
-        .length;
-    final hasAvailableActivityAttempt =
+    final attemptHistory = isTeacherActivity
+        ? controller.activityAttempts
+        : controller.assignmentAttempts;
+    final consumedAttempts = isTeacherActivity
+        ? attemptHistory
+              .where((attempt) => attempt.recordingStartedAt != null)
+              .length
+        : attemptHistory
+              .where(
+                (attempt) =>
+                    attempt.origin == MovementOrigin.officialElixr &&
+                    attempt.attemptKind ==
+                        AssignmentAttemptKind.practicePointer,
+              )
+              .length;
+    final hasAvailableAttempt =
         maximumAttempts == null || consumedAttempts < maximumAttempts;
     final canStart = canStartAssignedMovement(
       assignment,
       workflowAttempt,
       workflowAttempt,
-      activityAttempts: controller.activityAttempts,
+      activityAttempts: attemptHistory,
     );
     final attemptAssessment =
         current?.activityAssessmentSnapshot ?? assignment.activityAssessment;
@@ -1223,8 +1236,7 @@ class _YourWork extends StatelessWidget {
           if (current == null)
             _EmptyWorkState(
               canStart: canStart,
-              noTriesRemaining:
-                  isTeacherActivity && !hasAvailableActivityAttempt,
+              noTriesRemaining: !hasAvailableAttempt,
               label: assignedMovementPracticeButtonLabel(
                 workflowAttempt,
                 assignment: assignment,
@@ -1420,7 +1432,7 @@ class _YourWork extends StatelessWidget {
                 onPressed: () =>
                     context.go(AppRoutePaths.assignedPractice(assignment.id)),
               )
-            else if (isTeacherActivity && !hasAvailableActivityAttempt)
+            else if (!hasAvailableAttempt)
               Align(
                 alignment: Alignment.centerLeft,
                 child: ElixPill(

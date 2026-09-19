@@ -405,6 +405,18 @@ void main() {
       canStartAssignedMovement(official, officialSubmitted, officialSubmitted),
       isTrue,
     );
+    final finiteOfficial = official.copyWith(
+      attemptPolicy: AssignmentAttemptPolicy.finite(1),
+    );
+    expect(
+      canStartAssignedMovement(
+        finiteOfficial,
+        officialSubmitted,
+        officialSubmitted,
+        activityAttempts: [officialSubmitted],
+      ),
+      isFalse,
+    );
   });
 
   testWidgets(

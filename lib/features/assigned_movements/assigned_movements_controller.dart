@@ -24,9 +24,9 @@ class AssignedMovementItem {
   final AssignmentAttempt? attempt;
   final AssignmentAttempt? latestSubmission;
 
-  /// All known attempts for this assignment. Teacher Activity eligibility
-  /// needs the complete set because finite policies count recordings that
-  /// started, including an interrupted reservation that was later abandoned.
+  /// All known attempts for this assignment. Finite policies count completed
+  /// Official ELIXR sessions and Teacher Activity recordings that started,
+  /// including an interrupted reservation that was later abandoned.
   final List<AssignmentAttempt> activityAttempts;
 
   /// Best-effort public profile picture for [assignment.teacherId].
@@ -162,11 +162,7 @@ class AssignedMovementsController extends ChangeNotifier {
     final latestActivityByAssignment = <String, AssignmentAttempt>{};
     final activityAttemptsByAssignment = <String, List<AssignmentAttempt>>{};
     for (final attempt in _attempts) {
-      if (attempt.activityAssessmentSnapshot != null) {
-        (activityAttemptsByAssignment[attempt.assignmentId] ??= []).add(
-          attempt,
-        );
-      }
+      (activityAttemptsByAssignment[attempt.assignmentId] ??= []).add(attempt);
       if (attempt.isAbandonedTeacherReviewDraft) continue;
       final existing = latestByAssignment[attempt.assignmentId];
       if (existing == null ||

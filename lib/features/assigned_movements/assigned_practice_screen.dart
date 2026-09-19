@@ -15,6 +15,7 @@ import '../../data/models/assessment_mode.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/classroom_exceptions.dart';
 import '../../data/models/group_assignment.dart';
+import '../../data/models/movement_origin.dart';
 import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
@@ -181,12 +182,30 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         });
         return;
       }
+      final attempts = await assignments
+          .watchAttemptsForTrainee(traineeId: traineeId)
+          .first;
+      if (!mounted) return;
+      if (assignment.isOfficial) {
+        final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
+        final consumedAttempts = attempts
+            .where(
+              (attempt) =>
+                  attempt.assignmentId == assignment.id &&
+                  attempt.origin == MovementOrigin.officialElixr &&
+                  attempt.attemptKind == AssignmentAttemptKind.practicePointer,
+            )
+            .length;
+        if (maximumAttempts != null && consumedAttempts >= maximumAttempts) {
+          setState(() {
+            _loading = false;
+            _error = 'This assignment has no remaining practice attempts.';
+          });
+          return;
+        }
+      }
       AssignmentAttempt? reservedActivityAttempt;
       if (assignment.isTeacherCreated) {
-        final attempts = await assignments
-            .watchAttemptsForTrainee(traineeId: traineeId)
-            .first;
-        if (!mounted) return;
         final current = _currentSubmissionFrom(
           attempts: attempts,
           assignmentId: assignment.id,

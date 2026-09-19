@@ -17,6 +17,7 @@ import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/assessment_score_display.dart';
 import '../../data/models/group_assignment.dart';
+import '../../data/models/movement_origin.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import 'assigned_movements_controller.dart';
 
@@ -1040,7 +1041,23 @@ bool canStartAssignedMovement(
   Iterable<AssignmentAttempt> activityAttempts = const [],
 }) {
   if (!assignment.isActive || assignment.isRetiredTemplate) return false;
-  if (!assignment.isTeacherCreated) return true;
+  if (assignment.isOfficial) {
+    final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
+    if (maximumAttempts == null) return true;
+    final attempts = _allAttemptsForAssignment(
+      activityAttempts: activityAttempts,
+      attempt: attempt,
+      submission: submission,
+    );
+    final consumedAttempts = attempts
+        .where(
+          (candidate) =>
+              candidate.origin == MovementOrigin.officialElixr &&
+              candidate.attemptKind == AssignmentAttemptKind.practicePointer,
+        )
+        .length;
+    return consumedAttempts < maximumAttempts;
+  }
   if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) return false;
   if (assignment.activityAssessment != null) {
     if (assignment.gradingLocked) return false;
@@ -1071,6 +1088,20 @@ bool canStartAssignedMovement(
   return current == null ||
       current.status == AssignmentAttemptStatus.draft ||
       current.status == AssignmentAttemptStatus.inProgress;
+}
+
+List<AssignmentAttempt> _allAttemptsForAssignment({
+  required Iterable<AssignmentAttempt> activityAttempts,
+  required AssignmentAttempt? attempt,
+  required AssignmentAttempt? submission,
+}) {
+  final byId = <String, AssignmentAttempt>{
+    for (final candidate in activityAttempts) candidate.id: candidate,
+  };
+  for (final candidate in [attempt, submission]) {
+    if (candidate != null) byId[candidate.id] = candidate;
+  }
+  return byId.values.toList(growable: false);
 }
 
 List<AssignmentAttempt> _teacherActivityAttempts({
