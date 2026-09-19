@@ -30,6 +30,52 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
+  test('Windows audio operation gate serializes separate players', () async {
+    final gate = AudioOperationGate();
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final operations = <String>[];
+
+    final first = gate.run(() async {
+      operations.add('first:start');
+      firstStarted.complete();
+      await releaseFirst.future;
+      operations.add('first:end');
+    });
+    await firstStarted.future;
+
+    final second = gate.run(() async {
+      operations.add('second');
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(operations, ['first:start']);
+
+    releaseFirst.complete();
+    await Future.wait([first, second]);
+    expect(operations, ['first:start', 'first:end', 'second']);
+  });
+
+  test(
+    'Windows audio operation gate continues after a failed command',
+    () async {
+      final gate = AudioOperationGate();
+      final operations = <String>[];
+
+      await expectLater(
+        gate.run(() async {
+          operations.add('failed');
+          throw StateError('native command failed');
+        }),
+        throwsStateError,
+      );
+      await gate.run(() async {
+        operations.add('recovered');
+      });
+
+      expect(operations, ['failed', 'recovered']);
+    },
+  );
+
   test(
     'authenticated background music pauses for Practice and stops on logout',
     () async {
