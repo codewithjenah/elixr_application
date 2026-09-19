@@ -56,6 +56,30 @@ DateTime classChallengeDateTimeFrom12Hour(
   return DateTime(value.year, value.month, value.day, hour24, minute);
 }
 
+/// Date-only schedules use local calendar boundaries before being serialized to
+/// UTC. This keeps the teacher's chosen dates intact without relying on a
+/// hidden time picker value.
+DateTime classChallengeStartOfDay(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
+
+DateTime classChallengeEndOfDay(DateTime value) =>
+    DateTime(value.year, value.month, value.day, 23, 59);
+
+bool classChallengeUsesDateOnlyBoundaries({
+  required DateTime start,
+  required DateTime deadline,
+}) =>
+    start.hour == 0 &&
+    start.minute == 0 &&
+    start.second == 0 &&
+    start.millisecond == 0 &&
+    start.microsecond == 0 &&
+    deadline.hour == 23 &&
+    deadline.minute == 59 &&
+    deadline.second == 0 &&
+    deadline.millisecond == 0 &&
+    deadline.microsecond == 0;
+
 class ClassChallengesPane extends StatelessWidget {
   const ClassChallengesPane({
     super.key,
@@ -663,6 +687,9 @@ Future<void> _showChallengeEditor(
   var deadline =
       existing?.deadline.toLocal() ??
       DateTime.now().add(const Duration(days: 7));
+  var specificTimesEnabled = existing == null
+      ? false
+      : !classChallengeUsesDateOnlyBoundaries(start: start, deadline: deadline);
   String? error;
   String? titleError;
   String? descriptionError;
@@ -686,6 +713,12 @@ Future<void> _showChallengeEditor(
               : int.tryParse(target.text.trim());
           final titleValue = title.text.trim();
           final descriptionValue = description.text.trim();
+          final effectiveStart = specificTimesEnabled
+              ? start
+              : classChallengeStartOfDay(start);
+          final effectiveDeadline = specificTimesEnabled
+              ? deadline
+              : classChallengeEndOfDay(deadline);
           if (titleValue.isEmpty ||
               titleValue.length > ClassChallenge.maxTitleLength) {
             setDialogState(() {
@@ -709,7 +742,7 @@ Future<void> _showChallengeEditor(
             });
             return;
           }
-          if (!deadline.isAfter(start)) {
+          if (!effectiveDeadline.isAfter(effectiveStart)) {
             setDialogState(() {
               error = 'Deadline must be after the start time.';
               titleError = null;
@@ -755,8 +788,8 @@ Future<void> _showChallengeEditor(
             movementName: movement.name,
             difficulty: movement.difficulty,
             prop: prop,
-            startAt: start.toUtc(),
-            deadline: deadline.toUtc(),
+            startAt: effectiveStart.toUtc(),
+            deadline: effectiveDeadline.toUtc(),
             attemptLimit: limit,
             targetScore: targetScore,
             archivedAt: existing?.archivedAt,
@@ -881,22 +914,39 @@ Future<void> _showChallengeEditor(
                       title: 'Schedule',
                       description:
                           'Set when trainees can start and when the challenge closes.',
-                      child: _ResponsivePair(
-                        wide: wide,
-                        left: _DateTimeField(
-                          key: const Key('class_challenge_start'),
-                          label: 'Start',
-                          value: start,
-                          onChanged: (value) =>
-                              setDialogState(() => start = value),
-                        ),
-                        right: _DateTimeField(
-                          key: const Key('class_challenge_deadline'),
-                          label: 'Deadline',
-                          value: deadline,
-                          onChanged: (value) =>
-                              setDialogState(() => deadline = value),
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _SpecificTimesToggle(
+                            toggleKey: const Key(
+                              'class_challenge_specific_times_toggle',
+                            ),
+                            value: specificTimesEnabled,
+                            onChanged: (value) => setDialogState(
+                              () => specificTimesEnabled = value,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          _ResponsivePair(
+                            wide: wide,
+                            left: _DateTimeField(
+                              key: const Key('class_challenge_start'),
+                              label: 'Start',
+                              value: start,
+                              showTime: specificTimesEnabled,
+                              onChanged: (value) =>
+                                  setDialogState(() => start = value),
+                            ),
+                            right: _DateTimeField(
+                              key: const Key('class_challenge_deadline'),
+                              label: 'Deadline',
+                              value: deadline,
+                              showTime: specificTimesEnabled,
+                              onChanged: (value) =>
+                                  setDialogState(() => deadline = value),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: AppSpacing.lg),
@@ -1517,10 +1567,12 @@ class _DateTimeField extends StatelessWidget {
     super.key,
     required this.label,
     required this.value,
+    required this.showTime,
     required this.onChanged,
   });
   final String label;
   final DateTime value;
+  final bool showTime;
   final ValueChanged<DateTime> onChanged;
 
   @override
@@ -1577,128 +1629,203 @@ class _DateTimeField extends StatelessWidget {
                   }
                 },
               ),
-        const SizedBox(height: AppSpacing.md),
-        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
-            ? Row(
-                children: [
-                  Icon(
-                    FluentIcons.clock,
-                    size: 14,
-                    color: context.isHighContrast
-                        ? context.elixTextPrimary
-                        : context.elixColors.brandSecondary,
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Text(
-                    'Time',
-                    style: AppTheme.label(color: context.elixTextPrimary),
-                  ),
-                ],
-              )
-            : shad.ShadTimePicker.period(
-                key: Key('class_challenge_${fieldKey}_time'),
-                initialValue: shad.ShadTimeOfDay(
-                  hour: displayHour,
-                  minute: value.minute,
-                  second: 0,
-                  period: displayPeriod == 'AM'
-                      ? shad.ShadDayPeriod.am
-                      : shad.ShadDayPeriod.pm,
-                ),
-                initialDayPeriod: displayPeriod == 'AM'
+        if (showTime) ...[
+          const SizedBox(height: AppSpacing.md),
+          if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null)
+            _FallbackTimePicker(
+              fieldKey: fieldKey,
+              value: value,
+              displayHour: displayHour,
+              displayPeriod: displayPeriod,
+              onChanged: onChanged,
+            )
+          else
+            shad.ShadTimePicker.period(
+              key: Key('class_challenge_${fieldKey}_time'),
+              initialValue: shad.ShadTimeOfDay(
+                hour: displayHour,
+                minute: value.minute,
+                second: 0,
+                period: displayPeriod == 'AM'
                     ? shad.ShadDayPeriod.am
                     : shad.ShadDayPeriod.pm,
-                minHour: 1,
-                maxHour: 12,
-                showHours: true,
-                showMinutes: true,
-                showSeconds: false,
-                onChanged: (time) => onChanged(
-                  classChallengeDateTimeFrom12Hour(
-                    value,
-                    hour: time.hour,
-                    minute: time.minute,
-                    period: time.period == shad.ShadDayPeriod.am ? 'AM' : 'PM',
-                  ),
+              ),
+              initialDayPeriod: displayPeriod == 'AM'
+                  ? shad.ShadDayPeriod.am
+                  : shad.ShadDayPeriod.pm,
+              minHour: 1,
+              maxHour: 12,
+              showHours: true,
+              showMinutes: true,
+              showSeconds: false,
+              onChanged: (time) => onChanged(
+                classChallengeDateTimeFrom12Hour(
+                  value,
+                  hour: time.hour,
+                  minute: time.minute,
+                  period: time.period == shad.ShadDayPeriod.am ? 'AM' : 'PM',
                 ),
               ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _FallbackTimePicker extends StatelessWidget {
+  const _FallbackTimePicker({
+    required this.fieldKey,
+    required this.value,
+    required this.displayHour,
+    required this.displayPeriod,
+    required this.onChanged,
+  });
+
+  final String fieldKey;
+  final DateTime value;
+  final int displayHour;
+  final String displayPeriod;
+  final ValueChanged<DateTime> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Icon(
+            FluentIcons.clock,
+            size: 14,
+            color: context.isHighContrast
+                ? context.elixTextPrimary
+                : context.elixColors.brandSecondary,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Text('Time', style: AppTheme.label(color: context.elixTextPrimary)),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Row(
+        children: [
+          Expanded(
+            child: ComboBox<int>(
+              key: Key('class_challenge_${fieldKey}_hour'),
+              value: displayHour,
+              isExpanded: true,
+              placeholder: const Text('Hour'),
+              items: [
+                for (var hour = 1; hour <= 12; hour++)
+                  ComboBoxItem(value: hour, child: Text(hour.toString())),
+              ],
+              onChanged: (hour) => onChanged(
+                classChallengeDateTimeFrom12Hour(
+                  value,
+                  hour: hour ?? displayHour,
+                  minute: value.minute,
+                  period: displayPeriod,
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+            child: Text(
+              ':',
+              style: AppTheme.body.copyWith(
+                fontWeight: FontWeight.w700,
+                color: context.elixTextPrimary,
+              ),
+            ),
+          ),
+          Expanded(
+            child: ComboBox<int>(
+              key: Key('class_challenge_${fieldKey}_minute'),
+              value: value.minute,
+              isExpanded: true,
+              placeholder: const Text('Minute'),
+              items: [
+                for (var minute = 0; minute < 60; minute++)
+                  ComboBoxItem(
+                    value: minute,
+                    child: Text(minute.toString().padLeft(2, '0')),
+                  ),
+              ],
+              onChanged: (minute) => onChanged(
+                classChallengeDateTimeFrom12Hour(
+                  value,
+                  hour: displayHour,
+                  minute: minute ?? value.minute,
+                  period: displayPeriod,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: ComboBox<String>(
+              key: Key('class_challenge_${fieldKey}_period'),
+              value: displayPeriod,
+              isExpanded: true,
+              items: const [
+                ComboBoxItem(value: 'AM', child: Text('AM')),
+                ComboBoxItem(value: 'PM', child: Text('PM')),
+              ],
+              onChanged: (period) => onChanged(
+                classChallengeDateTimeFrom12Hour(
+                  value,
+                  hour: displayHour,
+                  minute: value.minute,
+                  period: period ?? displayPeriod,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+class _SpecificTimesToggle extends StatelessWidget {
+  const _SpecificTimesToggle({
+    required this.toggleKey,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final Key toggleKey;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const label = SizedBox(
+      width: 180,
+      child: Text('Set specific times (optional)', softWrap: true),
+    );
+    final toggle =
+        context.isHighContrast || shad.ShadTheme.maybeOf(context) == null
+        ? ToggleSwitch(
+            key: toggleKey,
+            checked: value,
+            content: label,
+            onChanged: onChanged,
+          )
+        : shad.ShadSwitch(
+            key: toggleKey,
+            value: value,
+            label: label,
+            onChanged: onChanged,
+          );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        toggle,
         const SizedBox(height: AppSpacing.xs),
-        Row(
-          children: [
-            Expanded(
-              child: ComboBox<int>(
-                key: Key('class_challenge_${fieldKey}_hour'),
-                value: displayHour,
-                isExpanded: true,
-                placeholder: const Text('Hour'),
-                items: [
-                  for (var hour = 1; hour <= 12; hour++)
-                    ComboBoxItem(value: hour, child: Text(hour.toString())),
-                ],
-                onChanged: (hour) => onChanged(
-                  classChallengeDateTimeFrom12Hour(
-                    value,
-                    hour: hour ?? displayHour,
-                    minute: value.minute,
-                    period: displayPeriod,
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-              child: Text(
-                ':',
-                style: AppTheme.body.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: context.elixTextPrimary,
-                ),
-              ),
-            ),
-            Expanded(
-              child: ComboBox<int>(
-                key: Key('class_challenge_${fieldKey}_minute'),
-                value: value.minute,
-                isExpanded: true,
-                placeholder: const Text('Minute'),
-                items: [
-                  for (var minute = 0; minute < 60; minute++)
-                    ComboBoxItem(
-                      value: minute,
-                      child: Text(minute.toString().padLeft(2, '0')),
-                    ),
-                ],
-                onChanged: (minute) => onChanged(
-                  classChallengeDateTimeFrom12Hour(
-                    value,
-                    hour: displayHour,
-                    minute: minute ?? value.minute,
-                    period: displayPeriod,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: ComboBox<String>(
-                key: Key('class_challenge_${fieldKey}_period'),
-                value: displayPeriod,
-                isExpanded: true,
-                items: const [
-                  ComboBoxItem(value: 'AM', child: Text('AM')),
-                  ComboBoxItem(value: 'PM', child: Text('PM')),
-                ],
-                onChanged: (period) => onChanged(
-                  classChallengeDateTimeFrom12Hour(
-                    value,
-                    hour: displayHour,
-                    minute: value.minute,
-                    period: period ?? displayPeriod,
-                  ),
-                ),
-              ),
-            ),
-          ],
+        Text(
+          'When off, the challenge uses the full selected start and deadline dates.',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
       ],
     );

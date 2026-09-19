@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_form_field.dart';
@@ -569,25 +572,11 @@ class _ActivityLearningMaterialsTraineeSectionState
       } else {
         final file = await widget.repository.openFile(material);
         if (!mounted || generation != _loadGeneration) return;
-        if (material.type == ActivityLearningMaterialType.image) {
-          await _showTraineeMaterialDialog(
-            context: context,
-            title: material.displayName,
-            content: SizedBox(
-              width: 760,
-              child: Image.file(file, fit: BoxFit.contain),
-            ),
-          );
-        } else if (material.type == ActivityLearningMaterialType.video) {
-          await _showTraineeMaterialDialog(
-            context: context,
-            title: material.displayName,
-            content: _MaterialVideoPlayer(file: file),
-            maxHeight: 520,
-          );
-        } else {
-          await Process.start('explorer.exe', [file.path]);
-        }
+        await _showTraineeMaterialViewer(
+          context: context,
+          material: material,
+          file: file,
+        );
       }
     } catch (_) {
       if (mounted && generation == _loadGeneration) {
@@ -654,30 +643,45 @@ class _MaterialVideoPlayerState extends State<_MaterialVideoPlayer> {
   }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 760,
-    height: 430,
-    child: ElixrVideoPlayer(
-      source: Uri.file(widget.file.path),
-      mirrored: false,
-      session: _session,
-    ),
+  Widget build(BuildContext context) => ElixrVideoPlayer(
+    source: Uri.file(widget.file.path),
+    mirrored: false,
+    session: _session,
   );
 }
 
-Future<void> _showTraineeMaterialDialog({
+Future<void> _showTraineeMaterialViewer({
   required BuildContext context,
-  required String title,
-  required Widget content,
-  double maxHeight = 640,
+  required ActivityLearningMaterial material,
+  required File file,
 }) {
+  final viewport = MediaQuery.sizeOf(context);
+  final maxWidth = math.min(1040.0, math.max(320.0, viewport.width - 48));
+  final maxHeight = math.min(840.0, math.max(360.0, viewport.height - 48));
+  // ElixDialog owns the fixed header, body padding, and footer. Reserving this
+  // space keeps every viewer action inside the desktop viewport at 720px high.
+  final contentHeight = math.max(180.0, maxHeight - 216);
+  final content = switch (material.type) {
+    ActivityLearningMaterialType.video => _MaterialVideoPlayer(file: file),
+    ActivityLearningMaterialType.image => _MaterialImageViewer(file: file),
+    ActivityLearningMaterialType.pdf => _MaterialPdfViewer(file: file),
+    ActivityLearningMaterialType.link => const SizedBox.shrink(),
+  };
   return ElixDialog.show<void>(
     context,
-    title: title,
-    maxWidth: 800,
+    title: material.displayName,
+    subtitle: switch (material.type) {
+      ActivityLearningMaterialType.video => 'Video',
+      ActivityLearningMaterialType.image => 'Image',
+      ActivityLearningMaterialType.pdf => 'PDF document',
+      ActivityLearningMaterialType.link => 'Link',
+    },
+    icon: activityLearningMaterialIcon(material.type),
+    maxWidth: maxWidth,
     maxHeight: maxHeight,
-    scrollableContent: true,
-    content: content,
+    scrollableContent: false,
+    expandSingleAction: false,
+    content: SizedBox(height: contentHeight, child: content),
     actions: [
       ElixPrimaryButton(
         label: 'Close',
@@ -686,6 +690,153 @@ Future<void> _showTraineeMaterialDialog({
         onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
       ),
     ],
+  );
+}
+
+class _MaterialImageViewer extends StatelessWidget {
+  const _MaterialImageViewer({required this.file});
+
+  final File file;
+
+  @override
+  Widget build(BuildContext context) => _MaterialViewerCanvas(
+    child: Image.file(
+      file,
+      fit: BoxFit.contain,
+      errorBuilder: (_, _, _) => const _MaterialViewerFailure(
+        title: 'Image unavailable',
+        message: 'This image could not be displayed.',
+      ),
+    ),
+  );
+}
+
+class _MaterialPdfViewer extends StatefulWidget {
+  const _MaterialPdfViewer({required this.file});
+
+  final File file;
+
+  @override
+  State<_MaterialPdfViewer> createState() => _MaterialPdfViewerState();
+}
+
+class _MaterialPdfViewerState extends State<_MaterialPdfViewer> {
+  final _controller = PdfViewerController();
+  var _ready = false;
+
+  Future<void> _resetZoom() async {
+    if (!_controller.isReady) return;
+    final fitScale = _controller.alternativeFitScale;
+    if (fitScale != null) {
+      await _controller.setZoom(Offset.zero, fitScale);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Align(
+        alignment: Alignment.centerRight,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: 'Zoom out',
+              child: IconButton(
+                icon: const Icon(FluentIcons.remove),
+                onPressed: _ready
+                    ? () => unawaited(_controller.zoomDown())
+                    : null,
+              ),
+            ),
+            Tooltip(
+              message: 'Reset zoom',
+              child: IconButton(
+                icon: const Icon(FluentIcons.refresh),
+                onPressed: _ready ? () => unawaited(_resetZoom()) : null,
+              ),
+            ),
+            Tooltip(
+              message: 'Zoom in',
+              child: IconButton(
+                icon: const Icon(FluentIcons.add),
+                onPressed: _ready
+                    ? () => unawaited(_controller.zoomUp())
+                    : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Expanded(
+        child: _MaterialViewerCanvas(
+          child: PdfViewer.file(
+            widget.file.path,
+            controller: _controller,
+            params: PdfViewerParams(
+              backgroundColor: context.isHighContrast
+                  ? context.elixCardSurface
+                  : context.elixBackground,
+              loadingBannerBuilder: (_, _, _) =>
+                  const _MaterialViewerLoading(message: 'Opening PDF…'),
+              errorBannerBuilder: (_, _, _, _) => const _MaterialViewerFailure(
+                title: 'PDF unavailable',
+                message: 'This document could not be displayed.',
+              ),
+              onViewerReady: (_, _) {
+                if (mounted) setState(() => _ready = true);
+              },
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+class _MaterialViewerCanvas extends StatelessWidget {
+  const _MaterialViewerCanvas({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: context.isHighContrast
+          ? context.elixCardSurface
+          : context.elixPanelSurface,
+      borderRadius: BorderRadius.circular(ElixRadius.card),
+      border: Border.all(color: context.elixBorder),
+    ),
+    child: Center(child: child),
+  );
+}
+
+class _MaterialViewerLoading extends StatelessWidget {
+  const _MaterialViewerLoading({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) =>
+      Center(child: ElixStatusPanel(isLoading: true, message: message));
+}
+
+class _MaterialViewerFailure extends StatelessWidget {
+  const _MaterialViewerFailure({required this.title, required this.message});
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: ElixStatusPanel(
+      isError: true,
+      icon: FluentIcons.warning,
+      title: title,
+      message: message,
+    ),
   );
 }
 
@@ -714,21 +865,24 @@ class _TraineeMaterialRow extends StatelessWidget {
           Icon(activityLearningMaterialIcon(material.type)),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  material.displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
+            child: Tooltip(
+              message: material.displayName,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    material.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                  Text(
+                    '${activityLearningMaterialTypeLabel(material.type)}${material.sizeBytes == null ? '' : ' · ${activityLearningMaterialSizeLabel(material.sizeBytes)}'}',
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           if (opening)

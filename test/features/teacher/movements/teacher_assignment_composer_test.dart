@@ -663,6 +663,109 @@ void main() {
     }
   }
 
+  Future<Future<bool?> Function()> pumpComposerLauncher(
+    WidgetTester tester, {
+    Movement? officialMovement,
+    GroupAssignment? existingAssignment,
+  }) async {
+    late BuildContext launcherContext;
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ElixShadThemeBridge(
+          child: shad.ShadToaster(
+            child: Builder(
+              builder: (context) {
+                launcherContext = context;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    return () => showTeacherAssignmentComposer(
+      launcherContext,
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      groups: const [group],
+      movementRepository: movements,
+      assignmentRepository: assignments,
+      groupRepository: groups,
+      creationService: service(),
+      officialMovement: officialMovement,
+      existingAssignment: existingAssignment,
+    );
+  }
+
+  testWidgets(
+    'successful new assignment shows a success toast after returning',
+    (tester) async {
+      final openComposer = await pumpComposerLauncher(
+        tester,
+        officialMovement: movementCatalog.first,
+      );
+
+      final result = openComposer();
+      await tester.pumpAndSettle();
+      final publish = find.byKey(const Key('teacher_assignment_publish_now'));
+      await tester.ensureVisible(publish);
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
+
+      expect(await result, isTrue);
+      expect(find.byKey(const Key('elix_toast')), findsOneWidget);
+      expect(find.text('Assignment created successfully.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'successful assignment edit shows an updated success toast after returning',
+    (tester) async {
+      final existing = await service().create(
+        group: group,
+        officialMovement: movementCatalog.first,
+      );
+      final openComposer = await pumpComposerLauncher(
+        tester,
+        existingAssignment: existing,
+      );
+
+      final result = openComposer();
+      await tester.pumpAndSettle();
+      final saveChanges = find.byKey(
+        const Key('teacher_assignment_save_changes'),
+      );
+      await tester.ensureVisible(saveChanges);
+      await tester.tap(saveChanges);
+      await tester.pumpAndSettle();
+
+      expect(await result, isTrue);
+      expect(find.byKey(const Key('elix_toast')), findsOneWidget);
+      expect(find.text('Assignment updated successfully.'), findsOneWidget);
+    },
+  );
+
+  testWidgets('dismissing the composer does not show a success toast', (
+    tester,
+  ) async {
+    final openComposer = await pumpComposerLauncher(
+      tester,
+      officialMovement: movementCatalog.first,
+    );
+
+    final result = openComposer();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('teacher_assignment_back')));
+    await tester.pumpAndSettle();
+
+    expect(await result, isNull);
+    expect(find.byKey(const Key('elix_toast')), findsNothing);
+  });
+
   testWidgets(
     'Assignment Studio Back is leading and returns to the previous route',
     (tester) async {

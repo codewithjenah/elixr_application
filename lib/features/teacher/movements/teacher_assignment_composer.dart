@@ -17,6 +17,7 @@ import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_toast.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
@@ -282,7 +283,7 @@ Future<bool?> showTeacherAssignmentComposer(
   GroupAssignment? existingAssignment,
   Future<bool> Function()? ensureTeacherAuthorization,
   ActivityLearningMaterialRepository? materialRepository,
-}) {
+}) async {
   final reduceMotion = MediaQuery.disableAnimationsOf(context);
   final service =
       creationService ??
@@ -294,7 +295,7 @@ Future<bool?> showTeacherAssignmentComposer(
         movementRepository: movementRepository,
         ensureTeacherAuthorization: ensureTeacherAuthorization,
       );
-  return Navigator.of(context).push<bool>(
+  final result = await Navigator.of(context).push<bool>(
     PageRouteBuilder<bool>(
       transitionDuration: reduceMotion
           ? Duration.zero
@@ -336,6 +337,15 @@ Future<bool?> showTeacherAssignmentComposer(
       },
     ),
   );
+  if (result == true && context.mounted) {
+    ElixToast.showSuccess(
+      context,
+      message: existingAssignment == null
+          ? 'Assignment created successfully.'
+          : 'Assignment updated successfully.',
+    );
+  }
+  return result;
 }
 
 class TeacherAssignmentComposer extends StatefulWidget {

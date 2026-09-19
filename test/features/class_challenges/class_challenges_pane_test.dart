@@ -12,6 +12,7 @@ import 'package:elixr_application/data/repositories/class_challenge_repository.d
 import 'package:elixr_application/features/class_challenges/class_challenges_pane.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _FakeClassChallengeRepository implements ClassChallengeRepository {
   _FakeClassChallengeRepository({this.challenges = const []});
@@ -182,6 +183,22 @@ void main() {
     expect(option.prop, TrainingProp.bottle);
     expect(find.byType(ClassChallengeMovementOption), findsWidgets);
     expect(find.byType(DatePicker), findsNWidgets(2));
+    expect(
+      find.byKey(const Key('class_challenge_specific_times_toggle')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('class_challenge_start_hour')), findsNothing);
+    expect(
+      find.byKey(const Key('class_challenge_deadline_hour')),
+      findsNothing,
+    );
+    expect(find.byType(DatePicker), findsNWidgets(2));
+    tester
+        .widget<ToggleSwitch>(
+          find.byKey(const Key('class_challenge_specific_times_toggle')),
+        )
+        .onChanged!(true);
+    await tester.pump();
     final startHour = tester.widget<ComboBox<int>>(
       find.byKey(const Key('class_challenge_start_hour')),
     );
@@ -205,6 +222,33 @@ void main() {
         expect((item.child as Text).data, minute.toString().padLeft(2, '0'));
       }
     }
+    tester
+        .widget<ComboBox<int>>(
+          find.byKey(const Key('class_challenge_start_minute')),
+        )
+        .onChanged!(7);
+    await tester.pump();
+    tester
+        .widget<ToggleSwitch>(
+          find.byKey(const Key('class_challenge_specific_times_toggle')),
+        )
+        .onChanged!(false);
+    await tester.pump();
+    expect(find.byKey(const Key('class_challenge_start_minute')), findsNothing);
+    tester
+        .widget<ToggleSwitch>(
+          find.byKey(const Key('class_challenge_specific_times_toggle')),
+        )
+        .onChanged!(true);
+    await tester.pump();
+    expect(
+      tester
+          .widget<ComboBox<int>>(
+            find.byKey(const Key('class_challenge_start_minute')),
+          )
+          .value,
+      7,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -249,6 +293,35 @@ void main() {
         .whereType<ClassChallengeMovementOption>()
         .firstWhere((item) => item.movement.name == 'Hand Stall');
     expect(option.prop, TrainingProp.shaker);
+  });
+
+  testWidgets('Shad schedule uses only its two time pickers', (tester) async {
+    await _pumpTeacherPane(
+      tester,
+      const Size(1440, 900),
+      shadTheme: true,
+    );
+    await tester.tap(find.byKey(const Key('class_challenge_create')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('class_challenge_start_time')), findsNothing);
+    expect(find.byKey(const Key('class_challenge_deadline_time')), findsNothing);
+    tester
+        .widget<shad.ShadSwitch>(
+          find.byKey(const Key('class_challenge_specific_times_toggle')),
+        )
+        .onChanged!(true);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(shad.ShadTimePicker), findsNWidgets(2));
+    expect(find.byKey(const Key('class_challenge_start_time')), findsOneWidget);
+    expect(
+      find.byKey(const Key('class_challenge_deadline_time')),
+      findsOneWidget,
+    );
+    expect(find.byType(ComboBox<int>), findsNothing);
+    expect(find.byType(ComboBox<String>), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('create dialog stays usable on a narrow window', (tester) async {
@@ -325,7 +398,21 @@ void main() {
     );
   });
 
-  testWidgets('creating stores the selected 12-hour time as UTC', (
+  test('date-only boundaries accept a same-day challenge', () {
+    final date = DateTime(2026, 9, 11, 14, 23);
+    final start = classChallengeStartOfDay(date);
+    final deadline = classChallengeEndOfDay(date);
+
+    expect(start, DateTime(2026, 9, 11));
+    expect(deadline, DateTime(2026, 9, 11, 23, 59));
+    expect(deadline.isAfter(start), isTrue);
+    expect(
+      classChallengeUsesDateOnlyBoundaries(start: start, deadline: deadline),
+      isTrue,
+    );
+  });
+
+  testWidgets('date-only scheduling persists selected date boundaries', (
     tester,
   ) async {
     final repository = _FakeClassChallengeRepository();
@@ -354,6 +441,48 @@ void main() {
       'Complete the movement cleanly.',
     );
 
+    await tester.tap(find.text('Create Challenge'));
+    await tester.pumpAndSettle();
+
+    expect(repository.createdChallenge, isNotNull);
+    expect(
+      repository.createdChallenge!.startAt,
+      DateTime(startDate.year, startDate.month, startDate.day).toUtc(),
+    );
+    expect(
+      repository.createdChallenge!.deadline,
+      DateTime(deadline.year, deadline.month, deadline.day, 23, 59).toUtc(),
+    );
+  });
+
+  testWidgets('specific times preserve selected 12-hour minutes as UTC', (
+    tester,
+  ) async {
+    final repository = _FakeClassChallengeRepository();
+    await _pumpTeacherPane(
+      tester,
+      const Size(1440, 900),
+      repository: repository,
+    );
+    await tester.tap(find.byKey(const Key('class_challenge_create')));
+    await tester.pumpAndSettle();
+    final startDate = tester
+        .widget<DatePicker>(find.byKey(const Key('class_challenge_start_date')))
+        .selected!;
+    tester
+        .widget<ToggleSwitch>(
+          find.byKey(const Key('class_challenge_specific_times_toggle')),
+        )
+        .onChanged!(true);
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('class_challenge_title')),
+      'Evening challenge',
+    );
+    await tester.enterText(
+      find.byKey(const Key('class_challenge_description')),
+      'Complete the movement cleanly.',
+    );
     tester
         .widget<ComboBox<int>>(
           find.byKey(const Key('class_challenge_start_hour')),
@@ -372,16 +501,13 @@ void main() {
         )
         .onChanged!('PM');
     await tester.pump();
-
     await tester.tap(find.text('Create Challenge'));
     await tester.pumpAndSettle();
 
-    expect(repository.createdChallenge, isNotNull);
     expect(
       repository.createdChallenge!.startAt,
       DateTime(startDate.year, startDate.month, startDate.day, 17, 23).toUtc(),
     );
-    expect(repository.createdChallenge!.deadline, deadline.toUtc());
   });
 
   testWidgets('empty title still blocks save', (tester) async {
@@ -654,6 +780,7 @@ Future<void> _pumpTeacherPane(
   WidgetTester tester,
   Size size, {
   _FakeClassChallengeRepository? repository,
+  bool shadTheme = false,
 }) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -663,7 +790,21 @@ Future<void> _pumpTeacherPane(
     FluentApp(
       theme: AppTheme.dark,
       home: ScaffoldPage(
-        content: ClassChallengesPane(
+        content: shadTheme
+            ? ElixShadThemeBridge(
+                child: ClassChallengesPane(
+                  repository: repository ?? _FakeClassChallengeRepository(),
+                  groupId: 'group-1',
+                  teacherId: 'teacher-1',
+                  teacherDisplayName: 'Coach',
+                  currentUserId: 'teacher-1',
+                  isTeacher: true,
+                  groupIsActive: true,
+                  participantCount: 0,
+                  onOpenLeaderboard: (_) {},
+                ),
+              )
+            : ClassChallengesPane(
           repository: repository ?? _FakeClassChallengeRepository(),
           groupId: 'group-1',
           teacherId: 'teacher-1',

@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:io';
 
 import 'package:elixr_application/core/widgets/elix_form_field.dart';
+import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/activity_learning_material.dart';
 import 'package:elixr_application/data/repositories/activity_learning_material_repository.dart';
@@ -580,6 +581,117 @@ void main() {
       TextOverflow.ellipsis,
     );
   });
+
+  testWidgets(
+    'trainee image viewer keeps its controls outside the media viewport',
+    (tester) async {
+      const image = ActivityLearningMaterial(
+        id: 'image-viewer',
+        assignmentId: 'assignment-1',
+        type: ActivityLearningMaterialType.image,
+        displayName: 'Pour sequence.png',
+        storagePath: 'image-viewer',
+      );
+      final directory = Directory.systemTemp.createTempSync(
+        'elixr-image-viewer-test-',
+      );
+      addTearDown(() {
+        if (directory.existsSync()) directory.deleteSync(recursive: true);
+      });
+      final imageFile =
+          File('${directory.path}${Platform.pathSeparator}image.png')
+            ..writeAsBytesSync(const [
+              0x89,
+              0x50,
+              0x4E,
+              0x47,
+              0x0D,
+              0x0A,
+              0x1A,
+              0x0A,
+              0x00,
+              0x00,
+              0x00,
+              0x0D,
+              0x49,
+              0x48,
+              0x44,
+              0x52,
+              0x00,
+              0x00,
+              0x00,
+              0x01,
+              0x00,
+              0x00,
+              0x00,
+              0x01,
+              0x08,
+              0x06,
+              0x00,
+              0x00,
+              0x00,
+              0x1F,
+              0x15,
+              0xC4,
+              0x89,
+              0x00,
+              0x00,
+              0x00,
+              0x0D,
+              0x49,
+              0x44,
+              0x41,
+              0x54,
+              0x08,
+              0xD7,
+              0x63,
+              0xF8,
+              0xCF,
+              0xC0,
+              0xF0,
+              0x1F,
+              0x00,
+              0x05,
+              0x00,
+              0x01,
+              0xFF,
+              0x89,
+              0x99,
+              0x3D,
+              0x1D,
+              0x00,
+              0x00,
+              0x00,
+              0x00,
+              0x49,
+              0x45,
+              0x4E,
+              0x44,
+              0xAE,
+              0x42,
+              0x60,
+              0x82,
+            ]);
+      final repository = _MaterialsRepository(materials: [image])
+        ..openFuture = Future.value(imageFile);
+
+      await pump(
+        tester,
+        ActivityLearningMaterialsTraineeSection(
+          assignmentId: 'assignment-1',
+          repository: repository,
+        ),
+      );
+      await tester.tap(find.text('View'));
+      await flush(tester);
+
+      final dialog = tester.widget<ElixDialog>(find.byType(ElixDialog));
+      expect(dialog.scrollableContent, isFalse);
+      expect(dialog.subtitle, 'Image');
+      expect(find.text('Close'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'trainee discards a file open result from a previous assignment',
