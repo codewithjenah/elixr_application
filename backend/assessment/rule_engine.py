@@ -114,6 +114,27 @@ def movement_required_prop_type(movement: str) -> str | None:
     return str(required) if required else None
 
 
+def movement_supported_prop_types(movement: str) -> tuple[str, ...]:
+    """Return the official prop variants configured for ``movement``.
+
+    This mirrors Flutter's ``Movement.supportedProps`` semantics for backend
+    consumers. Unknown or malformed entries fail closed so Playground cannot
+    evaluate a rule with a prop variant absent from the official catalog.
+    ``required_prop_type`` remains for Guided Practice's existing contract.
+    """
+    cfg = MOVEMENT_CONFIG.get(movement)
+    if cfg is None:
+        return ()
+    raw = cfg.get("supported_prop_types")
+    if not isinstance(raw, (tuple, list)):
+        return ()
+    supported = tuple(str(prop) for prop in raw)
+    valid = {"bottle", "shaker", "bottle_and_shaker"}
+    if not supported or any(prop not in valid for prop in supported):
+        return ()
+    return supported
+
+
 def movement_is_easy(movement: str) -> bool:
     cfg = MOVEMENT_CONFIG.get(movement)
     return cfg is not None and cfg.get("difficulty") == "Easy"

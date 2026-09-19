@@ -12,8 +12,9 @@ from assessment.freestyle import (
     sanitize_allowed_movements,
     static_quality,
 )
+from assessment.rule_engine import movement_supported_prop_types
 from assessment.rules.base import CriterionCheck, RuleResult
-from vision.types import HandsResult, Point2D, PropDetection
+from vision.types import HandLandmarks, HandsResult, Point2D, PropDetection
 
 
 def _box(
@@ -147,6 +148,7 @@ def test_sanitize_allowed_movements_drops_internal_and_unknown():
             ("Not A Move", "bottle"),
             ("Bottle in a tin", "bottle"),
             ("Bottle in a tin", "bottle_and_shaker"),
+            ("Normal Grip", "shaker"),
         ]
     )
     assert ("Normal Grip", "bottle") in cleaned
@@ -154,6 +156,38 @@ def test_sanitize_allowed_movements_drops_internal_and_unknown():
     assert ("Not A Move", "bottle") not in cleaned
     assert ("Bottle in a tin", "bottle") not in cleaned
     assert ("Bottle in a tin", "bottle_and_shaker") in cleaned
+    assert ("Normal Grip", "shaker") not in cleaned
+
+
+def test_backend_freestyle_prop_variants_match_the_official_catalog():
+    # Mirrors Flutter movementCatalog: the five medium stalls support both
+    # single props, Bottle in a tin is dual-prop, all remaining variants are
+    # bottle-only.
+    bottle_or_shaker = {
+        "Hand Stall",
+        "One Finger Stall",
+        "Forearm Stall",
+        "Elbow Stall",
+        "Wrist Stall",
+    }
+    dual_prop = {"Bottle in a tin"}
+    expected_bottle_only = {
+        "Normal Grip",
+        "Bartender's Grip",
+        "Reverse Grip",
+        "Claw Grip",
+        "Body Grip",
+        "Reverse Forearm Stall",
+        "Shoulder Stall",
+        "Double Hand Stall",
+        "Double Forearm Stall",
+    }
+    for movement in bottle_or_shaker:
+        assert movement_supported_prop_types(movement) == ("bottle", "shaker")
+    for movement in dual_prop:
+        assert movement_supported_prop_types(movement) == ("bottle_and_shaker",)
+    for movement in expected_bottle_only:
+        assert movement_supported_prop_types(movement) == ("bottle",)
 
 
 def test_single_frame_does_not_confirm():
@@ -268,6 +302,152 @@ def test_allowlist_is_movement_and_prop_specific():
     assert event is not None
     assert event.kind == "advanced_technique"
     assert event.movement is None
+
+
+def test_shaker_variant_emits_an_unlocked_movement_event():
+    evaluate = _ScriptedEvaluate({"Hand Stall": _valid("hand_stall_locked")})
+    recognizer = _recognizer(
+        evaluate,
+        allowed={("Hand Stall", "shaker")},
+        confirm=0.15,
+    )
+    event = None
+    for i in range(12):
+        tick = _tick(recognizer, i * 0.05, bottles=[], shakers=[_box()])
+        if tick.event is not None:
+            event = tick.event
+    assert event is not None
+    assert event.kind == "movement"
+    assert event.movement == "Hand Stall"
+    assert event.prop_type == "shaker"
+
+
+def test_bottle_only_movements_are_not_evaluated_for_shaker_detections():
+    evaluate = _ScriptedEvaluate({})
+    recognizer = _recognizer(evaluate)
+    _tick(recognizer, 0.0, bottles=[], shakers=[_box()])
+    evaluated = {movement for movement, prop_type in evaluate.calls if prop_type == "shaker"}
+    assert evaluated == {
+        "Hand Stall",
+        "One Finger Stall",
+        "Forearm Stall",
+        "Elbow Stall",
+        "Wrist Stall",
+    }
+    assert ("Normal Grip", "shaker") not in evaluate.calls
+
+
+def test_bottle_in_a_tin_requires_both_official_props():
+    evaluate = _ScriptedEvaluate({"Bottle in a tin": _valid("bottle_in_tin_locked")})
+    recognizer = _recognizer(
+        evaluate,
+        allowed={("Bottle in a tin", "bottle_and_shaker")},
+        confirm=0.15,
+    )
+    _tick(recognizer, 0.0, bottles=[_box()], shakers=[])
+    assert ("Bottle in a tin", "bottle_and_shaker") not in evaluate.calls
+
+    event = None
+    for i in range(1, 12):
+        tick = _tick(recognizer, i * 0.05, bottles=[_box()], shakers=[_box(track_id=2)])
+        if tick.event is not None:
+            event = tick.event
+    assert event is not None
+    assert event.kind == "movement"
+    assert event.movement == "Bottle in a tin"
+    assert event.prop_type == "bottle_and_shaker"
+
+
+def test_candidate_temporal_inputs_are_isolated_and_reset():
+    class _TemporalEvaluate:
+        def __init__(self):
+            self.expected_hips: dict[str, Point2D] = {}
+            self.calls: list[str] = []
+
+        def __call__(self, movement, bottle, pose, hands, prev_hip, state=None, **kwargs):
+            state = state or {}
+            assert state.get("owner", movement) == movement
+            assert prev_hip == self.expected_hips.get(movement)
+            next_hip = Point2D(float(len(self.calls) + 1), 0.0)
+            self.expected_hips[movement] = next_hip
+            self.calls.append(movement)
+            return _invalid(), next_hip, {"owner": movement}
+
+    evaluate = _TemporalEvaluate()
+    recognizer = _recognizer(evaluate)
+    _tick(recognizer, 0.0)
+    first_frame_candidates = set(evaluate.calls)
+    _tick(recognizer, 0.05)
+    assert {movement for movement, _ in recognizer._prev_hips} == first_frame_candidates
+    assert {movement for movement, _ in recognizer._states} == first_frame_candidates
+    assert all(state["owner"] == movement for (movement, _), state in recognizer._states.items())
+
+    recognizer.reset()
+    assert recognizer._prev_hips == {}
+    assert recognizer._states == {}
+
+
+def _body_grip_hands() -> HandsResult:
+    # Realistic body-wrap fixture: it positively matches Body Grip while the
+    # overlapping neck-grip rules reject its mid-body contact geometry.
+    return HandsResult(
+        hands=[
+            HandLandmarks(
+                points={
+                    0: Point2D(0.42, 0.56),
+                    1: Point2D(0.44, 0.54),
+                    2: Point2D(0.46, 0.53),
+                    3: Point2D(0.48, 0.525),
+                    4: Point2D(0.50, 0.53),
+                    5: Point2D(0.44, 0.53),
+                    6: Point2D(0.47, 0.58),
+                    7: Point2D(0.50, 0.57),
+                    8: Point2D(0.52, 0.55),
+                    9: Point2D(0.45, 0.54),
+                    10: Point2D(0.48, 0.58),
+                    11: Point2D(0.51, 0.57),
+                    12: Point2D(0.52, 0.55),
+                    13: Point2D(0.46, 0.55),
+                    14: Point2D(0.49, 0.59),
+                    15: Point2D(0.51, 0.57),
+                    16: Point2D(0.52, 0.56),
+                    17: Point2D(0.46, 0.56),
+                    18: Point2D(0.49, 0.60),
+                    19: Point2D(0.51, 0.58),
+                    20: Point2D(0.53, 0.56),
+                },
+                handedness="Right",
+            )
+        ]
+    )
+
+
+def test_real_body_grip_fixture_beats_overlapping_neck_grip_rules():
+    recognizer = FreestyleRecognizer(
+        allowed_movements=frozenset({("Body Grip", "bottle")}),
+        confirm_seconds=0.10,
+        exit_seconds=0.15,
+    )
+    body_bottle = PropDetection(
+        x1=300,
+        y1=140,
+        x2=340,
+        y2=340,
+        confidence=0.9,
+    )
+    event = None
+    for i in range(8):
+        tick = _tick(
+            recognizer,
+            i * 0.05,
+            bottles=[body_bottle],
+            hands=_body_grip_hands(),
+        )
+        if tick.event is not None:
+            event = tick.event
+    assert event is not None
+    assert event.kind == "movement"
+    assert event.movement == "Body Grip"
 
 
 def test_pause_freezes_recognition():
@@ -498,7 +678,7 @@ def test_drop_does_not_count_as_flip():
     assert event.identity_revealed is False
 
 
-def test_allowlisted_candidate_wins_over_locked_valid_candidate():
+def test_equally_valid_locked_and_unlocked_candidates_fail_closed():
     evaluate = _ScriptedEvaluate(
         {
             "Normal Grip": _valid(),
@@ -510,16 +690,13 @@ def test_allowlisted_candidate_wins_over_locked_valid_candidate():
         allowed={("Normal Grip", "bottle")},
         confirm=0.15,
     )
-    event = None
+    events = []
     for i in range(12):
         tick = _tick(recognizer, i * 0.05)
         if tick.event is not None:
-            event = tick.event
-    assert event is not None
-    assert event.kind == "movement"
-    assert event.movement == "Normal Grip"
-    assert event.identity_revealed is True
-    assert event.display_label != ADVANCED_DISPLAY
+            events.append(tick.event)
+    assert events == []
+    assert tick.recognition_state == "searching"
 
 
 def test_unconfirmed_yolo_box_does_not_confirm_static_movement():

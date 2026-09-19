@@ -14,7 +14,7 @@ from typing import Callable, Literal, Optional
 from assessment.rule_engine import (
     evaluate_movement,
     movement_is_internal,
-    movement_required_prop_type,
+    movement_supported_prop_types,
 )
 from assessment.rules.base import CriterionCheck, RuleResult
 from config import HAND_BOTTLE_PROXIMITY, MOVEMENT_CONFIG
@@ -77,8 +77,7 @@ def sanitize_allowed_movements(
             continue
         if prop not in {"bottle", "shaker", "bottle_and_shaker"}:
             continue
-        required = movement_required_prop_type(name)
-        if required is not None and prop != required:
+        if prop not in movement_supported_prop_types(name):
             continue
         allowed.add((name, prop))
     return frozenset(allowed)
@@ -139,15 +138,13 @@ def _is_fully_valid(result: RuleResult) -> bool:
     return result.feedback_type == "positive" and result.posture_status == "stable"
 
 
-def _candidate_score(result: RuleResult, *, allowed: bool) -> float | None:
+def _candidate_score(result: RuleResult) -> float | None:
     if not _is_fully_valid(result):
         return None
     satisfied, observed = _criteria_tally(result)
     ratio = (satisfied / observed) if observed else 1.0
-    score = 10.0 + ratio
-    if allowed:
-        score += 5.0
-    return score
+    # Progression controls identity visibility only after classification.
+    return 10.0 + ratio
 
 
 def _palm_near_prop(
@@ -531,7 +528,9 @@ class FreestyleRecognizer:
     _prop: PropStabilizer = field(default_factory=PropStabilizer)
     _flip: FlipTracker = field(default_factory=FlipTracker)
     _states: dict[tuple[str, str], dict] = field(default_factory=dict)
-    _prev_hip: Point2D | None = None
+    _prev_hips: dict[tuple[str, str], Point2D | None] = field(
+        default_factory=dict
+    )
     _candidate_key: tuple[str, str] | None = None
     _candidate_seconds: float = 0.0
     _confirmed_key: tuple[str, str] | None = None
@@ -552,7 +551,7 @@ class FreestyleRecognizer:
         self._prop.reset()
         self._flip.reset()
         self._states.clear()
-        self._prev_hip = None
+        self._prev_hips.clear()
         self._candidate_key = None
         self._candidate_seconds = 0.0
         self._confirmed_key = None
@@ -654,10 +653,15 @@ class FreestyleRecognizer:
     ) -> list[tuple[tuple[str, str], RuleResult, float]]:
         scored: list[tuple[tuple[str, str], RuleResult, float]] = []
         for movement in official_freestyle_movements():
-            required = movement_required_prop_type(movement)
             jobs: list[tuple[str, BottleDetection | None, list[PropDetection], list[PropDetection] | None, str]] = []
-            if required == "bottle_and_shaker":
-                if bottles and shakers:
+            for prop_type in movement_supported_prop_types(movement):
+                if prop_type == "bottle" and bottles:
+                    jobs.append(("bottle", bottles[0], bottles, None, "Bottle"))
+                elif prop_type == "shaker" and shakers:
+                    jobs.append(
+                        ("shaker", shakers[0], shakers, None, "Cocktail Shaker")
+                    )
+                elif prop_type == "bottle_and_shaker" and bottles and shakers:
                     jobs.append(
                         (
                             "bottle_and_shaker",
@@ -667,22 +671,16 @@ class FreestyleRecognizer:
                             "Bottle + Cocktail Shaker",
                         )
                     )
-            else:
-                if bottles:
-                    jobs.append(("bottle", bottles[0], bottles, None, "Bottle"))
-                if shakers:
-                    jobs.append(
-                        ("shaker", shakers[0], shakers, None, "Cocktail Shaker")
-                    )
             for prop_type, primary, bottle_list, shaker_list, label in jobs:
                 key = (movement, prop_type)
                 state = self._states.setdefault(key, {})
-                result, self._prev_hip, new_state = self.evaluate_fn(
+                previous_hip = self._prev_hips.get(key)
+                result, next_hip, new_state = self.evaluate_fn(
                     movement,
                     primary,
                     pose,
                     hands,
-                    self._prev_hip,
+                    previous_hip,
                     state,
                     bottles=bottle_list,
                     shakers=shaker_list,
@@ -690,11 +688,10 @@ class FreestyleRecognizer:
                     prop_label=label,
                     calibration_scale=calibration_scale,
                 )
+                self._prev_hips[key] = next_hip
                 if new_state is not None:
                     self._states[key] = new_state
-                score = _candidate_score(
-                    result, allowed=key in self.allowed_movements
-                )
+                score = _candidate_score(result)
                 if score is not None:
                     scored.append((key, result, score))
         return scored
@@ -706,45 +703,24 @@ class FreestyleRecognizer:
     ) -> tuple[tuple[str, str], RuleResult] | None:
         if not scored:
             return None
-        if self._confirmed_key is not None:
-            for key, result, _ in scored:
-                if key == self._confirmed_key:
-                    return key, result
-        scored.sort(
-            key=lambda item: (
-                0 if item[0] in self.allowed_movements else 1,
-                -item[2],
-                item[0][0],
-                item[0][1],
-            )
-        )
-        top_key, top_result, top_score = scored[0]
+        top_score = max(item[2] for item in scored)
         close = [
             item
             for item in scored
             if top_score - item[2] < AMBIGUITY_MARGIN
-            and (
-                (item[0] in self.allowed_movements)
-                == (top_key in self.allowed_movements)
-            )
         ]
         if len(close) > 1:
             movements = {item[0][0] for item in close}
             if len(movements) > 1:
                 return None
             if detected_prop in {"bottle", "shaker"}:
-                for key, result, _ in close:
-                    if key[1] == detected_prop:
-                        return key, result
-            allowed_close = [
-                item for item in close if item[0] in self.allowed_movements
-            ]
-            if len(allowed_close) == 1:
-                return allowed_close[0][0], allowed_close[0][1]
-            if len(allowed_close) > 1:
-                return None
+                matching_prop = [
+                    item for item in close if item[0][1] == detected_prop
+                ]
+                if len(matching_prop) == 1:
+                    return matching_prop[0][0], matching_prop[0][1]
             return None
-        return top_key, top_result
+        return close[0][0], close[0][1]
 
     def _advance_static(
         self,

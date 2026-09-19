@@ -378,46 +378,77 @@ READINESS_STABLE_DURATION_S = float(os.getenv("READINESS_STABLE_DURATION_S", "1.
 READINESS_SNAPSHOT_MAX_AGE_S = float(os.getenv("READINESS_SNAPSHOT_MAX_AGE_S", "1.5"))
 
 MOVEMENT_CONFIG: dict[str, dict] = {
-    "Normal Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
-    "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
-    "Reverse Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
-    "Claw Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
-    "Body Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
+    "Normal Grip": {
+        "difficulty": "Easy",
+        "requires_hands": True,
+        "max_hands": 1,
+        "supported_prop_types": ("bottle",),
+    },
+    "Bartender's Grip": {
+        "difficulty": "Easy",
+        "requires_hands": True,
+        "max_hands": 1,
+        "supported_prop_types": ("bottle",),
+    },
+    "Reverse Grip": {
+        "difficulty": "Easy",
+        "requires_hands": True,
+        "max_hands": 1,
+        "supported_prop_types": ("bottle",),
+    },
+    "Claw Grip": {
+        "difficulty": "Easy",
+        "requires_hands": True,
+        "max_hands": 1,
+        "supported_prop_types": ("bottle",),
+    },
+    "Body Grip": {
+        "difficulty": "Easy",
+        "requires_hands": True,
+        "max_hands": 1,
+        "supported_prop_types": ("bottle",),
+    },
     "Hand Stall": {
         "difficulty": "Medium",
         "requires_hands": True,
         "requires_pose": False,
         "max_hands": 1,
+        "supported_prop_types": ("bottle", "shaker"),
     },
     "One Finger Stall": {
         "difficulty": "Medium",
         "requires_hands": True,
         "requires_pose": False,
         "max_hands": 1,
+        "supported_prop_types": ("bottle", "shaker"),
     },
     "Forearm Stall": {
         "difficulty": "Medium",
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle", "shaker"),
     },
     "Elbow Stall": {
         "difficulty": "Medium",
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle", "shaker"),
     },
     "Wrist Stall": {
         "difficulty": "Medium",
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle", "shaker"),
     },
     "Reverse Forearm Stall": {
         "difficulty": "Hard",
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle",),
     },
     # Legacy movement names for historical sessions and backward compatibility.
     "Arm Stall": {
@@ -425,24 +456,28 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle",),
     },
     "Upper Forearm Stall": {
         "difficulty": "Hard",
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle",),
     },
     "Shoulder Stall": {
         "difficulty": "Hard",
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle",),
     },
     "Double Hand Stall": {
         "difficulty": "Hard",
         "requires_hands": True,
         "requires_pose": False,
         "max_hands": 2,
+        "supported_prop_types": ("bottle",),
     },
     "Bottle in a tin": {
         "difficulty": "Hard",
@@ -450,12 +485,14 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_pose": False,
         "required_prop_type": "bottle_and_shaker",
         "max_hands": 1,
+        "supported_prop_types": ("bottle_and_shaker",),
     },
     "Double Forearm Stall": {
         "difficulty": "Hard",
         "requires_hands": False,
         "requires_pose": True,
         "max_hands": 0,
+        "supported_prop_types": ("bottle",),
     },
     # Internal Free Practice vision mode: prop detection + preview only.
     # Not a user-selectable catalog movement (Flutter catalog omits it).
@@ -466,5 +503,6 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "max_hands": 0,
         "internal": True,
         "prop_detection_only": True,
+        "supported_prop_types": ("bottle",),
     },
 }
