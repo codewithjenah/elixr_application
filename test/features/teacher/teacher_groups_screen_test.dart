@@ -65,15 +65,20 @@ void main() {
     final router = GoRouter(
       initialLocation: AppRoutePaths.teacherGroups,
       routes: [
-        GoRoute(
-          path: AppRoutePaths.teacherGroups,
-          builder: (context, state) =>
-              TeacherGroupsScreen(controller: controller),
+        ShellRoute(
+          builder: (context, state, child) => child,
           routes: [
             GoRoute(
-              path: ':groupId',
+              path: AppRoutePaths.teacherGroups,
               builder: (context, state) =>
-                  Text('detail:${state.pathParameters['groupId']}'),
+                  TeacherGroupsScreen(controller: controller),
+              routes: [
+                GoRoute(
+                  path: ':groupId',
+                  builder: (context, state) =>
+                      Text('detail:${state.pathParameters['groupId']}'),
+                ),
+              ],
             ),
           ],
         ),
@@ -324,7 +329,7 @@ void main() {
     addTearDown(controller.dispose);
     await controller.start();
 
-    await pumpGroups(tester, controller: controller);
+    final router = await pumpGroups(tester, controller: controller);
 
     await tester.tap(find.byKey(const Key('teacher_groups_create')));
     await tester.pumpAndSettle();
@@ -336,7 +341,74 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('detail:group-0'), findsOneWidget);
+    expect(repository.groups, hasLength(1));
     expect(controller.selectedGroup, isNull);
+    expect(router.routerDelegate.currentConfiguration, isNotEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('create cancellation leaves the teacher shell route visible', (
+    tester,
+  ) async {
+    final router = await pumpGroups(tester);
+
+    await tester.tap(find.byKey(const Key('teacher_groups_create')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ElixDialog), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ElixDialog), findsNothing);
+    expect(find.byKey(const Key('teacher_groups_empty')), findsOneWidget);
+    expect(router.routerDelegate.currentConfiguration, isNotEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('rename actions leave the teacher shell route visible', (
+    tester,
+  ) async {
+    final group = await repository.createGroup(
+      teacherId: 'teacher',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT-4A',
+    );
+    final controller = TeacherGroupsController(
+      repository: repository,
+      teacherId: 'teacher',
+      teacherDisplayName: 'Grace Hopper',
+      ensureTeacherAuthorization: () async => true,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    final router = await pumpGroups(tester, controller: controller);
+
+    await tester.tap(find.byKey(Key('class_card_more_${group.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    expect(find.text('Rename classroom'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(repository.groups[group.id]!.name, 'BSIT-4A');
+    expect(find.byKey(Key('teacher_group_card_${group.id}')), findsOneWidget);
+    expect(router.routerDelegate.currentConfiguration, isNotEmpty);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(Key('class_card_more_${group.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(ElixTextField), 'BSHM 4B');
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Rename'));
+    await tester.pumpAndSettle();
+
+    expect(repository.groups[group.id]!.name, 'BSHM 4B');
+    expect(find.byKey(Key('teacher_group_card_${group.id}')), findsOneWidget);
+    expect(router.routerDelegate.currentConfiguration, isNotEmpty);
+    expect(tester.takeException(), isNull);
   });
 }
 

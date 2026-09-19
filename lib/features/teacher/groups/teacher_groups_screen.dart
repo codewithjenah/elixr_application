@@ -401,12 +401,12 @@ Future<void> _showCreateGroupDialog(
         label: 'Cancel',
         expanded: false,
         variant: ElixButtonVariant.secondary,
-        onPressed: () => Navigator.pop(context, false),
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
       ),
       ElixPrimaryButton(
         label: 'Create',
         expanded: false,
-        onPressed: () => Navigator.pop(context, true),
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
       ),
     ],
   );
@@ -452,12 +452,12 @@ Future<void> _showRenameGroupDialog(
         label: 'Cancel',
         expanded: false,
         variant: ElixButtonVariant.secondary,
-        onPressed: () => Navigator.pop(context, false),
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
       ),
       ElixPrimaryButton(
         label: 'Rename',
         expanded: false,
-        onPressed: () => Navigator.pop(context, true),
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
       ),
     ],
   );
