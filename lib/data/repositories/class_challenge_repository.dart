@@ -24,6 +24,11 @@ abstract class ClassChallengeRepository {
 
   Future<void> archiveChallenge({required String challengeId});
 
+  Future<void> permanentlyDeleteChallenge({
+    required String challengeId,
+    required String confirmation,
+  });
+
   Stream<List<ClassChallengeLeaderboardEntry>> watchLeaderboard({
     required String challengeId,
     required String groupId,

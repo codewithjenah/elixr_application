@@ -245,6 +245,13 @@ class ClassChallengesPane extends StatelessWidget {
                                           repository,
                                           challenge,
                                         ),
+                                  onDelete: !isTeacher
+                                      ? null
+                                      : () => _permanentlyDeleteChallenge(
+                                          context,
+                                          repository,
+                                          challenge,
+                                        ),
                                 ),
                               ),
                           ],
@@ -275,6 +282,7 @@ class _ChallengeCard extends StatelessWidget {
     this.onStart,
     this.onEdit,
     this.onArchive,
+    this.onDelete,
   });
 
   final ClassChallenge challenge;
@@ -286,6 +294,7 @@ class _ChallengeCard extends StatelessWidget {
   final VoidCallback? onStart;
   final VoidCallback? onEdit;
   final VoidCallback? onArchive;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -386,6 +395,13 @@ class _ChallengeCard extends StatelessWidget {
                   onPressed: onArchive,
                   tooltip: 'Archive challenge',
                 ),
+              if (onDelete != null)
+                _ChallengeIconAction(
+                  key: Key('class_challenge_delete_${challenge.id}'),
+                  icon: const Icon(FluentIcons.delete),
+                  onPressed: onDelete,
+                  tooltip: 'Delete challenge permanently',
+                ),
             ],
           ),
         ],
@@ -438,9 +454,10 @@ class _ChallengeIconAction extends StatelessWidget {
             onPressed: onPressed,
             enabled: onPressed != null,
           );
-    return shad.ShadTheme.maybeOf(context) == null
+    final tooltipWidget = shad.ShadTheme.maybeOf(context) == null
         ? Tooltip(message: tooltip, child: button)
         : shad.ShadTooltip(builder: (context) => Text(tooltip), child: button);
+    return Semantics(button: true, label: tooltip, child: tooltipWidget);
   }
 }
 
@@ -501,6 +518,122 @@ Future<void> _archiveChallenge(
   if (confirmed == true) {
     await repository.archiveChallenge(challengeId: challenge.id);
   }
+}
+
+Future<void> _permanentlyDeleteChallenge(
+  BuildContext context,
+  ClassChallengeRepository repository,
+  ClassChallenge challenge,
+) async {
+  final confirmation = TextEditingController();
+  var confirmationMatches = false;
+  var deleting = false;
+  String? error;
+  await showDialog<bool>(
+    context: context,
+    dismissWithEsc: false,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        Future<void> deleteChallenge() async {
+          if (deleting || !confirmationMatches) return;
+          setDialogState(() {
+            deleting = true;
+            error = null;
+          });
+          try {
+            await repository.permanentlyDeleteChallenge(
+              challengeId: challenge.id,
+              confirmation: 'DELETE CHALLENGE',
+            );
+            if (dialogContext.mounted) {
+              Navigator.pop(dialogContext, true);
+            }
+          } on ClassChallengeException {
+            if (dialogContext.mounted) {
+              setDialogState(() {
+                deleting = false;
+                error =
+                    'Could not delete this challenge. Check your connection and try again.';
+              });
+            }
+          } catch (_) {
+            if (dialogContext.mounted) {
+              setDialogState(() {
+                deleting = false;
+                error =
+                    'Could not delete this challenge. Check your connection and try again.';
+              });
+            }
+          }
+        }
+
+        return PopScope(
+          canPop: !deleting,
+          child: ElixDialog(
+            title: 'Delete challenge permanently?',
+            subtitle: 'This action cannot be undone.',
+            icon: FluentIcons.delete,
+            iconColor: context.elixColors.error,
+            headerAccentColor: context.elixColors.error,
+            maxWidth: 520,
+            scrollableContent: true,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '“${challenge.title}” and its challenge-specific participant, '
+                  'attempt, and leaderboard data will be permanently removed. '
+                  'Normal ELIXR trainee session history will remain intact.',
+                  style: AppTheme.bodySecondary.copyWith(
+                    color: context.elixTextSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                const Text('Type DELETE CHALLENGE to continue.'),
+                const SizedBox(height: AppSpacing.xs),
+                TextBox(
+                  key: const Key('class_challenge_delete_confirmation'),
+                  controller: confirmation,
+                  enabled: !deleting,
+                  autofocus: true,
+                  onChanged: (value) => setDialogState(
+                    () => confirmationMatches = value == 'DELETE CHALLENGE',
+                  ),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _EditorErrorNotice(message: error!),
+                ],
+              ],
+            ),
+            actions: [
+              ElixPrimaryButton(
+                label: 'Cancel',
+                expanded: false,
+                variant: ElixButtonVariant.outline,
+                onPressed: deleting
+                    ? null
+                    : () => Navigator.pop(dialogContext, false),
+              ),
+              ElixPrimaryButton(
+                key: const Key('class_challenge_confirm_delete'),
+                label: deleting ? 'Deleting...' : 'Delete permanently',
+                expanded: false,
+                isLoading: deleting,
+                variant: ElixButtonVariant.destructive,
+                onPressed: confirmationMatches && !deleting
+                    ? deleteChallenge
+                    : null,
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+  confirmation.dispose();
 }
 
 Future<void> _showChallengeEditor(

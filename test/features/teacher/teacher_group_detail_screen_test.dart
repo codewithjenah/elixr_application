@@ -23,6 +23,7 @@ import 'package:elixr_application/data/repositories/teacher_movement_repository.
 import 'package:elixr_application/features/teacher/groups/teacher_group_detail_screen.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_groups_controller.dart';
 import 'package:elixr_application/features/teacher/classwork/teacher_classwork_controller.dart';
+import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
@@ -289,6 +290,94 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'owned detail controller uses the provided assignment repository for classroom deletion',
+    (tester) async {
+      final assignments = _PendingDeleteRepository();
+      addTearDown(assignments.dispose);
+      final group = await repository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSIT-4A',
+      );
+      final user = User(
+        id: 'teacher-1',
+        firstName: 'Grace',
+        lastName: 'Hopper',
+        email: 'teacher@example.com',
+        role: User.roleTeacher,
+      );
+      final auth = AuthService(
+        repository: _OwnedDetailAuthRepository(user),
+        awaitInitialAuthState: () async {},
+      )..seedAuthenticatedUser(user);
+      addTearDown(auth.dispose);
+      final router = GoRouter(
+        initialLocation: AppRoutePaths.teacherGroup(group.id),
+        routes: [
+          GoRoute(
+            path: AppRoutePaths.teacherGroups,
+            builder: (_, _) => const Text('groups home'),
+            routes: [
+              GoRoute(
+                path: ':groupId',
+                builder: (_, _) => MultiProvider(
+                  providers: [
+                    ChangeNotifierProvider<AuthService>.value(value: auth),
+                    Provider<GroupRepository>.value(value: repository),
+                    Provider<ClassroomAssignmentRepository>.value(
+                      value: assignments,
+                    ),
+                  ],
+                  child: TeacherGroupDetailScreen(groupId: group.id),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        FluentApp.router(
+          theme: AppTheme.dark,
+          routerConfig: router,
+          builder: (context, child) => ElixShadThemeBridge(
+            child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('teacher_group_tab_announcements')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('teacher_group_delete_classroom')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('teacher_group_delete_confirmation')),
+        'DELETE CLASSROOM',
+      );
+      await tester.pump();
+      tester
+          .widget<ElixPrimaryButton>(
+            find.byKey(const Key('teacher_group_confirm_delete')),
+          )
+          .onPressed!();
+      await tester.pump();
+      await tester.pump();
+
+      expect(assignments.deleteCalls, 1);
+      expect(
+        find.text('Classroom deletion is unavailable right now.'),
+        findsNothing,
+      );
+      assignments.pending.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('groups home'), findsOneWidget);
+    },
+  );
 
   testWidgets('detail shows join code, pending students, and members', (
     tester,
@@ -1418,4 +1507,17 @@ class _PendingDeleteRepository extends InMemoryClassroomAssignmentRepository {
     deleteCalls++;
     await pending.future;
   }
+}
+
+class _OwnedDetailAuthRepository extends Phase3TestAuthRepository
+    implements TeacherAuthorizationRepositoryBase {
+  _OwnedDetailAuthRepository(this.user);
+
+  final User user;
+
+  @override
+  Future<User?> refreshAuthenticatedUser() async => user;
+
+  @override
+  Future<void> ensureTeacherRoleClaim() async {}
 }

@@ -254,7 +254,10 @@ class FirebaseActivityLearningMaterialRepository
   ) async {
     final user = _auth.currentUser;
     if (user == null) throw const ClassroomException(ClassroomError.forbidden);
-    final token = await user.getIdToken();
+    // Material mutations are Teacher-authorized Functions calls. Refresh the
+    // token just as the challenge repository does so a recently established
+    // Teacher claim cannot leave a valid editor retrying with stale auth.
+    final token = await user.getIdToken(true);
     if (token == null || token.isEmpty) {
       throw const ClassroomException(ClassroomError.forbidden);
     }

@@ -39,6 +39,7 @@ const {
   syncActivityMaterialAccess,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,
+  permanentDeleteClassChallengeHandler,
   reserveTeacherActivityAttemptHandler,
   consumeTeacherActivityAttemptHandler,
   abandonTeacherActivityAttemptHandler,
@@ -387,6 +388,148 @@ test('permanent deletion rejects wrong exact confirmation before database access
   }, classroomResponse, options);
   assert.equal(classroomResponse.statusCode, 400);
   assert.equal(databaseAccessed, false);
+});
+
+test('permanent challenge deletion rejects unauthenticated and invalid requests', async () => {
+  const unauthenticated = fakeResponse();
+  await permanentDeleteClassChallengeHandler({
+    method: 'POST',
+    body: {challenge_id: 'challenge-1', confirmation: 'DELETE CHALLENGE'},
+  }, unauthenticated, {authenticate: async () => null});
+  assert.equal(unauthenticated.statusCode, 401);
+
+  let databaseAccessed = false;
+  const invalid = fakeResponse();
+  await permanentDeleteClassChallengeHandler({
+    method: 'POST',
+    body: {challenge_id: 'challenge-1', confirmation: 'DELETE'},
+  }, invalid, {
+    authenticate: async () => 'teacher',
+    databaseFactory: () => {
+      databaseAccessed = true;
+      throw new Error('must not access database');
+    },
+  });
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(databaseAccessed, false);
+});
+
+function fakeChallengeDeletionDatabase({owner = 'teacher'} = {}) {
+  const values = new Map([
+    ['class_challenges/challenge-1', {teacher_id: owner, title: 'Challenge'}],
+    ['users/teacher', {lifecycle_state: 'active'}],
+    ['class_challenge_participants/participant-1', {challenge_id: 'challenge-1'}],
+    ['class_challenge_attempts/attempt-1', {
+      challenge_id: 'challenge-1', session_id: 'session-1',
+    }],
+    ['class_challenge_results/result-1', {challenge_id: 'challenge-1'}],
+    ['sessions/session-1', {user_id: 'trainee-1', challenge_context: {challenge_id: 'challenge-1'}}],
+  ]);
+  const refFor = (path) => ({
+    path,
+    id: path.split('/').at(-1),
+    async get() {
+      const data = values.get(path);
+      return {
+        exists: data != null,
+        data: () => data,
+        get: (field) => data?.[field],
+      };
+    },
+    async set(patch, {merge} = {}) {
+      const existing = values.get(path) || {};
+      values.set(path, merge ? {...existing, ...patch} : patch);
+    },
+    async delete() {
+      values.delete(path);
+    },
+  });
+  const queryFor = (collection, challengeId) => ({
+    limit() {
+      return this;
+    },
+    async get() {
+      const prefix = `${collection}/`;
+      const docs = [...values.entries()]
+        .filter(([path, data]) =>
+          path.startsWith(prefix) && data.challenge_id === challengeId,
+        )
+        .map(([path, data]) => ({
+          ref: refFor(path),
+          data: () => data,
+          get: (field) => data[field],
+        }));
+      return {docs, size: docs.length, empty: docs.length === 0};
+    },
+  });
+  return {
+    values,
+    collection(name) {
+      return {
+        doc(id) {
+          return refFor(`${name}/${id}`);
+        },
+        where(field, operator, value) {
+          assert.equal(field, 'challenge_id');
+          assert.equal(operator, '==');
+          return queryFor(name, value);
+        },
+      };
+    },
+    batch() {
+      const deletions = [];
+      return {
+        delete(ref) {
+          deletions.push(ref);
+        },
+        async commit() {
+          await Promise.all(deletions.map((ref) => ref.delete()));
+        },
+      };
+    },
+  };
+}
+
+test('permanent challenge deletion removes only challenge-owned records and is retry-safe', async () => {
+  const database = fakeChallengeDeletionDatabase();
+  const response = fakeResponse();
+  await permanentDeleteClassChallengeHandler({
+    method: 'POST',
+    body: {challenge_id: 'challenge-1', confirmation: 'DELETE CHALLENGE'},
+  }, response, {authenticate: async () => 'teacher', databaseFactory: () => database});
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body, {deleted: true});
+  for (const path of [
+    'class_challenges/challenge-1',
+    'class_challenge_participants/participant-1',
+    'class_challenge_attempts/attempt-1',
+    'class_challenge_results/result-1',
+  ]) {
+    assert.equal(database.values.has(path), false);
+  }
+  assert.equal(database.values.has('sessions/session-1'), true);
+
+  const retry = fakeResponse();
+  await permanentDeleteClassChallengeHandler({
+    method: 'POST',
+    body: {challenge_id: 'challenge-1', confirmation: 'DELETE CHALLENGE'},
+  }, retry, {authenticate: async () => 'teacher', databaseFactory: () => database});
+  assert.equal(retry.statusCode, 200);
+  assert.deepEqual(retry.body, {deleted: true, already_deleted: true});
+});
+
+test('permanent challenge deletion rejects a non-owner Teacher', async () => {
+  const response = fakeResponse();
+  await permanentDeleteClassChallengeHandler({
+    method: 'POST',
+    body: {challenge_id: 'challenge-1', confirmation: 'DELETE CHALLENGE'},
+  }, response, {
+    authenticate: async () => 'teacher',
+    databaseFactory: () => fakeChallengeDeletionDatabase({owner: 'another-teacher'}),
+  });
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.body, {error: 'forbidden'});
 });
 const {
   executeMigrationWrites,

@@ -19,6 +19,7 @@ import 'package:elixr_application/features/teacher/movements/teacher_assignment_
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
@@ -213,9 +214,16 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
 class _MaterialRepository implements ActivityLearningMaterialRepository {
   final List<String> listedAssignmentIds = [];
   final List<String> linkedAssignmentIds = [];
+  final List<Uri> linkedUrls = [];
   final List<String> removedMaterialIds = [];
   List<ActivityLearningMaterial> materials = const [];
   bool failList = false;
+  int remainingLinkFailures = 0;
+  bool failRemove = false;
+  int removeCalls = 0;
+  int beginUploadCalls = 0;
+  int uploadStagedFileCalls = 0;
+  int uploadStatusCalls = 0;
 
   @override
   Future<ActivityLearningMaterial> addLink({
@@ -224,6 +232,11 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     required Uri url,
   }) {
     linkedAssignmentIds.add(assignmentId);
+    linkedUrls.add(url);
+    if (remainingLinkFailures > 0) {
+      remainingLinkFailures--;
+      return Future.error(StateError('link failed'));
+    }
     return Future.value(
       ActivityLearningMaterial(
         id: 'link-${linkedAssignmentIds.length}',
@@ -242,12 +255,36 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     required String displayName,
     required String declaredContentType,
     required int sizeBytes,
-  }) => throw UnimplementedError();
+  }) async {
+    beginUploadCalls++;
+    return ActivityMaterialUpload(
+      uploadId: 'upload-$beginUploadCalls',
+      materialId: 'file-$beginUploadCalls',
+      stagingPath:
+          'activity_material_staging/teacher/$assignmentId/upload-$beginUploadCalls',
+      declaredContentType: declaredContentType,
+      expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 1)),
+    );
+  }
 
   @override
   Future<ActivityMaterialUploadStatus> getUploadStatus({
     required String uploadId,
-  }) => throw UnimplementedError();
+  }) async {
+    uploadStatusCalls++;
+    return ActivityMaterialUploadStatus(
+      uploadId: uploadId,
+      materialId: 'file-1',
+      state: ActivityMaterialUploadState.ready,
+      material: const ActivityLearningMaterial(
+        id: 'file-1',
+        assignmentId: 'assignment',
+        type: ActivityLearningMaterialType.pdf,
+        displayName: 'guide.pdf',
+        storagePath: 'activity_learning_materials/assignment/file-1',
+      ),
+    );
+  }
 
   @override
   Future<List<ActivityLearningMaterial>> list({required String assignmentId}) {
@@ -265,6 +302,8 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     required String assignmentId,
     required String materialId,
   }) async {
+    removeCalls++;
+    if (failRemove) throw StateError('remove failed');
     removedMaterialIds.add(materialId);
     materials = materials
         .where((material) => material.id != materialId)
@@ -275,7 +314,9 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   Future<void> uploadStagedFile({
     required ActivityMaterialUpload upload,
     required File file,
-  }) => throw UnimplementedError();
+  }) async {
+    uploadStagedFileCalls++;
+  }
 }
 
 Future<void> _enablePublicationScheduling(WidgetTester tester) async {
@@ -569,6 +610,8 @@ void main() {
     List<ElixrGroup> availableGroups = const [group],
     ElixrGroup? lockedGroup,
     ActivityLearningMaterialRepository? materialRepository,
+    Future<XFile?> Function({required List<XTypeGroup> acceptedTypeGroups})?
+    materialFilePicker,
     Size size = const Size(1280, 900),
   }) async {
     tester.view.physicalSize = size;
@@ -592,6 +635,9 @@ void main() {
             teacherCreatedMovement: teacherCreatedMovement,
             existingAssignment: existingAssignment,
             materialRepository: materialRepository,
+            materialFilePicker:
+                materialFilePicker ??
+                ({required acceptedTypeGroups}) async => null,
           ),
         ),
       ),
@@ -1292,9 +1338,9 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Add material'), findsNothing);
-      await tester.enterText(
+      expect(
         find.byKey(const Key('teacher_assignment_material_link_name')),
-        'Grip guide',
+        findsNothing,
       );
       await tester.enterText(
         find.byKey(const Key('teacher_assignment_material_link_url')),
@@ -1307,7 +1353,7 @@ void main() {
       await tester.tap(addLink);
       await tester.pumpAndSettle();
 
-      expect(find.text('Grip guide'), findsOneWidget);
+      expect(find.text('grip'), findsOneWidget);
       expect(materials.linkedAssignmentIds, isEmpty);
       final publish = find.byKey(const Key('teacher_assignment_publish_now'));
       await tester.ensureVisible(publish);
@@ -1347,6 +1393,119 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('No materials added yet.'), findsOneWidget);
+  });
+
+  testWidgets(
+    'retry saves only the link that previously failed after assignment creation',
+    (tester) async {
+      final materials = _MaterialRepository()..remainingLinkFailures = 1;
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+        materialRepository: materials,
+      );
+      final url = find.byKey(const Key('teacher_assignment_material_link_url'));
+      final addLink = find.byKey(
+        const Key('teacher_assignment_add_material_link'),
+      );
+      await tester.ensureVisible(url);
+      await tester.enterText(url, 'https://example.com/first');
+      await tester.tap(addLink);
+      await tester.pump();
+      await tester.enterText(url, 'https://example.com/second');
+      await tester.tap(addLink);
+      await tester.pump();
+
+      final publish = find.byKey(const Key('teacher_assignment_publish_now'));
+      await tester.ensureVisible(publish);
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+      expect(assignments.officialCalls, 1);
+      expect(materials.linkedUrls, [
+        Uri.parse('https://example.com/first'),
+        Uri.parse('https://example.com/second'),
+      ]);
+      expect(
+        find.textContaining('some learning materials could not be saved'),
+        findsOneWidget,
+      );
+
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+      expect(assignments.officialCalls, 1);
+      expect(materials.linkedUrls, [
+        Uri.parse('https://example.com/first'),
+        Uri.parse('https://example.com/second'),
+        Uri.parse('https://example.com/first'),
+      ]);
+    },
+  );
+
+  testWidgets('resource link controls wrap cleanly in a narrow composer', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+      materialRepository: _MaterialRepository(),
+      size: const Size(500, 900),
+    );
+    final link = find.byKey(const Key('teacher_assignment_material_link_url'));
+    final addLink = find.byKey(
+      const Key('teacher_assignment_add_material_link'),
+    );
+    await tester.ensureVisible(link);
+    await tester.ensureVisible(addLink);
+
+    expect(
+      tester.getTopLeft(addLink).dy,
+      greaterThan(tester.getTopLeft(link).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('supported file selection queues and persists a material', (
+    tester,
+  ) async {
+    final directory = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('elixr_material_'),
+    ))!;
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}${Platform.pathSeparator}guide.pdf');
+    await tester.runAsync(() => file.writeAsBytes([0x25, 0x50, 0x44, 0x46]));
+    final materials = _MaterialRepository();
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+      materialRepository: materials,
+      materialFilePicker: ({required acceptedTypeGroups}) async {
+        expect(
+          acceptedTypeGroups.single.extensions,
+          containsAll(['pdf', 'jpg', 'jpeg', 'png', 'mp4']),
+        );
+        return XFile(file.path, name: 'guide.pdf');
+      },
+    );
+
+    final chooseFile = find.byKey(
+      const Key('teacher_assignment_choose_material_file'),
+    );
+    await tester.ensureVisible(chooseFile);
+    await tester.tap(chooseFile);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+    expect(find.text('guide.pdf'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('teacher_assignment_publish_now')));
+    await tester.pumpAndSettle();
+    expect(materials.beginUploadCalls, 1);
+    expect(materials.uploadStagedFileCalls, 1);
+    expect(materials.uploadStatusCalls, 1);
   });
 
   testWidgets('edit preloads activity configuration and existing materials', (
@@ -2074,6 +2233,55 @@ void main() {
 
     expect(materials.removedMaterialIds, ['material-1']);
   });
+
+  testWidgets(
+    'failed material removal stays visible with a retryable material error',
+    (tester) async {
+      final assignment = await service().create(
+        group: group,
+        officialMovement: movementCatalog.first,
+      );
+      final materials = _MaterialRepository()
+        ..failRemove = true
+        ..materials = [
+          ActivityLearningMaterial(
+            id: 'material-1',
+            assignmentId: assignment.id,
+            type: ActivityLearningMaterialType.link,
+            displayName: 'Safety reference',
+            externalUrl: Uri.parse('https://example.com/safety'),
+          ),
+        ];
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: materials,
+      );
+      final remove = find.widgetWithText(shad.ShadButton, 'Remove');
+      await tester.ensureVisible(remove);
+      await tester.tap(remove);
+      await tester.pump();
+      final save = find.byKey(const Key('teacher_assignment_save_changes'));
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(materials.removeCalls, 1);
+      expect(find.text('Safety reference'), findsOneWidget);
+      expect(
+        find.text('Could not remove “Safety reference”. Retry Save Changes.'),
+        findsOneWidget,
+      );
+
+      materials.failRemove = false;
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(materials.removeCalls, 2);
+      expect(materials.removedMaterialIds, ['material-1']);
+    },
+  );
 
   testWidgets('editing a draft saves edited values privately', (tester) async {
     final draft = await service().create(

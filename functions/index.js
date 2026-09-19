@@ -930,6 +930,63 @@ async function archiveClassChallengeHandler(request, response, {
   }
 }
 
+async function permanentDeleteClassChallengeHandler(request, response, {
+  authenticate = authenticatedTeacherUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  if (body.confirmation !== 'DELETE CHALLENGE' || !validId(body.challenge_id)) {
+    return response.status(400).json({error: 'invalid_confirmation'});
+  }
+  const firestore = databaseFactory();
+  const challengeRef = firestore.collection('class_challenges').doc(body.challenge_id);
+  try {
+    const [challengeSnapshot, actor] = await Promise.all([
+      challengeRef.get(), firestore.collection('users').doc(uid).get(),
+    ]);
+    if (!challengeSnapshot.exists) {
+      return response.status(200).json({deleted: true, already_deleted: true});
+    }
+    const challenge = challengeSnapshot.data();
+    if (!actor.exists || actor.get('lifecycle_state') === 'deleting' ||
+        challenge.teacher_id !== uid) {
+      return response.status(403).json({error: 'forbidden'});
+    }
+    await challengeRef.set({
+      deletion_state: 'deleting',
+      deletion_requested_by: uid,
+      deletion_requested_at: FieldValue.serverTimestamp(),
+    }, {merge: true});
+    await deleteQueryDocuments(
+      firestore,
+      firestore.collection('class_challenge_participants')
+        .where('challenge_id', '==', body.challenge_id),
+    );
+    await deleteQueryDocuments(
+      firestore,
+      firestore.collection('class_challenge_attempts')
+        .where('challenge_id', '==', body.challenge_id),
+    );
+    await deleteQueryDocuments(
+      firestore,
+      firestore.collection('class_challenge_results')
+        .where('challenge_id', '==', body.challenge_id),
+    );
+    // Challenge attempts reference normal ELIXR sessions, but those sessions
+    // are trainee history and do not belong to this challenge cascade.
+    await challengeRef.delete();
+    return response.status(200).json({deleted: true});
+  } catch (error) {
+    console.error('Permanent Class Challenge deletion failed', error);
+    return response.status(503).json({error: 'delete_failed'});
+  }
+}
+
 async function reserveClassChallengeAttemptHandler(request, response, {
   authenticate = authenticatedUid,
   databaseFactory = getFirestore,
@@ -3196,6 +3253,11 @@ exports.archiveClassChallenge = onRequest(
   archiveClassChallengeHandler,
 );
 
+exports.permanentDeleteClassChallenge = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 540, memory: '512MiB'},
+  permanentDeleteClassChallengeHandler,
+);
+
 exports.reserveClassChallengeAttempt = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 30},
   reserveClassChallengeAttemptHandler,
@@ -3804,6 +3866,7 @@ exports._test = {
   createClassChallengeHandler,
   updateClassChallengeHandler,
   archiveClassChallengeHandler,
+  permanentDeleteClassChallengeHandler,
   reserveClassChallengeAttemptHandler,
   abandonClassChallengeAttemptHandler,
   completeClassChallengeAttemptHandler,

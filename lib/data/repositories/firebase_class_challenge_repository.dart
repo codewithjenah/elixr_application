@@ -94,6 +94,17 @@ class FirebaseClassChallengeRepository implements ClassChallengeRepository {
   }
 
   @override
+  Future<void> permanentlyDeleteChallenge({
+    required String challengeId,
+    required String confirmation,
+  }) async {
+    await _post('permanentDeleteClassChallenge', {
+      'challenge_id': challengeId,
+      'confirmation': confirmation,
+    });
+  }
+
+  @override
   Stream<List<ClassChallengeLeaderboardEntry>> watchLeaderboard({
     required String challengeId,
     required String groupId,

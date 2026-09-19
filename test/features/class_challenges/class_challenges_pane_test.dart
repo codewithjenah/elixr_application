@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_dialog.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/class_challenge.dart';
 import 'package:elixr_application/data/models/movement.dart';
@@ -17,6 +20,10 @@ class _FakeClassChallengeRepository implements ClassChallengeRepository {
   ClassChallenge? createdChallenge;
   ClassChallenge? updatedChallenge;
   String? archivedChallengeId;
+  int permanentDeleteCalls = 0;
+  String? permanentlyDeletedChallengeId;
+  Completer<void>? permanentDeleteGate;
+  Object? permanentDeleteError;
 
   @override
   Stream<List<ClassChallenge>> watchChallengesForGroup({
@@ -49,6 +56,19 @@ class _FakeClassChallengeRepository implements ClassChallengeRepository {
   @override
   Future<void> archiveChallenge({required String challengeId}) async {
     archivedChallengeId = challengeId;
+  }
+
+  @override
+  Future<void> permanentlyDeleteChallenge({
+    required String challengeId,
+    required String confirmation,
+  }) async {
+    permanentDeleteCalls++;
+    final gate = permanentDeleteGate;
+    if (gate != null) await gate.future;
+    final error = permanentDeleteError;
+    if (error != null) throw error;
+    permanentlyDeletedChallengeId = challengeId;
   }
 
   @override
@@ -478,6 +498,114 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.archivedChallengeId, 'challenge-archive');
   });
+
+  testWidgets(
+    'Teacher permanently deletes a challenge after typed confirmation',
+    (tester) async {
+      final challenge = ClassChallenge(
+        id: 'challenge-delete',
+        groupId: 'group-1',
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Coach',
+        title: 'Delete me',
+        description: 'Complete a clean toss.',
+        movementName: movementCatalog.first.name,
+        difficulty: movementCatalog.first.difficulty,
+        prop: TrainingProp.bottle,
+        startAt: DateTime.utc(2026, 9, 10, 9),
+        deadline: DateTime.utc(2026, 9, 18, 17),
+      );
+      final repository = _FakeClassChallengeRepository(challenges: [challenge]);
+      await _pumpTeacherPane(
+        tester,
+        const Size(1440, 900),
+        repository: repository,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('class_challenge_delete_challenge-delete')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete challenge permanently?'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'participant, attempt, and leaderboard data will be permanently removed',
+        ),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const Key('class_challenge_delete_confirmation')),
+        'DELETE CHALLENGE',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('class_challenge_confirm_delete')));
+      await tester.pumpAndSettle();
+
+      expect(repository.permanentDeleteCalls, 1);
+      expect(repository.permanentlyDeletedChallengeId, challenge.id);
+    },
+  );
+
+  testWidgets(
+    'challenge deletion prevents double-submit and keeps failure actionable',
+    (tester) async {
+      final challenge = ClassChallenge(
+        id: 'challenge-delete-failure',
+        groupId: 'group-1',
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Coach',
+        title: 'Keep on failure',
+        description: 'Complete a clean toss.',
+        movementName: movementCatalog.first.name,
+        difficulty: movementCatalog.first.difficulty,
+        prop: TrainingProp.bottle,
+        startAt: DateTime.utc(2026, 9, 10, 9),
+        deadline: DateTime.utc(2026, 9, 18, 17),
+      );
+      final repository = _FakeClassChallengeRepository(challenges: [challenge])
+        ..permanentDeleteGate = Completer<void>();
+      await _pumpTeacherPane(
+        tester,
+        const Size(1440, 900),
+        repository: repository,
+      );
+      await tester.tap(
+        find.byKey(
+          const Key('class_challenge_delete_challenge-delete-failure'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('class_challenge_delete_confirmation')),
+        'DELETE CHALLENGE',
+      );
+      await tester.pump();
+      final confirm = find.byKey(const Key('class_challenge_confirm_delete'));
+      final submit = tester.widget<ElixPrimaryButton>(confirm).onPressed!;
+      submit();
+      submit();
+      await tester.pump();
+
+      expect(repository.permanentDeleteCalls, 1);
+      expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNull);
+
+      repository.permanentDeleteError = const ClassChallengeException('offline');
+      repository.permanentDeleteGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Could not delete this challenge. Check your connection and try again.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(Key('class_challenge_card_${challenge.id}')),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('attempt and goal score validation keep their existing ranges', (
     tester,

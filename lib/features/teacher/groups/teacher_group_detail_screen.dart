@@ -164,6 +164,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
       )..start();
     }
     if (_ownsController && _owned == null) {
+      final assignments = context.read<ClassroomAssignmentRepository>();
       _owned =
           TeacherGroupsController(
               repository: context.read<GroupRepository>(),
@@ -171,14 +172,17 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
               teacherDisplayName: user.fullName,
               ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
               publicProfileRepository: publicProfileRepository,
+              assignmentRepository: assignments,
             )
             ..setTab(_teacherTabFromQuery(widget.initialTab))
             ..startForGroup(widget.groupId);
     }
     if (_ownsClassworkController && _ownedClasswork == null) {
-      final assignments = context.read<ClassroomAssignmentRepository>();
       final groupsController = _owned;
       if (groupsController == null) return;
+      final assignments =
+          groupsController.assignmentRepository ??
+          context.read<ClassroomAssignmentRepository>();
       _ownedClasswork = TeacherClassworkController(
         teacherId: userId,
         teacherDisplayName: user.fullName,
