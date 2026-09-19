@@ -86,6 +86,27 @@ function firestore(uid) {
   }).firestore();
 }
 
+async function reserveStage({
+  uploadId,
+  type,
+  contentType,
+  sizeBytes,
+  expiresAt = Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
+}) {
+  const stagingPath = `activity_material_staging/teacher/${ASSIGNMENT_ID}/${uploadId}`;
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(admin.firestore(), 'activity_material_uploads', uploadId), {
+      upload_id: uploadId, material_id: `material-${uploadId}`,
+      assignment_id: ASSIGNMENT_ID, owner_teacher_id: 'teacher', type,
+      display_name: uploadId, declared_content_type: contentType,
+      declared_size_bytes: sizeBytes, staging_path: stagingPath,
+      state: 'staging', schema_version: 1,
+      created_at: Timestamp.now(), expires_at: expiresAt,
+    });
+  });
+  return stagingPath;
+}
+
 describe('Learning Material Storage quarantine and access projection', () => {
   test('only the server-authorized owning Teacher can create the exact staging object', async () => {
     // The Function has already authorized this UID as a Teacher and created
@@ -104,6 +125,34 @@ describe('Learning Material Storage quarantine and access projection', () => {
     new Uint8Array([1]), {contentType: 'application/pdf'}));
     await assertFails(uploadBytes(ref(storage('trainee'), STAGING_PATH),
       new Uint8Array([1]), {contentType: 'application/pdf'}));
+  });
+
+  test('all supported file MIME types can use an exact server reservation', async () => {
+    const imagePath = await reserveStage({
+      uploadId: 'image-upload', type: 'image', contentType: 'image/png', sizeBytes: 3,
+    });
+    const videoPath = await reserveStage({
+      uploadId: 'video-upload', type: 'video', contentType: 'video/mp4', sizeBytes: 3,
+    });
+
+    await assertSucceeds(uploadBytes(ref(storage('teacher'), imagePath),
+      new Uint8Array([1, 2, 3]), {contentType: 'image/png'}));
+    await assertSucceeds(uploadBytes(ref(storage('teacher'), videoPath),
+      new Uint8Array([1, 2, 3]), {contentType: 'video/mp4'}));
+  });
+
+  test('wrong byte count, MIME type, and expired capabilities are denied', async () => {
+    await assertFails(uploadBytes(ref(storage('teacher'), STAGING_PATH),
+      new Uint8Array([1, 2]), {contentType: 'application/pdf'}));
+    await assertFails(uploadBytes(ref(storage('teacher'), STAGING_PATH),
+      new Uint8Array([1, 2, 3]), {contentType: 'image/png'}));
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'activity_material_uploads', UPLOAD_ID), {
+        expires_at: Timestamp.fromMillis(Date.now() - 1000),
+      }, {merge: true});
+    });
+    await assertFails(uploadBytes(ref(storage('teacher'), STAGING_PATH),
+      new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
   });
 
   test('staging is never client-readable and cannot be overwritten', async () => {
