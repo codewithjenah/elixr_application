@@ -2631,31 +2631,32 @@ void main() {
     expect(find.text('Edit'), findsNothing);
   });
 
-  testWidgets(
-    'wide assignment activity picker keeps five readable official cards in a row',
-    (tester) async {
-      await pumpComposer(tester, creationService: service());
+  testWidgets('assignment activity picker keeps desktop cards readable', (
+    tester,
+  ) async {
+    await pumpComposer(tester, creationService: service());
 
-      Finder cardTitle(String name) => find.descendant(
-        of: find.byKey(Key('teacher_assignment_official_$name')),
-        matching: find.text(name),
-      );
+    Finder cardTitle(String name) => find.descendant(
+      of: find.byKey(Key('teacher_assignment_official_$name')),
+      matching: find.text(name),
+    );
 
-      final names = [
-        'Normal Grip',
-        "Bartender's Grip",
-        'Reverse Grip',
-        'Claw Grip',
-      ];
-      final firstRow = tester.getTopLeft(cardTitle('Body Grip')).dy;
-      for (final name in names) {
-        expect(tester.getTopLeft(cardTitle(name)).dy, closeTo(firstRow, 1));
-        expect(cardTitle(name), findsOneWidget);
-        expect(tester.getSize(cardTitle(name)).width, greaterThan(120));
-      }
-      expect(tester.takeException(), isNull);
-    },
-  );
+    final names = [
+      'Normal Grip',
+      "Bartender's Grip",
+      'Reverse Grip',
+      'Claw Grip',
+    ];
+    for (final name in names) {
+      expect(cardTitle(name), findsOneWidget);
+      expect(tester.getSize(cardTitle(name)).width, greaterThan(160));
+    }
+    expect(
+      tester.getTopLeft(cardTitle('Body Grip')).dy,
+      greaterThan(tester.getTopLeft(cardTitle('Normal Grip')).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('narrow assignment activity picker reduces columns cleanly', (
     tester,
@@ -2675,6 +2676,34 @@ void main() {
     expect(tester.getTopLeft(cardTitle('Body Grip')).dy, greaterThan(firstRow));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'very wide assignment activity picker keeps five readable cards in a row',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        size: const Size(1920, 900),
+      );
+
+      Finder cardTitle(String name) => find.descendant(
+        of: find.byKey(Key('teacher_assignment_official_$name')),
+        matching: find.text(name),
+      );
+
+      final firstRow = tester.getTopLeft(cardTitle('Normal Grip')).dy;
+      for (final name in [
+        "Bartender's Grip",
+        'Reverse Grip',
+        'Claw Grip',
+        'Body Grip',
+      ]) {
+        expect(tester.getTopLeft(cardTitle(name)).dy, closeTo(firstRow, 1));
+        expect(tester.getSize(cardTitle(name)).width, greaterThan(200));
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('Teacher Activity can create and select a new activity', (
     tester,

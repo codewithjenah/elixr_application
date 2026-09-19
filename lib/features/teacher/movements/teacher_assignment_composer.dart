@@ -37,7 +37,9 @@ import '../../../data/repositories/teacher_movement_repository.dart';
 import 'teacher_movement_builder_dialog.dart';
 import '../../activity_learning_materials/activity_learning_materials_panel.dart';
 
-const _teacherAssignmentContentMaxWidth = 1280.0;
+// The editor needs room to keep five readable activity cards alongside the
+// assignment summary on genuinely wide desktop displays.
+const _teacherAssignmentContentMaxWidth = 1600.0;
 const _teacherAssignmentWideBreakpoint = 900.0;
 
 /// The one write path used by both movement-first and classroom-first
@@ -4293,10 +4295,11 @@ class _MovementChoiceList extends StatelessWidget {
               availableWidth: constraints.maxWidth,
               itemCount: children.length,
               spacing: AppSpacing.md,
-              // The vertically composed cards keep the full title width at
-              // this compact desktop size. Below it, reduce columns instead
-              // of crushing the card content.
-              minCardWidth: 140,
+              // Assignment Studio shares horizontal space with its summary.
+              // Use the established comfortable activity-card width here so
+              // this pane drops to fewer columns before metadata or guidance
+              // becomes truncated.
+              minCardWidth: elixrActivityGridMinCardWidth,
             );
             final itemWidth =
                 (constraints.maxWidth - (AppSpacing.md * (columns - 1))) /
@@ -4608,68 +4611,139 @@ class _MovementChoiceCard extends StatelessWidget {
               key: selectionKey,
               onPressed: enabled ? onPressed : null,
               // Button supplies horizontal padding by default. The card owns
-              // its compact padding so the title can use the full card width.
+              // its padding so the visual and content can use the full width.
               style: const ButtonStyle(
                 padding: WidgetStatePropertyAll(EdgeInsets.zero),
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.sm),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    height: 96,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(
+                        alpha: highContrast
+                            ? 0.24
+                            : context.isDarkTheme
+                            ? 0.16
+                            : 0.08,
+                      ),
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(9),
+                      ),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: accent.withValues(alpha: 0.2),
+                        ),
+                      ),
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(9),
+                        Center(
                           child: MovementImage(
                             movementName: movementName,
-                            size: 48,
+                            size: 82,
+                            paddingFactor: 0.02,
                           ),
                         ),
-                        Icon(
-                          selected
-                              ? FluentIcons.completed_solid
-                              : FluentIcons.circle_ring,
-                          size: 18,
-                          color: selected ? accent : context.elixTextSecondary,
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? accent
+                                  : context.elixCardSurface.withValues(
+                                      alpha: highContrast ? 1 : 0.88,
+                                    ),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selected
+                                    ? accent
+                                    : context.elixColors.borderSubtle,
+                              ),
+                            ),
+                            child: Icon(
+                              selected
+                                  ? FluentIcons.completed_solid
+                                  : FluentIcons.circle_ring,
+                              size: 15,
+                              color: selected
+                                  ? context.elixColors.onBrand
+                                  : context.elixTextSecondary,
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: AppSpacing.sm),
-                    SizedBox(
-                      height: 44,
-                      child: Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.body.copyWith(
-                          color: context.elixTextPrimary,
-                          fontWeight: FontWeight.w700,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.sm,
+                      AppSpacing.sm,
+                      AppSpacing.sm,
+                      AppSpacing.md,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          height: 44,
+                          child: Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.body.copyWith(
+                              color: context.elixTextPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      metadata,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.caption.copyWith(color: accent),
-                    ),
-                    const SizedBox(height: 2),
-                    SizedBox(
-                      height: 32,
-                      child: Text(
-                        description,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          height: 40,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              metadata,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: AppTheme.caption.copyWith(
+                                color: accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: AppSpacing.sm),
+                        SizedBox(
+                          height: 80,
+                          child: Text(
+                            description,
+                            maxLines: 5,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
