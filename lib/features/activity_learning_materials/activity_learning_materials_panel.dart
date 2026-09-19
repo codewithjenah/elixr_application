@@ -658,9 +658,11 @@ Future<void> _showTraineeMaterialViewer({
   final viewport = MediaQuery.sizeOf(context);
   final maxWidth = math.min(1040.0, math.max(320.0, viewport.width - 48));
   final maxHeight = math.min(840.0, math.max(360.0, viewport.height - 48));
-  // ElixDialog owns the fixed header, body padding, and footer. Reserving this
-  // space keeps every viewer action inside the desktop viewport at 720px high.
-  final contentHeight = math.max(180.0, maxHeight - 216);
+  // ElixDialog owns the fixed header, body padding, and footer. Its chrome
+  // needs enough room for a two-line filename and the always-visible action;
+  // keep the viewer body below that bound rather than allowing controls to
+  // overflow at normal desktop heights.
+  final contentHeight = math.max(180.0, maxHeight - 256);
   final content = switch (material.type) {
     ActivityLearningMaterialType.video => _MaterialVideoPlayer(file: file),
     ActivityLearningMaterialType.image => _MaterialImageViewer(file: file),

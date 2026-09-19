@@ -121,6 +121,10 @@ void main() {
       find.byKey(const Key('elixr_video_inline_mirror')),
     );
     expect(inlineMirror.transform.storage[0], -1);
+    expect(
+      tester.widget<AspectRatio>(find.byType(AspectRatio)).aspectRatio,
+      16 / 9,
+    );
 
     await tester.tap(find.byKey(const Key('elixr_video_play_pause')));
     await tester.pump();

@@ -173,10 +173,10 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
           child: ColoredBox(
             color: const Color(0xFF000000),
             child: Center(
-              child: Transform.flip(
-                key: const Key('elixr_video_inline_mirror'),
-                flipX: widget.mirrored,
-                child: WinVideoPlayer(controller),
+              child: _ElixrVideoSurface(
+                controller: controller,
+                mirrored: widget.mirrored,
+                mirrorKey: const Key('elixr_video_inline_mirror'),
               ),
             ),
           ),
@@ -187,6 +187,34 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
           onFullscreen: _showFullscreen,
         ),
       ],
+    );
+  }
+}
+
+class _ElixrVideoSurface extends StatelessWidget {
+  const _ElixrVideoSurface({
+    required this.controller,
+    required this.mirrored,
+    required this.mirrorKey,
+  });
+
+  final WinVideoPlayerController controller;
+  final bool mirrored;
+  final Key mirrorKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = controller.value.size;
+    final aspectRatio = size.width > 0 && size.height > 0
+        ? size.width / size.height
+        : 16 / 9;
+    return AspectRatio(
+      aspectRatio: aspectRatio,
+      child: Transform.flip(
+        key: mirrorKey,
+        flipX: mirrored,
+        child: WinVideoPlayer(controller),
+      ),
     );
   }
 }
@@ -358,10 +386,10 @@ class _FullscreenElixrVideoPlayer extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               Center(
-                child: Transform.flip(
-                  key: const Key('elixr_video_fullscreen_mirror'),
-                  flipX: mirrored,
-                  child: WinVideoPlayer(controller),
+                child: _ElixrVideoSurface(
+                  controller: controller,
+                  mirrored: mirrored,
+                  mirrorKey: const Key('elixr_video_fullscreen_mirror'),
                 ),
               ),
               Positioned(
