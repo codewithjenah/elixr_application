@@ -324,7 +324,7 @@ void main() {
     await auth.initialize();
     await Future<void>.delayed(Duration.zero);
 
-    expect(auth.currentUser, isNotNull);
+    expect(auth.currentUser, isNull);
     expect(profiles.syncCalls, 0);
   });
 

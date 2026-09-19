@@ -226,7 +226,7 @@ void main() {
       findsOneWidget,
     );
 
-    final lessonCount = movementCatalog.where((m) => m.enabled).length;
+    final lessonCount = enabledPracticeSteps().length;
     final metric = tester.widget<Text>(
       find
           .descendant(

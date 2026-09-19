@@ -226,6 +226,7 @@ void main() {
     );
     expect(find.text('Ada Lovelace (you)'), findsNothing);
 
+    await tester.ensureVisible(find.text('Hand Stall'));
     await tester.tap(find.text('Hand Stall'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));

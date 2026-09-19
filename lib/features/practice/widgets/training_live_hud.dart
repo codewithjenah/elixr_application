@@ -51,6 +51,7 @@ class TrainingLiveHud extends StatelessWidget {
                   ? context.elixColors.error
                   : context.elixColors.textPrimary,
               leadingIcon: timeWarning ? FluentIcons.warning : null,
+              warning: timeWarning,
             ),
           ),
           Positioned(
@@ -150,6 +151,7 @@ class _HudChip extends StatelessWidget {
     required this.accent,
     this.supporting,
     this.leadingIcon,
+    this.warning = false,
   });
 
   final String label;
@@ -157,6 +159,7 @@ class _HudChip extends StatelessWidget {
   final String? supporting;
   final Color accent;
   final IconData? leadingIcon;
+  final bool warning;
 
   @override
   Widget build(BuildContext context) {
@@ -165,11 +168,21 @@ class _HudChip extends StatelessWidget {
       liveRegion: false,
       label: supporting == null ? '$label $value' : '$label $value $supporting',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: EdgeInsets.symmetric(
+          horizontal: warning ? 14 : 10,
+          vertical: warning ? 10 : 7,
+        ),
         decoration: BoxDecoration(
-          color: context.elixColors.surfaceRaised.withValues(alpha: 0.9),
+          color: warning
+              ? context.elixColors.error.withValues(
+                  alpha: context.isHighContrast ? 0.28 : 0.18,
+                )
+              : context.elixColors.surfaceRaised.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: accent.withValues(alpha: 0.32)),
+          border: Border.all(
+            color: accent.withValues(alpha: warning ? 0.9 : 0.32),
+            width: warning && context.isHighContrast ? 2 : 1,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,10 +212,13 @@ class _HudChip extends StatelessWidget {
             ),
             Text(
               value,
+              key: ValueKey(
+                'hud-timer-$value-${warning ? 'warning' : 'normal'}',
+              ),
               style: ElixTypography.body(color: accent).copyWith(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.6,
+                fontSize: warning ? 30 : 18,
+                fontWeight: warning ? FontWeight.w900 : FontWeight.w800,
+                letterSpacing: warning ? 1.1 : 0.6,
               ),
             ),
             if (supporting != null)

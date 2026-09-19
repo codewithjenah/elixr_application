@@ -423,6 +423,43 @@ void main() {
   });
 
   test(
+    'Practice SFX plays the timer warning through the serialized player',
+    () async {
+      final player = _FakeAudioPlayer();
+      final service = PracticeSfxService(player: player);
+
+      final playback = service.playTimerWarning(volume: 0.35);
+      final stop = service.stop();
+      await Future.wait([playback, stop]);
+
+      expect(player.operations, [
+        'volume:0.35',
+        'stop',
+        'release:ReleaseMode.release',
+        'asset:music/timer.mp3',
+        'stop',
+      ]);
+
+      await service.dispose();
+      expect(player.disposeCount, 1);
+    },
+  );
+
+  test('Practice SFX preloads the final-warning source', () async {
+    final player = _FakeAudioPlayer();
+    final service = PracticeSfxService(player: player);
+
+    await service.preloadTimerWarning();
+    await service.preloadTimerWarning();
+
+    expect(player.operations, [
+      'release:ReleaseMode.release',
+      'source:music/timer.mp3',
+    ]);
+    await service.dispose();
+  });
+
+  test(
     'Practice SFX queues settings volume after an active completion',
     () async {
       final player = _FakeAudioPlayer();

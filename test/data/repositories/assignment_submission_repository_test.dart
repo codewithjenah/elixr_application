@@ -377,7 +377,7 @@ void main() {
         videoSizeBytes: 4,
         videoDurationMs: 1000,
         submittedAt: DateTime.utc(2026, 8, 20),
-        videoExpiresAt: DateTime.utc(2026, 9, 19),
+        videoExpiresAt: DateTime.utc(2099, 9, 19),
       ),
       cacheDirectory: cache,
       downloadBytes: (path, {required maxSize}) async {
@@ -418,7 +418,7 @@ void main() {
           videoSizeBytes: 4,
           videoDurationMs: 1000,
           submittedAt: DateTime.utc(2026, 8, 20),
-          videoExpiresAt: DateTime.utc(2026, 9, 19),
+          videoExpiresAt: DateTime.utc(2099, 9, 19),
         ),
         cacheDirectory: cache,
         downloadBytes: (path, {required maxSize}) async {
@@ -456,7 +456,7 @@ void main() {
           videoSizeBytes: 4,
           videoDurationMs: 1000,
           submittedAt: DateTime.utc(2026, 8, 20),
-          videoExpiresAt: DateTime.utc(2026, 9, 19),
+          videoExpiresAt: DateTime.utc(2099, 9, 19),
         ),
         cacheDirectory: cache,
         downloadFile: (path, {required destination, required maxSize}) async {
@@ -499,7 +499,7 @@ void main() {
           videoSizeBytes: 4,
           videoDurationMs: 1000,
           submittedAt: DateTime.utc(2026, 8, 20),
-          videoExpiresAt: DateTime.utc(2026, 9, 19),
+          videoExpiresAt: DateTime.utc(2099, 9, 19),
         ),
         cacheDirectory: cache,
         downloadFile: (path, {required destination, required maxSize}) async {

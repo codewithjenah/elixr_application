@@ -2069,6 +2069,13 @@ class AuthService extends ChangeNotifier {
     }
     _accountDeletedMessage =
         'Your account and associated data have been permanently deleted.';
+    // The remote deletion is authoritative. Publish the signed-out state
+    // before best-effort local cache cleanup so a slow filesystem operation
+    // cannot leave the deleted account visible as authenticated.
+    _clearPendingEmailChange(clearError: true);
+    _invalidatePublishedAccount();
+    await _repository.clearCurrentUser();
+    notifyListeners();
     // Normal sign-out intentionally retains account-scoped pending attempts:
     // the same Firebase UID may authenticate later and finish their replay.
     // Permanent deletion is different: remove this UID's local outbox and
@@ -2076,11 +2083,6 @@ class AuthService extends ChangeNotifier {
     await _purgePendingSessions?.call(userId);
     await _purgeTraineeProfileSnapshot(userId);
     await _purgeTraineeProgressionSnapshot(userId);
-    _clearPendingEmailChange(clearError: true);
-    _currentUser = null;
-    _providerKinds = const {};
-    await _repository.clearCurrentUser();
-    notifyListeners();
   }
 
   void _beginPendingEmailChange({

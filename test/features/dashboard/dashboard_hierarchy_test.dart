@@ -801,6 +801,7 @@ void main() {
       final auth = AuthService(
         repository: _SilentAuthRepository(teacher),
         awaitInitialAuthState: () async {},
+        currentFirebaseAuthUid: () => 'teacher-1',
       );
       final groups = InMemoryGroupRepository();
       groups.seedGroup(
@@ -890,6 +891,7 @@ void main() {
     final auth = AuthService(
       repository: _SilentAuthRepository(teacher),
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'teacher-1',
     );
     final groups = InMemoryGroupRepository();
     final activity = _TestTeacherActivityController(100);
@@ -942,6 +944,7 @@ void main() {
     final auth = AuthService(
       repository: _SilentAuthRepository(teacher),
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'teacher-1',
     );
     final groups = InMemoryGroupRepository();
     final recentActivities = List.generate(
@@ -1038,6 +1041,7 @@ void main() {
       final auth = AuthService(
         repository: _SilentAuthRepository(teacher),
         awaitInitialAuthState: () async {},
+        currentFirebaseAuthUid: () => 'teacher-1',
       );
       final groups = InMemoryGroupRepository();
       final activity = _TestTeacherActivityController(0);

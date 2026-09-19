@@ -73,11 +73,13 @@ class TraineeProgressionSnapshotStore {
         await _writeAll(all);
       });
 
-  Future<TraineeProgressionSnapshot?> load(String firebaseUid) async {
+  Future<TraineeProgressionSnapshot?> load(String firebaseUid) {
     final uid = firebaseUid.trim();
-    if (uid.isEmpty) return null;
-    final snapshot = (await _readAll())[uid];
-    return snapshot?.userId == uid ? snapshot : null;
+    if (uid.isEmpty) return Future<TraineeProgressionSnapshot?>.value();
+    return _runExclusive(() async {
+      final snapshot = (await _readAll())[uid];
+      return snapshot?.userId == uid ? snapshot : null;
+    });
   }
 
   Future<void> purge(String firebaseUid) {

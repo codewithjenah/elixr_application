@@ -6,12 +6,13 @@ import 'package:flutter/foundation.dart';
 import 'audio_player_handle.dart';
 import 'settings_service.dart';
 
-/// One-shot practice sound effects (countdown, victory congrats).
+/// One-shot practice sound effects (countdown, final timer warning, victory).
 class PracticeSfxService {
   PracticeSfxService({AudioPlayerHandle? player})
     : _player = player ?? AudioplayersHandle();
 
   static final _countdown = AssetSource('music/countdown.mp3');
+  static final _timerWarning = AssetSource('music/timer.mp3');
   static final _congrats = AssetSource('music/congrats.mp3');
 
   /// Leading silence before the first audible "3" beat in countdown.mp3.
@@ -23,6 +24,7 @@ class PracticeSfxService {
   Future<void>? _disposeFuture;
   bool _closing = false;
   bool _preloaded = false;
+  bool _timerWarningPreloaded = false;
   bool? _lastSoundEnabled;
   double? _lastMusicVolume;
 
@@ -78,6 +80,17 @@ class PracticeSfxService {
     });
   }
 
+  /// Warm the final-warning source during active practice so native decoding
+  /// does not delay the audible 10-second warning on Windows.
+  Future<void> preloadTimerWarning() {
+    if (_timerWarningPreloaded || _closing) return _operation;
+    return _queue('preload timer warning', () async {
+      await _player.setReleaseMode(ReleaseMode.release);
+      await _player.setSourceAsset(_timerWarning.path);
+      _timerWarningPreloaded = true;
+    });
+  }
+
   Future<void> playCountdown({
     double? volume,
   }) => _queue('play countdown', () async {
@@ -91,7 +104,19 @@ class PracticeSfxService {
       position: countdownLeadIn,
     );
     _preloaded = true;
+    _timerWarningPreloaded = false;
   });
+
+  /// Plays the final-ten-seconds warning for an active practice attempt.
+  Future<void> playTimerWarning({required double volume}) =>
+      _queue('play timer warning', () async {
+        await _player.setVolume(volume);
+        await _player.stop();
+        await _player.setReleaseMode(ReleaseMode.release);
+        await _player.playAsset(_timerWarning.path);
+        _preloaded = false;
+        _timerWarningPreloaded = true;
+      });
 
   /// Queues the volume and all playback commands together. This keeps a
   /// settings update or navigation stop from splitting a completion playback.
@@ -102,6 +127,7 @@ class PracticeSfxService {
         await _player.setReleaseMode(ReleaseMode.release);
         await _player.playAsset(_congrats.path);
         _preloaded = false;
+        _timerWarningPreloaded = false;
       });
 
   Future<void> stop() => _queue('stop', _player.stop);

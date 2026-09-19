@@ -90,7 +90,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('final ten seconds use warning text and icon', (tester) async {
+  testWidgets('final ten seconds use an emphasized warning timer', (
+    tester,
+  ) async {
     final assessment = ValueNotifier<RubricAssessment?>(null);
     final hold = ValueNotifier(0.0);
     final combo = ValueNotifier(const ComboState());
@@ -126,5 +128,56 @@ void main() {
     expect(find.text('00:09'), findsOneWidget);
     expect(find.text('TIME LEFT · HURRY'), findsOneWidget);
     expect(find.byIcon(FluentIcons.warning), findsOneWidget);
+    final timer = tester.widget<Text>(
+      find.byKey(const ValueKey('hud-timer-00:09-warning')),
+    );
+    expect(timer.style?.fontSize, 30);
+    expect(timer.style?.fontWeight, FontWeight.w900);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('time above ten seconds keeps the normal timer treatment', (
+    tester,
+  ) async {
+    final assessment = ValueNotifier<RubricAssessment?>(null);
+    final hold = ValueNotifier(0.0);
+    final combo = ValueNotifier(const ComboState());
+    final score = ValueNotifier(const ScorePopupState());
+    final callout = ValueNotifier(const PerformanceCalloutState());
+    addTearDown(assessment.dispose);
+    addTearDown(hold.dispose);
+    addTearDown(combo.dispose);
+    addTearDown(score.dispose);
+    addTearDown(callout.dispose);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.light,
+        home: ScaffoldPage(
+          content: SizedBox(
+            width: 320,
+            height: 240,
+            child: TrainingLiveHud(
+              remainingDisplay: '00:11',
+              timeWarning: false,
+              assessmentListenable: assessment,
+              holdListenable: hold,
+              comboListenable: combo,
+              scorePopupListenable: score,
+              calloutListenable: callout,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('TIME LEFT'), findsOneWidget);
+    expect(find.text('TIME LEFT · HURRY'), findsNothing);
+    expect(find.byIcon(FluentIcons.warning), findsNothing);
+    final timer = tester.widget<Text>(
+      find.byKey(const ValueKey('hud-timer-00:11-normal')),
+    );
+    expect(timer.style?.fontSize, 18);
+    expect(tester.takeException(), isNull);
   });
 }

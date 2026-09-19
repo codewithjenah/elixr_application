@@ -50,6 +50,11 @@ class PracticeRunController extends ChangeNotifier {
   /// Active-practice limit for movement-specific attempts.
   static const movementAttemptTimeLimit = Duration(seconds: 60);
 
+  /// Slow the final five visual ticks by 0.5 seconds to match the final
+  /// warning audio cadence without affecting the rest of the attempt.
+  static const finalWarningCountdownSeconds = 5;
+  static const finalWarningTickInterval = Duration(milliseconds: 1500);
+
   final Duration preparationTimeout;
 
   /// Delay between stable readiness and [autoStartDue] for guided auto-start.
@@ -502,11 +507,19 @@ class PracticeRunController extends ChangeNotifier {
     if (limit == null) return;
     _remainingSeconds = limit.inSeconds;
     final generation = _lifecycleGeneration;
-    _movementCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _scheduleMovementCountdownTick(generation);
+  }
+
+  void _scheduleMovementCountdownTick(int generation) {
+    final interval = _remainingSeconds <= finalWarningCountdownSeconds
+        ? finalWarningTickInterval
+        : const Duration(seconds: 1);
+    _movementCountdownTimer = Timer(interval, () {
       if (_phase != PracticeRunPhase.active ||
           _lifecycleGeneration != generation) {
         return;
       }
+      _movementCountdownTimer = null;
       if (_remainingSeconds > 0) {
         _remainingSeconds--;
       }
@@ -515,6 +528,8 @@ class PracticeRunController extends ChangeNotifier {
         _stopElapsedTimer();
         _phase = PracticeRunPhase.completed;
         _movementTimeoutPending = true;
+      } else {
+        _scheduleMovementCountdownTick(generation);
       }
       notifyListeners();
     });

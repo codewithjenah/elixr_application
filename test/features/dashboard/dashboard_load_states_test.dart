@@ -148,7 +148,7 @@ void main() {
       );
 
       expect(find.text('Total Sessions'), findsOneWidget);
-      expect(find.textContaining('7 session'), findsOneWidget);
+      expect(find.text('7 sessions completed'), findsOneWidget);
       expect(find.text('Dashboard unavailable'), findsNothing);
 
       sessions.error = StateError('unavailable');
@@ -156,7 +156,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.textContaining('7 session'), findsOneWidget);
+      expect(find.text('7 sessions completed'), findsOneWidget);
       expect(
         find.text('We could not load your dashboard. Please try again.'),
         findsOneWidget,
@@ -169,7 +169,7 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('11 session'), findsOneWidget);
+      expect(find.text('11 sessions completed'), findsOneWidget);
       expect(find.text('Retry'), findsNothing);
     },
   );
@@ -190,7 +190,7 @@ void main() {
       sessions: sessions,
       auth: auth,
     );
-    expect(find.textContaining('7 session'), findsOneWidget);
+    expect(find.text('7 sessions completed'), findsOneWidget);
 
     final blocked = Completer<List<Session>>();
     sessions.completer = blocked;
@@ -206,8 +206,8 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.textContaining('3 session'), findsOneWidget);
-    expect(find.textContaining('7 session'), findsNothing);
+    expect(find.text('3 sessions completed'), findsOneWidget);
+    expect(find.text('7 sessions completed'), findsNothing);
   });
 
   testWidgets('late previous-user load cannot overwrite the current user', (
@@ -240,9 +240,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.textContaining('3 session'), findsOneWidget);
-    expect(find.textContaining('99 session'), findsNothing);
-    expect(find.textContaining('7 session'), findsNothing);
+    expect(find.text('3 sessions completed'), findsOneWidget);
+    expect(find.text('99 sessions completed'), findsNothing);
+    expect(find.text('7 sessions completed'), findsNothing);
   });
 }
 

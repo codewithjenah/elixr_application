@@ -147,6 +147,7 @@ void main() {
       ),
     );
     await tester.tap(find.byKey(Key('classroom_announcement_pin_${item.id}')));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.text('Pinned announcement.'), findsOneWidget);
@@ -203,6 +204,7 @@ void main() {
       'Practice today.',
     );
     await tester.tap(find.byKey(const Key('classroom_announcement_save')));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.text('Announcement published.'), findsOneWidget);
@@ -218,6 +220,8 @@ void main() {
       'Updated reminder',
     );
     await tester.tap(find.byKey(const Key('classroom_announcement_save')));
+    await tester.pump();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.text('Announcement updated.'), findsOneWidget);
@@ -232,6 +236,7 @@ void main() {
     await tester.tap(
       find.byKey(const Key('classroom_announcement_confirm_delete')),
     );
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.text('Announcement deleted.'), findsOneWidget);

@@ -15,6 +15,7 @@ import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
+import 'package:elixr_application/services/trainee_progression_snapshot_store.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -136,6 +137,11 @@ class _NoopImages implements ProfileImageRepositoryBase {
   }
 }
 
+class _NoopProgressionSnapshotStore extends TraineeProgressionSnapshotStore {
+  @override
+  Future<void> purge(String firebaseUid) async {}
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -167,6 +173,7 @@ void main() {
       leaderboardRepository: null,
       profileImageRepository: _NoopImages(),
       emailCallbackServer: MemoryAuthEmailCallbackServer(),
+      traineeProgressionSnapshotStore: _NoopProgressionSnapshotStore(),
     );
     authService.seedAuthenticatedUser(
       User(

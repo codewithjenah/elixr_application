@@ -64,6 +64,17 @@ const _emptyRubric = RubricAssessment(
   propPositioning: 0,
 );
 
+@visibleForTesting
+bool shouldPlayPracticeTimerWarning({
+  required bool isTrainingActive,
+  required int remainingSeconds,
+  required int lifecycleGeneration,
+  required int? playedGeneration,
+}) =>
+    isTrainingActive &&
+    remainingSeconds == 10 &&
+    playedGeneration != lifecycleGeneration;
+
 /// Controls whether a completed guided-practice attempt is authoritative.
 ///
 /// Teacher previews run the same camera and CV lifecycle but deliberately
@@ -209,6 +220,7 @@ class PracticeScreenState extends State<PracticeScreen>
   bool _pendingTimedOut = false;
   Uint8List? _confirmedEvidenceJpegBytes;
   int _completionAudioGeneration = 0;
+  int? _timerWarningGeneration;
 
   late final AnimationController _scorePulseController;
   late final Animation<double> _scorePulse;
@@ -318,8 +330,41 @@ class PracticeScreenState extends State<PracticeScreen>
 
   void _onRunChanged() {
     if (!mounted || _leaving) return;
+    final lifecycleGeneration = _run.lifecycleGeneration;
+    var playTimerWarningAfterFrame = false;
+    if (_timerWarningGeneration == lifecycleGeneration &&
+        !_run.isTrainingActive) {
+      _timerWarningGeneration = null;
+      unawaited(_sfx.stop());
+    } else if (shouldPlayPracticeTimerWarning(
+      isTrainingActive: _run.isTrainingActive,
+      remainingSeconds: _run.remainingSeconds,
+      lifecycleGeneration: lifecycleGeneration,
+      playedGeneration: _timerWarningGeneration,
+    )) {
+      _timerWarningGeneration = lifecycleGeneration;
+      playTimerWarningAfterFrame = true;
+    }
     final movementTimedOut = _run.consumeMovementTimeout();
     setState(() {});
+    if (playTimerWarningAfterFrame) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            _leaving ||
+            _run.lifecycleGeneration != lifecycleGeneration ||
+            !_run.isTrainingActive ||
+            _run.remainingSeconds != 10 ||
+            _timerWarningGeneration != lifecycleGeneration) {
+          return;
+        }
+        final settings = context.read<SettingsService>();
+        unawaited(
+          _sfx.playTimerWarning(
+            volume: settings.soundEnabled ? settings.musicVolume : 0.0,
+          ),
+        );
+      });
+    }
     if (movementTimedOut) {
       unawaited(_onMovementTimedOut());
       return;
@@ -829,7 +874,8 @@ class PracticeScreenState extends State<PracticeScreen>
       }
 
       _run.enterActive();
-      _sfx.stop();
+      unawaited(_sfx.stop());
+      unawaited(_sfx.preloadTimerWarning());
       final settings = context.read<SettingsService>();
       await _music.start(
         selectedTrackId: settings.selectedMusicTrackId,
@@ -1245,8 +1291,12 @@ class PracticeScreenState extends State<PracticeScreen>
         return;
       }
       _completionAudioGeneration++;
-      await _sfx.stop();
-      await _music.resumeBackgroundMusic();
+      // Preview navigation is non-persistent and must not wait on a native
+      // audio command that may still be resolving on Windows. Both services
+      // retain their serialized command queues; leaving these operations
+      // queued lets the screen tear down without racing a second command.
+      unawaited(_sfx.stop());
+      unawaited(_music.resumeBackgroundMusic());
       if (!mounted || _leaving) return;
       _clearSessionState();
       _run.cancelToIdle();

@@ -51,7 +51,12 @@ void main() {
         expect(run.remainingSeconds, 59);
         expect(run.elapsedSeconds, 1);
 
-        async.elapse(const Duration(seconds: 59));
+        async.elapse(const Duration(seconds: 54));
+        expect(run.remainingSeconds, 5);
+        async.elapse(
+          PracticeRunController.finalWarningTickInterval *
+              PracticeRunController.finalWarningCountdownSeconds,
+        );
         expect(run.remainingSeconds, 0);
         expect(run.phase, PracticeRunPhase.completed);
         expect(run.hasMovementCountdownTimer, isFalse);
@@ -99,7 +104,7 @@ void main() {
 
         startAttempt();
         async.elapse(const Duration(seconds: 59));
-        expect(run.remainingSeconds, 1);
+        expect(run.remainingSeconds, 3);
         run.cancelToIdle();
         startAttempt();
 

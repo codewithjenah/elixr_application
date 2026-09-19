@@ -238,6 +238,7 @@ void main() {
         ),
       ),
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
     await auth.initialize();
 
@@ -286,6 +287,7 @@ void main() {
         ),
       ),
       awaitInitialAuthState: () async {},
+      currentFirebaseAuthUid: () => 'u1',
     );
     await auth.initialize();
 
@@ -762,6 +764,7 @@ Future<AuthService> _auth({bool? sessionEvidenceEnabled}) async {
       ),
     ),
     awaitInitialAuthState: () async {},
+    currentFirebaseAuthUid: () => 'u1',
   );
   await auth.initialize();
   return auth;

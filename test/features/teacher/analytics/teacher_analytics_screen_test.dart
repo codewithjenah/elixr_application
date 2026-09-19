@@ -148,7 +148,12 @@ void main() {
 
     expect(saver.suggestedName, startsWith('ELIXR_Analytics_'));
     expect(saver.csv, contains('ELIXR Analytics'));
-    await tester.pump(const Duration(seconds: 5));
+    // Fluent InfoBars fade in, remain visible for three seconds, then fade
+    // out. Advance each phase so the overlay's chained timers are drained.
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(milliseconds: 250));
   });
 
   testWidgets('uses simple words when no scored practice is available', (
