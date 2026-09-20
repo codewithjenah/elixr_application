@@ -1201,6 +1201,13 @@ class _YourWork extends StatelessWidget {
               .length;
     final hasAvailableAttempt =
         maximumAttempts == null || consumedAttempts < maximumAttempts;
+    final remainingAttempts = maximumAttempts == null
+        ? null
+        : (maximumAttempts - consumedAttempts).clamp(0, maximumAttempts);
+    final attemptAvailabilityLabel = maximumAttempts == null
+        ? 'Unlimited attempts'
+        : '$remainingAttempts of $maximumAttempts '
+              '${maximumAttempts == 1 ? 'attempt' : 'attempts'} remaining';
     final canStart = canStartAssignedMovement(
       assignment,
       workflowAttempt,
@@ -1233,6 +1240,15 @@ class _YourWork extends StatelessWidget {
                 compact: true,
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ElixPill(
+            key: const Key('assignment_detail_attempts_remaining'),
+            text: attemptAvailabilityLabel,
+            color: hasAvailableAttempt
+                ? AppColors.primary
+                : context.elixTextSecondary,
+            compact: true,
           ),
           const SizedBox(height: AppSpacing.lg),
           if (current == null)

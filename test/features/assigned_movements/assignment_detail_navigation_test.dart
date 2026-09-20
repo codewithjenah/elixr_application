@@ -5,6 +5,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/activity_learning_material.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
@@ -393,4 +394,147 @@ void main() {
       expect(find.text('Checked'), findsNWidgets(2));
     },
   );
+
+  testWidgets('Your work shows remaining Official ELIXR attempts', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final groups = InMemoryGroupRepository();
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(groups.dispose);
+    addTearDown(assignments.dispose);
+    final controller =
+        AssignmentDetailController(
+            assignmentId: 'official',
+            traineeId: 'trainee-1',
+            groupRepository: groups,
+            assignmentRepository: assignments,
+          )
+          ..assignment = const GroupAssignment(
+            id: 'official',
+            teacherId: 'teacher-1',
+            groupId: 'group-1',
+            movementId: 'official_hand_stall',
+            revisionId: 'official_hand_stall_v1',
+            origin: MovementOrigin.officialElixr,
+            assessmentMode: AssessmentMode.officialGuided,
+            status: GroupAssignmentStatus.active,
+            displayTitle: 'Hand Stall',
+            teacherDisplayName: 'Grace Hopper',
+            groupName: 'BSHM 4A',
+            officialMovementName: 'Hand Stall',
+            attemptPolicy: AssignmentAttemptPolicy.finite(2),
+          )
+          ..authorized = true
+          ..attempts = [
+            AssignmentAttempt(
+              id: 'official-attempt',
+              traineeId: 'trainee-1',
+              teacherId: 'teacher-1',
+              groupId: 'group-1',
+              assignmentId: 'official',
+              movementId: 'official_hand_stall',
+              revisionId: 'official_hand_stall_v1',
+              origin: MovementOrigin.officialElixr,
+              assessmentMode: AssessmentMode.officialGuided,
+              attemptKind: AssignmentAttemptKind.practicePointer,
+              status: AssignmentAttemptStatus.submitted,
+              sourceSessionId: 'session-1',
+              createdAt: DateTime.utc(2026, 9, 20),
+            ),
+          ];
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: AssignmentDetailScreen(
+          assignmentId: 'official',
+          controller: controller,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('assignment_detail_attempts_remaining')),
+      findsOneWidget,
+    );
+    expect(find.text('1 of 2 attempts remaining'), findsOneWidget);
+  });
+
+  testWidgets('abandoned Activity recording does not reduce attempts shown', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final groups = InMemoryGroupRepository();
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(groups.dispose);
+    addTearDown(assignments.dispose);
+    final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+    final controller =
+        AssignmentDetailController(
+            assignmentId: 'activity',
+            traineeId: 'trainee-1',
+            groupRepository: groups,
+            assignmentRepository: assignments,
+          )
+          ..assignment = GroupAssignment(
+            id: 'activity',
+            teacherId: 'teacher-1',
+            groupId: 'group-1',
+            movementId: 'movement-1',
+            revisionId: 'revision-1',
+            origin: MovementOrigin.teacherCreated,
+            assessmentMode: AssessmentMode.teacherReviewed,
+            status: GroupAssignmentStatus.active,
+            displayTitle: 'Bottle control',
+            teacherDisplayName: 'Grace Hopper',
+            groupName: 'BSHM 4A',
+            activityAssessment: assessment,
+            attemptPolicy: const AssignmentAttemptPolicy.finite(1),
+          )
+          ..authorized = true
+          ..attempts = [
+            AssignmentAttempt(
+              id: 'abandoned-attempt',
+              traineeId: 'trainee-1',
+              teacherId: 'teacher-1',
+              groupId: 'group-1',
+              assignmentId: 'activity',
+              movementId: 'movement-1',
+              revisionId: 'revision-1',
+              origin: MovementOrigin.teacherCreated,
+              assessmentMode: AssessmentMode.teacherReviewed,
+              attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+              status: AssignmentAttemptStatus.draft,
+              abandonedAt: DateTime.utc(2026, 9, 20, 2),
+              recordingStartedAt: DateTime.utc(2026, 9, 20, 1),
+              activityAssessmentSnapshot: assessment,
+            ),
+          ];
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: AssignmentDetailScreen(
+          assignmentId: 'activity',
+          controller: controller,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('1 of 1 attempt remaining'), findsOneWidget);
+    expect(find.text('No tries remaining'), findsNothing);
+  });
 }

@@ -70,10 +70,13 @@ class AssignmentDetailController extends ChangeNotifier {
 
   /// All attempts for this assignment, including Official ELIXR practice
   /// pointers. The complete set is needed to enforce finite delivery limits.
-  List<AssignmentAttempt> get assignmentAttempts => [
-    for (final attempt in _allAttempts)
-      if (attempt.assignmentId == assignmentId) attempt,
-  ];
+  List<AssignmentAttempt> get assignmentAttempts {
+    final source = _allAttempts.isEmpty ? attempts : _allAttempts;
+    return [
+      for (final attempt in source)
+        if (attempt.assignmentId == assignmentId) attempt,
+    ];
+  }
 
   /// The current Activity workflow record is independent from the historical
   /// row selected for playback or score review.

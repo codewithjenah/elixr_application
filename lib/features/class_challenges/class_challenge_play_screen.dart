@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
@@ -8,6 +9,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
@@ -126,15 +128,31 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const ElixScaffoldPage(content: Center(child: ProgressRing()));
+      return ElixScaffoldPage(
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(),
+            const Expanded(child: Center(child: ProgressRing())),
+          ],
+        ),
+      );
     }
     final challenge = _challenge;
     if (challenge == null) {
       return ElixScaffoldPage(
-        content: ElixStatusPanel(
-          title: 'Challenge unavailable',
-          message: _error ?? 'This challenge cannot be opened.',
-          isError: true,
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: ElixStatusPanel(
+                title: 'Challenge unavailable',
+                message: _error ?? 'This challenge cannot be opened.',
+                isError: true,
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -148,11 +166,7 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const ElixEditorialPageHeader(
-              heading: 'Class Challenge',
-              eyebrow: 'READY UP',
-              variant: ElixEditorialHeaderVariant.compact,
-            ),
+            _buildHeader(),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: StreamBuilder<ClassChallengeParticipant?>(
@@ -286,6 +300,25 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHeader() => ElixEditorialPageHeader(
+    heading: 'Class Challenge',
+    eyebrow: 'READY UP',
+    variant: ElixEditorialHeaderVariant.compact,
+    leading: ElixBackButton(
+      key: const Key('class_challenge_play_back'),
+      label: 'Challenges',
+      tooltip: 'Back to classroom challenges',
+      semanticLabel: 'Back to classroom challenges',
+      onPressed: _backToChallenges,
+    ),
+  );
+
+  void _backToChallenges() {
+    context.go(
+      '${AppRoutePaths.teacherAccessClass(widget.groupId)}?tab=challenges',
     );
   }
 
