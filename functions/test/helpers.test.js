@@ -3354,14 +3354,14 @@ test('abandoning an unconsumed reservation does not increment consumed_count', a
   );
 });
 
-test('consuming then abandoning keeps the finite attempt counted', async () => {
+test('consuming then abandoning refunds the finite attempt', async () => {
   const database = fakeTeacherActivityAttemptDatabase();
   const reserved = await invokeReserve(database, 'activity-open-1');
   const consumed = await invokeConsume(database, reserved.body.attempt.id);
   assert.equal(consumed.statusCode, 200);
   await invokeAbandon(database, reserved.body.attempt.id);
   const state = database.docs.get('assignment_attempt_states/assignment-1__trainee');
-  assert.equal(state.consumed_count, 1);
+  assert.equal(state.consumed_count, 0);
   assert.equal(state.active_attempt_id, undefined);
   const recovered = await invokeReserve(database, 'activity-open-2');
   assert.equal(recovered.statusCode, 200);
@@ -3388,16 +3388,19 @@ test('abandon never rewrites a submitted attempt while its active lock is pendin
   );
 });
 
-test('Teacher Activity reservation stays exhausted after consumed attempts', async () => {
+test('Teacher Activity reservation stays available after abandoned recordings', async () => {
   const database = fakeTeacherActivityAttemptDatabase();
   for (const requestId of ['activity-open-1', 'activity-open-2']) {
     const reserved = await invokeReserve(database, requestId);
     await invokeConsume(database, reserved.body.attempt.id);
     await invokeAbandon(database, reserved.body.attempt.id);
   }
-  const blocked = await invokeReserve(database, 'activity-open-3');
-  assert.equal(blocked.statusCode, 409);
-  assert.deepEqual(blocked.body, {error: 'attempts_exhausted'});
+  const next = await invokeReserve(database, 'activity-open-3');
+  assert.equal(next.statusCode, 200);
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').consumed_count,
+    0,
+  );
 });
 
 test('Teacher Activity reservation rejects graded, overdue, and forbidden trainees', async () => {

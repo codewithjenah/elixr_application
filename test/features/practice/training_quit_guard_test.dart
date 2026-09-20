@@ -103,7 +103,7 @@ void main() {
     expect(find.text('Quit training?'), findsOneWidget);
     expect(
       find.text(
-        'Your current session will end and unsaved session progress will be lost.',
+        'Your current session will end. Its score and progress will not be saved.',
       ),
       findsOneWidget,
     );

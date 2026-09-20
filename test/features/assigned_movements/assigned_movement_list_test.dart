@@ -66,6 +66,7 @@ AssignmentAttempt _activityAttempt(
   required String id,
   AssignmentAttemptStatus status = AssignmentAttemptStatus.submitted,
   DateTime? recordingStartedAt,
+  DateTime? abandonedAt,
   DateTime? createdAt,
   DateTime? draftSavedAt,
   DateTime? draftCleanupStartedAt,
@@ -84,6 +85,7 @@ AssignmentAttempt _activityAttempt(
     attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
     status: status,
     recordingStartedAt: recordingStartedAt,
+    abandonedAt: abandonedAt,
     createdAt: createdAt,
     draftSavedAt: draftSavedAt,
     draftCleanupStartedAt: draftCleanupStartedAt,
@@ -329,6 +331,23 @@ void main() {
         activityAttempts: exhausted,
       ),
       isFalse,
+    );
+    final abandoned = _activityAttempt(
+      assignment.id,
+      assessment: assessment,
+      id: 'activity-abandoned',
+      status: AssignmentAttemptStatus.draft,
+      recordingStartedAt: DateTime.utc(2026, 9, 3),
+      abandonedAt: DateTime.utc(2026, 9, 3, 0, 1),
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment.copyWith(attemptPolicy: AssignmentAttemptPolicy.finite(1)),
+        null,
+        null,
+        activityAttempts: [abandoned],
+      ),
+      isTrue,
     );
     expect(
       canStartAssignedMovement(

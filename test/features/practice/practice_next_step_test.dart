@@ -7,11 +7,13 @@ PracticeCatalogStep? _nextSummaryStep({
   required int? currentLevel,
   required bool? tutorialCompleted,
   bool assignmentScoped = false,
+  bool challengeScoped = false,
 }) {
   return nextPracticeSummaryStep(
     movementName: 'Normal Grip',
     prop: TrainingProp.bottle,
     assignmentScoped: assignmentScoped,
+    challengeScoped: challengeScoped,
     currentLevel: currentLevel,
     tutorialCompleted: (_) => tutorialCompleted,
   );
@@ -53,6 +55,17 @@ void main() {
         currentLevel: 2,
         tutorialCompleted: true,
         assignmentScoped: true,
+      ),
+      isNull,
+    );
+  });
+
+  test('challenge-scoped sessions retain no catalog auto-next', () {
+    expect(
+      _nextSummaryStep(
+        currentLevel: 2,
+        tutorialCompleted: true,
+        challengeScoped: true,
       ),
       isNull,
     );

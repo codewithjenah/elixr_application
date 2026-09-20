@@ -724,7 +724,7 @@ class _TeacherActivityOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final readiness = assessment.readiness;
     final consumed = attempts
-        .where((attempt) => attempt.recordingStartedAt != null)
+        .where((attempt) => attempt.countsAgainstTeacherActivityAttemptLimit)
         .length;
     final maximum = assignment.attemptPolicy.maximumAttempts;
     final attemptSummary = assignment.attemptPolicy.isUnlimited
@@ -1187,7 +1187,9 @@ class _YourWork extends StatelessWidget {
         : controller.assignmentAttempts;
     final consumedAttempts = isTeacherActivity
         ? attemptHistory
-              .where((attempt) => attempt.recordingStartedAt != null)
+              .where(
+                (attempt) => attempt.countsAgainstTeacherActivityAttemptLimit,
+              )
               .length
         : attemptHistory
               .where(

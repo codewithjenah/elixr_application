@@ -26,7 +26,7 @@ class TrainingQuitCopy {
   static const practice = TrainingQuitCopy(
     title: 'Quit training?',
     body:
-        'Your current session will end and unsaved session progress will be lost.',
+        'Your current session will end. Its score and progress will not be saved.',
     keepLabel: 'Keep Training',
     quitLabel: 'Quit Session',
   );
@@ -43,7 +43,7 @@ class TrainingQuitCopy {
   static const assignment = TrainingQuitCopy(
     title: 'Quit practice?',
     body:
-        'Your current attempt will end and unsaved recording progress will be lost.',
+        'Your current attempt will end. No score or attempt will be saved, so you can try again.',
     keepLabel: 'Keep Training',
     quitLabel: 'Quit Practice',
   );

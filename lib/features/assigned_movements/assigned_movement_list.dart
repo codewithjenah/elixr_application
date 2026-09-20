@@ -1076,7 +1076,9 @@ bool canStartAssignedMovement(
     }
     final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
     final consumedAttempts = attempts
-        .where((candidate) => candidate.recordingStartedAt != null)
+        .where(
+          (candidate) => candidate.countsAgainstTeacherActivityAttemptLimit,
+        )
         .length;
     return maximumAttempts == null || consumedAttempts < maximumAttempts;
   }

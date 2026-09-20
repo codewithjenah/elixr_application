@@ -220,6 +220,14 @@ class AssignmentAttempt {
     return status == AssignmentAttemptStatus.draft && abandonedAt != null;
   }
 
+  /// Mirrors the server-side Teacher Activity `consumed_count` contract.
+  /// Recording start is provisional and is refunded when the active attempt
+  /// is abandoned before submission.
+  bool get countsAgainstTeacherActivityAttemptLimit =>
+      activityAssessmentSnapshot != null &&
+      recordingStartedAt != null &&
+      !isAbandonedTeacherReviewDraft;
+
   bool get isReviewFacingSubmission {
     if (!isTeacherReviewSubmission) return false;
     if (isAbandonedTeacherReviewDraft) return false;

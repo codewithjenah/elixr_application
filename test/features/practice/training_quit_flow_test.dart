@@ -18,6 +18,7 @@ import 'package:elixr_application/features/practice/live_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/features/practice/practice_screen.dart';
+import 'package:elixr_application/features/practice/session_summary_sheet.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/session_service.dart';
@@ -521,6 +522,32 @@ void main() {
       expect(find.text('movements-destination'), findsOneWidget);
       expect(ws.stopCalls, 1);
       expect(find.text('Quit training?'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'confirming active Movement Practice quit does not save a score',
+    (tester) async {
+      final sessions = _TestSessionService();
+      final screenKey = await pumpPractice(tester, sessionService: sessions);
+      final run = screenKey.currentState!.debugRun;
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterCountdown();
+      run.enterActive();
+      run.debugAdvanceActiveSeconds(5);
+      await tester.pump();
+
+      await tester.tap(_backButton());
+      await _pumpUi(tester);
+      expect(find.text('Quit training?'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('training-quit-confirm')));
+      await _pumpUi(tester);
+
+      expect(find.text('movements-destination'), findsOneWidget);
+      expect(sessions.reservedSessionIdCalls, 0);
+      expect(sessions.completedSaveCalls, 0);
+      expect(find.byType(SessionSummarySheet), findsNothing);
     },
   );
 

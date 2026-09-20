@@ -1123,6 +1123,10 @@ class InMemoryClassroomAssignmentRepository
       status: AssignmentAttemptStatus.draft,
       abandonedAt: now,
     );
+    if (state.activeConsumed) {
+      if (state.consumedCount > 0) state.consumedCount -= 1;
+      consumedTeacherActivityAttemptIds.remove(attempt.id);
+    }
     state.activeAttemptId = null;
     state.activeRequestId = null;
     state.activeConsumed = false;
@@ -1406,6 +1410,17 @@ class InMemoryClassroomAssignmentRepository
       videoExpiresAt: videoExpiresAt,
     );
     attempts[existing.id] = submitted;
+    if (existing.activityAssessmentSnapshot != null) {
+      final state = _teacherActivityState(
+        assignmentId: existing.assignmentId,
+        traineeId: traineeId,
+      );
+      if (state.activeAttemptId == existing.id) {
+        state.activeAttemptId = null;
+        state.activeRequestId = null;
+        state.activeConsumed = false;
+      }
+    }
     _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
     _emitTraineeAttempts(existing.traineeId);
     _emitTeacherAttempts(existing.teacherId);

@@ -25,8 +25,8 @@ class AssignedMovementItem {
   final AssignmentAttempt? latestSubmission;
 
   /// All known attempts for this assignment. Finite policies count completed
-  /// Official ELIXR sessions and Teacher Activity recordings that started,
-  /// including an interrupted reservation that was later abandoned.
+  /// Official ELIXR sessions and submitted Teacher Activity recordings;
+  /// abandoned recording reservations are retained for cleanup but refunded.
   final List<AssignmentAttempt> activityAttempts;
 
   /// Best-effort public profile picture for [assignment.teacherId].

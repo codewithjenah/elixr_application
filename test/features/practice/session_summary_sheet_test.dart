@@ -1347,6 +1347,7 @@ void main() {
           movementName: 'Normal Grip',
           prop: TrainingProp.bottle,
           assignmentScoped: false,
+          challengeScoped: false,
           currentLevel: 1,
           tutorialCompleted: (_) => true,
         );

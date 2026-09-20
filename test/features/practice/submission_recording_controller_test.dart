@@ -286,43 +286,64 @@ void main() {
     expect(classroom.consumedTeacherActivityAttemptIds, contains(reserved.id));
   });
 
-  test('releasing an Activity reservation leaves it reopenable', () async {
-    final socket = _GatedRecordSocket();
-    final controller = SubmissionRecordingController(
-      websocket: socket,
-      classroom: classroom,
-      submissions: submissions,
-      assignment: _activityAssignment,
-      traineeId: 'trainee-1',
-      recordingCountdown: Duration.zero,
-    );
-    addTearDown(controller.dispose);
-    classroom.assignments[_activityAssignment.id] = _activityAssignment;
-
-    final reserved = await classroom.reserveTeacherActivityAttempt(
-      traineeId: 'trainee-1',
-      assignment: _activityAssignment,
-      requestId: 'activity-open-1',
-    );
-    controller.latestSubmission = reserved;
-    await controller.releaseActivityAttempt();
-
-    expect(
-      classroom.teacherActivityActiveAttemptId(
-        assignmentId: _activityAssignment.id,
+  test(
+    'quitting a started Activity refunds it and leaves it reopenable',
+    () async {
+      final socket = _GatedRecordSocket();
+      final controller = SubmissionRecordingController(
+        websocket: socket,
+        classroom: classroom,
+        submissions: submissions,
+        assignment: _activityAssignment,
         traineeId: 'trainee-1',
-      ),
-      isNull,
-    );
-    expect(classroom.consumedTeacherActivityAttemptIds, isEmpty);
+        recordingCountdown: Duration.zero,
+      );
+      addTearDown(controller.dispose);
+      classroom.assignments[_activityAssignment.id] = _activityAssignment;
 
-    final reopened = await classroom.reserveTeacherActivityAttempt(
-      traineeId: 'trainee-1',
-      assignment: _activityAssignment,
-      requestId: 'activity-open-2',
-    );
-    expect(reopened.id, isNot(reserved.id));
-  });
+      final reserved = await classroom.reserveTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        assignment: _activityAssignment,
+        requestId: 'activity-open-1',
+      );
+      await classroom.consumeTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        attempt: reserved,
+      );
+      expect(
+        classroom.teacherActivityConsumedCount(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        1,
+      );
+      controller.latestSubmission = reserved;
+      await controller.releaseActivityAttempt();
+
+      expect(
+        classroom.teacherActivityActiveAttemptId(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        isNull,
+      );
+      expect(classroom.consumedTeacherActivityAttemptIds, isEmpty);
+      expect(
+        classroom.teacherActivityConsumedCount(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        0,
+      );
+
+      final reopened = await classroom.reserveTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        assignment: _activityAssignment,
+        requestId: 'activity-open-2',
+      );
+      expect(reopened.id, isNot(reserved.id));
+    },
+  );
 
   test(
     'Activity recording submits the reserved attempt automatically',

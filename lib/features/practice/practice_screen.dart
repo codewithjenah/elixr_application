@@ -84,7 +84,8 @@ bool shouldPlayPracticeTimerWarning({
 enum PracticeExecutionMode { trainee, teacherPreview }
 
 /// Returns the immediate catalog successor only when personal access permits
-/// direct practice. Assignment sessions deliberately retain no catalog auto-next.
+/// direct practice. Assignment and class-challenge sessions deliberately retain
+/// no catalog auto-next because each is scoped to its requested movement.
 ///
 /// The catalog owns sequencing; [evaluatePersonal] remains the sole authority
 /// for trainee level and exact tutorial readiness.
@@ -92,10 +93,11 @@ PracticeCatalogStep? nextPracticeSummaryStep({
   required String movementName,
   required TrainingProp prop,
   required bool assignmentScoped,
+  required bool challengeScoped,
   required int? currentLevel,
   required bool? Function(PracticeVariant variant) tutorialCompleted,
 }) {
-  if (assignmentScoped) return null;
+  if (assignmentScoped || challengeScoped) return null;
   final candidate = nextEnabledPracticeAfter(movementName, prop);
   if (candidate == null) return null;
   final variant = PracticeVariant(
@@ -1089,6 +1091,7 @@ class PracticeScreenState extends State<PracticeScreen>
           movementName: _movement,
           prop: _prop,
           assignmentScoped: widget.assignmentContext != null,
+          challengeScoped: widget.challengeContext != null,
           currentLevel: progression.currentLevelOrNull,
           tutorialCompleted: (variant) => tutorialProgress.isInitialized
               ? tutorialProgress.hasCompletedLesson(

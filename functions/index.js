@@ -1464,8 +1464,9 @@ async function abandonTeacherActivityAttemptHandler(request, response, {
       // A submission can commit before the document trigger clears the active
       // lock. Never turn that historical submitted attempt back into a draft
       // during this short window; only an active in-progress reservation is
-      // releasable. A consumed in-progress reservation remains releasable and
-      // its consumed_count is intentionally left untouched below.
+      // releasable. Starting a recording is provisional: if the trainee quits
+      // before submission, refund that consumed slot so a finite assignment
+      // can be attempted again.
       if (!attemptSnapshot.exists || attemptSnapshot.get('trainee_id') !== uid ||
           attemptSnapshot.get('assignment_id') !== body.assignment_id ||
           attemptSnapshot.get('attempt_kind') !== 'teacher_review_submission' ||
@@ -1474,11 +1475,15 @@ async function abandonTeacherActivityAttemptHandler(request, response, {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
       const now = Timestamp.now();
+      const consumed = Number.isInteger(stateSnapshot.get('consumed_count'))
+        ? stateSnapshot.get('consumed_count') : 0;
+      const refundConsumedAttempt = stateSnapshot.get('active_consumed') === true;
       transaction.update(attemptRef, {
         status: 'draft',
         abandoned_at: now,
       });
       transaction.update(stateRef, {
+        consumed_count: refundConsumedAttempt ? Math.max(0, consumed - 1) : consumed,
         active_attempt_id: FieldValue.delete(),
         active_request_id: FieldValue.delete(),
         active_consumed: FieldValue.delete(),

@@ -154,69 +154,75 @@ void main() {
     },
   );
 
-  test(
-    'consumed interrupted attempt remains counted after abandonment',
-    () async {
-      final reserved = await reserve('activity-open-1');
-      await classroom.consumeTeacherActivityAttempt(
-        traineeId: 'trainee-1',
-        attempt: reserved,
-      );
-      expect(consumedCount(), 1);
-      await classroom.abandonTeacherActivityAttempt(
-        traineeId: 'trainee-1',
-        attempt: reserved,
-      );
-      expect(consumedCount(), 1);
-      expect(activeId(), isNull);
-      expect(classroom.attempts[reserved.id]?.recordingStartedAt, isNotNull);
-    },
-  );
+  test('consumed interrupted attempt is refunded after abandonment', () async {
+    final reserved = await reserve('activity-open-1');
+    await classroom.consumeTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      attempt: reserved,
+    );
+    expect(consumedCount(), 1);
+    await classroom.abandonTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      attempt: reserved,
+    );
+    expect(consumedCount(), 0);
+    expect(activeId(), isNull);
+    expect(
+      classroom.consumedTeacherActivityAttemptIds,
+      isNot(contains(reserved.id)),
+    );
+    expect(classroom.attempts[reserved.id]?.recordingStartedAt, isNotNull);
+  });
+
+  test('abandoned recordings do not exhaust a finite attempt policy', () async {
+    final first = await reserve('activity-open-1');
+    await classroom.consumeTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      attempt: first,
+    );
+    final second = await recover('activity-open-2');
+    expect(consumedCount(), 0);
+    expect(second.id, isNot(first.id));
+    await classroom.consumeTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      attempt: second,
+    );
+    await classroom.abandonTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      attempt: second,
+    );
+    final third = await recover('activity-open-3');
+    expect(third.id, isNot(second.id));
+    expect(consumedCount(), 0);
+  });
 
   test(
-    'another attempt is allowed only while the finite policy has remaining attempts',
+    'submitted finite attempts remain counted and block another attempt',
     () async {
-      final first = await reserve('activity-open-1');
-      await classroom.consumeTeacherActivityAttempt(
-        traineeId: 'trainee-1',
-        attempt: first,
-      );
-      final second = await recover('activity-open-2');
-      expect(consumedCount(), 1);
-      expect(second.id, isNot(first.id));
-      await classroom.consumeTeacherActivityAttempt(
-        traineeId: 'trainee-1',
-        attempt: second,
-      );
-      await classroom.abandonTeacherActivityAttempt(
-        traineeId: 'trainee-1',
-        attempt: second,
-      );
+      for (var index = 0; index < 2; index++) {
+        final reserved = await recover('activity-open-$index');
+        await classroom.consumeTeacherActivityAttempt(
+          traineeId: 'trainee-1',
+          attempt: reserved,
+        );
+        await classroom.markTeacherReviewSubmitted(
+          traineeId: 'trainee-1',
+          attempt: reserved,
+          videoStoragePath:
+              'assignment_submissions/teacher-1/g1/activity-1/trainee-1/${reserved.id}.mp4',
+          videoContentType: 'video/mp4',
+          videoSizeBytes: 1024,
+          videoDurationMs: 1000,
+          submittedAt: DateTime.utc(2026, 9, 8, 12),
+          videoExpiresAt: DateTime.utc(2026, 9, 15, 12),
+        );
+      }
       await expectLater(
-        recover('activity-open-3'),
+        reserve('activity-open-final'),
         throwsA(_serverCode('attempts_exhausted')),
       );
-      expect(consumedCount(), 2);
     },
   );
-
-  test('finite attempts exhausted remains blocked', () async {
-    for (var index = 0; index < 2; index++) {
-      final reserved = await recover('activity-open-$index');
-      await classroom.consumeTeacherActivityAttempt(
-        traineeId: 'trainee-1',
-        attempt: reserved,
-      );
-      await classroom.abandonTeacherActivityAttempt(
-        traineeId: 'trainee-1',
-        attempt: reserved,
-      );
-    }
-    await expectLater(
-      reserve('activity-open-final'),
-      throwsA(_serverCode('attempts_exhausted')),
-    );
-  });
 
   test('graded activity remains blocked', () async {
     final graded = _assignment.copyWith(gradingLocked: true);

@@ -283,9 +283,16 @@ void main() {
           traineeId: 'trainee-1',
           attempt: reserved,
         );
-        await assignments.abandonTeacherActivityAttempt(
+        await assignments.markTeacherReviewSubmitted(
           traineeId: 'trainee-1',
           attempt: reserved,
+          videoStoragePath:
+              'assignment_submissions/teacher-1/g1/activity-1/trainee-1/${reserved.id}.mp4',
+          videoContentType: 'video/mp4',
+          videoSizeBytes: 1024,
+          videoDurationMs: 1000,
+          submittedAt: DateTime.utc(2026, 9, 8, 12),
+          videoExpiresAt: DateTime.utc(2026, 9, 15, 12),
         );
       }
 

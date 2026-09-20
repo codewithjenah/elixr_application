@@ -263,8 +263,8 @@ abstract class ClassroomAssignmentRepository {
   });
 
   /// Releases the active reservation after cancellation, navigation, or a
-  /// recorder failure. A consumed attempt remains counted and is retained as
-  /// abandoned evidence metadata; an unconsumed reservation costs no attempt.
+  /// recorder failure. Any provisional consumption from recording start is
+  /// refunded; only a submitted attempt remains counted against the limit.
   Future<void> abandonTeacherActivityAttempt({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -1135,9 +1135,9 @@ bool isTeacherActivityAttemptInProgress(Object error) {
 
 /// Releases a stale in-progress reservation, then reserves a fresh attempt.
 ///
-/// An unconsumed reservation is released at zero cost. A consumed interrupted
-/// attempt stays counted. [attempt_in_progress] is retried once after a
-/// lookup-and-abandon pass so Retry cannot loop on a leftover lock.
+/// An interrupted reservation is released at zero cost, including when
+/// recording had already started. [attempt_in_progress] is retried once after
+/// a lookup-and-abandon pass so Retry cannot loop on a leftover lock.
 Future<AssignmentAttempt> reserveTeacherActivityAttemptWithRecovery({
   required ClassroomAssignmentRepository assignments,
   required String traineeId,
