@@ -750,13 +750,14 @@ void main() {
     });
 
     test(
-      'Try Again allocates a fresh session while old stop is pending',
+      'Try Again allocates a fresh session and preserves selected camera',
       () async {
         service.beginPracticeAttempt();
         final oldSession = service.currentSessionId!;
         final prepare = service.sendPrepare(
           movement: 'Normal Grip',
           difficulty: 'Easy',
+          cameraDeviceId: 'dev-selected',
           sessionId: oldSession,
         );
         await Future<void>.delayed(Duration.zero);
@@ -770,6 +771,7 @@ void main() {
           'session_state': 'preparing',
         });
         await prepare;
+        expect(sent.last['camera_device_id'], 'dev-selected');
 
         final stopFuture = service.stopPracticeSession();
         await Future<void>.delayed(Duration.zero);
@@ -783,10 +785,12 @@ void main() {
         final prepare2 = service.sendPrepare(
           movement: 'Normal Grip',
           difficulty: 'Easy',
+          cameraDeviceId: 'dev-selected',
           sessionId: newSession,
         );
         await Future<void>.delayed(Duration.zero);
         expect(sent.last['session_id'], newSession);
+        expect(sent.last['camera_device_id'], 'dev-selected');
 
         await push({
           'protocol_version': 1,

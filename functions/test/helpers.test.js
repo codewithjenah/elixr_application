@@ -22,6 +22,9 @@ const {
   isActiveChatProfile,
   isSearchRateLimited,
   listTraineeAssignmentsHandler,
+  listTraineeActivityLearningMaterialsHandler,
+  publicActivityLearningMaterial,
+  activityMaterialPublicationFields,
   updateTeacherActivityAssignmentHandler,
   updateAssignmentConfigurationHandler,
   validActivityAssessment,
@@ -33,6 +36,8 @@ const {
   normalizeActivityMaterialLink,
   stagingPathFor,
   beginActivityMaterialUploadHandler,
+  addActivityLearningMaterialLinkHandler,
+  finalizeStagedActivityMaterial,
   getActivityMaterialUploadStatusHandler,
   removeActivityLearningMaterialHandler,
   runActivityMaterialReconciliation,
@@ -837,6 +842,10 @@ test('Learning Material upload initialization reserves opaque server IDs and exa
     `activity_material_staging/teacher/assignment/${response.body.upload_id}`);
   assert.equal(database.writes.length, 3);
   assert.equal(database.writes.find((write) => write.kind === 'material').data.status, 'staging');
+  assert.equal(
+    database.writes.find((write) => write.kind === 'material').data.published_at,
+    undefined,
+  );
   assert.equal(database.writes.find((write) => write.kind === 'stage').data.state, 'staging');
   assert.equal(database.writes.find((write) => write.kind === 'upload_request').data.request_id, 'request-1');
 });
@@ -949,15 +958,32 @@ function fakeAssignmentDatabase({
   assignments,
   recipients = [],
   overrides = [],
+  materials = [],
   user = {role: 'Trainee', lifecycle_state: 'active'},
 }) {
   const assignmentQueries = [];
   const docs = (values) => values.map((value) => ({
     id: value.id,
     data: () => value.data,
+    get: (field) => value.data[field],
     ref: {
       collection(name) {
-        assert.ok(['assignment_recipients', 'assignment_deadline_overrides'].includes(name));
+        assert.ok([
+          'assignment_recipients', 'assignment_deadline_overrides', 'learning_materials',
+        ].includes(name));
+        if (name === 'learning_materials') {
+          return {
+            where(field, operator, status) {
+              assert.deepEqual([field, operator, status], ['status', '==', 'ready']);
+              return {
+                get: async () => ({
+                  docs: docs(materials.filter((item) =>
+                    item.assignmentId === value.id && item.data.status === status)),
+                }),
+              };
+            },
+          };
+        }
         return {
           doc(traineeId) {
             const recipient = (name === 'assignment_recipients' ? recipients : overrides).find((item) =>
@@ -2169,6 +2195,282 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
     '2026-08-31T00:00:00.000Z',
   );
   assert.deepEqual(database.assignmentQueries, [{operator: '==', value: 'g1'}]);
+});
+
+function fakeMaterialFinalization({buffer}) {
+  const stagingPath = 'activity_material_staging/teacher/assignment/upload';
+  const docs = new Map([
+    ['activity_material_uploads/upload', {
+      upload_id: 'upload', material_id: 'material', assignment_id: 'assignment',
+      owner_teacher_id: 'teacher', type: 'pdf', display_name: 'Guide',
+      staging_path: stagingPath, declared_size_bytes: buffer.length,
+      state: 'staging', schema_version: 1,
+      expires_at: Timestamp.fromMillis(Date.now() + 60_000),
+    }],
+    ['group_assignments/assignment', {
+      teacher_id: 'teacher', group_id: 'group', status: 'active',
+      audience_type: 'entire_class',
+    }],
+    ['group_assignments/assignment/learning_materials/material', {
+      material_id: 'material', assignment_id: 'assignment', owner_teacher_id: 'teacher',
+      type: 'pdf', display_name: 'Guide', status: 'staging', schema_version: 1,
+    }],
+  ]);
+  const snapshot = (path, id) => {
+    const data = docs.get(path);
+    return {id, exists: data != null, data: () => data, get: (field) => data?.[field]};
+  };
+  const ref = (path, id) => ({
+    path, id,
+    get: async () => snapshot(path, id),
+    set: async (patch) => docs.set(path, {...docs.get(path), ...patch}),
+    collection: (name) => ({
+      doc: (childId) => ref(`${path}/${name}/${childId}`, childId),
+      where: () => { throw new Error('projection intentionally unavailable'); },
+    }),
+  });
+  const firestore = {
+    docs,
+    collection: (name) => ({doc: (id) => ref(`${name}/${id}`, id)}),
+    runTransaction: async (callback) => callback({
+      get: async (document) => snapshot(document.path, document.id),
+      set: (document, patch) => docs.set(document.path, {...docs.get(document.path), ...patch}),
+      update: (document, patch) => docs.set(document.path, {...docs.get(document.path), ...patch}),
+    }),
+  };
+  const files = new Map([[stagingPath, buffer]]);
+  const storage = {bucket: () => ({file: (path) => ({
+    download: async () => [files.get(path)],
+    save: async (value) => files.set(path, value),
+    delete: async () => files.delete(path),
+  })})};
+  return {firestore, storage};
+}
+
+test('file material receives published_at only after successful validation', async () => {
+  const invalid = fakeMaterialFinalization({buffer: Buffer.from('not a pdf')});
+  const rejected = await finalizeStagedActivityMaterial('upload', {
+    databaseFactory: () => invalid.firestore,
+    storageFactory: () => invalid.storage,
+  });
+  assert.equal(rejected.processed, false);
+  assert.equal(
+    invalid.firestore.docs.get(
+      'group_assignments/assignment/learning_materials/material',
+    ).published_at,
+    undefined,
+  );
+
+  const valid = fakeMaterialFinalization({buffer: Buffer.from('%PDF-valid')});
+  const published = await finalizeStagedActivityMaterial('upload', {
+    databaseFactory: () => valid.firestore,
+    storageFactory: () => valid.storage,
+  });
+  const material = valid.firestore.docs.get(
+    'group_assignments/assignment/learning_materials/material',
+  );
+  assert.equal(published.processed, true);
+  assert.equal(material.status, 'ready');
+  assert.ok(material.published_at instanceof Timestamp);
+});
+
+function fakeLinkCreationDatabase() {
+  const docs = new Map([
+    ['users/teacher', {role: 'Teacher', lifecycle_state: 'active'}],
+    ['group_assignments/assignment', {
+      teacher_id: 'teacher', group_id: 'group', status: 'active',
+      audience_type: 'entire_class',
+    }],
+  ]);
+  const snapshot = (path, id) => {
+    const data = docs.get(path);
+    return {id, exists: data != null, data: () => data, get: (field) => data?.[field]};
+  };
+  const ref = (path, id) => ({
+    path, id,
+    get: async () => snapshot(path, id),
+    collection(name) {
+      const collectionPath = `${path}/${name}`;
+      return {
+        path: collectionPath,
+        get: async () => ({
+          docs: [...docs.entries()]
+            .filter(([key]) => key.startsWith(`${collectionPath}/`) &&
+              !key.slice(collectionPath.length + 1).includes('/'))
+            .map(([key, data]) => ({
+              id: key.split('/').at(-1), data: () => data,
+              get: (field) => data[field],
+            })),
+        }),
+        doc: (childId) => ref(`${collectionPath}/${childId}`, childId),
+      };
+    },
+  });
+  return {
+    docs,
+    collection(name) {
+      if (name === 'activity_material_access_state') {
+        throw new Error('projection intentionally unavailable');
+      }
+      return {doc: (id) => ref(`${name}/${id}`, id)};
+    },
+    runTransaction: async (callback) => callback({
+      get: async (document) => document.get(),
+      create: (document, data) => docs.set(document.path, data),
+    }),
+  };
+}
+
+test('link material gets published_at on canonical ready creation', async () => {
+  const database = fakeLinkCreationDatabase();
+  const response = fakeResponse();
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    await addActivityLearningMaterialLinkHandler({method: 'POST', body: {
+      assignment_id: 'assignment', display_name: 'Reference',
+      url: 'https://example.com/reference', request_id: 'request-1',
+    }}, response, {
+      authenticate: async () => 'teacher', databaseFactory: () => database,
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+  const material = [...database.docs.entries()]
+    .find(([path]) => path.startsWith('group_assignments/assignment/learning_materials/'))?.[1];
+  assert.equal(response.statusCode, 503);
+  assert.equal(material.status, 'ready');
+  assert.ok(material.published_at instanceof Timestamp);
+});
+
+test('trainee material discovery returns only ready authorized safe DTOs', async () => {
+  const publishedAt = Timestamp.fromDate(new Date('2026-09-20T02:00:00.000Z'));
+  const recipientCreatedAt = Timestamp.fromDate(new Date('2026-09-01T00:00:00.000Z'));
+  const baseAssignment = {
+    group_id: 'g1', teacher_id: 'teacher-a', status: 'active',
+  };
+  const database = fakeAssignmentDatabase({
+    memberships: [{id: 'g1_trainee-a', data: {
+      trainee_id: 'trainee-a', teacher_id: 'teacher-a', group_id: 'g1', status: 'approved',
+    }}],
+    assignments: [
+      {id: 'entire', data: {...baseAssignment, audience_type: 'entire_class'}},
+      {id: 'selected', data: {...baseAssignment, audience_type: 'selected_students'}},
+      {id: 'not-targeted', data: {...baseAssignment, audience_type: 'individual_student'}},
+      {id: 'draft', data: {...baseAssignment, status: 'draft', audience_type: 'entire_class'}},
+    ],
+    recipients: [{assignmentId: 'selected', traineeId: 'trainee-a', data: {
+      assignment_id: 'selected', group_id: 'g1', teacher_id: 'teacher-a',
+      trainee_id: 'trainee-a', audience_type: 'selected_students', schema_version: 1,
+      created_at: recipientCreatedAt,
+    }}],
+    materials: [
+      {id: 'ready-entire', assignmentId: 'entire', data: {
+        material_id: 'ready-entire', assignment_id: 'entire', type: 'pdf',
+        display_name: 'Ready file', status: 'ready', published_at: publishedAt,
+        storage_path: 'activity_learning_materials/entire/ready-entire',
+        owner_teacher_id: 'teacher-a', projection_sync_state: 'ready',
+        staging_path: 'must-not-leak', rejection_reason: 'must-not-leak',
+      }},
+      {id: 'ready-selected', assignmentId: 'selected', data: {
+        material_id: 'ready-selected', assignment_id: 'selected', type: 'link',
+        display_name: 'Ready link', external_url: 'https://example.com/',
+        status: 'ready', projection_sync_state: 'ready', published_at: publishedAt,
+      }},
+      {id: 'staging', assignmentId: 'entire', data: {
+        material_id: 'staging', assignment_id: 'entire', type: 'pdf',
+        display_name: 'Staging', status: 'staging',
+      }},
+      {id: 'rejected', assignmentId: 'entire', data: {
+        material_id: 'rejected', assignment_id: 'entire', type: 'pdf',
+        display_name: 'Rejected', status: 'rejected',
+      }},
+      {id: 'pending-projection', assignmentId: 'entire', data: {
+        material_id: 'pending-projection', assignment_id: 'entire', type: 'pdf',
+        display_name: 'Not usable yet', status: 'ready', projection_sync_state: 'pending',
+        published_at: publishedAt,
+      }},
+      {id: 'not-targeted', assignmentId: 'not-targeted', data: {
+        material_id: 'not-targeted', assignment_id: 'not-targeted', type: 'link',
+        display_name: 'Private', external_url: 'https://example.com/private',
+        status: 'ready', published_at: publishedAt,
+      }},
+      {id: 'draft', assignmentId: 'draft', data: {
+        material_id: 'draft', assignment_id: 'draft', type: 'link',
+        display_name: 'Draft', external_url: 'https://example.com/draft',
+        status: 'ready', published_at: publishedAt,
+      }},
+    ],
+  });
+  const response = fakeResponse();
+
+  await listTraineeActivityLearningMaterialsHandler(
+    {method: 'POST', body: {}}, response,
+    {authenticate: async () => 'trainee-a', databaseFactory: () => database},
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body.materials.map((item) => item.material_id), [
+    'ready-entire', 'ready-selected',
+  ]);
+  assert.equal(response.body.materials[0].published_at, '2026-09-20T02:00:00.000Z');
+  for (const material of response.body.materials) {
+    assert.equal('owner_teacher_id' in material, false);
+    assert.equal('projection_sync_state' in material, false);
+    assert.equal('staging_path' in material, false);
+    assert.equal('rejection_reason' in material, false);
+    assert.equal('status' in material, false);
+  }
+});
+
+test('trainee material discovery rejects non-Trainees and never trusts a body identity', async () => {
+  const database = fakeAssignmentDatabase({
+    user: {role: 'Teacher', lifecycle_state: 'active'},
+    memberships: [],
+    assignments: [],
+  });
+  const forbidden = fakeResponse();
+  await listTraineeActivityLearningMaterialsHandler(
+    {method: 'POST', body: {}}, forbidden,
+    {authenticate: async () => 'teacher-a', databaseFactory: () => database},
+  );
+  assert.equal(forbidden.statusCode, 403);
+
+  const injected = fakeResponse();
+  await listTraineeActivityLearningMaterialsHandler(
+    {method: 'POST', body: {trainee_id: 'trainee-a'}}, injected,
+    {authenticate: async () => 'attacker', databaseFactory: () => database},
+  );
+  assert.equal(injected.statusCode, 400);
+});
+
+test('public material DTO includes publication time and redacts lifecycle internals', () => {
+  const publishedAt = Timestamp.fromDate(new Date('2026-09-20T02:00:00.000Z'));
+  const value = publicActivityLearningMaterial({
+    id: 'material',
+    data: () => ({
+      assignment_id: 'assignment', type: 'pdf', display_name: 'Guide',
+      storage_path: 'activity_learning_materials/assignment/material',
+      published_at: publishedAt, status: 'ready', owner_teacher_id: 'teacher',
+      projection_sync_state: 'ready', staging_path: 'secret',
+    }),
+  });
+  assert.deepEqual(value, {
+    material_id: 'material', assignment_id: 'assignment', type: 'pdf',
+    display_name: 'Guide',
+    storage_path: 'activity_learning_materials/assignment/material',
+    published_at: '2026-09-20T02:00:00.000Z',
+  });
+});
+
+test('canonical material publication fields mark readiness with one stable timestamp', () => {
+  const publishedAt = Timestamp.fromDate(new Date('2026-09-20T02:00:00.000Z'));
+  assert.deepEqual(activityMaterialPublicationFields(publishedAt), {
+    status: 'ready',
+    projection_sync_state: 'pending',
+    published_at: publishedAt,
+    updated_at: publishedAt,
+  });
 });
 
 test('trainee discovery accepts the same supported legacy profile as reservation', async () => {

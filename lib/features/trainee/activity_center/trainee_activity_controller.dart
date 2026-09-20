@@ -9,7 +9,11 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/router/app_route_paths.dart';
 import '../../../data/models/assignment_attempt.dart';
+import '../../../data/models/activity_learning_material.dart';
+import '../../../data/models/class_challenge.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/repositories/activity_learning_material_repository.dart';
+import '../../../data/repositories/class_challenge_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../teacher/activity_center/activity_read_store.dart';
 
@@ -22,6 +26,8 @@ enum TraineeActivityType {
   submissionChecked,
   workReturned,
   joinApproved,
+  newChallenge,
+  newLearningMaterial,
 }
 
 /// Whether the combined classroom projection is safe to present to a trainee.
@@ -77,6 +83,8 @@ class TraineeActivityController extends ChangeNotifier {
     required this.groupRepository,
     required this.assignmentRepository,
     required this.announcementRepository,
+    this.challengeRepository,
+    this.learningMaterialRepository,
     required this.readStore,
     DateTime Function()? now,
     Timer Function(Duration, void Function(Timer))? periodicTimer,
@@ -90,6 +98,8 @@ class TraineeActivityController extends ChangeNotifier {
   final GroupRepository groupRepository;
   final ClassroomAssignmentRepository assignmentRepository;
   final ClassroomAnnouncementRepository announcementRepository;
+  final ClassChallengeRepository? challengeRepository;
+  final ActivityLearningMaterialRepository? learningMaterialRepository;
   final ActivityReadStore readStore;
   final DateTime Function() _now;
   final Timer Function(Duration, void Function(Timer)) _periodicTimer;
@@ -102,6 +112,10 @@ class TraineeActivityController extends ChangeNotifier {
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
   final Map<String, StreamSubscription<ClassroomAnnouncementPage>>
   _announcementSubs = {};
+  final Map<String, StreamSubscription<List<ClassChallenge>>> _challengeSubs =
+      {};
+  final Map<String, String> _challengeTeachers = {};
+  final Map<String, Completer<void>> _challengeFirstSnapshots = {};
   final Map<String, int> _announcementLoadTokens = {};
   Timer? _refreshTimer;
 
@@ -110,12 +124,16 @@ class TraineeActivityController extends ChangeNotifier {
   Object? attemptsStreamError;
   Object? assignmentsError;
   final Map<String, Object> announcementErrors = {};
+  final Map<String, Object> challengeErrors = {};
+  Object? learningMaterialsError;
   String? persistenceMessage;
   List<GroupMembership> _memberships = const [];
   Map<String, ElixrGroup> _activeGroups = const {};
   List<GroupAssignment> _assignments = const [];
   List<AssignmentAttempt> _attempts = const [];
   final Map<String, List<ClassroomAnnouncement>> _announcementsByGroup = {};
+  final Map<String, List<ClassChallenge>> _challengesByGroup = {};
+  List<ActivityLearningMaterial> _learningMaterials = const [];
   Map<String, DateTime> _readAtById = {};
   List<TraineeActivity> _activities = const [];
 
@@ -147,7 +165,9 @@ class TraineeActivityController extends ChangeNotifier {
       membershipsStreamError != null ||
       attemptsStreamError != null ||
       assignmentsError != null ||
-      announcementErrors.isNotEmpty;
+      announcementErrors.isNotEmpty ||
+      challengeErrors.isNotEmpty ||
+      learningMaterialsError != null;
 
   List<TraineeClassroomWorkItem> _classroomWork() {
     final traineeId = _traineeId;
@@ -206,17 +226,22 @@ class TraineeActivityController extends ChangeNotifier {
     _membershipsSub = null;
     _attemptsSub = null;
     _cancelAnnouncementWatches();
+    _cancelChallengeWatches();
     _memberships = const [];
     _activeGroups = const {};
     _assignments = const [];
     _attempts = const [];
     _announcementsByGroup.clear();
+    _challengesByGroup.clear();
+    _learningMaterials = const [];
     _readAtById = {};
     _activities = const [];
     membershipsStreamError = null;
     attemptsStreamError = null;
     assignmentsError = null;
     announcementErrors.clear();
+    challengeErrors.clear();
+    learningMaterialsError = null;
     persistenceMessage = null;
     loading = _traineeId != null;
     _publish();
@@ -326,6 +351,10 @@ class TraineeActivityController extends ChangeNotifier {
     }
     _activeGroups = activeGroups;
     _syncAnnouncementWatches(generation, activeGroups.keys.toSet());
+    await _syncChallengeWatches(generation, activeGroups);
+    if (_isStale(generation) || refreshGeneration != _refreshGeneration) {
+      return;
+    }
     try {
       final assignments = await assignmentRepository.fetchAssignmentsForTrainee(
         traineeId: traineeId,
@@ -340,6 +369,22 @@ class TraineeActivityController extends ChangeNotifier {
             assignment,
       ];
       assignmentsError = null;
+      final materialRepository = learningMaterialRepository;
+      if (materialRepository != null) {
+        try {
+          final materials = await materialRepository.listForTrainee();
+          if (_isStale(generation) || refreshGeneration != _refreshGeneration) {
+            return;
+          }
+          _learningMaterials = materials;
+          learningMaterialsError = null;
+        } catch (error) {
+          if (_isStale(generation) || refreshGeneration != _refreshGeneration) {
+            return;
+          }
+          learningMaterialsError = error;
+        }
+      }
     } catch (error) {
       if (_isStale(generation) || refreshGeneration != _refreshGeneration) {
         return;
@@ -347,6 +392,73 @@ class TraineeActivityController extends ChangeNotifier {
       assignmentsError = error;
     }
     _publish();
+  }
+
+  Future<void> _syncChallengeWatches(
+    int generation,
+    Map<String, ElixrGroup> activeGroups,
+  ) async {
+    final repository = challengeRepository;
+    if (repository == null) return;
+    final firstSnapshots = <Future<void>>[];
+    final stale = _challengeSubs.keys
+        .where((groupId) {
+          final group = activeGroups[groupId];
+          return group == null ||
+              _challengeTeachers[groupId] != group.teacherId;
+        })
+        .toList(growable: false);
+    for (final groupId in stale) {
+      _cancelSubscription(_challengeSubs.remove(groupId));
+      final pending = _challengeFirstSnapshots.remove(groupId);
+      if (pending != null) _complete(pending);
+      _challengeTeachers.remove(groupId);
+      _challengesByGroup.remove(groupId);
+      challengeErrors.remove(groupId);
+    }
+    for (final group in activeGroups.values) {
+      if (_challengeSubs.containsKey(group.id)) continue;
+      final firstSnapshot = Completer<void>();
+      firstSnapshots.add(firstSnapshot.future);
+      _challengeFirstSnapshots[group.id] = firstSnapshot;
+      _challengeTeachers[group.id] = group.teacherId;
+      _challengeSubs[group.id] = repository
+          .watchChallengesForGroup(
+            groupId: group.id,
+            teacherId: group.teacherId,
+          )
+          .listen(
+            (challenges) {
+              _complete(firstSnapshot);
+              if (identical(
+                _challengeFirstSnapshots[group.id],
+                firstSnapshot,
+              )) {
+                _challengeFirstSnapshots.remove(group.id);
+              }
+              if (_isStale(generation) ||
+                  _activeGroups[group.id]?.teacherId != group.teacherId) {
+                return;
+              }
+              _challengesByGroup[group.id] = challenges;
+              challengeErrors.remove(group.id);
+              _publish();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              _complete(firstSnapshot);
+              if (identical(
+                _challengeFirstSnapshots[group.id],
+                firstSnapshot,
+              )) {
+                _challengeFirstSnapshots.remove(group.id);
+              }
+              if (_isStale(generation)) return;
+              challengeErrors[group.id] = error;
+              _publish();
+            },
+          );
+    }
+    await Future.wait(firstSnapshots);
   }
 
   void _syncAnnouncementWatches(int generation, Set<String> groupIds) {
@@ -604,6 +716,56 @@ class TraineeActivityController extends ChangeNotifier {
       }
     }
 
+    for (final entry in _challengesByGroup.entries) {
+      final group = _activeGroups[entry.key];
+      if (group == null) continue;
+      for (final challenge in entry.value) {
+        final createdAt = challenge.createdAt?.toUtc();
+        if (challenge.groupId != group.id ||
+            challenge.teacherId != group.teacherId ||
+            challenge.archivedAt != null ||
+            createdAt == null ||
+            createdAt.isBefore(cutoff)) {
+          continue;
+        }
+        activities.add(
+          _activity(
+            id: 'new_challenge:${challenge.id}',
+            type: TraineeActivityType.newChallenge,
+            occurredAt: createdAt,
+            title: 'New challenge: ${challenge.title}',
+            description: 'Posted in ${group.name}.',
+            destination: AppRoutePaths.classChallengeLeaderboard(
+              group.id,
+              challenge.id,
+            ),
+          ),
+        );
+      }
+    }
+
+    for (final material in _learningMaterials) {
+      final assignment = assignmentsById[material.assignmentId];
+      final publishedAt = material.publishedAt?.toUtc();
+      if (assignment == null ||
+          !assignment.isActive ||
+          !assignment.isAvailableToTrainee(traineeId) ||
+          publishedAt == null ||
+          publishedAt.isBefore(cutoff)) {
+        continue;
+      }
+      activities.add(
+        _activity(
+          id: 'new_learning_material:${assignment.id}:${material.id}',
+          type: TraineeActivityType.newLearningMaterial,
+          occurredAt: publishedAt,
+          title: 'New learning material: ${material.displayName}',
+          description: 'Added to ${assignment.displayTitle}.',
+          destination: AppRoutePaths.assignmentDetail(assignment.id),
+        ),
+      );
+    }
+
     for (final attempt in _attempts) {
       final assignment = assignmentsById[attempt.assignmentId];
       if (assignment == null ||
@@ -722,6 +884,18 @@ class TraineeActivityController extends ChangeNotifier {
     _announcementLoadTokens.clear();
   }
 
+  void _cancelChallengeWatches() {
+    for (final subscription in _challengeSubs.values) {
+      unawaited(subscription.cancel());
+    }
+    _challengeSubs.clear();
+    _challengeTeachers.clear();
+    for (final pending in _challengeFirstSnapshots.values) {
+      _complete(pending);
+    }
+    _challengeFirstSnapshots.clear();
+  }
+
   @override
   void dispose() {
     _disposed = true;
@@ -731,6 +905,7 @@ class TraineeActivityController extends ChangeNotifier {
     _cancelSubscription(_membershipsSub);
     _cancelSubscription(_attemptsSub);
     _cancelAnnouncementWatches();
+    _cancelChallengeWatches();
     super.dispose();
   }
 }

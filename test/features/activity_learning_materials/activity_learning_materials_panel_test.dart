@@ -97,6 +97,9 @@ class _MaterialsRepository implements ActivityLearningMaterialRepository {
   }
 
   @override
+  Future<List<ActivityLearningMaterial>> listForTrainee() async => const [];
+
+  @override
   Future<File> openFile(ActivityLearningMaterial material) async {
     openCalls.add(material);
     final failure = openFailure;

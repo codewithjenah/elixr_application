@@ -42,6 +42,7 @@ class ActivityLearningMaterial {
     this.sizeBytes,
     this.storagePath,
     this.externalUrl,
+    this.publishedAt,
   });
 
   final String id;
@@ -52,6 +53,7 @@ class ActivityLearningMaterial {
   final int? sizeBytes;
   final String? storagePath;
   final Uri? externalUrl;
+  final DateTime? publishedAt;
 
   static ActivityLearningMaterial? tryFromMap(Map<String, dynamic> map) {
     final id = map['material_id'];
@@ -71,10 +73,19 @@ class ActivityLearningMaterial {
     final rawUrl = map['external_url'];
     final detectedContentType = map['detected_content_type'];
     final sizeBytes = map['size_bytes'];
+    final rawPublishedAt = map['published_at'];
     if (detectedContentType != null && detectedContentType is! String ||
         sizeBytes != null && sizeBytes is! int) {
       return null;
     }
+    final publishedAt = rawPublishedAt == null
+        ? null
+        : rawPublishedAt is String
+        ? DateTime.tryParse(rawPublishedAt)?.toUtc()
+        : rawPublishedAt is DateTime
+        ? rawPublishedAt.toUtc()
+        : null;
+    if (rawPublishedAt != null && publishedAt == null) return null;
     Uri? url;
     if (rawUrl != null) {
       if (rawUrl is! String) {
@@ -103,6 +114,7 @@ class ActivityLearningMaterial {
       sizeBytes: sizeBytes as int?,
       storagePath: storagePath is String ? storagePath : null,
       externalUrl: url,
+      publishedAt: publishedAt,
     );
   }
 }

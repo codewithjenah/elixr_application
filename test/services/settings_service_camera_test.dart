@@ -132,6 +132,33 @@ void main() {
     expect(service.pendingLegacyCameraIndex, 3);
   });
 
+  test(
+    'legacy migration does not persist an unstable runtime identity',
+    () async {
+      await settingsFile.writeAsString(
+        jsonEncode({
+          'camera_mirrored': true,
+          'dark_mode': true,
+          'camera_index': 1,
+        }),
+      );
+      await service.initialize();
+
+      final migrated = await service.migrateLegacyCameraIndex([
+        const CameraDevice(
+          deviceId: 'opencv:1',
+          displayName: 'Camera 1',
+          runtimeIndex: 1,
+          identityStable: false,
+        ),
+      ]);
+
+      expect(migrated, isFalse);
+      expect(service.selectedCameraDeviceId, isNull);
+      expect(service.pendingLegacyCameraIndex, 1);
+    },
+  );
+
   test('negative or invalid camera_index values fall back to null', () async {
     await settingsFile.writeAsString(
       jsonEncode({

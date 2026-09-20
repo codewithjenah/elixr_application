@@ -6,6 +6,7 @@ from vision import camera as camera_mod
 from vision.camera_devices import (
     EnumeratedCamera,
     fallback_device_for_index,
+    is_stable_device_id,
     merge_enumerated_with_usable_indices,
     resolve_device_id_to_index,
 )
@@ -49,6 +50,9 @@ def test_fallback_opencv_identity_is_unstable():
     assert device.display_name == "Camera 2"
     assert device.identity_stable is False
     assert resolve_device_id_to_index("opencv:2", devices=[]) == 2
+    assert is_stable_device_id("opencv:2") is False
+    assert is_stable_device_id("dshow-name:USB Camera:2") is False
+    assert is_stable_device_id(r"\\?\usb#vid_1234") is True
 
 
 def test_merge_enumerated_with_usable_indices():

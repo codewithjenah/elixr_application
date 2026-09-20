@@ -305,5 +305,7 @@ class _ActivityRow extends StatelessWidget {
     TraineeActivityType.submissionChecked => FluentIcons.completed,
     TraineeActivityType.workReturned => FluentIcons.refresh,
     TraineeActivityType.joinApproved => FluentIcons.people_add,
+    TraineeActivityType.newChallenge => FluentIcons.trophy,
+    TraineeActivityType.newLearningMaterial => FluentIcons.document,
   };
 }

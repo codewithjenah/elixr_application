@@ -542,9 +542,6 @@ class _TeacherMovementBuilderDialogState
   @override
   Widget build(BuildContext context) {
     final fieldsEnabled = !_isRetiredTemplate && !_saving;
-    final accent = _isRetiredTemplate
-        ? context.elixColors.warning
-        : context.elixColors.brandPrimary;
     final heading = _isAssignmentEditor
         ? 'Edit Classroom Activity'
         : _isEditing
@@ -596,18 +593,14 @@ class _TeacherMovementBuilderDialogState
             heading: heading,
             eyebrow: _isAssignmentEditor ? 'CLASSROOM ACTIVITY' : 'ACTIVITY',
             subtitle: subtitle,
-            leading: Icon(FluentIcons.learning_tools, color: accent),
             variant: ElixEditorialHeaderVariant.compact,
-            commandBar: CommandBar(
-              mainAxisAlignment: MainAxisAlignment.end,
-              primaryItems: [
-                CommandBarButton(
-                  key: const ValueKey('teacher_activity_builder_back'),
-                  icon: const Icon(FluentIcons.back),
-                  label: const SizedBox.shrink(),
-                  onPressed: _saving ? null : () => Navigator.pop(context),
-                ),
-              ],
+            leading: ElixPrimaryButton(
+              key: const ValueKey('teacher_activity_builder_back'),
+              label: 'Back',
+              icon: FluentIcons.back,
+              variant: ElixButtonVariant.outline,
+              expanded: false,
+              onPressed: _saving ? null : () => Navigator.pop(context),
             ),
           ),
           content: LayoutBuilder(

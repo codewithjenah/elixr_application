@@ -578,7 +578,7 @@ class SettingsService extends ChangeNotifier {
 
     CameraDevice? match;
     for (final camera in discovered) {
-      if (camera.runtimeIndex == legacyIndex) {
+      if (camera.runtimeIndex == legacyIndex && camera.identityStable) {
         match = camera;
         break;
       }

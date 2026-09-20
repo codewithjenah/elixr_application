@@ -15,6 +15,7 @@ import '../../../core/constants/movements.dart';
 import '../../../core/layout/balanced_card_grid.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_toast.dart';
@@ -42,6 +43,7 @@ import '../../activity_learning_materials/activity_learning_materials_panel.dart
 // assignment summary on genuinely wide desktop displays.
 const _teacherAssignmentContentMaxWidth = 1600.0;
 const _teacherAssignmentWideBreakpoint = 900.0;
+const _teacherAssignmentCardExtent = 316.0;
 
 /// The one write path used by both movement-first and classroom-first
 /// assignment creation.
@@ -4548,16 +4550,22 @@ class _MovementChoiceList extends StatelessWidget {
               // becomes truncated.
               minCardWidth: elixrActivityGridMinCardWidth,
             );
-            final itemWidth =
-                (constraints.maxWidth - (AppSpacing.md * (columns - 1))) /
-                columns;
-            return Wrap(
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.md,
-              children: [
-                for (final child in children)
-                  SizedBox(width: itemWidth, child: child),
-              ],
+            final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+            final cardExtent =
+                _teacherAssignmentCardExtent +
+                ((textScale - 1).clamp(0.0, 1.5) * 112);
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: children.length,
+              gridDelegate: BalancedSliverGridDelegate(
+                crossAxisCount: columns,
+                childCount: children.length,
+                mainAxisExtent: cardExtent,
+                crossAxisSpacing: AppSpacing.md,
+                mainAxisSpacing: AppSpacing.md,
+              ),
+              itemBuilder: (context, index) => children[index],
             );
           },
         ),
@@ -4637,17 +4645,25 @@ class _TeacherActivityDetailsDialogState
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
-    final width = (screen.width - 48).clamp(320.0, 800.0).toDouble();
+    final horizontalInset = screen.width < 900 ? 96.0 : 48.0;
+    final width = (screen.width - horizontalInset)
+        .clamp(320.0, 700.0)
+        .toDouble();
     final revision = _revision;
     final spec = revision?.spec;
     final activity = spec is TeacherReviewedMovementSpec ? spec : null;
     return ElixDialog(
       title: widget.movement.title,
-      subtitle: widget.isInitiallySelected ? 'Selected' : null,
+      subtitle: widget.isInitiallySelected
+          ? 'Teacher Activity preview · Selected'
+          : 'Teacher Activity preview',
       icon: FluentIcons.book_answers,
       maxWidth: width,
-      maxHeight: (screen.height * 0.85).clamp(320.0, 760.0).toDouble(),
+      maxHeight: (screen.height * 0.72).clamp(360.0, 650.0).toDouble(),
       scrollableContent: true,
+      showCloseButton: false,
+      showFooterDivider: true,
+      uniformActionSize: const Size(148, 40),
       content: _loading
           ? const SizedBox(height: 180, child: Center(child: ProgressRing()))
           : _error != null && activity == null
@@ -4695,109 +4711,304 @@ class _TeacherActivityDetailsContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Teacher reviewed · No automatic ELIXR scoring',
-          style: AppTheme.body.copyWith(
-            color: context.elixColors.brandSecondary,
-          ),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            ElixPill(
+              text: 'TEACHER REVIEWED',
+              color: context.elixColors.brandSecondary,
+              compact: true,
+            ),
+            ElixPill(
+              text: 'MANUAL SCORING',
+              color: context.elixColors.brandPrimary,
+              compact: true,
+            ),
+          ],
         ),
         const SizedBox(height: AppSpacing.md),
-        _ActivityDetailsSection(
-          title: 'Activity setup',
-          child: Text(
-            'Required training prop: ${spec.requiredProp.displayLabel}',
-          ),
-        ),
-        _ActivityDetailsSection(
+        _ActivityNarrativeSection(
           title: 'Instructions',
-          child: Text(spec.instructions),
+          text: spec.instructions,
+          icon: FluentIcons.task_manager,
+          accent: context.elixColors.brandPrimary,
         ),
         if (spec.safetyGuidance?.trim().isNotEmpty == true)
-          _ActivityDetailsSection(
-            title: 'Safety',
-            child: Text(spec.safetyGuidance!),
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: _ActivityNarrativeSection(
+              title: 'Safety',
+              text: spec.safetyGuidance!,
+              icon: FluentIcons.shield,
+              accent: context.elixColors.warning,
+            ),
           ),
-        _ActivityDetailsSection(
-          title: 'Readiness',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Hands: ${assessment.readiness.hands.displayLabel}'),
-              const SizedBox(height: AppSpacing.xs),
-              Text('Body: ${assessment.readiness.body.displayLabel}'),
-            ],
-          ),
-        ),
-        _ActivityDetailsSection(
-          title: 'Assessment / rubric',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Template: ${assessment.rubric.template.displayLabel}'),
-              const SizedBox(height: AppSpacing.xs),
-              Text('Maximum score: ${assessment.rubric.maximumScore}'),
-              const SizedBox(height: AppSpacing.sm),
-              for (final criterion in assessment.rubric.criteria) ...[
-                Text(
-                  '${criterion.label} · ${criterion.maximumPoints} points',
-                  style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
-                ),
-                Text(
-                  criterion.description,
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-              ],
-            ],
-          ),
-        ),
-        _ActivityDetailsSection(
-          title: 'Recording & demonstration',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Recording duration: ${assessment.recordingDurationSeconds} seconds',
+        const SizedBox(height: AppSpacing.md),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final twoColumns = constraints.maxWidth >= 620;
+            final items = <Widget>[
+              _ActivitySummaryItem(
+                key: const Key('teacher_assignment_activity_summary_setup'),
+                title: 'Activity setup',
+                icon: FluentIcons.toolbox,
+                lines: [
+                  'Required training prop: ${spec.requiredProp.displayLabel}',
+                ],
               ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                video == null
-                    ? 'Demonstration video: Not available'
-                    : 'Demonstration video: Available · ${video.source.wireValue}',
+              _ActivitySummaryItem(
+                key: const Key('teacher_assignment_activity_summary_readiness'),
+                title: 'Readiness',
+                icon: FluentIcons.contact,
+                lines: [
+                  'Hands: ${assessment.readiness.hands.displayLabel}',
+                  'Body: ${assessment.readiness.body.displayLabel}',
+                ],
               ),
-            ],
-          ),
+              _ActivitySummaryItem(
+                title: 'Assessment',
+                icon: FluentIcons.assessment_group,
+                lines: [
+                  'Template: ${assessment.rubric.template.displayLabel}',
+                  'Maximum score: ${assessment.rubric.maximumScore}',
+                ],
+              ),
+              _ActivitySummaryItem(
+                title: 'Recording',
+                icon: FluentIcons.video,
+                lines: [
+                  'Recording duration: ${assessment.recordingDurationSeconds} seconds',
+                ],
+              ),
+              _ActivitySummaryItem(
+                title: 'Demonstration',
+                icon: FluentIcons.play,
+                lines: [
+                  video == null
+                      ? 'Demonstration video: Not available'
+                      : 'Demonstration video: Available · ${video.source.wireValue}',
+                ],
+              ),
+            ];
+            return _ActivitySummaryGrid(
+              twoColumns: twoColumns,
+              children: items,
+            );
+          },
         ),
+        const SizedBox(height: AppSpacing.md),
+        _ActivityRubricCriteria(criteria: assessment.rubric.criteria),
       ],
     );
   }
 }
 
-class _ActivityDetailsSection extends StatelessWidget {
-  const _ActivityDetailsSection({required this.title, required this.child});
+class _ActivityNarrativeSection extends StatelessWidget {
+  const _ActivityNarrativeSection({
+    required this.title,
+    required this.text,
+    required this.icon,
+    required this.accent,
+  });
 
   final String title;
-  final Widget child;
+  final String text;
+  final IconData icon;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: AppSpacing.md),
     padding: const EdgeInsets.all(AppSpacing.md),
     decoration: BoxDecoration(
-      color: context.elixCardSurface,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: context.elixBorder),
+      color: context.isHighContrast
+          ? context.elixCardSurface
+          : accent.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(ElixRadius.card),
+      border: Border.all(
+        color: context.isHighContrast
+            ? context.elixBorder
+            : accent.withValues(alpha: 0.24),
+        width: context.isHighContrast ? 2 : 1,
+      ),
     ),
-    child: Column(
+    child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: AppTheme.label(color: context.elixTextPrimary)),
-        const SizedBox(height: AppSpacing.xs),
-        child,
+        Icon(icon, size: 18, color: accent),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppTheme.label(color: context.elixTextPrimary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                text,
+                style: AppTheme.body.copyWith(
+                  color: context.elixTextPrimary,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     ),
+  );
+}
+
+class _ActivitySummaryGrid extends StatelessWidget {
+  const _ActivitySummaryGrid({
+    required this.twoColumns,
+    required this.children,
+  });
+
+  final bool twoColumns;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!twoColumns) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var index = 0; index < children.length; index++) ...[
+            children[index],
+            if (index != children.length - 1)
+              const SizedBox(height: AppSpacing.sm),
+          ],
+        ],
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth = (constraints.maxWidth - AppSpacing.sm) / 2;
+        return Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final child in children)
+              SizedBox(width: itemWidth, child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ActivitySummaryItem extends StatelessWidget {
+  const _ActivitySummaryItem({
+    super.key,
+    required this.title,
+    required this.icon,
+    required this.lines,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(AppSpacing.smPlus),
+    decoration: BoxDecoration(
+      color: context.elixColors.surfaceTinted,
+      borderRadius: BorderRadius.circular(ElixRadius.control),
+      border: Border.all(color: context.elixColors.borderSubtle),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: context.elixColors.brandSecondary),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppTheme.label(color: context.elixTextPrimary),
+              ),
+              const SizedBox(height: 2),
+              for (final line in lines)
+                Text(
+                  line,
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                    height: 1.35,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ActivityRubricCriteria extends StatelessWidget {
+  const _ActivityRubricCriteria({required this.criteria});
+
+  final List<TeacherActivityRubricCriterion> criteria;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        'Rubric criteria',
+        style: AppTheme.label(color: context.elixTextPrimary),
+      ),
+      const SizedBox(height: AppSpacing.sm),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        decoration: BoxDecoration(
+          color: context.elixCardSurface,
+          borderRadius: BorderRadius.circular(ElixRadius.card),
+          border: Border.all(color: context.elixBorder),
+        ),
+        child: Column(
+          children: [
+            for (var index = 0; index < criteria.length; index++) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: AppSpacing.smPlus,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '${criteria[index].label} · ${criteria[index].maximumPoints} points',
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      criteria[index].description,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index != criteria.length - 1)
+                SizedBox(
+                  height: 1,
+                  child: ColoredBox(color: context.elixColors.borderSubtle),
+                ),
+            ],
+          ],
+        ),
+      ),
+    ],
   );
 }
 
@@ -4850,147 +5061,144 @@ class _MovementChoiceCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Semantics(
-            selected: selected,
-            button: true,
-            label: '$title, $metadata',
-            child: Button(
-              key: selectionKey,
-              onPressed: enabled ? onPressed : null,
-              // Button supplies horizontal padding by default. The card owns
-              // its padding so the visual and content can use the full width.
-              style: const ButtonStyle(
-                padding: WidgetStatePropertyAll(EdgeInsets.zero),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    height: 96,
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(
-                        alpha: highContrast
-                            ? 0.24
-                            : context.isDarkTheme
-                            ? 0.16
-                            : 0.08,
-                      ),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(9),
-                      ),
-                      border: Border(
-                        bottom: BorderSide(
-                          color: accent.withValues(alpha: 0.2),
+          Expanded(
+            child: Semantics(
+              selected: selected,
+              button: true,
+              label: '$title, $metadata',
+              child: Button(
+                key: selectionKey,
+                onPressed: enabled ? onPressed : null,
+                // Button supplies horizontal padding by default. The card owns
+                // its padding so the visual and content can use the full width.
+                style: const ButtonStyle(
+                  padding: WidgetStatePropertyAll(EdgeInsets.zero),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      height: 88,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: accent.withValues(
+                          alpha: highContrast
+                              ? 0.24
+                              : context.isDarkTheme
+                              ? 0.16
+                              : 0.08,
                         ),
-                      ),
-                    ),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Center(
-                          child: MovementImage(
-                            movementName: movementName,
-                            size: 82,
-                            paddingFactor: 0.02,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(9),
+                        ),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: accent.withValues(alpha: 0.2),
                           ),
                         ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Container(
-                            width: 28,
-                            height: 28,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? accent
-                                  : context.elixCardSurface.withValues(
-                                      alpha: highContrast ? 1 : 0.88,
-                                    ),
-                              shape: BoxShape.circle,
-                              border: Border.all(
+                      ),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Center(
+                            child: MovementImage(
+                              movementName: movementName,
+                              size: 82,
+                              paddingFactor: 0.02,
+                            ),
+                          ),
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
                                 color: selected
                                     ? accent
-                                    : context.elixColors.borderSubtle,
+                                    : context.elixCardSurface.withValues(
+                                        alpha: highContrast ? 1 : 0.88,
+                                      ),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: selected
+                                      ? accent
+                                      : context.elixColors.borderSubtle,
+                                ),
+                              ),
+                              child: Icon(
+                                selected
+                                    ? FluentIcons.completed_solid
+                                    : FluentIcons.circle_ring,
+                                size: 15,
+                                color: selected
+                                    ? context.elixColors.onBrand
+                                    : context.elixTextSecondary,
                               ),
                             ),
-                            child: Icon(
-                              selected
-                                  ? FluentIcons.completed_solid
-                                  : FluentIcons.circle_ring,
-                              size: 15,
-                              color: selected
-                                  ? context.elixColors.onBrand
-                                  : context.elixTextSecondary,
-                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.sm,
-                      AppSpacing.sm,
-                      AppSpacing.sm,
-                      AppSpacing.md,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: 44,
-                          child: Text(
-                            title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.body.copyWith(
-                              color: context.elixTextPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.sm,
+                          AppSpacing.sm,
+                          AppSpacing.sm,
+                          AppSpacing.sm,
                         ),
-                        const SizedBox(height: 4),
-                        SizedBox(
-                          height: 40,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.sm,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: accent.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              metadata,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              title,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: AppTheme.caption.copyWith(
-                                color: accent,
+                              style: AppTheme.body.copyWith(
+                                color: context.elixTextPrimary,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        SizedBox(
-                          height: 80,
-                          child: Text(
-                            description,
-                            maxLines: 5,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.sm,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                metadata,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: AppTheme.caption.copyWith(
+                                  color: accent,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: AppSpacing.sm),
+                            Expanded(
+                              child: Text(
+                                description,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.caption.copyWith(
+                                  color: context.elixTextSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -4998,15 +5206,16 @@ class _MovementChoiceCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.sm,
-                0,
+                AppSpacing.sm,
                 AppSpacing.sm,
                 AppSpacing.sm,
               ),
-              child: Align(
-                alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: double.infinity,
                 child: _ComposerSecondaryButton(
                   key: viewDetailsKey,
                   onPressed: enabled ? onViewDetails : null,
+                  expands: true,
                   child: const Text('View details'),
                 ),
               ),

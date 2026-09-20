@@ -56,6 +56,9 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   }
 
   @override
+  Future<List<ActivityLearningMaterial>> listForTrainee() async => const [];
+
+  @override
   Future<void> remove({
     required String assignmentId,
     required String materialId,

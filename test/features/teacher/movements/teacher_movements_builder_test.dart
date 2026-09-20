@@ -556,6 +556,27 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Teacher Activity Back matches the leading Assignment Studio action',
+    (tester) async {
+      await pumpBuilder(tester);
+
+      final backFinder = find.byKey(
+        const ValueKey('teacher_activity_builder_back'),
+      );
+      expect(backFinder, findsOneWidget);
+      final back = tester.widget<ElixPrimaryButton>(backFinder);
+      expect(back.label, 'Back');
+      expect(back.icon, FluentIcons.back);
+      expect(back.variant, ElixButtonVariant.outline);
+      expect(back.expanded, isFalse);
+      expect(
+        tester.getTopLeft(backFinder).dx,
+        lessThan(tester.getTopLeft(find.text('Create Teacher Activity')).dx),
+      );
+    },
+  );
+
   testWidgets('builder prevents duplicate saves while creation is in flight', (
     tester,
   ) async {

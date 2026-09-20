@@ -328,6 +328,9 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
             assignmentRepository: context.read<ClassroomAssignmentRepository>(),
             announcementRepository: context
                 .read<ClassroomAnnouncementRepository>(),
+            challengeRepository: context.read<ClassChallengeRepository>(),
+            learningMaterialRepository: context
+                .read<ActivityLearningMaterialRepository>(),
             readStore: context.read<ActivityReadStore>(),
           ),
           update: (context, auth, controller) {
@@ -337,6 +340,9 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
                   .read<ClassroomAssignmentRepository>(),
               announcementRepository: context
                   .read<ClassroomAnnouncementRepository>(),
+              challengeRepository: context.read<ClassChallengeRepository>(),
+              learningMaterialRepository: context
+                  .read<ActivityLearningMaterialRepository>(),
               readStore: context.read<ActivityReadStore>(),
             );
             controller.setTrainee(

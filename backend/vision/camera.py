@@ -28,6 +28,7 @@ from vision.camera_devices import (
     display_name_for_runtime_index,
     enumerate_camera_devices,
     is_fallback_device_id,
+    is_stable_device_id,
     lookup_device,
     merge_enumerated_with_usable_indices,
     resolve_device_id_to_index,
@@ -77,12 +78,20 @@ _STARTUP_READ_SLEEP_S = 0.05
 _MAX_BLANK_FRAME_STREAK = 12
 _RECOVERY_COOLDOWN_S = 1.0
 _MAX_RECOVERY_ATTEMPTS_PER_READ = 1
+# One bounded fresh reopen follows the normal capture-profile sweep for an
+# explicit physical selection. This absorbs a transient Windows startup miss
+# without widening the request to another camera.
+_EXPLICIT_DEVICE_OPEN_ATTEMPTS = 2
 
 _shared_cap: Optional[cv2.VideoCapture] = None
 _shared_index: Optional[int] = None
 _shared_device_id: Optional[str] = None
 _shared_profile: Optional["CaptureProfile"] = None
 _release_timer: Optional[threading.Timer] = None
+# Every successfully opened CameraCapture owns a token for the current shared
+# handle. A closing predecessor may only schedule release after the successor
+# has also released its token; replacing the handle invalidates all old tokens.
+_shared_lease_tokens: set[object] = set()
 # Bumped every time a pending release is cancelled/superseded so a timer
 # callback that already fired (and was blocked on _CAMERA_LOCK) can detect it
 # is stale and skip releasing a camera that has since been reused.
@@ -742,6 +751,7 @@ def _orphan_shared_capture_refs_unlocked() -> None:
     """Drop shared capture refs without releasing (abandoned producer owns release)."""
     global _shared_cap, _shared_index, _shared_device_id, _shared_profile
 
+    _shared_lease_tokens.clear()
     _shared_cap = None
     _shared_index = None
     _shared_device_id = None
@@ -752,11 +762,13 @@ def _release_shared_unlocked() -> None:
     global _shared_cap, _shared_index, _shared_device_id, _shared_profile
 
     _cancel_pending_release()
+    _shared_lease_tokens.clear()
 
     # Stop the producer before releasing VideoCapture so it cannot read a
     # closed/replaced capture. When shutdown cannot complete (blocked read),
     # ownership of the capture transfers to the abandoned producer.
     outcome = _stop_capture_producer()
+    logger.info("Camera producer shutdown: outcome=%s", outcome.name.lower())
 
     if _shared_cap is not None:
         if outcome == _ProducerShutdownOutcome.CALLER_RELEASES:
@@ -781,7 +793,7 @@ def _release_shared() -> None:
 
 
 def release_shared_camera() -> None:
-    """Immediately release the shared webcam (e.g. when the client disconnects)."""
+    """Immediately release the shared webcam for backend/process teardown."""
     _release_shared()
 
 
@@ -977,6 +989,7 @@ def _try_reuse_shared_capture(
     allowed_indices: list[int],
     *,
     preferred_index: int | None = None,
+    required_device_id: str | None = None,
     timings: CameraStartupTimings | None = None,
 ) -> bool:
     global _shared_cap, _shared_index, _shared_profile
@@ -988,7 +1001,16 @@ def _try_reuse_shared_capture(
         logger.info("Shared camera has no profile metadata; reopening")
         return False
 
-    if _shared_index not in allowed_indices:
+    if required_device_id is not None and _shared_device_id != required_device_id:
+        logger.info(
+            "Shared camera identity mismatch: requested_device_id=%s "
+            "active_device_id=%s; reopening",
+            _abbreviate_device_id(required_device_id),
+            _abbreviate_device_id(_shared_device_id),
+        )
+        return False
+
+    if required_device_id is None and _shared_index not in allowed_indices:
         logger.info(
             "Shared camera %s is not in allowed indices %s; reopening",
             _shared_index,
@@ -998,7 +1020,8 @@ def _try_reuse_shared_capture(
 
     # Auto-select must still prefer CAMERA_INDEX over a sticky fallback capture.
     if (
-        preferred_index is not None
+        required_device_id is None
+        and preferred_index is not None
         and _shared_index != preferred_index
         and preferred_index in allowed_indices
     ):
@@ -1027,8 +1050,9 @@ def _try_reuse_shared_capture(
     )
     if ok:
         logger.info(
-            "Reusing open camera %s (%s)",
+            "Camera warm reuse succeeded: active_index=%s device_id=%s profile=%s",
             _shared_index,
+            _abbreviate_device_id(_shared_device_id),
             _shared_profile.label if _shared_profile else "unknown",
         )
         return True
@@ -1208,6 +1232,7 @@ class CameraCapture:
         self._last_captured_at_monotonic: float | None = None
         self._last_capture_sequence: int | None = None
         self.startup_timings = CameraStartupTimings()
+        self._lease_token = object()
 
         if camera_device_id is not None:
             self._auto = False
@@ -1324,6 +1349,17 @@ class CameraCapture:
             timings.success = success
             return success
 
+        if self._requested_device_id is not None and not is_stable_device_id(
+            self._requested_device_id
+        ):
+            logger.error(
+                "Selected camera preparation rejected: requested_device_id=%s "
+                "does not provide stable physical identity",
+                _abbreviate_device_id(self._requested_device_id),
+            )
+            self._last_read_status = CameraReadStatus.UNAVAILABLE
+            return _finish(False)
+
         selected_index = (
             resolve_device_id_to_index(self._requested_device_id)
             if self._requested_device_id is not None
@@ -1331,9 +1367,6 @@ class CameraCapture:
         )
         if self._requested_device_id is not None:
             allowed = [] if selected_index is None else [selected_index]
-            for candidate in candidate_indices(None):
-                if candidate not in allowed:
-                    allowed.append(candidate)
         else:
             allowed = self._resolve_allowed_indices()
         mode = "auto-select" if self._auto else "explicit"
@@ -1346,8 +1379,9 @@ class CameraCapture:
 
         if self._requested_device_id is not None and selected_index is None:
             logger.warning(
-                "Failed to resolve selected camera_device_id=%s; trying Auto-select",
-                self._requested_device_id,
+                "Selected camera unavailable during resolution: "
+                "requested_device_id=%s",
+                _abbreviate_device_id(self._requested_device_id),
             )
 
         logger.info(
@@ -1364,6 +1398,7 @@ class CameraCapture:
             if _try_reuse_shared_capture(
                 allowed,
                 preferred_index=preferred,
+                required_device_id=self._requested_device_id,
                 timings=timings,
             ):
                 assert _shared_cap is not None
@@ -1383,14 +1418,9 @@ class CameraCapture:
                         and _shared_index
                         != getattr(self, "_auto_preferred", CAMERA_INDEX)
                     )
-                    self._selected_camera_fallback_used = (
-                        self._requested_device_id is not None
-                        and (
-                            selected_index is None
-                            or _shared_index != selected_index
-                        )
-                    )
+                    self._selected_camera_fallback_used = False
                     self._last_read_status = CameraReadStatus.OK
+                    _shared_lease_tokens.add(self._lease_token)
                     logger.info(
                         "Camera ready (reused): active_index=%s device_id=%s "
                         "profile=%s used_fallback=%s",
@@ -1412,12 +1442,21 @@ class CameraCapture:
 
             _release_shared_unlocked()
 
-            for candidate in allowed:
-                is_selected_candidate = (
-                    self._requested_device_id is not None
-                    and selected_index is not None
-                    and candidate == selected_index
-                )
+            open_candidates = allowed
+            if self._requested_device_id is not None and selected_index is not None:
+                open_candidates = [selected_index] * _EXPLICIT_DEVICE_OPEN_ATTEMPTS
+
+            for attempt, candidate in enumerate(open_candidates, start=1):
+                is_selected_candidate = self._requested_device_id is not None
+                if is_selected_candidate:
+                    logger.info(
+                        "Selected camera same-device open attempt: "
+                        "requested_device_id=%s resolved_index=%s attempt=%s/%s",
+                        _abbreviate_device_id(self._requested_device_id),
+                        candidate,
+                        attempt,
+                        len(open_candidates),
+                    )
                 opened = _open_video_capture(
                     candidate,
                     dshow_only=(
@@ -1431,22 +1470,13 @@ class CameraCapture:
 
                 if opened is not None:
                     cap, profile = opened
-                    selected_fallback = (
-                        self._requested_device_id is not None
-                        and not is_selected_candidate
-                    )
-                    actual_device_id = (
-                        device_id_for_runtime_index(candidate)
-                        if selected_fallback
-                        else self._requested_device_id
-                    )
                     self._adopt_opened(
                         candidate,
                         cap,
                         profile,
-                        device_id=actual_device_id,
+                        device_id=self._requested_device_id,
                     )
-                    self._selected_camera_fallback_used = selected_fallback
+                    self._selected_camera_fallback_used = False
 
                     if self._used_fallback:
                         logger.warning(
@@ -1456,6 +1486,7 @@ class CameraCapture:
                         )
 
                     self._last_read_status = CameraReadStatus.OK
+                    _shared_lease_tokens.add(self._lease_token)
                     logger.info(
                         "Camera ready: active_index=%s device_id=%s profile=%s "
                         "used_fallback=%s size=%sx%s",
@@ -1477,8 +1508,11 @@ class CameraCapture:
                 )
             elif self._requested_device_id is not None:
                 logger.error(
-                    "Failed to open selected camera_device_id=%s and Auto-select fallback.",
-                    self._requested_device_id,
+                    "Selected camera preparation failed: requested_device_id=%s "
+                    "resolved_index=%s attempts=%s",
+                    _abbreviate_device_id(self._requested_device_id),
+                    selected_index,
+                    len(open_candidates),
                 )
             else:
                 logger.error(
@@ -1516,16 +1550,10 @@ class CameraCapture:
 
         _release_shared_unlocked()
 
-        # Same-device recovery with rotated capture profiles. If preparation
-        # already fell back from an explicit selection, recover that active
-        # fallback device rather than switching to the requested device during
-        # an active session if it has since reappeared.
+        # Same-device recovery with rotated capture profiles. An explicit
+        # selection remains authoritative for the entire session.
         recover_index = failed_index
-        recovery_device_id = (
-            self._active_device_id
-            if self._selected_camera_fallback_used
-            else self._requested_device_id
-        )
+        recovery_device_id = self._requested_device_id
         if recovery_device_id is not None:
             resolved = resolve_device_id_to_index(recovery_device_id)
             if resolved is None:
@@ -1550,9 +1578,12 @@ class CameraCapture:
                 profile,
                 device_id=recovery_device_id,
             )
+            _shared_lease_tokens.add(self._lease_token)
             logger.info(
-                "Camera recovery succeeded on index %s using %s",
+                "Camera same-device recovery succeeded: index=%s "
+                "device_id=%s profile=%s",
                 recover_index,
+                _abbreviate_device_id(recovery_device_id),
                 profile.label,
             )
             self._last_read_status = CameraReadStatus.OK
@@ -1568,6 +1599,7 @@ class CameraCapture:
                 if opened is not None:
                     cap, profile = opened
                     self._adopt_opened(candidate, cap, profile)
+                    _shared_lease_tokens.add(self._lease_token)
                     logger.warning(
                         "Camera recovery fell back from index %s to %s using %s",
                         preferred,
@@ -1844,4 +1876,14 @@ class CameraCapture:
 
     def release(self) -> None:
         with _CAMERA_LOCK:
-            _schedule_shared_release()
+            if self._lease_token not in _shared_lease_tokens:
+                return
+            _shared_lease_tokens.remove(self._lease_token)
+            if _shared_lease_tokens:
+                logger.info(
+                    "Camera lease released; shared capture retained for %s owner(s)",
+                    len(_shared_lease_tokens),
+                )
+                return
+            if _shared_cap is not None:
+                _schedule_shared_release()

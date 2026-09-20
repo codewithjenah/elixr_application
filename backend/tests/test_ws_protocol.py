@@ -34,6 +34,8 @@ def _frame(h: int = 48, w: int = 64) -> np.ndarray:
 class StubCamera:
     open_calls = 0
     open_result = True
+    unavailable_device_ids: set[str] = set()
+    auto_fallback_active = False
     instances: list["StubCamera"] = []
 
     def __init__(self, *args, **kwargs):
@@ -41,14 +43,17 @@ class StubCamera:
         self.released = False
         self.active_index = kwargs.get("camera_index") or 0
         requested_device_id = kwargs.get("camera_device_id")
-        self.selected_camera_fallback_used = requested_device_id == "missing-selected"
+        self.requested_device_id = requested_device_id
+        self.selected_camera_fallback_used = False
         self.active_device_id = (
-            "dev-fallback" if self.selected_camera_fallback_used else requested_device_id
+            "dev-auto-fallback"
+            if requested_device_id is None and StubCamera.auto_fallback_active
+            else requested_device_id
         )
         self.active_display_name = (
-            "Fallback USB Camera" if self.selected_camera_fallback_used else None
+            "Auto Fallback Camera" if StubCamera.auto_fallback_active else None
         )
-        self.used_fallback = False
+        self.used_fallback = requested_device_id is None and StubCamera.auto_fallback_active
         self.last_captured_at_monotonic = None
         self.last_capture_sequence = None
         # Same monotonic clock domain as production CameraCapture and
@@ -60,7 +65,10 @@ class StubCamera:
 
     def open(self) -> bool:
         StubCamera.open_calls += 1
-        return StubCamera.open_result
+        return (
+            StubCamera.open_result
+            and self.requested_device_id not in StubCamera.unavailable_device_ids
+        )
 
     def read(self):
         self.read_count += 1
@@ -158,6 +166,8 @@ class StubPoseDetector:
 def _patch_vision(monkeypatch):
     StubCamera.open_calls = 0
     StubCamera.open_result = True
+    StubCamera.unavailable_device_ids = set()
+    StubCamera.auto_fallback_active = False
     StubCamera.instances = []
     StubPropDetector.instances = []
     StubDualPropDetector.instances = []
@@ -850,19 +860,78 @@ def test_stale_stop_does_not_stop_newer_session(monkeypatch):
     asyncio.run(_run())
 
 
-def test_prepare_ack_reports_selected_camera_fallback(monkeypatch):
+def test_stop_then_prepare_successor_keeps_lifecycle_ordered(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        await ws.push(
+            _prepare_payload(session_id="session-a", request_id="req-a")
+        )
+        first = await _wait_for_ack(ws, "req-a")()
+        assert first["accepted"] is True
+
+        await ws.push(
+            {
+                "protocol_version": 1,
+                "request_id": "req-stop-a",
+                "session_id": "session-a",
+                "action": "stop",
+            }
+        )
+        stopped = await _wait_for_ack(ws, "req-stop-a")()
+        assert stopped["accepted"] is True
+        assert StubCamera.instances[0].released is True
+
+        await ws.push(
+            _prepare_payload(session_id="session-b", request_id="req-b")
+        )
+        successor = await _wait_for_ack(ws, "req-b")()
+        assert successor["accepted"] is True
+        assert successor["session_id"] == "session-b"
+        assert len(StubCamera.instances) == 2
+        assert StubCamera.instances[-1].released is False
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_explicit_unavailable_device_rejects_prepare_without_fallback(monkeypatch):
     _patch_vision(monkeypatch)
     monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+    StubCamera.unavailable_device_ids = {"missing-selected"}
 
     async def _run():
         ws = FakeWebSocket()
         task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
         await ws.push(_prepare_payload(camera_device_id="missing-selected"))
         ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "selected_camera_unavailable"
+        assert StubCamera.open_calls == 1
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_auto_select_prepare_can_report_active_fallback_camera(monkeypatch):
+    _patch_vision(monkeypatch)
+    StubCamera.auto_fallback_active = True
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(_prepare_payload(camera_device_id=None))
+        ack = await _wait_for_ack(ws, "req-1")()
         assert ack["accepted"] is True
-        assert ack["selected_camera_fallback_used"] is True
-        assert ack["active_camera_device_id"] == "dev-fallback"
-        assert ack["active_camera_display_name"] == "Fallback USB Camera"
+        assert ack["selected_camera_fallback_used"] is False
+        assert ack["active_camera_device_id"] == "dev-auto-fallback"
+        assert ack["active_camera_display_name"] == "Auto Fallback Camera"
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)
 
@@ -1034,7 +1103,7 @@ def test_legacy_start_still_compatible(monkeypatch):
     asyncio.run(_run())
 
 
-def test_disconnect_releases_resources(monkeypatch):
+def test_disconnect_uses_session_debounced_release_not_global_force_release(monkeypatch):
     _patch_vision(monkeypatch)
     released = {"n": 0}
     monkeypatch.setattr(
@@ -1053,7 +1122,7 @@ def test_disconnect_releases_resources(monkeypatch):
         assert StubCamera.open_calls == 1
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)
-        assert released["n"] == 1
+        assert released["n"] == 0
         assert StubCamera.instances[-1].released is True
 
     asyncio.run(_run())

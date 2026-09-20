@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -8,6 +7,7 @@ import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_toast.dart';
 import '../../../services/camera_device_service.dart';
 import '../../../services/settings_service.dart';
+import '../widgets/camera_source_preference.dart';
 import '../widgets/practice_preferences_controller.dart';
 import '../widgets/practice_preferences_editor.dart';
 import '../widgets/settings_components.dart';
@@ -27,18 +27,6 @@ class _PracticeSectionState extends State<PracticeSection> {
   String? _mirrorWriteError;
   bool _savingDraft = false;
   String? _draftSaveError;
-  bool _camerasRefreshed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _camerasRefreshed) return;
-      _camerasRefreshed = true;
-      context.read<CameraDeviceService>().refresh(forceRefresh: true);
-    });
-  }
-
   Future<void> _onMirrorChanged(bool value) async {
     if (_mirrorWriting) return;
     setState(() {
@@ -113,10 +101,7 @@ class _PracticeSectionState extends State<PracticeSection> {
           ),
           const SizedBox(height: AppSpacing.md),
           SettingsGroup(
-            child: _CameraSourcePreference(
-              settings: settings,
-              cameras: cameras,
-            ),
+            child: CameraSourcePreference(settings: settings, cameras: cameras),
           ),
           const SizedBox(height: AppSpacing.md),
           SettingsGroup(
@@ -170,236 +155,5 @@ class _PracticeSectionState extends State<PracticeSection> {
         ],
       ),
     );
-  }
-}
-
-class _CameraSourcePreference extends StatefulWidget {
-  const _CameraSourcePreference({
-    required this.settings,
-    required this.cameras,
-  });
-
-  final SettingsService settings;
-  final CameraDeviceService cameras;
-
-  @override
-  State<_CameraSourcePreference> createState() =>
-      _CameraSourcePreferenceState();
-}
-
-class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
-  static const _autoValue = '__auto_select__';
-
-  bool _writing = false;
-  String? _writeError;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _maybeMigrateLegacySelection();
-  }
-
-  Future<void> _maybeMigrateLegacySelection() async {
-    final settings = widget.settings;
-    final cameras = widget.cameras;
-    if (!settings.hasPendingLegacyCameraMigration) return;
-    if (cameras.state != CameraDiscoveryState.success) return;
-    if (cameras.cameras.isEmpty) return;
-
-    final migrated = await settings.migrateLegacyCameraIndex(cameras.cameras);
-    if (migrated && mounted) {
-      setState(() {});
-    }
-  }
-
-  Future<void> _onSelectionChanged(String? value) async {
-    if (value == null || _writing) return;
-    setState(() {
-      _writing = true;
-      _writeError = null;
-    });
-
-    final settings = widget.settings;
-    final cameras = widget.cameras;
-    late final SettingsWriteOutcome outcome;
-    if (value == _autoValue) {
-      outcome = await settings.clearCameraSelectionForAutoSelect();
-    } else {
-      final match = cameras.findByDeviceId(value);
-      outcome = await settings.setSelectedCameraDevice(
-        value,
-        displayName: match?.displayName ?? settings.selectedCameraDisplayName,
-      );
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _writing = false;
-      if (outcome == SettingsWriteOutcome.writeFailed) {
-        _writeError = 'Could not save camera selection. Try again.';
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final settings = widget.settings;
-    final cameras = widget.cameras;
-    final selectedId = settings.selectedCameraDeviceId;
-    final labels = cameras.distinguishableLabels;
-    final options = <(String, String)>[
-      (_autoValue, 'Auto-select (Recommended)'),
-      for (var i = 0; i < cameras.cameras.length; i++)
-        (cameras.cameras[i].deviceId, labels[i]),
-    ];
-
-    final discoveryComplete =
-        cameras.state == CameraDiscoveryState.success ||
-        cameras.state == CameraDiscoveryState.empty;
-    final selectedMissing =
-        selectedId != null &&
-        discoveryComplete &&
-        cameras.findByDeviceId(selectedId) == null;
-    if (selectedId != null && cameras.findByDeviceId(selectedId) == null) {
-      final cachedName =
-          settings.selectedCameraDisplayName ?? 'Selected camera';
-      final label = selectedMissing ? '$cachedName — unavailable' : cachedName;
-      options.add((selectedId, label));
-    }
-
-    final comboValue = selectedId ?? _autoValue;
-    final statusText = _statusText(selectedId);
-    final warning =
-        selectedId != null &&
-        cameras.state == CameraDiscoveryState.success &&
-        selectedMissing;
-
-    final autoActive = cameras.activeDeviceId != null
-        ? cameras.findByDeviceId(cameras.activeDeviceId!)
-        : null;
-
-    final selectionLocked = cameras.isLoading || _writing;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Camera source',
-          style: AppTheme.body.copyWith(
-            fontSize: 14,
-            color: context.elixTextPrimary,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Choose the camera ELIXR will use during sessions.',
-          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Row(
-          children: [
-            Expanded(
-              child:
-                  context.isHighContrast ||
-                      shad.ShadTheme.maybeOf(context) == null
-                  ? ComboBox<String>(
-                      value: comboValue,
-                      items: [
-                        for (final option in options)
-                          ComboBoxItem<String>(
-                            value: option.$1,
-                            child: Text(option.$2),
-                          ),
-                      ],
-                      isExpanded: true,
-                      onChanged: selectionLocked ? null : _onSelectionChanged,
-                    )
-                  : shad.ShadSelect<String>(
-                      key: ValueKey(comboValue),
-                      initialValue: comboValue,
-                      enabled: !selectionLocked,
-                      minWidth: 260,
-                      selectedOptionBuilder: (_, value) => Text(
-                        options.firstWhere((option) => option.$1 == value).$2,
-                      ),
-                      onChanged: _onSelectionChanged,
-                      options: [
-                        for (final option in options)
-                          shad.ShadOption<String>(
-                            value: option.$1,
-                            child: Text(option.$2),
-                          ),
-                      ],
-                    ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            IconButton(
-              icon: cameras.isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: ProgressRing(strokeWidth: 2),
-                    )
-                  : const Icon(FluentIcons.refresh, size: 16),
-              onPressed: cameras.isLoading
-                  ? null
-                  : () async {
-                      await cameras.refresh(forceRefresh: true);
-                      if (!mounted) return;
-                      await _maybeMigrateLegacySelection();
-                    },
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          statusText,
-          style: AppTheme.caption.copyWith(
-            color: warning || cameras.state == CameraDiscoveryState.error
-                ? context.elixColors.warning
-                : context.elixTextSecondary,
-          ),
-        ),
-        if (selectedId == null &&
-            cameras.state == CameraDiscoveryState.success &&
-            autoActive != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            'Auto-select is currently using ${autoActive.displayName}',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-        ],
-        if (warning) ...[
-          const SizedBox(height: 4),
-          Text(
-            '${settings.selectedCameraDisplayName ?? 'Selected camera'} is no longer available',
-            style: AppTheme.caption.copyWith(color: context.elixColors.warning),
-          ),
-        ],
-        const SizedBox(height: 4),
-        Text(
-          'Selection applies to your next session',
-          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-        ),
-        if (_writeError != null) SettingsStatusBanner(message: _writeError!),
-      ],
-    );
-  }
-
-  String _statusText(String? selected) {
-    final cameras = widget.cameras;
-    switch (cameras.state) {
-      case CameraDiscoveryState.idle:
-      case CameraDiscoveryState.loading:
-        return 'Checking cameras…';
-      case CameraDiscoveryState.empty:
-        return 'No usable cameras detected';
-      case CameraDiscoveryState.error:
-        return cameras.errorMessage ??
-            'Backend unavailable — start the Python server';
-      case CameraDiscoveryState.success:
-        final count = cameras.cameras.length;
-        return '$count camera${count == 1 ? '' : 's'} available';
-    }
   }
 }

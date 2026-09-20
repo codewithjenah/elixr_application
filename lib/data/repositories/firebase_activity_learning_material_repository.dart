@@ -167,6 +167,32 @@ class FirebaseActivityLearningMaterialRepository
   }
 
   @override
+  Future<List<ActivityLearningMaterial>> listForTrainee() async {
+    final decoded = await _post(
+      'listTraineeActivityLearningMaterials',
+      const {},
+    );
+    final raw = decoded['materials'];
+    if (raw is! List) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final materials = <ActivityLearningMaterial>[];
+    for (final value in raw) {
+      if (value is! Map) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      final parsed = ActivityLearningMaterial.tryFromMap(
+        Map<String, dynamic>.from(value),
+      );
+      if (parsed == null) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      materials.add(parsed);
+    }
+    return List.unmodifiable(materials);
+  }
+
+  @override
   Future<File> openFile(ActivityLearningMaterial material) async {
     if (material.type == ActivityLearningMaterialType.link ||
         material.storagePath == null) {

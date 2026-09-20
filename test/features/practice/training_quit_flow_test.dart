@@ -19,6 +19,7 @@ import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/features/practice/practice_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/session_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/trainee_progression_service.dart';
@@ -45,6 +46,7 @@ class _UnusedAuth extends Fake implements AuthRepositoryBase {}
 class _TestWebSocket extends WebSocketService {
   int stopCalls = 0;
   Completer<CommandAck> prepareAck = Completer<CommandAck>();
+  final List<String?> prepareCameraDeviceIds = [];
 
   @override
   WebSocketConnectionState get connectionState =>
@@ -69,6 +71,7 @@ class _TestWebSocket extends WebSocketService {
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
   }) {
+    prepareCameraDeviceIds.add(cameraDeviceId);
     return prepareAck.future;
   }
 
@@ -259,6 +262,12 @@ void main() {
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<CameraDeviceService>(
+            create: (_) => CameraDeviceService(
+              httpGet: (_) async =>
+                  '{"cameras":[{"device_id":"win32:test-camera","display_name":"External Test Camera","runtime_index":2,"is_active":false,"identity_stable":true}],"preferred_index":1,"fallback_index":0,"active_index":null,"active_device_id":null}',
+            ),
+          ),
           ChangeNotifierProvider<SessionService>(
             create: (_) => sessionService ?? _TestSessionService(),
           ),
@@ -394,6 +403,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('teacher-movements-destination'), findsOneWidget);
   });
+
+  testWidgets(
+    'teacher preview exposes camera source only while idle and prepares saved device',
+    (tester) async {
+      await pumpPractice(
+        tester,
+        executionMode: PracticeExecutionMode.teacherPreview,
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('camera-source-preference')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Start Camera Setup'));
+      await tester.pump();
+
+      expect(ws.prepareCameraDeviceIds, ['win32:test-camera']);
+      expect(
+        find.byKey(const ValueKey('camera-source-preference')),
+        findsNothing,
+      );
+      ws.acceptPrepare();
+      await tester.pump();
+    },
+  );
 
   testWidgets(
     'timeout while quit dialog is open completes after Keep Training',

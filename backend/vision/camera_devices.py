@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Prefix for OpenCV-only fallback identities when native enumeration fails.
 _OPENCV_FALLBACK_PREFIX = "opencv:"
+_DIRECTSHOW_NAME_FALLBACK_PREFIX = "dshow-name:"
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,14 @@ def fallback_device_for_index(index: int) -> EnumeratedCamera:
 
 def is_fallback_device_id(device_id: str) -> bool:
     return device_id.startswith(_OPENCV_FALLBACK_PREFIX)
+
+
+def is_stable_device_id(device_id: str) -> bool:
+    """Whether an identity can represent the same physical device after reindexing."""
+    return bool(device_id) and not (
+        device_id.startswith(_OPENCV_FALLBACK_PREFIX)
+        or device_id.startswith(_DIRECTSHOW_NAME_FALLBACK_PREFIX)
+    )
 
 
 def resolve_device_id_to_index(
@@ -332,7 +341,7 @@ def _enumerate_directshow_devices() -> list[EnumeratedCamera]:
             identity_stable = True
         else:
             # No DevicePath (rare). Keep a usable but unstable identity.
-            device_id = f"dshow-name:{friendly_name}:{index}"
+            device_id = f"{_DIRECTSHOW_NAME_FALLBACK_PREFIX}{friendly_name}:{index}"
             identity_stable = False
 
         result.append(

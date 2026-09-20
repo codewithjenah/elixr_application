@@ -41,6 +41,11 @@ abstract class ActivityLearningMaterialRepository {
   /// are consumed through authenticated Firebase Storage, never public URLs.
   Future<List<ActivityLearningMaterial>> list({required String assignmentId});
 
+  /// Returns ready materials across assignments currently visible to the
+  /// authenticated Trainee. The server derives the Trainee identity from the
+  /// Firebase token and enforces classroom and assignment audience access.
+  Future<List<ActivityLearningMaterial>> listForTrainee();
+
   /// Downloads an authorized file material into ELIXR-managed cache storage.
   /// Callers must never turn [ActivityLearningMaterial.storagePath] into a URL
   /// or a local filename themselves.

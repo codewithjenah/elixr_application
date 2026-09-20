@@ -467,6 +467,31 @@ function assignmentJsonValue(value) {
   return value;
 }
 
+function publicActivityLearningMaterial(document) {
+  const data = document.data();
+  const output = {
+    material_id: document.id,
+    assignment_id: data.assignment_id,
+    type: data.type,
+    display_name: data.display_name,
+  };
+  for (const field of [
+    'detected_content_type', 'size_bytes', 'storage_path', 'external_url', 'published_at',
+  ]) {
+    if (data[field] != null) output[field] = assignmentJsonValue(data[field]);
+  }
+  return output;
+}
+
+function activityMaterialPublicationFields(publishedAt = Timestamp.now()) {
+  return {
+    status: 'ready',
+    projection_sync_state: 'pending',
+    published_at: publishedAt,
+    updated_at: publishedAt,
+  };
+}
+
 function validActivityAssessment(value, expectedMaximum) {
   if (!value || typeof value !== 'object' ||
       ![2, 3].includes(value.schema_version) ||
@@ -2678,15 +2703,16 @@ async function finalizeStagedActivityMaterial(uploadId, {
           currentStage.get('state') !== 'validating' ||
           !currentStage.get('expires_at') ||
           currentStage.get('expires_at').toMillis() <= Date.now()) return null;
+      const publishedAt = Timestamp.now();
       transaction.update(materialRef, {
         detected_content_type: detected.contentType, size_bytes: buffer.length,
-        storage_path: finalPath, status: 'ready', projection_sync_state: 'pending',
-        updated_at: Timestamp.now(),
+        storage_path: finalPath,
+        ...activityMaterialPublicationFields(publishedAt),
       });
       transaction.set(stageRef, {
         state: 'ready', final_storage_path: finalPath,
         detected_content_type: detected.contentType, validated_size_bytes: buffer.length,
-        published_at: Timestamp.now(), terminal_at: Timestamp.now(),
+        published_at: publishedAt, terminal_at: publishedAt,
       }, {merge: true});
       return assignment.data();
     });
@@ -2869,7 +2895,13 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
             !validId(existingRequest.get('material_id'))) {
           const error = new Error('invalid_payload'); error.code = 'invalid_payload'; throw error;
         }
-        return {assignment: assignmentSnapshot.data(), materialId: existingRequest.get('material_id')};
+        const existingMaterialId = existingRequest.get('material_id');
+        const existingMaterial = materials.docs.find((document) => document.id === existingMaterialId);
+        return {
+          assignment: assignmentSnapshot.data(),
+          materialId: existingMaterialId,
+          publishedAt: existingMaterial?.get('published_at') || null,
+        };
       }
       if (materials.docs.filter((doc) =>
         !['deleted', 'rejected'].includes(doc.get('status')),
@@ -2877,19 +2909,19 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
           ACTIVITY_MATERIAL_LIMITS.maxPerAssignment) {
         const error = new Error('material_limit'); error.code = 'material_limit'; throw error;
       }
+      const publishedAt = Timestamp.now();
       transaction.create(assignmentRef.collection('learning_materials').doc(materialId), {
         material_id: materialId, assignment_id: body.assignment_id, owner_teacher_id: uid,
-        type: 'link', display_name: displayName, external_url: url, status: 'ready',
-        projection_sync_state: 'pending', schema_version: 1,
-        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+        type: 'link', display_name: displayName, external_url: url, schema_version: 1,
+        ...activityMaterialPublicationFields(publishedAt), created_at: publishedAt,
       });
       transaction.create(requestRef, {
         request_id: requestId, material_id: materialId,
         assignment_id: body.assignment_id, owner_teacher_id: uid,
         display_name: displayName, external_url: url,
-        created_at: Timestamp.now(),
+        created_at: publishedAt,
       });
-      return {assignment: assignmentSnapshot.data(), materialId};
+      return {assignment: assignmentSnapshot.data(), materialId, publishedAt};
     });
     await syncActivityMaterialAccess({firestore, assignmentRef, assignmentData: assignment.assignment});
     await markMaterialProjectionSynchronized(firestore,
@@ -2898,6 +2930,8 @@ async function addActivityLearningMaterialLinkHandler(request, response, {
     return response.status(200).json({
       material_id: assignment.materialId, assignment_id: body.assignment_id, type: 'link',
       display_name: displayName, external_url: url,
+      ...(assignment.publishedAt
+        ? {published_at: assignment.publishedAt.toDate().toISOString()} : {}),
     });
   } catch (error) {
     if (['not_found', 'forbidden', 'assignment_unavailable', 'material_limit'].includes(error.code)) {
@@ -3035,7 +3069,7 @@ async function getActivityMaterialUploadStatusHandler(request, response, {
       // its bounded validating state; the reconciler can finish this safely.
       output.state = 'validating';
     } else {
-      output.material = {material_id: material.id, ...assignmentJsonValue(material.data())};
+      output.material = publicActivityLearningMaterial(material);
     }
   }
   return response.status(200).json(output);
@@ -3065,9 +3099,91 @@ async function listActivityLearningMaterialsHandler(request, response, {
     const access = allowed || await hasReadyActivityMaterialAccess(
       firestore, body.assignment_id, material.id, uid,
     );
-    if (access) output.push({material_id: material.id, ...assignmentJsonValue(material.data())});
+    if (access) output.push(publicActivityLearningMaterial(material));
   }
   return response.status(200).json({materials: output});
+}
+
+async function listTraineeActivityLearningMaterialsHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  if (!uid) return response.status(401).json({error: 'unauthenticated'});
+  const body = request.body == null ? {} : request.body;
+  if (typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 0) {
+    return response.status(400).json({error: 'invalid_request'});
+  }
+
+  try {
+    const firestore = databaseFactory();
+    const [profile, memberships] = await Promise.all([
+      firestore.collection('users').doc(uid).get(),
+      firestore.collection('group_memberships').where('trainee_id', '==', uid).get(),
+    ]);
+    if (!profile.exists || !validTraineeProfile(profile.data())) {
+      return response.status(403).json({error: 'forbidden'});
+    }
+    const teacherByGroupId = new Map();
+    for (const membership of memberships.docs) {
+      const data = membership.data();
+      if (validId(data.group_id) && validId(data.teacher_id) &&
+          validApprovedTraineeMembership(data, {
+            membershipId: membership.id,
+            traineeId: uid,
+            groupId: data.group_id,
+            teacherId: data.teacher_id,
+          })) {
+        teacherByGroupId.set(data.group_id, data.teacher_id);
+      }
+    }
+    const groupIds = [...teacherByGroupId.keys()];
+    if (groupIds.length === 0) return response.status(200).json({materials: []});
+
+    const assignmentDocuments = [];
+    for (let index = 0; index < groupIds.length; index += 30) {
+      const chunk = groupIds.slice(index, index + 30);
+      let query = firestore.collection('group_assignments');
+      query = chunk.length === 1
+        ? query.where('group_id', '==', chunk[0])
+        : query.where('group_id', 'in', chunk);
+      const snapshot = await query.get();
+      assignmentDocuments.push(...snapshot.docs);
+    }
+
+    const authorizedAssignments = [];
+    for (const document of assignmentDocuments) {
+      const assignment = document.data();
+      if (teacherByGroupId.get(assignment.group_id) !== assignment.teacher_id ||
+          !assignmentIsPublished(assignment) || assignment.deletion_state === 'deleting') continue;
+      let recipient = null;
+      if (assignment.audience_type === 'selected_students' ||
+          assignment.audience_type === 'individual_student') {
+        const recipientDocument = await document.ref
+          .collection('assignment_recipients').doc(uid).get();
+        recipient = recipientDocument.exists ? recipientDocument.data() : null;
+      }
+      if (!assignmentAudienceAllows(assignment, uid, recipient, document.id)) continue;
+      authorizedAssignments.push(document);
+    }
+
+    const materialLists = await Promise.all(authorizedAssignments.map(async (assignment) => {
+      const snapshot = await assignment.ref.collection('learning_materials')
+        .where('status', '==', 'ready').get();
+      return snapshot.docs
+        .filter((material) => material.get('assignment_id') === assignment.id &&
+          material.get('status') === 'ready' &&
+          material.get('projection_sync_state') === 'ready')
+        .map(publicActivityLearningMaterial);
+    }));
+    return response.status(200).json({materials: materialLists.flat()});
+  } catch (error) {
+    console.error('Trainee Activity material listing failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
 }
 
 async function createClassroomAssignmentHandler(request, response, {
@@ -3359,6 +3475,11 @@ exports.getActivityMaterialUploadStatus = onRequest(
 exports.listActivityLearningMaterials = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 30},
   listActivityLearningMaterialsHandler,
+);
+
+exports.listTraineeActivityLearningMaterials = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  listTraineeActivityLearningMaterialsHandler,
 );
 
 exports.validateStagedActivityLearningMaterial = onObjectFinalized(
@@ -3887,6 +4008,8 @@ exports._test = {
   validApprovedTraineeMembership,
   validRecipientProjection,
   assignmentJsonValue,
+  publicActivityLearningMaterial,
+  activityMaterialPublicationFields,
   validActivityAssessment,
   ACTIVITY_MATERIAL_LIMITS,
   safeActivityMaterialRejectionReason,
@@ -3902,6 +4025,7 @@ exports._test = {
   removeActivityLearningMaterialHandler,
   getActivityMaterialUploadStatusHandler,
   listActivityLearningMaterialsHandler,
+  listTraineeActivityLearningMaterialsHandler,
   finalizeStagedActivityMaterial,
   runActivityMaterialReconciliation,
   syncActivityMaterialAccess,

@@ -12,11 +12,40 @@ void main() {
       'detected_content_type': 'application/pdf',
       'size_bytes': 123,
       'storage_path': 'activity_learning_materials/assignment-1/material-1',
+      'published_at': '2026-09-20T02:00:00.000Z',
     });
 
     expect(material, isNotNull);
     expect(material!.storagePath, contains('activity_learning_materials/'));
     expect(material.externalUrl, isNull);
+    expect(material.publishedAt, DateTime.utc(2026, 9, 20, 2));
+  });
+
+  test('legacy material without publication time remains valid', () {
+    final material = ActivityLearningMaterial.tryFromMap({
+      'material_id': 'legacy',
+      'assignment_id': 'assignment-1',
+      'type': 'link',
+      'display_name': 'Existing link',
+      'external_url': 'https://example.com/existing',
+    });
+
+    expect(material, isNotNull);
+    expect(material!.publishedAt, isNull);
+  });
+
+  test('rejects malformed publication timestamps', () {
+    expect(
+      ActivityLearningMaterial.tryFromMap({
+        'material_id': 'material-1',
+        'assignment_id': 'assignment-1',
+        'type': 'link',
+        'display_name': 'Broken timestamp',
+        'external_url': 'https://example.com',
+        'published_at': 'not-a-date',
+      }),
+      isNull,
+    );
   });
 
   test('rejects incomplete file records and non-HTTP link records', () {

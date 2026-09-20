@@ -3,8 +3,12 @@ import 'dart:async';
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/activity_learning_material.dart';
+import 'package:elixr_application/data/models/class_challenge.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/repositories/activity_learning_material_repository.dart';
+import 'package:elixr_application/data/repositories/class_challenge_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher/activity_center/activity_read_store.dart';
 import 'package:elixr_application/features/trainee/activity_center/trainee_activity_controller.dart';
@@ -18,6 +22,8 @@ void main() {
   late InMemoryClassroomAssignmentRepository assignments;
   late InMemoryClassroomAnnouncementRepository announcements;
   late InMemoryActivityReadStore readStore;
+  late _ChallengeRepository challenges;
+  late _LearningMaterialRepository materials;
 
   setUp(() {
     groups = InMemoryGroupRepository(now: () => now);
@@ -27,6 +33,8 @@ void main() {
     );
     announcements = InMemoryClassroomAnnouncementRepository(now: () => now);
     readStore = InMemoryActivityReadStore();
+    challenges = _ChallengeRepository();
+    materials = _LearningMaterialRepository();
     groups.seedGroup(_group());
     groups.seedMembership(_membership());
   });
@@ -35,17 +43,165 @@ void main() {
     groups.dispose();
     assignments.dispose();
     announcements.dispose();
+    challenges.dispose();
   });
 
   TraineeActivityController createController({
     ClassroomAnnouncementRepository? announcementRepository,
+    ClassChallengeRepository? challengeRepository,
+    ActivityLearningMaterialRepository? learningMaterialRepository,
   }) => TraineeActivityController(
     groupRepository: groups,
     assignmentRepository: assignments,
     announcementRepository: announcementRepository ?? announcements,
+    challengeRepository: challengeRepository ?? challenges,
+    learningMaterialRepository: learningMaterialRepository ?? materials,
     readStore: readStore,
     now: () => now,
     periodicTimer: (_, _) => _NoopTimer(),
+  );
+
+  test(
+    'adds one stable activity for a new challenge in an active class',
+    () async {
+      challenges.seed('group', [_challenge(id: 'challenge-1')]);
+      final controller = createController()..setTrainee('trainee');
+      addTearDown(controller.dispose);
+      await _settle();
+
+      final activity = controller.activities.singleWhere(
+        (item) => item.type == TraineeActivityType.newChallenge,
+      );
+      expect(activity.id, 'new_challenge:challenge-1');
+      expect(
+        activity.destination,
+        AppRoutePaths.classChallengeLeaderboard('group', 'challenge-1'),
+      );
+
+      challenges.seed('group', [
+        _challenge(id: 'challenge-1', title: 'Edited title'),
+      ]);
+      await _settle();
+      expect(
+        controller.activities.where(
+          (item) => item.type == TraineeActivityType.newChallenge,
+        ),
+        hasLength(1),
+      );
+      expect(
+        controller.activities
+            .singleWhere(
+              (item) => item.type == TraineeActivityType.newChallenge,
+            )
+            .id,
+        activity.id,
+      );
+    },
+  );
+
+  test('excludes challenges outside scope and archived challenges', () async {
+    challenges
+      ..seed('group', [
+        _challenge(id: 'archived', archivedAt: now),
+        _challenge(id: 'wrong-group', groupId: 'other'),
+      ])
+      ..seed('other', [_challenge(id: 'other', groupId: 'other')]);
+    final controller = createController()..setTrainee('trainee');
+    addTearDown(controller.dispose);
+    await _settle();
+
+    expect(
+      controller.activities.where(
+        (item) => item.type == TraineeActivityType.newChallenge,
+      ),
+      isEmpty,
+    );
+  });
+
+  test(
+    'adds only published materials owned by authorized assignments',
+    () async {
+      assignments
+        ..seedAssignment(_assignment(id: 'authorized', title: 'Safety work'))
+        ..seedAssignment(
+          _assignment(
+            id: 'private',
+            title: 'Private work',
+            audience: AssignmentAudience.individualStudent(const ['someone']),
+          ),
+        );
+      materials.values = [
+        _material(id: 'ready', assignmentId: 'authorized', publishedAt: now),
+        _material(id: 'legacy', assignmentId: 'authorized'),
+        _material(id: 'private', assignmentId: 'private', publishedAt: now),
+      ];
+      final controller = createController()..setTrainee('trainee');
+      addTearDown(controller.dispose);
+      await _settle();
+
+      final activity = controller.activities.singleWhere(
+        (item) => item.type == TraineeActivityType.newLearningMaterial,
+      );
+      expect(activity.id, 'new_learning_material:authorized:ready');
+      expect(
+        activity.destination,
+        AppRoutePaths.assignmentDetail('authorized'),
+      );
+    },
+  );
+
+  test(
+    'orders new source events newest first and keeps failures partial',
+    () async {
+      assignments.seedAssignment(_assignment(id: 'work', title: 'Practice'));
+      materials.values = [
+        _material(
+          id: 'material',
+          assignmentId: 'work',
+          publishedAt: now.subtract(const Duration(minutes: 1)),
+        ),
+      ];
+      challenges.seed('group', [
+        _challenge(
+          id: 'challenge',
+          createdAt: now.subtract(const Duration(minutes: 2)),
+        ),
+      ]);
+      final controller = createController()..setTrainee('trainee');
+      addTearDown(controller.dispose);
+      await _settle();
+      final sourceEvents = controller.activities
+          .where(
+            (item) =>
+                item.type == TraineeActivityType.newChallenge ||
+                item.type == TraineeActivityType.newLearningMaterial,
+          )
+          .toList();
+      expect(sourceEvents.map((item) => item.type), [
+        TraineeActivityType.newLearningMaterial,
+        TraineeActivityType.newChallenge,
+      ]);
+
+      materials.error = StateError('material endpoint failed');
+      challenges.fail('group', StateError('challenge stream failed'));
+      await _settle();
+      expect(controller.challengeErrors, contains('group'));
+      expect(
+        controller.activities.any(
+          (item) => item.type == TraineeActivityType.newAssignment,
+        ),
+        isTrue,
+      );
+      await controller.retry();
+      await _settle();
+      expect(controller.hasStreamError, isTrue);
+      expect(
+        controller.activities.any(
+          (item) => item.type == TraineeActivityType.newAssignment,
+        ),
+        isTrue,
+      );
+    },
   );
 
   test('aggregates useful trainee events with stable unique IDs', () async {
@@ -502,6 +658,85 @@ AssignmentAttempt _attempt({
   gradeMaxScore: status == AssignmentAttemptStatus.checked ? 100 : null,
   createdAt: now.subtract(const Duration(hours: 4)),
 );
+
+ClassChallenge _challenge({
+  required String id,
+  String groupId = 'group',
+  String title = 'Speed round',
+  DateTime? createdAt,
+  DateTime? archivedAt,
+}) => ClassChallenge(
+  id: id,
+  groupId: groupId,
+  teacherId: 'teacher',
+  teacherDisplayName: 'Grace Hopper',
+  title: title,
+  description: 'Complete the movement.',
+  movementName: 'Normal Grip',
+  difficulty: 'Beginner',
+  prop: TrainingProp.bottle,
+  startAt: now.add(const Duration(hours: 1)),
+  deadline: now.add(const Duration(days: 1)),
+  createdAt: createdAt ?? now.subtract(const Duration(minutes: 5)),
+  archivedAt: archivedAt,
+);
+
+ActivityLearningMaterial _material({
+  required String id,
+  required String assignmentId,
+  DateTime? publishedAt,
+}) => ActivityLearningMaterial(
+  id: id,
+  assignmentId: assignmentId,
+  type: ActivityLearningMaterialType.link,
+  displayName: 'Safety guide',
+  externalUrl: Uri.parse('https://example.com/safety'),
+  publishedAt: publishedAt,
+);
+
+class _ChallengeRepository extends Fake implements ClassChallengeRepository {
+  final Map<String, List<ClassChallenge>> _values = {};
+  final Map<String, StreamController<List<ClassChallenge>>> _controllers = {};
+
+  void seed(String groupId, List<ClassChallenge> values) {
+    _values[groupId] = values;
+    _controllers[groupId]?.add(values);
+  }
+
+  void fail(String groupId, Object error) {
+    _controllers[groupId]?.addError(error);
+  }
+
+  @override
+  Stream<List<ClassChallenge>> watchChallengesForGroup({
+    required String groupId,
+    required String teacherId,
+  }) async* {
+    yield _values[groupId] ?? const [];
+    yield* _controllers
+        .putIfAbsent(groupId, StreamController<List<ClassChallenge>>.broadcast)
+        .stream;
+  }
+
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.close();
+    }
+  }
+}
+
+class _LearningMaterialRepository extends Fake
+    implements ActivityLearningMaterialRepository {
+  List<ActivityLearningMaterial> values = const [];
+  Object? error;
+
+  @override
+  Future<List<ActivityLearningMaterial>> listForTrainee() async {
+    final failure = error;
+    if (failure != null) throw failure;
+    return values;
+  }
+}
 
 Future<void> _settle() async {
   for (var index = 0; index < 12; index++) {

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
@@ -302,6 +303,9 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     if (failList) return Future.error(StateError('material load failed'));
     return Future.value(materials);
   }
+
+  @override
+  Future<List<ActivityLearningMaterial>> listForTrainee() async => const [];
 
   @override
   Future<File> openFile(ActivityLearningMaterial material) {
@@ -3059,6 +3063,160 @@ void main() {
     );
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+    'Teacher Activity cards pin full-width detail actions to one row baseline',
+    (tester) async {
+      final short = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Quick Pour',
+        instructions: 'Pour once with control.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final long = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Controlled Alternating Bottle Balance With A Deliberate Finish',
+        instructions:
+            'Begin from a stable stance, keep the bottle vertical, alternate hands slowly, pause at each transfer, and finish with the bottle controlled at chest height.',
+        requiredProp: TrainingProp.bottle,
+      );
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        size: const Size(1688, 900),
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_source_mine')),
+      );
+      await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+      await tester.pumpAndSettle();
+
+      final shortCard = find.byKey(
+        Key('teacher_assignment_custom_${short.id}'),
+      );
+      final longCard = find.byKey(Key('teacher_assignment_custom_${long.id}'));
+      final shortAction = find.byKey(
+        Key('teacher_assignment_view_details_${short.id}'),
+      );
+      final longAction = find.byKey(
+        Key('teacher_assignment_view_details_${long.id}'),
+      );
+
+      expect(
+        tester.getTopLeft(shortCard).dy,
+        closeTo(tester.getTopLeft(longCard).dy, 1),
+      );
+      expect(
+        tester.getTopLeft(shortAction).dy,
+        closeTo(tester.getTopLeft(longAction).dy, 1),
+      );
+      expect(
+        tester.getSize(shortCard).height,
+        closeTo(tester.getSize(longCard).height, 1),
+      );
+      expect(
+        tester.getSize(shortAction).width,
+        greaterThan(tester.getSize(shortCard).width * 0.9),
+      );
+      expect(
+        tester.getSize(longAction).width,
+        greaterThan(tester.getSize(longCard).width * 0.9),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Teacher Activity details use a compact two-column desktop presentation',
+    (tester) async {
+      final activity = await createTeacherMovement();
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        size: const Size(1688, 900),
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_source_mine')),
+      );
+      await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_view_details_${activity.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      final dialog = tester.widget<ElixDialog>(find.byType(ElixDialog));
+      expect(dialog.maxWidth, 700);
+      expect(dialog.maxHeight, 648);
+      expect(dialog.scrollableContent, isTrue);
+      expect(dialog.showCloseButton, isFalse);
+      expect(dialog.showFooterDivider, isTrue);
+      expect(
+        find.byKey(const Key('teacher_assignment_activity_details_close')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_activity_details_use')),
+        findsOneWidget,
+      );
+      final setup = find.byKey(
+        const Key('teacher_assignment_activity_summary_setup'),
+      );
+      final readiness = find.byKey(
+        const Key('teacher_assignment_activity_summary_readiness'),
+      );
+      expect(
+        tester.getTopLeft(setup).dy,
+        closeTo(tester.getTopLeft(readiness).dy, 1),
+      );
+      expect(
+        tester.getTopLeft(readiness).dx,
+        greaterThan(tester.getTopLeft(setup).dx),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Teacher Activity details fall back to one summary column on a narrow window',
+    (tester) async {
+      final activity = await createTeacherMovement();
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        size: const Size(760, 900),
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_source_mine')),
+      );
+      await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(Key('teacher_assignment_view_details_${activity.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      final dialog = tester.widget<ElixDialog>(find.byType(ElixDialog));
+      expect(dialog.maxWidth, 664);
+      expect(dialog.showCloseButton, isFalse);
+      final setup = find.byKey(
+        const Key('teacher_assignment_activity_summary_setup'),
+      );
+      final readiness = find.byKey(
+        const Key('teacher_assignment_activity_summary_readiness'),
+      );
+      expect(
+        tester.getTopLeft(readiness).dx,
+        closeTo(tester.getTopLeft(setup).dx, 1),
+      );
+      expect(
+        tester.getTopLeft(readiness).dy,
+        greaterThan(tester.getTopLeft(setup).dy),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('movement management stays out of Assignment Studio', (
     tester,

@@ -25,6 +25,7 @@ import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/auth_service.dart';
 import '../../services/app_background_music_service.dart';
+import '../../services/camera_device_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/session_service.dart';
@@ -39,6 +40,7 @@ import '../learning/movement_lesson_content.dart';
 import '../learning/movement_tutorial_dialog.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_section.dart';
+import '../settings/widgets/camera_source_preference.dart';
 import 'camera_recovery_presentation.dart';
 import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
@@ -724,6 +726,10 @@ class PracticeScreenState extends State<PracticeScreen>
   Future<void> _chooseCamera() async {
     await _resetInterruptedAttempt();
     if (!mounted || _leaving) return;
+    if (_isTeacherPreview) {
+      await context.read<CameraDeviceService>().refresh(forceRefresh: true);
+      return;
+    }
     await SettingsScreen.show(
       context,
       initialSection: SettingsSection.practice,
@@ -1744,6 +1750,16 @@ class PracticeScreenState extends State<PracticeScreen>
                   label: 'Best combo',
                   value: 'x${comboState.bestCombo}',
                 ),
+              if (_isTeacherPreview && !_run.isCameraSessionLive) ...[
+                const SizedBox(height: AppSpacing.sm),
+                const Divider(),
+                const SizedBox(height: AppSpacing.sm),
+                CameraSourcePreference(
+                  settings: context.watch<SettingsService>(),
+                  cameras: context.watch<CameraDeviceService>(),
+                  compact: true,
+                ),
+              ],
             ],
           );
         },

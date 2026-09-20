@@ -87,8 +87,8 @@ from vision.camera import (
     camera_display_name,
     latest_frame_overwrite_count,
     latest_frame_publish_count,
+    release_shared_camera,  # Compatibility export; endpoint cleanup is debounced.
     snapshot_capture_producer_telemetry,
-    release_shared_camera,
 )
 from vision.startup_diagnostics import (
     MARK_ACTIVATE_ACK,
@@ -3750,4 +3750,3 @@ async def websocket_endpoint(websocket: WebSocket):
         await _stop_session_task(session_task)
         session_ref["session"] = None
         session_ref["session_id"] = None
-        release_shared_camera()
