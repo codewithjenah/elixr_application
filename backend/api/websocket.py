@@ -568,7 +568,20 @@ class VisionSession:
                 self._is_freestyle or movement_requires_pose(movement)
             )
         )
-        self._hands_max = 2 if self._is_freestyle else movement_max_hands(movement)
+        if readiness_spec is not None:
+            # Teacher Activities deliberately use the internal Free Practice
+            # movement so active recording stays unscored. Their explicit
+            # readiness contract must still control MediaPipe construction;
+            # Free Practice's catalog max_hands=0 is not authoritative here.
+            self._hands_max = {
+                "none": 0,
+                "one_hand": 1,
+                "two_hands": 2,
+            }.get(readiness_spec.get("hands"), 0)
+        else:
+            self._hands_max = (
+                2 if self._is_freestyle else movement_max_hands(movement)
+            )
         self.rubric = RubricTracker()
 
         self._frame_index = 0
@@ -901,7 +914,7 @@ class VisionSession:
 
     def _ensure_readiness_detectors(self) -> None:
         """Create only the detectors required for readiness observation."""
-        if self._prop_detection_only:
+        if self._prop_detection_only and self.readiness_spec is None:
             self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
             return
         self._sync_landmark_detectors(

@@ -108,3 +108,38 @@ def test_readiness_session_uses_only_required_detectors(
         assert "pose=" not in _timing_log(session), movement
 
     session.close()
+
+
+@pytest.mark.parametrize(
+    "hands_requirement,expected_max_hands",
+    [("one_hand", 1), ("two_hands", 2)],
+)
+def test_teacher_activity_free_practice_honors_hand_and_pose_readiness(
+    monkeypatch,
+    hands_requirement: str,
+    expected_max_hands: int,
+):
+    """The unscored Free Practice runtime must not suppress Activity inputs."""
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession(
+        "Free Practice",
+        readiness_spec={"hands": hands_requirement, "body": "upper_body"},
+    )
+    try:
+        session.start()
+        assert session.is_prop_detection_only is True
+        assert session.begin_readiness() is True
+        assert session.hands_detector is not None
+        assert session.hands_detector.max_num_hands == expected_max_hands
+        assert session.pose_detector is not None
+
+        message = session.process_readiness_frame()
+
+        assert message is not None
+        assert message.session_state == "readying"
+        assert session.hands_detector.detect_calls >= 1
+        assert session.pose_detector.detect_calls >= 1
+        assert "hands=" in _timing_log(session)
+        assert "pose=" in _timing_log(session)
+    finally:
+        session.close()
