@@ -302,6 +302,7 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
 
     final revisions = await movementRef
         .collection(FirestoreCollections.teacherMovementRevisions)
+        .where('teacher_id', isEqualTo: teacherId)
         .get();
     final revisionDocs = revisions.docs.toList()
       ..sort((a, b) {

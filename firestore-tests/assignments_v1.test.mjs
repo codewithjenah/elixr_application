@@ -652,6 +652,30 @@ describe('Phase 5 teacher movements and attempts', () => {
     await assertFails(getDoc(doc(context('trainee').firestore(), 'teacher_movements', 'tm1')));
   });
 
+  test('owner can query and delete unassigned Teacher Activity revisions', async () => {
+    await seedClassroom();
+    await seedTeacherMovement({
+      extraRevisions: [{id: 'rev2'}],
+    });
+    const revisions = (db) => query(
+      collection(db, 'teacher_movements', 'tm1', 'revisions'),
+      where('teacher_id', '==', 'teacher'),
+    );
+
+    const teacherDb = context('teacher').firestore();
+    const ownerRevisions = await assertSucceeds(getDocs(revisions(teacherDb)));
+    assert.equal(ownerRevisions.size, 2);
+    await assertFails(getDocs(revisions(context('other').firestore())));
+    await assertFails(getDocs(revisions(context('trainee').firestore())));
+
+    const batch = writeBatch(teacherDb);
+    for (const revision of ownerRevisions.docs) {
+      batch.delete(revision.ref);
+    }
+    batch.delete(doc(teacherDb, 'teacher_movements', 'tm1'));
+    await assertSucceeds(batch.commit());
+  });
+
   test('archived Teacher movement cannot be used for a new assignment', async () => {
     await seedClassroom();
     await seedBypassingRules(async (admin) => {
