@@ -762,6 +762,10 @@ function attemptStateId(assignmentId, traineeId) {
   return `${assignmentId}__${traineeId}`;
 }
 
+// assignment_attempt_states is the single server-owned limit ledger. The
+// state_kind discriminator keeps official completed-attempt accounting
+// separate from Teacher Activity's provisional reserve/consume/refund state.
+
 function challengeParticipantId(challengeId, traineeId) {
   return `${challengeId}__${traineeId}`;
 }
@@ -1309,6 +1313,9 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
         const error = new Error('deadline_passed'); error.code = 'deadline_passed'; throw error;
       }
       const state = stateSnapshot.exists ? stateSnapshot.data() : {};
+      if (state.state_kind && state.state_kind !== 'teacher_activity') {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
       if (state.graded === true || assignment.grading_locked === true) {
         const error = new Error('graded'); error.code = 'graded'; throw error;
       }
@@ -1340,7 +1347,7 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
         activity_assessment_snapshot: assignment.activity_assessment,
       });
       transaction.set(stateRef, {
-        assignment_id: body.assignment_id, trainee_id: uid,
+        state_kind: 'teacher_activity', assignment_id: body.assignment_id, trainee_id: uid,
         teacher_id: assignment.teacher_id, group_id: assignment.group_id,
         consumed_count: consumed, next_ordinal: ordinal,
         active_attempt_id: attemptId, active_request_id: body.request_id,
@@ -1390,6 +1397,8 @@ async function consumeTeacherActivityAttemptHandler(request, response, {
         transaction.get(assignmentRef), transaction.get(stateRef), transaction.get(attemptRef),
       ]);
       if (!assignmentSnapshot.exists || !stateSnapshot.exists || !attemptSnapshot.exists ||
+          (stateSnapshot.get('state_kind') &&
+            stateSnapshot.get('state_kind') !== 'teacher_activity') ||
           stateSnapshot.get('active_attempt_id') !== body.attempt_id ||
           attemptSnapshot.get('trainee_id') !== uid ||
           attemptSnapshot.get('assignment_id') !== body.assignment_id) {
@@ -1460,6 +1469,10 @@ async function abandonTeacherActivityAttemptHandler(request, response, {
       ]);
       if (!stateSnapshot.exists || stateSnapshot.get('active_attempt_id') !== body.attempt_id) {
         return {alreadyReleased: true};
+      }
+      if (stateSnapshot.get('state_kind') &&
+          stateSnapshot.get('state_kind') !== 'teacher_activity') {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
       // A submission can commit before the document trigger clears the active
       // lock. Never turn that historical submitted attempt back into a draft
@@ -3109,6 +3122,351 @@ async function listActivityLearningMaterialsHandler(request, response, {
   return response.status(200).json({materials: output});
 }
 
+function assignmentSubmissionPathFor(attempt) {
+  return `assignment_submissions/${attempt.teacher_id}/${attempt.group_id}/` +
+    `${attempt.assignment_id}/${attempt.trainee_id}/${attempt.id}.mp4`;
+}
+
+function validRubricSessionPayload(session) {
+  if (!session || typeof session !== 'object' || session.assessment_version !== 2 ||
+      !boundedText(session.movement_name, 80) || !boundedText(session.difficulty, 40) ||
+      !Number.isInteger(session.duration_seconds) || session.duration_seconds < 0 ||
+      !['bottle', 'shaker', 'bottle_and_shaker'].includes(session.prop_type)) return false;
+  const rubric = session.rubric;
+  if (!rubric || typeof rubric !== 'object' ||
+      Object.keys(rubric).sort().join(',') !== 'completion,prop_positioning,stability,technique') return false;
+  const scores = ['technique', 'stability', 'completion', 'prop_positioning']
+    .map((key) => rubric[key]);
+  if (scores.some((score) => !Number.isInteger(score) || score < 0 || score > 3)) return false;
+  const total = scores.reduce((sum, score) => sum + score, 0);
+  const level = total <= 3 ? 'beginning' : total <= 6 ? 'developing' :
+    total <= 9 ? 'competent' : total <= 11 ? 'proficient' : 'mastered';
+  return session.rubric_total === total && session.performance_level === level;
+}
+
+function officialSessionRetryMatches(session, body, uid) {
+  const incoming = body.session;
+  const ctx = incoming.assignment_context || {};
+  const storedCtx = session.assignment_context || {};
+  return session.user_id === uid && session.movement_name === incoming.movement_name &&
+    session.difficulty === incoming.difficulty &&
+    session.duration_seconds === incoming.duration_seconds &&
+    session.prop_type === incoming.prop_type && session.assessment_version === 2 &&
+    session.rubric_total === incoming.rubric_total &&
+    session.performance_level === incoming.performance_level &&
+    structurallyEqual(session.rubric, incoming.rubric) &&
+    storedCtx.assignment_id === ctx.assignment_id && storedCtx.group_id === ctx.group_id &&
+    storedCtx.teacher_id === ctx.teacher_id && storedCtx.movement_id === ctx.movement_id &&
+    storedCtx.revision_id === ctx.revision_id;
+}
+
+async function finalizeTeacherActivityAttemptHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+  storageFactory = getStorage,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  if (!uid || !validId(body.assignment_id) || !validId(body.attempt_id) ||
+      body.video_content_type !== 'video/mp4' || !Number.isInteger(body.video_size_bytes) ||
+      body.video_size_bytes < 1 || body.video_size_bytes > 50 * 1024 * 1024 ||
+      !Number.isInteger(body.video_duration_ms) || body.video_duration_ms < 1 ||
+      body.video_duration_ms > 60000) {
+    return response.status(uid ? 400 : 401).json({error: uid ? 'invalid_payload' : 'unauthenticated'});
+  }
+  const firestore = databaseFactory();
+  let validatedStorageFile;
+  let validatedGeneration;
+  const cleanupValidatedUpload = async () => {
+    if (!validatedStorageFile) return;
+    try {
+      await validatedStorageFile.delete({
+        ignoreNotFound: true,
+        ifGenerationMatch: validatedGeneration,
+      });
+    } catch (cleanupError) {
+      console.error('Teacher Activity rejected-upload cleanup failed', cleanupError);
+    }
+  };
+  try {
+    const attemptRef = firestore.collection('assignment_attempts').doc(body.attempt_id);
+    const preflight = await attemptRef.get();
+    if (!preflight.exists || preflight.get('trainee_id') !== uid ||
+        preflight.get('assignment_id') !== body.assignment_id) {
+      return response.status(403).json({error: 'forbidden'});
+    }
+    const expectedPath = assignmentSubmissionPathFor({id: body.attempt_id, ...preflight.data()});
+    if (body.video_storage_path !== expectedPath) {
+      return response.status(400).json({error: 'invalid_payload'});
+    }
+    validatedStorageFile = storageFactory().bucket().file(expectedPath);
+    const [metadata] = await validatedStorageFile.getMetadata();
+    validatedGeneration = metadata.generation;
+    const custom = metadata.metadata || {};
+    if (metadata.contentType !== 'video/mp4' || Number(metadata.size) !== body.video_size_bytes ||
+        custom.teacher_id !== preflight.get('teacher_id') ||
+        custom.group_id !== preflight.get('group_id') ||
+        custom.assignment_id !== body.assignment_id || custom.trainee_id !== uid ||
+        custom.attempt_id !== body.attempt_id ||
+        custom.movement_id !== preflight.get('movement_id') ||
+        custom.revision_id !== preflight.get('revision_id')) {
+      await cleanupValidatedUpload();
+      return response.status(409).json({error: 'upload_mismatch'});
+    }
+    const submitted = await firestore.runTransaction(async (transaction) => {
+      const assignmentRef = firestore.collection('group_assignments').doc(body.assignment_id);
+      const stateRef = firestore.collection('assignment_attempt_states')
+        .doc(attemptStateId(body.assignment_id, uid));
+      const membershipRef = firestore.collection('group_memberships')
+        .doc(`${preflight.get('group_id')}_${uid}`);
+      const [assignmentSnapshot, stateSnapshot, attemptSnapshot, membershipSnapshot] =
+        await Promise.all([
+          transaction.get(assignmentRef), transaction.get(stateRef),
+          transaction.get(attemptRef), transaction.get(membershipRef),
+        ]);
+      if (!assignmentSnapshot.exists || !stateSnapshot.exists || !attemptSnapshot.exists) {
+        const error = new Error('conflict');
+        error.code = 'attempt_conflict';
+        error.cleanupUpload = true;
+        throw error;
+      }
+      const assignment = assignmentSnapshot.data();
+      const attempt = attemptSnapshot.data();
+      if (attempt.trainee_id !== uid || attempt.assignment_id !== body.assignment_id ||
+          attempt.attempt_kind !== 'teacher_review_submission' ||
+          !attempt.activity_assessment_snapshot) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      if (attempt.status === 'submitted') {
+        if (attempt.video_storage_path === expectedPath &&
+            attempt.video_size_bytes === body.video_size_bytes &&
+            attempt.video_duration_ms === body.video_duration_ms) return attempt;
+        const error = new Error('conflict'); error.code = 'attempt_conflict'; throw error;
+      }
+      if (!membershipSnapshot.exists || !validApprovedTraineeMembership(membershipSnapshot.data(), {
+        membershipId: membershipSnapshot.id, traineeId: uid, groupId: assignment.group_id,
+        teacherId: assignment.teacher_id,
+      }) || !assignmentIsPublished(assignment) || assignment.deletion_state === 'deleting' ||
+          !validActivityAssessment(assignment.activity_assessment, assignment.max_score)) {
+        const error = new Error('forbidden');
+        error.code = 'forbidden';
+        error.cleanupUpload = true;
+        throw error;
+      }
+      if (assignment.audience_type !== 'entire_class') {
+        const recipient = await transaction.get(
+          assignmentRef.collection('assignment_recipients').doc(uid),
+        );
+        if (!assignmentAudienceAllows(assignment, uid, recipient.data(), body.assignment_id)) {
+          const error = new Error('forbidden');
+          error.code = 'forbidden';
+          error.cleanupUpload = true;
+          throw error;
+        }
+      }
+      if (attempt.status !== 'in_progress' || attempt.abandoned_at ||
+          stateSnapshot.get('active_attempt_id') !== body.attempt_id ||
+          stateSnapshot.get('active_consumed') !== true) {
+        const error = new Error('conflict');
+        error.code = 'attempt_conflict';
+        error.cleanupUpload = attempt.status !== 'submitted';
+        throw error;
+      }
+      const now = Timestamp.now();
+      const effectiveDueAt = await effectiveAssignmentDueAt(
+        transaction, assignmentRef, assignment, uid,
+      );
+      if (effectiveDueAt && now.toMillis() > effectiveDueAt.toMillis() &&
+          (!attempt.recording_started_at ||
+           attempt.recording_started_at.toMillis() > effectiveDueAt.toMillis())) {
+        const error = new Error('deadline_passed');
+        error.code = 'deadline_passed';
+        error.cleanupUpload = true;
+        throw error;
+      }
+      const patch = {
+        status: 'submitted', video_storage_path: expectedPath,
+        video_content_type: 'video/mp4', video_size_bytes: body.video_size_bytes,
+        video_duration_ms: body.video_duration_ms, submitted_at: now,
+        video_expires_at: Timestamp.fromMillis(now.toMillis() + 30 * 24 * 60 * 60 * 1000),
+      };
+      transaction.update(attemptRef, patch);
+      transaction.set(stateRef, {
+        state_kind: 'teacher_activity', latest_submission_id: body.attempt_id,
+        latest_submission_ordinal: attempt.attempt_number || 0,
+        active_attempt_id: FieldValue.delete(), active_request_id: FieldValue.delete(),
+        active_consumed: FieldValue.delete(), updated_at: now,
+      }, {merge: true});
+      return {...attempt, ...patch};
+    });
+    return response.status(200).json({
+      attempt: {id: body.attempt_id, ...assignmentJsonValue(submitted)},
+      reused: preflight.get('status') === 'submitted',
+    });
+  } catch (error) {
+    if (error.cleanupUpload === true) {
+      await cleanupValidatedUpload();
+    }
+    if (error.code === 5 || error.code === 404) return response.status(409).json({error: 'upload_missing'});
+    const known = ['forbidden', 'attempt_conflict', 'deadline_passed'];
+    if (known.includes(error.code)) {
+      return response.status(error.code === 'forbidden' ? 403 : 409).json({error: error.code});
+    }
+    console.error('Teacher Activity finalization failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
+async function completeOfficialAssignmentSessionHandler(request, response, {
+  authenticate = authenticatedUid,
+  databaseFactory = getFirestore,
+} = {}) {
+  setCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'POST') return response.status(405).json({error: 'method_not_allowed'});
+  const uid = await authenticate(request);
+  const body = request.body && typeof request.body === 'object' ? request.body : {};
+  const session = body.session;
+  const ctx = session?.assignment_context;
+  const feedbacks = body.feedbacks;
+  if (!uid || !validId(body.session_id) || !validRubricSessionPayload(session) ||
+      !ctx || !validId(ctx.assignment_id) || !validId(ctx.group_id) ||
+      !validId(ctx.teacher_id) || !validId(ctx.movement_id) || !validId(ctx.revision_id) ||
+      !Array.isArray(feedbacks) || feedbacks.length > 8 || feedbacks.some((feedback) =>
+        !feedback || !boundedText(feedback.message, 1000) || !boundedText(feedback.feedback_type, 40))) {
+    return response.status(uid ? 400 : 401).json({error: uid ? 'invalid_payload' : 'unauthenticated'});
+  }
+  const sessionKeys = Object.keys(session).sort();
+  const allowedSessionKeys = [
+    'assessment_version', 'assignment_context', 'difficulty', 'duration_seconds',
+    'evidence_kind', 'evidence_size_bytes', 'evidence_storage_path', 'movement_name',
+    'performance_level', 'prop_type', 'rubric', 'rubric_total',
+  ];
+  if (sessionKeys.some((key) => !allowedSessionKeys.includes(key)) ||
+      Object.keys(ctx).sort().join(',') !==
+        'assignment_id,group_id,movement_id,revision_id,teacher_id') {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+  const evidenceKeys = ['evidence_storage_path', 'evidence_kind', 'evidence_size_bytes'];
+  const evidenceCount = evidenceKeys.filter((key) => Object.hasOwn(session, key)).length;
+  if (evidenceCount !== 0 && (evidenceCount !== 3 ||
+      session.evidence_storage_path !== `users/${uid}/session_evidence/${body.session_id}.jpg` ||
+      session.evidence_kind !== 'hold_confirmed' ||
+      !Number.isInteger(session.evidence_size_bytes) ||
+      session.evidence_size_bytes < 1024 || session.evidence_size_bytes > 256 * 1024)) {
+    return response.status(400).json({error: 'invalid_payload'});
+  }
+  const firestore = databaseFactory();
+  try {
+    const result = await firestore.runTransaction(async (transaction) => {
+      const assignmentRef = firestore.collection('group_assignments').doc(ctx.assignment_id);
+      const stateRef = firestore.collection('assignment_attempt_states')
+        .doc(attemptStateId(ctx.assignment_id, uid));
+      const userRef = firestore.collection('users').doc(uid);
+      const membershipRef = firestore.collection('group_memberships').doc(`${ctx.group_id}_${uid}`);
+      const sessionRef = firestore.collection('sessions').doc(body.session_id);
+      const pointerRef = firestore.collection('assignment_attempts').doc(`official_ptr_${body.session_id}`);
+      const priorAttemptsQuery = firestore.collection('assignment_attempts')
+        .where('assignment_id', '==', ctx.assignment_id)
+        .where('trainee_id', '==', uid);
+      const [assignmentSnapshot, stateSnapshot, userSnapshot, membershipSnapshot,
+        sessionSnapshot, pointerSnapshot, priorAttemptsSnapshot] = await Promise.all([
+        transaction.get(assignmentRef), transaction.get(stateRef), transaction.get(userRef),
+        transaction.get(membershipRef), transaction.get(sessionRef), transaction.get(pointerRef),
+        transaction.get(priorAttemptsQuery),
+      ]);
+      if (!assignmentSnapshot.exists || !userSnapshot.exists ||
+          !validTraineeProfile(userSnapshot.data())) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      const assignment = assignmentSnapshot.data();
+      if (!assignmentIsPublished(assignment) || assignment.deletion_state === 'deleting' ||
+          assignment.origin !== 'official_elixr' || assignment.assessment_mode !== 'official_guided' ||
+          assignment.group_id !== ctx.group_id || assignment.teacher_id !== ctx.teacher_id ||
+          assignment.movement_id !== ctx.movement_id || assignment.revision_id !== ctx.revision_id ||
+          assignment.official_movement_name !== session.movement_name ||
+          !membershipSnapshot.exists || !validApprovedTraineeMembership(membershipSnapshot.data(), {
+            membershipId: membershipSnapshot.id, traineeId: uid, groupId: ctx.group_id,
+            teacherId: ctx.teacher_id,
+          })) {
+        const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+      }
+      if (assignment.audience_type !== 'entire_class') {
+        const recipient = await transaction.get(
+          assignmentRef.collection('assignment_recipients').doc(uid),
+        );
+        if (!assignmentAudienceAllows(assignment, uid, recipient.data(), ctx.assignment_id)) {
+          const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
+        }
+      }
+      if (sessionSnapshot.exists || pointerSnapshot.exists) {
+        if (sessionSnapshot.exists && pointerSnapshot.exists &&
+            officialSessionRetryMatches(sessionSnapshot.data(), body, uid) &&
+            pointerSnapshot.get('source_session_id') === body.session_id &&
+            pointerSnapshot.get('trainee_id') === uid &&
+            pointerSnapshot.get('assignment_id') === ctx.assignment_id) return {reused: true};
+        const error = new Error('conflict'); error.code = 'attempt_conflict'; throw error;
+      }
+      const now = Timestamp.now();
+      const effectiveDueAt = await effectiveAssignmentDueAt(
+        transaction, assignmentRef, assignment, uid,
+      );
+      if (effectiveDueAt && now.toMillis() > effectiveDueAt.toMillis()) {
+        const error = new Error('deadline_passed'); error.code = 'deadline_passed'; throw error;
+      }
+      const state = stateSnapshot.exists ? stateSnapshot.data() : {};
+      if (state.state_kind && state.state_kind !== 'official_assignment') {
+        const error = new Error('conflict'); error.code = 'attempt_conflict'; throw error;
+      }
+      const existingOfficialAttempts = priorAttemptsSnapshot.docs.filter((document) =>
+        document.get('attempt_kind') === 'practice_pointer' &&
+        document.get('status') === 'submitted' &&
+        document.get('origin') === 'official_elixr').length;
+      const stateConsumed = Number.isInteger(state.consumed_count) ? state.consumed_count : 0;
+      const consumed = Math.max(stateConsumed, existingOfficialAttempts);
+      const policy = assignmentAttemptPolicy(assignment);
+      if (policy.type === 'finite' && consumed >= policy.maximum_attempts) {
+        const error = new Error('attempts_exhausted'); error.code = 'attempts_exhausted'; throw error;
+      }
+      transaction.create(sessionRef, {...session, user_id: uid, created_at: now});
+      for (let index = 0; index < feedbacks.length; index += 1) {
+        const feedback = feedbacks[index];
+        transaction.set(firestore.collection('feedbacks').doc(`${body.session_id}_fb_${index}`), {
+          session_id: body.session_id, message: feedback.message,
+          feedback_type: feedback.feedback_type, created_at: now,
+        });
+      }
+      transaction.create(pointerRef, {
+        trainee_id: uid, teacher_id: ctx.teacher_id, group_id: ctx.group_id,
+        assignment_id: ctx.assignment_id, movement_id: ctx.movement_id,
+        revision_id: ctx.revision_id, origin: 'official_elixr',
+        assessment_mode: 'official_guided', attempt_kind: 'practice_pointer',
+        status: 'submitted', awards_global_xp: false, source_session_id: body.session_id,
+        assessment_version: 2, rubric: session.rubric, rubric_total: session.rubric_total,
+        performance_level: session.performance_level, duration_seconds: session.duration_seconds,
+        prop_type: session.prop_type, created_at: now, completed_at: now,
+      });
+      transaction.set(stateRef, {
+        state_kind: 'official_assignment', assignment_id: ctx.assignment_id,
+        trainee_id: uid, teacher_id: ctx.teacher_id, group_id: ctx.group_id,
+        consumed_count: consumed + 1, updated_at: now,
+      }, {merge: true});
+      return {reused: false};
+    });
+    return response.status(200).json(result);
+  } catch (error) {
+    const known = ['forbidden', 'deadline_passed', 'attempts_exhausted', 'attempt_conflict'];
+    if (known.includes(error.code)) {
+      return response.status(error.code === 'forbidden' ? 403 : 409).json({error: error.code});
+    }
+    console.error('Official assignment session completion failed', error);
+    return response.status(503).json({error: 'unavailable'});
+  }
+}
+
 async function listTraineeActivityLearningMaterialsHandler(request, response, {
   authenticate = authenticatedUid,
   databaseFactory = getFirestore,
@@ -3405,6 +3763,16 @@ exports.consumeTeacherActivityAttempt = onRequest(
 exports.abandonTeacherActivityAttempt = onRequest(
   {region: REGION, cors: false, timeoutSeconds: 30},
   abandonTeacherActivityAttemptHandler,
+);
+
+exports.finalizeTeacherActivityAttempt = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  finalizeTeacherActivityAttemptHandler,
+);
+
+exports.completeOfficialAssignmentSession = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 30},
+  completeOfficialAssignmentSessionHandler,
 );
 
 exports.createClassChallenge = onRequest(
@@ -3845,6 +4213,13 @@ exports.projectChatUserDirectory = onDocumentWritten(
         typeof after.full_name !== 'string' ||
         !after.full_name.trim()) {
       await directory.delete();
+      if (!after || after.lifecycle_state === 'deleting') {
+        const firestore = getFirestore();
+        await deleteQueryDocuments(
+          firestore,
+          firestore.collection('assignment_attempt_states').where('trainee_id', '==', uid),
+        );
+      }
       return;
     }
     await directory.set({
@@ -4040,6 +4415,8 @@ exports._test = {
   reserveTeacherActivityAttemptHandler,
   consumeTeacherActivityAttemptHandler,
   abandonTeacherActivityAttemptHandler,
+  finalizeTeacherActivityAttemptHandler,
+  completeOfficialAssignmentSessionHandler,
   createClassChallengeHandler,
   updateClassChallengeHandler,
   archiveClassChallengeHandler,

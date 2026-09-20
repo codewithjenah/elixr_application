@@ -18,6 +18,7 @@ import '../../data/models/class_challenge.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/repositories/class_challenge_repository.dart';
+import '../movements/movements_presentation.dart';
 
 bool canStartTeacherChallengeSubscription({
   required String currentUserId,
@@ -224,6 +225,50 @@ class ClassChallengesPane extends StatelessWidget {
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final columns = constraints.maxWidth >= 1100 ? 2 : 1;
+                        Widget buildChallengeCard(ClassChallenge challenge) {
+                          return _ChallengeCard(
+                            challenge: challenge,
+                            entries: rankClassChallengeEntries(
+                              results.where(
+                                (entry) => entry.challengeId == challenge.id,
+                              ),
+                            ),
+                            currentUserId: currentUserId,
+                            participantCount: participantCount,
+                            isTeacher: isTeacher,
+                            onOpenLeaderboard: () =>
+                                onOpenLeaderboard(challenge),
+                            onStart: onStart == null
+                                ? null
+                                : () => onStart!(challenge),
+                            onEdit: !isTeacher || !groupIsActive
+                                ? null
+                                : () => _showChallengeEditor(
+                                    context,
+                                    repository: repository,
+                                    groupId: groupId,
+                                    teacherId: teacherId,
+                                    teacherDisplayName: teacherDisplayName,
+                                    existing: challenge,
+                                  ),
+                            onArchive:
+                                !isTeacher || challenge.archivedAt != null
+                                ? null
+                                : () => _archiveChallenge(
+                                    context,
+                                    repository,
+                                    challenge,
+                                  ),
+                            onDelete: !isTeacher
+                                ? null
+                                : () => _permanentlyDeleteChallenge(
+                                    context,
+                                    repository,
+                                    challenge,
+                                  ),
+                          );
+                        }
+
                         final width = columns == 2
                             ? (constraints.maxWidth - AppSpacing.md) / 2
                             : constraints.maxWidth;
@@ -234,49 +279,7 @@ class ClassChallengesPane extends StatelessWidget {
                             for (final challenge in challenges)
                               SizedBox(
                                 width: width,
-                                child: _ChallengeCard(
-                                  challenge: challenge,
-                                  entries: rankClassChallengeEntries(
-                                    results.where(
-                                      (entry) =>
-                                          entry.challengeId == challenge.id,
-                                    ),
-                                  ),
-                                  currentUserId: currentUserId,
-                                  participantCount: participantCount,
-                                  isTeacher: isTeacher,
-                                  onOpenLeaderboard: () =>
-                                      onOpenLeaderboard(challenge),
-                                  onStart: onStart == null
-                                      ? null
-                                      : () => onStart!(challenge),
-                                  onEdit: !isTeacher || !groupIsActive
-                                      ? null
-                                      : () => _showChallengeEditor(
-                                          context,
-                                          repository: repository,
-                                          groupId: groupId,
-                                          teacherId: teacherId,
-                                          teacherDisplayName:
-                                              teacherDisplayName,
-                                          existing: challenge,
-                                        ),
-                                  onArchive:
-                                      !isTeacher || challenge.archivedAt != null
-                                      ? null
-                                      : () => _archiveChallenge(
-                                          context,
-                                          repository,
-                                          challenge,
-                                        ),
-                                  onDelete: !isTeacher
-                                      ? null
-                                      : () => _permanentlyDeleteChallenge(
-                                          context,
-                                          repository,
-                                          challenge,
-                                        ),
-                                ),
+                                child: buildChallengeCard(challenge),
                               ),
                           ],
                         );
@@ -295,7 +298,10 @@ class ClassChallengesPane extends StatelessWidget {
 bool _isPermissionDenied(Object? error) =>
     error is FirebaseException && error.code == 'permission-denied';
 
-class _ChallengeCard extends StatelessWidget {
+const _kChallengeCardRadius = 20.0;
+const _kChallengeHeroHeight = 160.0;
+
+class _ChallengeCard extends StatefulWidget {
   const _ChallengeCard({
     required this.challenge,
     required this.entries,
@@ -321,120 +327,471 @@ class _ChallengeCard extends StatelessWidget {
   final VoidCallback? onDelete;
 
   @override
+  State<_ChallengeCard> createState() => _ChallengeCardState();
+}
+
+class _ChallengeCardState extends State<_ChallengeCard> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  bool get _reduceMotion =>
+      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+  void _setHovered(bool value) {
+    if (_hovered == value) return;
+    setState(() => _hovered = value);
+  }
+
+  void _setFocused(bool value) {
+    if (_focused == value) return;
+    setState(() => _focused = value);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final challenge = widget.challenge;
     final status = challenge.statusAt();
-    final personalIndex = entries.indexWhere(
-      (entry) => entry.traineeId == currentUserId,
+    final personalIndex = widget.entries.indexWhere(
+      (entry) => entry.traineeId == widget.currentUserId,
     );
-    final personal = personalIndex < 0 ? null : entries[personalIndex];
-    final canStart = !isTeacher && status == ClassChallengeStatus.active;
-    return ElixPanelCard(
-      key: Key('class_challenge_card_${challenge.id}'),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: const Color(0x33FF2FA8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: MovementImage(
-                  key: Key('class_challenge_movement_image_${challenge.id}'),
-                  movementName: challenge.movementName,
-                  prop: challenge.prop,
-                  size: 42,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(challenge.title, style: AppTheme.headingMedium),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${challenge.movementName} · ${challenge.prop.displayLabel}',
-                      style: AppTheme.bodySecondary,
+    final personal = personalIndex < 0 ? null : widget.entries[personalIndex];
+    final canStart = !widget.isTeacher && status == ClassChallengeStatus.active;
+    final accent = difficultyAccentColor(challenge.difficulty);
+    final active = _hovered || _focused;
+    final highContrast = context.isHighContrast;
+    final isDark = context.isDarkTheme;
+
+    return MouseRegion(
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
+      cursor: SystemMouseCursors.basic,
+      child: Focus(
+        canRequestFocus: false,
+        onFocusChange: _setFocused,
+        child: AnimatedContainer(
+          key: Key('class_challenge_card_${challenge.id}'),
+          duration: _reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            color: highContrast
+                ? Color.alphaBlend(
+                    accent.withValues(alpha: isDark ? 0.20 : 0.14),
+                    context.elixCardSurface,
+                  )
+                : Color.alphaBlend(
+                    accent.withValues(
+                      alpha: active ? (isDark ? 0.07 : 0.035) : 0,
+                    ),
+                    context.elixCardSurface,
+                  ),
+            gradient: highContrast
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      accent.withValues(alpha: isDark ? 0.055 : 0.03),
+                      accent.withValues(alpha: isDark ? 0.018 : 0.01),
+                    ],
+                  ),
+            borderRadius: BorderRadius.circular(_kChallengeCardRadius),
+            border: Border.all(
+              color: highContrast
+                  ? context.elixBorder
+                  : _focused
+                  ? accent
+                  : Color.lerp(
+                      context.elixBorder,
+                      accent,
+                      active ? 0.38 : 0.18,
+                    )!,
+              width: highContrast || _focused ? 2 : 1,
+            ),
+            boxShadow: highContrast || !active
+                ? const []
+                : [
+                    BoxShadow(
+                      color: const Color(
+                        0xFF000000,
+                      ).withValues(alpha: isDark ? 0.20 : 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
                   ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(_kChallengeCardRadius),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ChallengeHero(
+                  challenge: challenge,
+                  status: status,
+                  accent: accent,
                 ),
-              ),
-              _StatusPill(status: status),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            _deadlineLabel(challenge, status),
-            style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          if (isTeacher)
-            Text(
-              '$participantCount participants · ${challenge.completedCount} completed · '
-              'Top score ${challenge.topScore == null ? '—' : '${challenge.topScore}/12'}',
-              style: AppTheme.bodySecondary,
-            )
-          else
-            Text(
-              personal == null
-                  ? 'Personal best — · Rank —'
-                  : 'Personal best ${personal.score}/12 · Rank #${personalIndex + 1}',
-              key: Key('class_challenge_personal_${challenge.id}'),
-              style: AppTheme.bodySecondary,
+                _ChallengeCardBody(
+                  challenge: challenge,
+                  status: status,
+                  personal: personal,
+                  personalIndex: personalIndex,
+                  participantCount: widget.participantCount,
+                  isTeacher: widget.isTeacher,
+                  onOpenLeaderboard: widget.onOpenLeaderboard,
+                  onStart: canStart ? widget.onStart : null,
+                  onEdit: widget.onEdit,
+                  onArchive: widget.onArchive,
+                  onDelete: widget.onDelete,
+                ),
+              ],
             ),
-          const SizedBox(height: AppSpacing.md),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              ElixPrimaryButton(
-                onPressed: onOpenLeaderboard,
-                label: 'View Leaderboard',
-                expanded: false,
-                variant: ElixButtonVariant.outline,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChallengeHero extends StatelessWidget {
+  const _ChallengeHero({
+    required this.challenge,
+    required this.status,
+    required this.accent,
+  });
+
+  final ClassChallenge challenge;
+  final ClassChallengeStatus status;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    return SizedBox(
+      height: _kChallengeHeroHeight,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: highContrast
+                  ? Color.alphaBlend(
+                      accent.withValues(
+                        alpha: context.isDarkTheme ? 0.34 : 0.22,
+                      ),
+                      context.elixCardSurface,
+                    )
+                  : accent.withValues(alpha: context.isDarkTheme ? 0.14 : 0.08),
+              border: Border(
+                bottom: BorderSide(color: accent.withValues(alpha: 0.18)),
               ),
-              if (!isTeacher)
-                ElixPrimaryButton(
-                  key: Key('class_challenge_start_${challenge.id}'),
-                  label: status == ClassChallengeStatus.upcoming
-                      ? 'Not started'
-                      : status == ClassChallengeStatus.ended
-                      ? 'Challenge ended'
-                      : 'Start Challenge',
-                  expanded: false,
-                  onPressed: canStart ? onStart : null,
-                ),
-              if (onEdit != null)
-                _ChallengeIconAction(
-                  key: Key('class_challenge_edit_${challenge.id}'),
-                  icon: const Icon(FluentIcons.edit),
-                  onPressed: onEdit,
-                  tooltip: 'Edit challenge',
-                ),
-              if (onArchive != null)
-                _ChallengeIconAction(
-                  key: Key('class_challenge_archive_${challenge.id}'),
-                  icon: const Icon(FluentIcons.archive),
-                  onPressed: onArchive,
-                  tooltip: 'Archive challenge',
-                ),
-              if (onDelete != null)
-                _ChallengeIconAction(
-                  key: Key('class_challenge_delete_${challenge.id}'),
-                  icon: const Icon(FluentIcons.delete),
-                  onPressed: onDelete,
-                  tooltip: 'Delete challenge permanently',
-                ),
-            ],
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: MovementImage(
+              key: Key('class_challenge_movement_image_${challenge.id}'),
+              movementName: challenge.movementName,
+              prop: challenge.prop,
+              size: 144,
+              paddingFactor: 0.01,
+              alignment: Alignment.bottomCenter,
+            ),
+          ),
+          Positioned(
+            top: AppSpacing.smPlus,
+            right: AppSpacing.smPlus,
+            child: _StatusPill(status: status),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ChallengeCardBody extends StatelessWidget {
+  const _ChallengeCardBody({
+    required this.challenge,
+    required this.status,
+    required this.personal,
+    required this.personalIndex,
+    required this.participantCount,
+    required this.isTeacher,
+    required this.onOpenLeaderboard,
+    required this.onStart,
+    required this.onEdit,
+    required this.onArchive,
+    required this.onDelete,
+  });
+
+  final ClassChallenge challenge;
+  final ClassChallengeStatus status;
+  final ClassChallengeLeaderboardEntry? personal;
+  final int personalIndex;
+  final int participantCount;
+  final bool isTeacher;
+  final VoidCallback onOpenLeaderboard;
+  final VoidCallback? onStart;
+  final VoidCallback? onEdit;
+  final VoidCallback? onArchive;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = difficultyAccentColor(challenge.difficulty);
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            challenge.title,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            challenge.movementName,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: context.elixTextSecondary,
+            ),
+          ),
+          const SizedBox(height: 7),
+          _ChallengePropBadge(prop: challenge.prop, accent: accent),
+          const SizedBox(height: AppSpacing.smPlus),
+          _ChallengeDetailLine(
+            icon: FluentIcons.clock,
+            label: _deadlineLabel(challenge, status),
+            emphasized: true,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _ChallengeDetailLine(
+            icon: isTeacher ? FluentIcons.group : FluentIcons.trophy,
+            label: isTeacher
+                ? '$participantCount participants · ${challenge.completedCount} completed · '
+                      'Top score ${challenge.topScore == null ? '—' : '${challenge.topScore}/12'}'
+                : personal == null
+                ? 'Personal best — · Rank —'
+                : 'Personal best ${personal!.score}/12 · Rank #${personalIndex + 1}',
+            key: isTeacher
+                ? null
+                : Key('class_challenge_personal_${challenge.id}'),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _ChallengeActions(
+            challenge: challenge,
+            status: status,
+            isTeacher: isTeacher,
+            onOpenLeaderboard: onOpenLeaderboard,
+            onStart: onStart,
+            onEdit: onEdit,
+            onArchive: onArchive,
+            onDelete: onDelete,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChallengePropBadge extends StatelessWidget {
+  const _ChallengePropBadge({required this.prop, required this.accent});
+
+  final TrainingProp prop;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: 3,
+        ),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: context.isDarkTheme ? 0.15 : 0.09),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: context.isHighContrast
+                ? context.elixBorder
+                : accent.withValues(alpha: 0.55),
+            width: context.isHighContrast ? 2 : 1,
+          ),
+        ),
+        child: Text(
+          prop.displayLabel,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: context.elixTextPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChallengeDetailLine extends StatelessWidget {
+  const _ChallengeDetailLine({
+    required this.icon,
+    required this.label,
+    this.emphasized = false,
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = emphasized
+        ? context.elixTextPrimary
+        : context.elixTextSecondary;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              fontWeight: emphasized ? FontWeight.w600 : FontWeight.w400,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChallengeActions extends StatelessWidget {
+  const _ChallengeActions({
+    required this.challenge,
+    required this.status,
+    required this.isTeacher,
+    required this.onOpenLeaderboard,
+    required this.onStart,
+    required this.onEdit,
+    required this.onArchive,
+    required this.onDelete,
+  });
+
+  final ClassChallenge challenge;
+  final ClassChallengeStatus status;
+  final bool isTeacher;
+  final VoidCallback onOpenLeaderboard;
+  final VoidCallback? onStart;
+  final VoidCallback? onEdit;
+  final VoidCallback? onArchive;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final leaderboard = ElixPrimaryButton(
+      onPressed: onOpenLeaderboard,
+      label: 'View Leaderboard',
+      variant: ElixButtonVariant.outline,
+    );
+    if (!isTeacher) {
+      return Row(
+        children: [
+          Expanded(child: leaderboard),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: ElixPrimaryButton(
+              key: Key('class_challenge_start_${challenge.id}'),
+              label: status == ClassChallengeStatus.upcoming
+                  ? 'Not started'
+                  : status == ClassChallengeStatus.ended
+                  ? 'Challenge ended'
+                  : 'Start Challenge',
+              onPressed: onStart,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final managementActions = <Widget>[
+      if (onEdit != null)
+        _ChallengeIconAction(
+          key: Key('class_challenge_edit_${challenge.id}'),
+          icon: const Icon(FluentIcons.edit),
+          onPressed: onEdit,
+          tooltip: 'Edit challenge',
+        ),
+      if (onArchive != null)
+        _ChallengeIconAction(
+          key: Key('class_challenge_archive_${challenge.id}'),
+          icon: const Icon(FluentIcons.archive),
+          onPressed: onArchive,
+          tooltip: 'Archive challenge',
+        ),
+      if (onDelete != null)
+        _ChallengeIconAction(
+          key: Key('class_challenge_delete_${challenge.id}'),
+          icon: const Icon(FluentIcons.delete),
+          onPressed: onDelete,
+          tooltip: 'Delete challenge permanently',
+        ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 400;
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              leaderboard,
+              if (managementActions.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    for (
+                      var index = 0;
+                      index < managementActions.length;
+                      index++
+                    ) ...[
+                      managementActions[index],
+                      if (index != managementActions.length - 1)
+                        const SizedBox(width: AppSpacing.xs),
+                    ],
+                  ],
+                ),
+              ],
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: leaderboard),
+            if (managementActions.isNotEmpty) ...[
+              const SizedBox(width: AppSpacing.sm),
+              for (
+                var index = 0;
+                index < managementActions.length;
+                index++
+              ) ...[
+                managementActions[index],
+                if (index != managementActions.length - 1)
+                  const SizedBox(width: AppSpacing.xs),
+              ],
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -458,7 +815,29 @@ class _StatusPill extends StatelessWidget {
     };
     return Semantics(
       label: 'Challenge status: $label',
-      child: ElixPill(text: label, color: color, compact: true),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: context.isHighContrast
+              ? context.elixCardSurface
+              : context.elixCardSurface.withValues(
+                  alpha: context.isDarkTheme ? 0.68 : 0.80,
+                ),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: context.isHighContrast ? context.elixBorder : color,
+            width: context.isHighContrast ? 2 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: context.isHighContrast ? context.elixTextPrimary : color,
+          ),
+        ),
+      ),
     );
   }
 }

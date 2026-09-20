@@ -317,6 +317,46 @@ describe('Phase 6 teacher_review_submission', () => {
     );
   });
 
+  test('Teacher Activity submission and abandon transitions are server-owned', async () => {
+    await seedClassroom();
+    const activityAttempt = 'activity_asgCustom_trainee_1';
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'assignment_attempts', activityAttempt), {
+        ...canonicalInProgressDoc({
+          attempt_number: 1,
+          reservation_request_id: 'activity-open-1',
+          assignment_configuration_revision: 1,
+          activity_assessment_snapshot: {
+            schema_version: 2,
+            readiness: { prop: 'one_bottle', hands: 'one_hand', body: 'upper_body' },
+            rubric: {
+              template_id: 'standard_technique', maximum_score: 50,
+              criteria: [
+                { id: 'setup', label: 'Setup', description: 'Setup', maximum_points: 10 },
+                { id: 'control', label: 'Control', description: 'Control', maximum_points: 20 },
+                { id: 'finish', label: 'Finish', description: 'Finish', maximum_points: 20 },
+              ],
+            },
+            attempt_policy: { type: 'finite', maximum_attempts: 2 },
+            recording_duration_seconds: 30,
+          },
+        }),
+        created_at: Timestamp.now(),
+        recording_started_at: Timestamp.now(),
+      });
+    });
+    const ref = doc(context('trainee').firestore(), 'assignment_attempts', activityAttempt);
+    await assertFails(updateDoc(ref, {
+      status: 'submitted',
+      video_storage_path:
+        `assignment_submissions/teacher/${GROUP_ID}/${ASG}/trainee/${activityAttempt}.mp4`,
+      video_content_type: 'video/mp4', video_size_bytes: 2048,
+      video_duration_ms: 4000, submitted_at: serverTimestamp(),
+      video_expires_at: expiryUnreviewed(),
+    }));
+    await assertFails(updateDoc(ref, { abandoned_at: serverTimestamp() }));
+  });
+
   test('submitted and checked canonical submissions cannot restart', async () => {
     await seedClassroom();
     await seedBypassingRules(async (admin) => {

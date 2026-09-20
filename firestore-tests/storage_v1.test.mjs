@@ -607,6 +607,25 @@ describe('assignment_submissions Storage', () => {
     await assertSucceeds(getBytes(ref(context('teacher').storage(), PATH)));
   });
 
+  test('Activity owner cannot delete a verified upload during or after finalization', async () => {
+    await seedClassroom({attemptStatus: 'in_progress'});
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'assignment_attempts', ATTEMPT), {
+        assignment_configuration_revision: 1,
+        activity_assessment_snapshot: {recording_duration_seconds: 30},
+        recording_started_at: Timestamp.now(),
+      }, {merge: true});
+    });
+    await assertSucceeds(
+      uploadBytes(ref(context('trainee').storage(), PATH), new Uint8Array(64), metadata()),
+    );
+    await assertFails(deleteObject(ref(context('trainee').storage(), PATH)));
+    await setAttemptStatus('submitted');
+
+    await assertFails(deleteObject(ref(context('trainee').storage(), PATH)));
+    await assertSucceeds(getBytes(ref(context('teacher').storage(), PATH)));
+  });
+
   test('Teacher reading approved object is allowed', async () => {
     await uploadDraftObject();
     await setAttemptStatus('approved');

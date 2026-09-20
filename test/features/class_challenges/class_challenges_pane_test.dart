@@ -156,6 +156,7 @@ void main() {
     final movementImage = tester.widget<MovementImage>(artwork);
     expect(movementImage.movementName, challenge.movementName);
     expect(movementImage.prop, challenge.prop);
+    expect(movementImage.size, 144);
     expect(
       find.descendant(
         of: find.byKey(const Key('class_challenge_card_forearm-stall-shaker')),
@@ -163,6 +164,53 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('trainee challenge card keeps status and primary actions', (
+    tester,
+  ) async {
+    final now = DateTime.now().toUtc();
+    final challenge = ClassChallenge(
+      id: 'active-trainee-challenge',
+      groupId: 'group-1',
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Coach',
+      title:
+          'Active Forearm Stall challenge with a title that needs more than one line',
+      description: 'Hold the stall cleanly.',
+      movementName: 'Forearm Stall',
+      difficulty: 'Medium',
+      prop: TrainingProp.bottle,
+      startAt: now.subtract(const Duration(hours: 1)),
+      deadline: now.add(const Duration(days: 1)),
+    );
+    ClassChallenge? openedLeaderboard;
+    ClassChallenge? started;
+
+    await _pumpTraineePane(
+      tester,
+      const Size(640, 900),
+      repository: _FakeClassChallengeRepository(challenges: [challenge]),
+      onOpenLeaderboard: (value) => openedLeaderboard = value,
+      onStart: (value) => started = value,
+    );
+
+    expect(find.text(challenge.title), findsOneWidget);
+    expect(find.text('Active'), findsOneWidget);
+    expect(find.text('View Leaderboard'), findsOneWidget);
+    expect(
+      find.byKey(const Key('class_challenge_start_active-trainee-challenge')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('View Leaderboard'));
+    expect(openedLeaderboard, challenge);
+    await tester.tap(
+      find.byKey(const Key('class_challenge_start_active-trainee-challenge')),
+    );
+    expect(started, challenge);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('create dialog is wide and shows movement artwork', (
@@ -858,6 +906,39 @@ Future<void> _pumpTeacherPane(
                 participantCount: 0,
                 onOpenLeaderboard: (_) {},
               ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpTraineePane(
+  WidgetTester tester,
+  Size size, {
+  required _FakeClassChallengeRepository repository,
+  required ValueChanged<ClassChallenge> onOpenLeaderboard,
+  required ValueChanged<ClassChallenge> onStart,
+}) async {
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  tester.view.devicePixelRatio = 1.0;
+  tester.view.physicalSize = size;
+  await tester.pumpWidget(
+    FluentApp(
+      theme: AppTheme.dark,
+      home: ScaffoldPage(
+        content: ClassChallengesPane(
+          repository: repository,
+          groupId: 'group-1',
+          teacherId: 'teacher-1',
+          teacherDisplayName: 'Coach',
+          currentUserId: 'trainee-1',
+          isTeacher: false,
+          groupIsActive: true,
+          participantCount: 4,
+          onOpenLeaderboard: onOpenLeaderboard,
+          onStart: onStart,
+        ),
       ),
     ),
   );

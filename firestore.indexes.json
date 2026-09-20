@@ -220,6 +220,14 @@
       ]
     },
     {
+      "collectionGroup": "assignment_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "assignment_id", "order": "ASCENDING" },
+        { "fieldPath": "trainee_id", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "activity_material_uploads",
       "queryScope": "COLLECTION",
       "fields": [

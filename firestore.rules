@@ -2583,10 +2583,6 @@ service cloud.firestore {
       return (
           !data.keys().hasAny(['assignment_context', 'challenge_context'])
         ) || (
-          data.keys().hasAny(['assignment_context'])
-          && !data.keys().hasAny(['challenge_context'])
-          && validOfficialAssignedSessionCreate(data, sessionId)
-        ) || (
           data.keys().hasAny(['challenge_context'])
           && !data.keys().hasAny(['assignment_context'])
           && validClassChallengeSessionCreate(data)
@@ -3720,6 +3716,7 @@ service cloud.firestore {
     function validTeacherReviewSubmissionTraineeSubmit(attemptId) {
       let after = request.resource.data;
       return isReviewSubmissionTraineeActor()
+        && !resource.data.keys().hasAny(['activity_assessment_snapshot'])
         && resource.data.status in ['draft', 'in_progress']
         && !resource.data.keys().hasAny(['abandoned_at'])
         && assignmentSubmissionIsOpen(resource.data)
@@ -3973,6 +3970,7 @@ service cloud.firestore {
       let after = request.resource.data;
       let changed = affectedKeys();
       return isReviewSubmissionTraineeActor()
+        && !resource.data.keys().hasAny(['activity_assessment_snapshot'])
         && !isCanonicalReviewSubmissionAttempt(attemptId)
         && resource.data.status == 'draft'
         && resource.data.awards_global_xp == false
@@ -4057,7 +4055,10 @@ service cloud.firestore {
       allow list: if isTeacherClaim()
         && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
-      allow create: if validAssignmentAttemptCreate(request.resource.data, attemptId);
+      // Official pointers and Activity attempts are server-owned. Legacy
+      // non-Activity review submissions retain their established client flow.
+      allow create: if request.resource.data.attempt_kind != 'practice_pointer'
+        && validAssignmentAttemptCreate(request.resource.data, attemptId);
       allow update: if isSignedIn()
         && (
           // Gate the cleanup paths before their full predicates. This keeps

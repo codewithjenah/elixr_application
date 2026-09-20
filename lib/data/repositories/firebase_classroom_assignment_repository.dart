@@ -1053,6 +1053,28 @@ class FirebaseClassroomAssignmentRepository
       submittedAt: submittedAt,
       videoExpiresAt: videoExpiresAt,
     );
+    if (attempt.activityAssessmentSnapshot != null) {
+      final decoded =
+          await _postAuthorizedFunction('finalizeTeacherActivityAttempt', {
+            'assignment_id': attempt.assignmentId,
+            'attempt_id': attempt.id,
+            'video_storage_path': videoStoragePath,
+            'video_content_type': videoContentType,
+            'video_size_bytes': videoSizeBytes,
+            'video_duration_ms': videoDurationMs,
+          }, timeout: const Duration(seconds: 30));
+      final raw = decoded['attempt'];
+      if (raw is! Map) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      final map = Map<String, dynamic>.from(raw);
+      final id = map.remove('id');
+      if (id is! String) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      return AssignmentAttempt.tryFromMap(map, id: id) ??
+          (throw const ClassroomException(ClassroomError.malformed));
+    }
     final assignment = await _getAssignmentForTrainee(
       assignmentId: attempt.assignmentId,
       traineeId: traineeId,
@@ -1864,6 +1886,9 @@ ClassroomException classroomFunctionFailure({
     'deadline_passed' => ClassroomError.deadlinePassed,
     'graded' => ClassroomError.invalidState,
     'attempt_in_progress' => ClassroomError.conflict,
+    'attempt_conflict' ||
+    'upload_mismatch' ||
+    'upload_missing' => ClassroomError.conflict,
     'attempts_exhausted' => ClassroomError.attemptLimitConflict,
     'unavailable' => ClassroomError.invalidState,
     _
@@ -1911,6 +1936,10 @@ ClassroomException classroomFunctionFailure({
     'graded' => 'This Teacher Activity has already been graded.',
     'attempt_in_progress' =>
       'This Teacher Activity could not recover a previous recording attempt. Try again.',
+    'attempt_conflict' =>
+      'This recording attempt was already cancelled or completed. Refresh and try again.',
+    'upload_mismatch' || 'upload_missing' =>
+      'The uploaded recording could not be verified. Record the attempt again.',
     'attempts_exhausted' =>
       'This Teacher Activity has no remaining recordings.',
     'unavailable' =>

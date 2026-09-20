@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/assignment_attempt.dart';
 import '../models/assignment_submission_limits.dart';
+import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/phase6_submission_diagnostics.dart';
 import '../models/ws_protocol.dart';
@@ -313,9 +314,27 @@ class FirebaseAssignmentSubmissionRepository
         // Backend orphan cleanup remains the deterministic fallback.
       }
       return submitted;
-    } catch (_) {
-      // Keep the uploaded object and the same attempt identity. A retry is
-      // idempotent at the path and can complete the Firestore transition.
+    } catch (error) {
+      final terminalServerCode = error is ClassroomException
+          ? error.serverCode
+          : null;
+      if ({
+        'attempt_conflict',
+        'deadline_passed',
+        'forbidden',
+        'upload_mismatch',
+        'upload_missing',
+      }.contains(terminalServerCode)) {
+        try {
+          await _storage.ref(storagePath).delete();
+        } on FirebaseException {
+          // The server performs generation-matched cleanup where the rejected
+          // state makes deletion safe. Never replace its deliberate error code
+          // with a best-effort client cleanup failure.
+        }
+      }
+      // Ambiguous failures keep the deterministic object and attempt identity
+      // so retry can safely finish the same server transition.
       rethrow;
     }
   }

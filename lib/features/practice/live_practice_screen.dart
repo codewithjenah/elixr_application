@@ -333,7 +333,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   Future<void> _stopWebSocketSession() async {
     await _recording?.abandonLocalClip();
-    await _recording?.releaseActivityAttempt();
+    await _recording?.cancelActivityAttempt();
     try {
       await _ws.stopPracticeSession();
     } on CommandTimeoutException {

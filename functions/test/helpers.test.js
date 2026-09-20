@@ -48,6 +48,8 @@ const {
   reserveTeacherActivityAttemptHandler,
   consumeTeacherActivityAttemptHandler,
   abandonTeacherActivityAttemptHandler,
+  finalizeTeacherActivityAttemptHandler,
+  completeOfficialAssignmentSessionHandler,
   normalizeSearchText,
   sanitizeDirectoryDocuments,
   sanitizedResult,
@@ -3120,43 +3122,66 @@ function fakeTeacherActivityAttemptDatabase({
     },
   });
 
+  let transactionTail = Promise.resolve();
   return {
     docs,
     collection(name) {
-      return {
+      const filters = [];
+      const query = {
         doc(id) {
           return makeRef(`${name}/${id}`, id);
         },
+        where(field, operator, value) {
+          assert.equal(operator, '==');
+          filters.push({field, value});
+          return query;
+        },
+        async get() {
+          const prefix = `${name}/`;
+          const queryDocs = [...docs.entries()]
+            .filter(([path, data]) => path.startsWith(prefix) &&
+              !path.slice(prefix.length).includes('/') &&
+              filters.every((filter) => data[filter.field] === filter.value))
+            .map(([path]) => {
+              const id = path.slice(prefix.length);
+              return snapshot(path, id);
+            });
+          return {docs: queryDocs, empty: queryDocs.length === 0, size: queryDocs.length};
+        },
       };
+      return query;
     },
     async runTransaction(callback) {
-      return callback({
-        async get(ref) {
-          return snapshot(ref.path, ref.id);
-        },
-        create(ref, data) {
-          if (docs.has(ref.path)) {
-            const error = new Error('already-exists');
-            error.code = 6;
-            throw error;
-          }
-          docs.set(ref.path, {...data});
-        },
-        set(ref, data, options = {}) {
-          docs.set(ref.path, applyPatch(docs.get(ref.path), data, {
-            merge: options.merge === true,
-          }));
-        },
-        update(ref, data) {
-          const existing = docs.get(ref.path);
-          if (!existing) {
-            const error = new Error('not-found');
-            error.code = 5;
-            throw error;
-          }
-          docs.set(ref.path, applyPatch(existing, data, {merge: true}));
-        },
-      });
+      const run = () => callback({
+          async get(ref) {
+            return ref.path ? snapshot(ref.path, ref.id) : ref.get();
+          },
+          create(ref, data) {
+            if (docs.has(ref.path)) {
+              const error = new Error('already-exists');
+              error.code = 6;
+              throw error;
+            }
+            docs.set(ref.path, {...data});
+          },
+          set(ref, data, options = {}) {
+            docs.set(ref.path, applyPatch(docs.get(ref.path), data, {
+              merge: options.merge === true,
+            }));
+          },
+          update(ref, data) {
+            const existing = docs.get(ref.path);
+            if (!existing) {
+              const error = new Error('not-found');
+              error.code = 5;
+              throw error;
+            }
+            docs.set(ref.path, applyPatch(existing, data, {merge: true}));
+          },
+        });
+      const result = transactionTail.then(run, run);
+      transactionTail = result.catch(() => undefined);
+      return result;
     },
   };
 }
@@ -3190,6 +3215,78 @@ async function invokeAbandon(database, attemptId) {
   await abandonTeacherActivityAttemptHandler(
     activityAttemptRequest({assignment_id: 'assignment-1', attempt_id: attemptId}),
     response,
+    {authenticate: async () => 'trainee', databaseFactory: () => database},
+  );
+  return response;
+}
+
+async function invokeFinalize(database, attemptId) {
+  const attempt = database.docs.get(`assignment_attempts/${attemptId}`);
+  const storagePath = `assignment_submissions/${attempt.teacher_id}/${attempt.group_id}/` +
+    `${attempt.assignment_id}/${attempt.trainee_id}/${attemptId}.mp4`;
+  const response = fakeResponse();
+  await finalizeTeacherActivityAttemptHandler(
+    activityAttemptRequest({
+      assignment_id: 'assignment-1', attempt_id: attemptId,
+      video_storage_path: storagePath, video_content_type: 'video/mp4',
+      video_size_bytes: 2048, video_duration_ms: 30000,
+    }),
+    response,
+    {
+      authenticate: async () => 'trainee', databaseFactory: () => database,
+      storageFactory: () => ({bucket: () => ({file: () => ({
+        getMetadata: async () => [{
+          contentType: 'video/mp4', size: '2048', generation: '7',
+          metadata: {
+            teacher_id: attempt.teacher_id, group_id: attempt.group_id,
+            assignment_id: attempt.assignment_id, trainee_id: attempt.trainee_id,
+            attempt_id: attemptId, movement_id: attempt.movement_id,
+            revision_id: attempt.revision_id,
+          },
+        }],
+        delete: async (options) => {
+          database.deletedUploads = database.deletedUploads || [];
+          database.deletedUploads.push({path: storagePath, options});
+        },
+      })})}),
+    },
+  );
+  return response;
+}
+
+function officialSessionRequest(sessionId, assignmentId = 'assignment-1') {
+  return activityAttemptRequest({
+    session_id: sessionId,
+    session: {
+      movement_name: 'The Stall', difficulty: 'Beginner', duration_seconds: 12,
+      prop_type: 'bottle', assessment_version: 2,
+      rubric: {technique: 2, stability: 2, completion: 2, prop_positioning: 2},
+      rubric_total: 8, performance_level: 'competent',
+      assignment_context: {
+        assignment_id: assignmentId, group_id: 'g1', teacher_id: 'teacher',
+        movement_id: 'movement-1', revision_id: 'revision-1',
+      },
+    },
+    feedbacks: [{message: 'Keep the finish stable.', feedback_type: 'improvement'}],
+  });
+}
+
+function fakeOfficialAssignmentDatabase(policy = {type: 'finite', maximum_attempts: 2}) {
+  return fakeTeacherActivityAttemptDatabase({
+    assignmentOverrides: {
+      origin: 'official_elixr', assessment_mode: 'official_guided',
+      official_movement_name: 'The Stall', attempt_policy: policy,
+      activity_assessment: undefined,
+    },
+  });
+}
+
+async function invokeOfficialCompletion(
+  database, sessionId, request = officialSessionRequest(sessionId),
+) {
+  const response = fakeResponse();
+  await completeOfficialAssignmentSessionHandler(
+    request, response,
     {authenticate: async () => 'trainee', databaseFactory: () => database},
   );
   return response;
@@ -3436,5 +3533,181 @@ test('recovery never creates a second canonical active attempt', async () => {
   const activeAttempts = [...database.docs.entries()]
     .filter(([path, data]) => path.startsWith('assignment_attempts/') && data.status === 'in_progress');
   assert.equal(activeAttempts.length, 1);
+});
+
+test('Teacher Activity finite lifecycle submits two attempts and rejects a third', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  for (const requestId of ['activity-open-1', 'activity-open-2']) {
+    const reserved = await invokeReserve(database, requestId);
+    assert.equal((await invokeConsume(database, reserved.body.attempt.id)).statusCode, 200);
+    assert.equal((await invokeFinalize(database, reserved.body.attempt.id)).statusCode, 200);
+  }
+  const exhausted = await invokeReserve(database, 'activity-open-3');
+  assert.equal(exhausted.statusCode, 409);
+  assert.deepEqual(exhausted.body, {error: 'attempts_exhausted'});
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').consumed_count,
+    2,
+  );
+});
+
+test('Teacher Activity finalization retry is idempotent and late release cannot refund', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const reserved = await invokeReserve(database);
+  const attemptId = reserved.body.attempt.id;
+  await invokeConsume(database, attemptId);
+  const first = await invokeFinalize(database, attemptId);
+  const retry = await invokeFinalize(database, attemptId);
+  const release = await invokeAbandon(database, attemptId);
+  assert.equal(first.statusCode, 200);
+  assert.equal(retry.statusCode, 200);
+  assert.equal(retry.body.reused, true);
+  assert.equal(release.statusCode, 200);
+  assert.equal(release.body.already_released, true);
+  const attempt = database.docs.get(`assignment_attempts/${attemptId}`);
+  assert.equal(attempt.status, 'submitted');
+  assert.equal(attempt.abandoned_at, undefined);
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').consumed_count,
+    1,
+  );
+});
+
+test('Teacher Activity abandon-first race rejects finalization and refunds exactly once', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const reserved = await invokeReserve(database);
+  const attemptId = reserved.body.attempt.id;
+  await invokeConsume(database, attemptId);
+  assert.equal((await invokeAbandon(database, attemptId)).statusCode, 200);
+  assert.equal((await invokeAbandon(database, attemptId)).body.already_released, true);
+  const finalize = await invokeFinalize(database, attemptId);
+  assert.equal(finalize.statusCode, 409);
+  assert.deepEqual(finalize.body, {error: 'attempt_conflict'});
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').consumed_count,
+    0,
+  );
+  assert.equal(database.docs.get(`assignment_attempts/${attemptId}`).status, 'draft');
+  assert.equal(database.deletedUploads.length, 1);
+  assert.equal(database.deletedUploads[0].options.ifGenerationMatch, '7');
+});
+
+test('official assignment finite policies and retries are server authoritative', async () => {
+  for (const maximum of [1, 2, 3]) {
+    const database = fakeOfficialAssignmentDatabase({
+      type: 'finite', maximum_attempts: maximum,
+    });
+    for (let index = 1; index <= maximum; index += 1) {
+      const sessionId = `official-session-${maximum}-${index}`;
+      assert.equal((await invokeOfficialCompletion(database, sessionId)).statusCode, 200);
+      const retry = await invokeOfficialCompletion(database, sessionId);
+      assert.equal(retry.statusCode, 200);
+      assert.equal(retry.body.reused, true);
+    }
+    const exhausted = await invokeOfficialCompletion(database, `official-session-${maximum}-extra`);
+    assert.equal(exhausted.statusCode, 409);
+    assert.deepEqual(exhausted.body, {error: 'attempts_exhausted'});
+  }
+  const unlimited = fakeOfficialAssignmentDatabase({type: 'unlimited'});
+  for (let index = 0; index < 5; index += 1) {
+    assert.equal((await invokeOfficialCompletion(unlimited, `unlimited-${index}`)).statusCode, 200);
+  }
+});
+
+test('concurrent official completions serialize on the authoritative ledger', async () => {
+  const database = fakeOfficialAssignmentDatabase({type: 'finite', maximum_attempts: 1});
+  const responses = await Promise.all([
+    invokeOfficialCompletion(database, 'contending-a'),
+    invokeOfficialCompletion(database, 'contending-b'),
+  ]);
+  assert.deepEqual(responses.map((response) => response.statusCode).sort(), [200, 409]);
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').consumed_count,
+    1,
+  );
+});
+
+test('official completion seeds the ledger from legacy pointers and fails closed', async () => {
+  const database = fakeOfficialAssignmentDatabase({type: 'finite', maximum_attempts: 1});
+  database.docs.set('assignment_attempts/official_ptr_legacy', {
+    trainee_id: 'trainee', assignment_id: 'assignment-1', origin: 'official_elixr',
+    attempt_kind: 'practice_pointer', status: 'submitted',
+  });
+  const exhausted = await invokeOfficialCompletion(database, 'new-session');
+  assert.equal(exhausted.statusCode, 409);
+  assert.deepEqual(exhausted.body, {error: 'attempts_exhausted'});
+
+  const forbidden = fakeOfficialAssignmentDatabase();
+  forbidden.docs.get('group_memberships/g1_trainee').status = 'removed';
+  assert.equal((await invokeOfficialCompletion(forbidden, 'forbidden-session')).statusCode, 403);
+  assert.equal(forbidden.docs.has('sessions/forbidden-session'), false);
+});
+
+test('official completion uses the higher of a stale ledger and legacy pointers', async () => {
+  const database = fakeOfficialAssignmentDatabase({type: 'finite', maximum_attempts: 1});
+  database.docs.set('assignment_attempt_states/assignment-1__trainee', {
+    state_kind: 'official_assignment', assignment_id: 'assignment-1', trainee_id: 'trainee',
+    teacher_id: 'teacher', group_id: 'g1', consumed_count: 0,
+  });
+  database.docs.set('assignment_attempts/official_ptr_legacy', {
+    trainee_id: 'trainee', assignment_id: 'assignment-1', origin: 'official_elixr',
+    attempt_kind: 'practice_pointer', status: 'submitted',
+  });
+
+  const exhausted = await invokeOfficialCompletion(database, 'stale-ledger-session');
+
+  assert.equal(exhausted.statusCode, 409);
+  assert.deepEqual(exhausted.body, {error: 'attempts_exhausted'});
+  assert.equal(database.docs.has('sessions/stale-ledger-session'), false);
+});
+
+test('official completion fails closed for assignment access and identity checks', async () => {
+  const cases = [
+    {
+      name: 'membership', expectedStatus: 403,
+      mutate: (database) => {
+        database.docs.get('group_memberships/g1_trainee').status = 'removed';
+      },
+    },
+    {
+      name: 'audience', expectedStatus: 403,
+      mutate: (database) => {
+        database.docs.get('group_assignments/assignment-1').audience_type = 'selected_students';
+      },
+    },
+    {
+      name: 'assignment-status', expectedStatus: 403,
+      mutate: (database) => {
+        database.docs.get('group_assignments/assignment-1').status = 'draft';
+      },
+    },
+    {
+      name: 'deadline', expectedStatus: 409, expectedCode: 'deadline_passed',
+      mutate: (database) => {
+        database.docs.get('group_assignments/assignment-1').due_at = Timestamp.fromMillis(1);
+      },
+    },
+    {
+      name: 'identity', expectedStatus: 403,
+      mutateRequest: (request) => {
+        request.body.session.assignment_context.movement_id = 'different-movement';
+      },
+    },
+  ];
+  for (const testCase of cases) {
+    const sessionId = `closed-${testCase.name}`;
+    const database = fakeOfficialAssignmentDatabase();
+    const request = officialSessionRequest(sessionId);
+    testCase.mutate?.(database);
+    testCase.mutateRequest?.(request);
+
+    const response = await invokeOfficialCompletion(database, sessionId, request);
+
+    assert.equal(response.statusCode, testCase.expectedStatus, testCase.name);
+    if (testCase.expectedCode) assert.equal(response.body.error, testCase.expectedCode);
+    assert.equal(database.docs.has(`sessions/${sessionId}`), false, testCase.name);
+    assert.equal(database.docs.has(`assignment_attempts/official_ptr_${sessionId}`), false,
+      testCase.name);
+  }
 });
 

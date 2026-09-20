@@ -74,17 +74,6 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ElixBackButton(
-                  label: 'Challenges',
-                  tooltip: 'Back to classroom challenges',
-                  semanticLabel: 'Back to classroom challenges',
-                  onPressed: () => context.go(
-                    teacherView
-                        ? '${AppRoutePaths.teacherGroup(groupId)}?tab=challenges'
-                        : '${AppRoutePaths.teacherAccessClass(groupId)}?tab=challenges',
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
                 _LeaderboardHero(
                   challenge: challenge,
                   entryCount: entries.length,
@@ -99,7 +88,10 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
                         'No valid challenge results have been submitted yet.',
                   )
                 else ...[
-                  _Podium(entries: entries.take(3).toList(), userId: userId),
+                  _ChampionSpotlight(
+                    entry: entries.first,
+                    isYou: entries.first.traineeId == userId,
+                  ),
                   const SizedBox(height: AppSpacing.md),
                   ElixPanelCard(
                     variant: ElixPanelVariant.elevated,
@@ -128,10 +120,11 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
 
     if (teacherView) {
       return TeacherScaffoldPage(
-        header: const ElixEditorialPageHeader(
+        header: ElixEditorialPageHeader(
           heading: 'Class Leaderboard',
           eyebrow: 'CLASS CHALLENGE',
           variant: ElixEditorialHeaderVariant.compact,
+          leading: _buildChallengesBackButton(context),
         ),
         content: body,
       );
@@ -141,10 +134,11 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const ElixEditorialPageHeader(
+            ElixEditorialPageHeader(
               heading: 'Class Leaderboard',
               eyebrow: 'CLASS CHALLENGE',
               variant: ElixEditorialHeaderVariant.compact,
+              leading: _buildChallengesBackButton(context),
             ),
             Padding(padding: const EdgeInsets.all(AppSpacing.md), child: body),
           ],
@@ -152,6 +146,17 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildChallengesBackButton(BuildContext context) => ElixBackButton(
+    label: 'Challenges',
+    tooltip: 'Back to classroom challenges',
+    semanticLabel: 'Back to classroom challenges',
+    onPressed: () => context.go(
+      teacherView
+          ? '${AppRoutePaths.teacherGroup(groupId)}?tab=challenges'
+          : '${AppRoutePaths.teacherAccessClass(groupId)}?tab=challenges',
+    ),
+  );
 }
 
 class _LeaderboardHero extends StatelessWidget {
@@ -181,7 +186,11 @@ class _LeaderboardHero extends StatelessWidget {
                 color: colors.milestone.withValues(alpha: 0.4),
               ),
             ),
-            child: Icon(FluentIcons.trophy2, color: colors.milestone, size: 24),
+            child: Icon(
+              FluentIcons.trophy2_solid,
+              color: colors.milestone,
+              size: 28,
+            ),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
@@ -247,100 +256,135 @@ class _EntryCount extends StatelessWidget {
   }
 }
 
-class _Podium extends StatelessWidget {
-  const _Podium({required this.entries, required this.userId});
-  final List<ClassChallengeLeaderboardEntry> entries;
-  final String userId;
-
-  @override
-  Widget build(BuildContext context) {
-    final orderedEntries = entries.length == 3
-        ? [entries[1], entries[0], entries[2]]
-        : entries;
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.md,
-      children: [
-        for (final entry in orderedEntries)
-          SizedBox(
-            width: 220,
-            child: _PodiumCard(
-              entry: entry,
-              rank: entries.indexOf(entry) + 1,
-              isYou: entry.traineeId == userId,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _PodiumCard extends StatelessWidget {
-  const _PodiumCard({
-    required this.entry,
-    required this.rank,
-    required this.isYou,
-  });
+class _ChampionSpotlight extends StatelessWidget {
+  const _ChampionSpotlight({required this.entry, required this.isYou});
 
   final ClassChallengeLeaderboardEntry entry;
-  final int rank;
   final bool isYou;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.elixColors;
-    final medal = switch (rank) {
-      1 => colors.milestone,
-      2 => colors.textSecondary,
-      _ => colors.warning,
-    };
-    return ElixPanelCard(
-      variant: rank == 1 ? ElixPanelVariant.hero : ElixPanelVariant.elevated,
-      padding: const EdgeInsets.all(AppSpacing.mdPlus),
-      borderColor: medal.withValues(alpha: rank == 1 ? 0.58 : 0.3),
-      child: Column(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: medal.withValues(alpha: 0.14),
-              shape: BoxShape.circle,
-              border: Border.all(color: medal.withValues(alpha: 0.48)),
-            ),
-            child: Text(
-              '#$rank',
-              style: AppTheme.label(
-                color: medal,
-              ).copyWith(fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          ProfileAvatarWidget(
-            initials: userInitials(entry.displayName),
-            networkImageUrl: entry.profilePictureUrl,
-            radius: 30,
-          ),
-          const SizedBox(height: AppSpacing.sm),
+    final trophy = Container(
+      width: 76,
+      height: 76,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.milestone.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(ElixRadius.card),
+        border: Border.all(color: colors.milestone.withValues(alpha: 0.5)),
+      ),
+      child: Icon(
+        FluentIcons.trophy2_solid,
+        color: colors.milestone,
+        size: 38,
+        semanticLabel: 'Class champion trophy',
+      ),
+    );
+    final identity = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ElixEyebrow(label: 'Class champion', color: colors.milestone),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          entry.displayName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.pageTitle(context, color: colors.textPrimary),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        if (isYou)
+          ElixPill(text: 'YOU', color: colors.brandSecondary, compact: true)
+        else
           Text(
-            entry.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.cardTitle(color: colors.textPrimary),
+            'Highest valid score',
+            style: AppTheme.caption.copyWith(color: colors.textMuted),
+          ),
+      ],
+    );
+    final score = _ChampionScore(score: entry.score);
+
+    return ElixPanelCard(
+      variant: ElixPanelVariant.hero,
+      accent: colors.milestone,
+      showAccentBar: true,
+      borderColor: colors.milestone.withValues(alpha: 0.48),
+      padding: const EdgeInsets.all(AppSpacing.mdPlus),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 620) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    trophy,
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(child: identity),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                score,
+              ],
+            );
+          }
+          return Row(
+            children: [
+              trophy,
+              const SizedBox(width: AppSpacing.mdPlus),
+              ProfileAvatarWidget(
+                initials: userInitials(entry.displayName),
+                networkImageUrl: entry.profilePictureUrl,
+                radius: 32,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: identity),
+              const SizedBox(width: AppSpacing.lg),
+              score,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ChampionScore extends StatelessWidget {
+  const _ChampionScore({required this.score});
+
+  final int score;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 112),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.mdPlus,
+        vertical: AppSpacing.smPlus,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfaceBase.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(ElixRadius.card),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'BEST SCORE',
+            style: AppTheme.caption.copyWith(
+              color: colors.textMuted,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.7,
+            ),
           ),
           const SizedBox(height: AppSpacing.xs),
-          if (isYou)
-            ElixPill(text: 'YOU', color: colors.brandSecondary, compact: true)
-          else
-            Text(
-              'Best attempt',
-              style: AppTheme.caption.copyWith(color: colors.textMuted),
-            ),
-          const SizedBox(height: AppSpacing.sm),
           Text(
-            '${entry.score}/12',
+            '$score/12',
             style: AppTheme.metric(context, color: colors.textPrimary),
           ),
         ],

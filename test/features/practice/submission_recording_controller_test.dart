@@ -161,6 +161,46 @@ class _RecordingSubmissionRepository
   }
 }
 
+class _GatedActivitySubmissionRepository
+    extends InMemoryAssignmentSubmissionRepository {
+  _GatedActivitySubmissionRepository({required super.classroom});
+
+  final entered = Completer<void>();
+  final allowFinalize = Completer<void>();
+
+  @override
+  Future<AssignmentAttempt> submitTeacherActivityAttemptClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required AssignmentAttempt attempt,
+    required SubmissionRecordResult clip,
+  }) async {
+    entered.complete();
+    await allowFinalize.future;
+    return super.submitTeacherActivityAttemptClip(
+      traineeId: traineeId,
+      assignment: assignment,
+      attempt: attempt,
+      clip: clip,
+    );
+  }
+}
+
+class _GatedRefreshClassroomRepository
+    extends InMemoryClassroomAssignmentRepository {
+  final entered = Completer<void>();
+  final allowRefresh = Completer<void>();
+
+  @override
+  Stream<List<AssignmentAttempt>> watchAttemptsForTrainee({
+    required String traineeId,
+  }) async* {
+    entered.complete();
+    await allowRefresh.future;
+    yield const <AssignmentAttempt>[];
+  }
+}
+
 CommandAck _acceptedStart() {
   return const CommandAck(
     protocolVersion: 1,
@@ -376,6 +416,129 @@ void main() {
       expect(controller.phase, SubmissionRecordingPhase.submitted);
       expect(controller.latestSubmission?.id, reserved.id);
       expect(controller.latestSubmission?.isReviewFacingSubmission, isTrue);
+    },
+  );
+
+  test(
+    'release during Activity finalization cannot abandon or refund the attempt',
+    () async {
+      final socket = _GatedRecordSocket();
+      final gatedSubmissions = _GatedActivitySubmissionRepository(
+        classroom: classroom,
+      );
+      final controller = SubmissionRecordingController(
+        websocket: socket,
+        classroom: classroom,
+        submissions: gatedSubmissions,
+        assignment: _activityAssignment,
+        traineeId: 'trainee-1',
+        recordingCountdown: Duration.zero,
+      );
+      addTearDown(controller.dispose);
+      classroom.assignments[_activityAssignment.id] = _activityAssignment;
+      final reserved = await classroom.reserveTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        assignment: _activityAssignment,
+        requestId: 'activity-race-reservation',
+      );
+      await controller.refreshLatestSubmission();
+
+      final starting = controller.beginRecording();
+      socket.startAck.complete(_acceptedStart());
+      await starting;
+      final stopping = controller.stopRecording();
+      socket.stopAck.complete(_acceptedStop());
+      await gatedSubmissions.entered.future;
+
+      await controller.releaseActivityAttempt();
+      await controller.abandonLocalClip();
+      expect(
+        classroom.teacherActivityActiveAttemptId(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        reserved.id,
+      );
+      expect(
+        classroom.teacherActivityConsumedCount(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        1,
+      );
+      expect(controller.clip, isNotNull);
+
+      gatedSubmissions.allowFinalize.complete();
+      await stopping;
+      await controller.releaseActivityAttempt();
+
+      expect(controller.phase, SubmissionRecordingPhase.submitted);
+      expect(
+        controller.latestSubmission?.status,
+        AssignmentAttemptStatus.submitted,
+      );
+      expect(
+        classroom.teacherActivityConsumedCount(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        1,
+      );
+    },
+  );
+
+  test(
+    'cancel during Activity pre-submit refresh cannot abandon or refund the attempt',
+    () async {
+      final socket = _GatedRecordSocket();
+      final gatedClassroom = _GatedRefreshClassroomRepository();
+      addTearDown(gatedClassroom.dispose);
+      gatedClassroom.assignments[_activityAssignment.id] = _activityAssignment;
+      final reserved = await gatedClassroom.reserveTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        assignment: _activityAssignment,
+        requestId: 'activity-refresh-race',
+      );
+      await gatedClassroom.consumeTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        attempt: reserved,
+      );
+      final controller = SubmissionRecordingController(
+        websocket: socket,
+        classroom: gatedClassroom,
+        submissions: InMemoryAssignmentSubmissionRepository(
+          classroom: gatedClassroom,
+        ),
+        assignment: _activityAssignment,
+        traineeId: 'trainee-1',
+      );
+      addTearDown(controller.dispose);
+      controller.latestSubmission = reserved;
+      controller.clip = SubmissionRecordResult.fromAck(_acceptedStop());
+      controller.phase = SubmissionRecordingPhase.preview;
+
+      final submitting = controller.retryActivitySubmission();
+      await gatedClassroom.entered.future;
+      await controller.cancelActivityAttempt();
+
+      expect(
+        gatedClassroom.teacherActivityActiveAttemptId(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        reserved.id,
+      );
+      expect(
+        gatedClassroom.teacherActivityConsumedCount(
+          assignmentId: _activityAssignment.id,
+          traineeId: 'trainee-1',
+        ),
+        1,
+      );
+
+      gatedClassroom.allowRefresh.complete();
+      await submitting;
+      expect(controller.phase, SubmissionRecordingPhase.submitted);
     },
   );
 

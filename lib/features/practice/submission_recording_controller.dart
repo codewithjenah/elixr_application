@@ -90,6 +90,7 @@ class SubmissionRecordingController extends ChangeNotifier {
   Timer? _timer;
   bool _recordCommandInFlight = false;
   bool _recordingModeActive = false;
+  bool _activitySubmissionCommitInFlight = false;
   bool _disposed = false;
   SubmissionPlaybackFile? _submittedPlayback;
 
@@ -456,6 +457,7 @@ class SubmissionRecordingController extends ChangeNotifier {
     phase = SubmissionRecordingPhase.submitting;
     errorMessage = null;
     notifyListeners();
+    _activitySubmissionCommitInFlight = true;
     try {
       await refreshLatestSubmission();
       final reserved = latestSubmission;
@@ -470,7 +472,7 @@ class SubmissionRecordingController extends ChangeNotifier {
       );
       latestSubmission = submitted;
       phase = SubmissionRecordingPhase.submitted;
-      await abandonLocalClip();
+      await _discardLocalClip();
       if (_disposed) return;
       clip = null;
       await openSubmittedPlayback(attempt: submitted);
@@ -478,6 +480,8 @@ class SubmissionRecordingController extends ChangeNotifier {
       if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;
       errorMessage = error.toString();
+    } finally {
+      _activitySubmissionCommitInFlight = false;
     }
   }
 
@@ -502,6 +506,13 @@ class SubmissionRecordingController extends ChangeNotifier {
   Future<void> abandonLocalClip({
     Future<void> Function()? releasePlayback,
   }) async {
+    if (isTeacherActivity && _activitySubmissionCommitInFlight) return;
+    await _discardLocalClip(releasePlayback: releasePlayback);
+  }
+
+  Future<void> _discardLocalClip({
+    Future<void> Function()? releasePlayback,
+  }) async {
     final path = clip?.localPath;
     clip = null;
     try {
@@ -520,9 +531,34 @@ class SubmissionRecordingController extends ChangeNotifier {
     if (!isTeacherActivity ||
         attempt == null ||
         attempt.activityAssessmentSnapshot == null ||
-        attempt.status != AssignmentAttemptStatus.inProgress) {
+        attempt.status != AssignmentAttemptStatus.inProgress ||
+        _recordCommandInFlight ||
+        _activitySubmissionCommitInFlight ||
+        clip != null ||
+        phase == SubmissionRecordingPhase.recording ||
+        phase == SubmissionRecordingPhase.submitting) {
       return;
     }
+    await _abandonActivityAttempt(attempt);
+  }
+
+  /// Explicit cancellation may refund a provisional recording, but never once
+  /// upload/finalization has begun. Disposal uses [releaseActivityAttempt],
+  /// whose stricter phase checks avoid turning teardown into cancellation.
+  Future<void> cancelActivityAttempt() async {
+    final attempt = latestSubmission;
+    if (!isTeacherActivity ||
+        attempt == null ||
+        attempt.activityAssessmentSnapshot == null ||
+        attempt.status != AssignmentAttemptStatus.inProgress ||
+        _recordCommandInFlight ||
+        _activitySubmissionCommitInFlight) {
+      return;
+    }
+    await _abandonActivityAttempt(attempt);
+  }
+
+  Future<void> _abandonActivityAttempt(AssignmentAttempt attempt) async {
     try {
       await classroom.abandonTeacherActivityAttempt(
         traineeId: traineeId,

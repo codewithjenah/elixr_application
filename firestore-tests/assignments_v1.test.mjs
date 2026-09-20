@@ -391,7 +391,7 @@ describe('Phase 5 official assignment session+pointer contract', () => {
     );
   });
 
-  test('targeted trainee can create the assigned official session and pointer', async () => {
+  test('targeted trainee cannot bypass server-owned official completion', async () => {
     await seedClassroom({secondAssignment: false});
     await seedBypassingRules(async (admin) => {
       await setDoc(
@@ -417,10 +417,10 @@ describe('Phase 5 official assignment session+pointer contract', () => {
       doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
       officialPointer({sessionId, assignmentId: 'asgTargetTrainee'}),
     );
-    await assertSucceeds(batch.commit());
+    await assertFails(batch.commit());
   });
 
-  test('valid atomic assigned official session + pointer succeeds', async () => {
+  test('direct assigned official session + pointer is denied', async () => {
     await seedClassroom();
     const db = context('trainee').firestore();
     const sessionId = 'sessA';
@@ -433,12 +433,7 @@ describe('Phase 5 official assignment session+pointer contract', () => {
       doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
       officialPointer({ sessionId, assignmentId: ASG_A }),
     );
-    await assertSucceeds(batch.commit());
-    const pointer = await getDoc(
-      doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
-    );
-    assert.equal(pointer.data().awards_global_xp, false);
-    assert.equal(pointer.data().source_session_id, sessionId);
+    await assertFails(batch.commit());
   });
 
   test('historical ordinary Hand Stall cannot create an official pointer', async () => {
@@ -574,16 +569,12 @@ describe('Phase 5 official assignment session+pointer contract', () => {
     await seedClassroom();
     const db = context('trainee').firestore();
     const sessionId = 'sessImm';
-    const batch = writeBatch(db);
-    batch.set(
-      doc(db, 'sessions', sessionId),
-      v2Session({ context: assignmentContext(ASG_A) }),
-    );
-    batch.set(
-      doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
-      officialPointer({ sessionId }),
-    );
-    await assertSucceeds(batch.commit());
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'sessions', sessionId),
+        v2Session({ context: assignmentContext(ASG_A), createdAt: Timestamp.now() }));
+      await setDoc(doc(admin, 'assignment_attempts', `official_ptr_${sessionId}`),
+        officialPointer({ sessionId, createdAt: Timestamp.now() }));
+    });
     await assertFails(
       updateDoc(doc(db, 'sessions', sessionId), {
         assignment_context: assignmentContext(ASG_B),
@@ -787,18 +778,13 @@ describe('Phase 5 teacher movements and attempts', () => {
 
   test('assigning Teacher can read classroom attempt; unrelated Teacher cannot', async () => {
     await seedClassroom();
-    const db = context('trainee').firestore();
     const sessionId = 'sessRead';
-    const batch = writeBatch(db);
-    batch.set(
-      doc(db, 'sessions', sessionId),
-      v2Session({ context: assignmentContext(ASG_A) }),
-    );
-    batch.set(
-      doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
-      officialPointer({ sessionId }),
-    );
-    await assertSucceeds(batch.commit());
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'sessions', sessionId),
+        v2Session({ context: assignmentContext(ASG_A), createdAt: Timestamp.now() }));
+      await setDoc(doc(admin, 'assignment_attempts', `official_ptr_${sessionId}`),
+        officialPointer({ sessionId, createdAt: Timestamp.now() }));
+    });
     await assertSucceeds(
       getDoc(doc(context('teacher').firestore(), 'assignment_attempts', `official_ptr_${sessionId}`)),
     );
@@ -814,16 +800,12 @@ describe('Phase 5 teacher movements and attempts', () => {
     await seedClassroom();
     const db = context('trainee').firestore();
     const sessionId = 'sessPtrImm';
-    const batch = writeBatch(db);
-    batch.set(
-      doc(db, 'sessions', sessionId),
-      v2Session({ context: assignmentContext(ASG_A) }),
-    );
-    batch.set(
-      doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
-      officialPointer({ sessionId }),
-    );
-    await assertSucceeds(batch.commit());
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'sessions', sessionId),
+        v2Session({ context: assignmentContext(ASG_A), createdAt: Timestamp.now() }));
+      await setDoc(doc(admin, 'assignment_attempts', `official_ptr_${sessionId}`),
+        officialPointer({ sessionId, createdAt: Timestamp.now() }));
+    });
     await assertFails(
       updateDoc(doc(db, 'assignment_attempts', `official_ptr_${sessionId}`), {
         status: 'in_progress',

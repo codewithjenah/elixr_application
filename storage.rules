@@ -397,7 +397,14 @@ service firebase.storage {
                       && attempt.draft_cleanup_started_at is timestamp
                     )
                   )
-                : true
+                : (
+                    !isTeacherActivityAttempt(attempt)
+                    || isAbandonedTeacherReviewAnchor(attempt)
+                    || !assignmentCustomMetadataMatches(
+                      resource.metadata,
+                      teacherId, groupId, assignmentId, traineeId, attemptId, attempt
+                    )
+                  )
             )
           )
           || (
