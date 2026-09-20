@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -53,10 +54,71 @@ const _assignment = GroupAssignment(
   allowedProp: TrainingProp.bottle,
 );
 
+const _activityAssessment = TeacherActivityAssessmentConfig(
+  readiness: TeacherActivityReadinessSpec(
+    hands: ActivityHandRequirement.twoHands,
+    body: ActivityBodyRequirement.upperBody,
+  ),
+  rubric: TeacherActivityRubric(
+    template: TeacherActivityRubricTemplate.beginnerFundamentals,
+    maximumScore: 30,
+    criteria: [
+      TeacherActivityRubricCriterion(
+        id: 'setup',
+        label: 'Setup',
+        description: 'Start prepared.',
+        maximumPoints: 10,
+      ),
+      TeacherActivityRubricCriterion(
+        id: 'control',
+        label: 'Control',
+        description: 'Keep control.',
+        maximumPoints: 10,
+      ),
+      TeacherActivityRubricCriterion(
+        id: 'finish',
+        label: 'Finish',
+        description: 'Finish safely.',
+        maximumPoints: 10,
+      ),
+    ],
+  ),
+  recordingDurationSeconds: 45,
+);
+
+const _activityAssignment = GroupAssignment(
+  id: 'activity-bbb',
+  teacherId: 'teacher-1',
+  groupId: 'g1',
+  movementId: 'tm-bbb',
+  revisionId: 'tm-bbb_v1',
+  origin: MovementOrigin.teacherCreated,
+  assessmentMode: AssessmentMode.teacherReviewed,
+  status: GroupAssignmentStatus.active,
+  displayTitle: 'Bottle Control Activity',
+  teacherDisplayName: 'Grace Hopper',
+  groupName: 'BSHM 4A',
+  allowedProp: TrainingProp.bottle,
+  maxScore: 30,
+  activityAssessment: _activityAssessment,
+  attemptPolicy: AssignmentAttemptPolicy.finite(3),
+);
+
 class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
   Duration? startDelay;
   Object? startError;
+  List<AssignmentAttempt>? attemptSnapshot;
   int startCalls = 0;
+
+  @override
+  Stream<List<AssignmentAttempt>> watchAttemptsForTrainee({
+    required String traineeId,
+  }) {
+    final snapshot = attemptSnapshot;
+    return snapshot == null
+        ? super.watchAttemptsForTrainee(traineeId: traineeId)
+        : Stream.value(snapshot);
+  }
 
   @override
   Future<AssignmentAttempt> getOrCreateTeacherReviewSubmission({
@@ -578,6 +640,58 @@ void main() {
         findsWidgets,
       );
       expect(assignments.startCalls, 1);
+      expect(ws.beginCalls, 0);
+      expect(ws.preparePayloads, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'submitted Activity state stays out of camera recovery and disables start',
+    (tester) async {
+      assignments
+        ..startDelay = null
+        ..attemptSnapshot = const [
+          AssignmentAttempt(
+            id: 'submitted-attempt',
+            traineeId: 'trainee-1',
+            teacherId: 'teacher-1',
+            groupId: 'g1',
+            assignmentId: 'activity-bbb',
+            movementId: 'tm-bbb',
+            revisionId: 'tm-bbb_v1',
+            origin: MovementOrigin.teacherCreated,
+            assessmentMode: AssessmentMode.teacherReviewed,
+            attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+            status: AssignmentAttemptStatus.submitted,
+            activityAssessmentSnapshot: _activityAssessment,
+          ),
+        ];
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _activityAssignment,
+        ),
+      );
+
+      screenKey.currentState!.debugStartSession();
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.text('This submission is waiting for your teacher to check it.'),
+        findsOneWidget,
+      );
+      expect(find.text('Camera session interrupted'), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Attempt unavailable'), findsOneWidget);
+      final action = tester.widget<GameActionButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey('practice-primary-action')),
+          matching: find.byType(GameActionButton),
+        ),
+      );
+      expect(action.onPressed, isNull);
+      expect(action.isLoading, isFalse);
       expect(ws.beginCalls, 0);
       expect(ws.preparePayloads, isEmpty);
     },

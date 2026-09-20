@@ -131,6 +131,29 @@ String livePracticeAssignmentStartFailureMessage(Object error) {
   return 'Could not start this classroom assignment. Try again.';
 }
 
+bool _isTerminalAssignmentStartFailure(Object error) {
+  if (error is FirebaseException && error.code == 'permission-denied') {
+    return true;
+  }
+  if (error is! ClassroomException) return false;
+  if (error.serverCode == 'attempts_exhausted' ||
+      error.serverCode == 'graded' ||
+      error.serverCode == 'deadline_passed' ||
+      error.serverCode == 'forbidden') {
+    return true;
+  }
+  return switch (error.code) {
+    ClassroomError.deadlinePassed ||
+    ClassroomError.inactive ||
+    ClassroomError.forbidden ||
+    ClassroomError.malformed ||
+    ClassroomError.identityMismatch ||
+    ClassroomError.invalidState ||
+    ClassroomError.attemptLimitConflict => true,
+    _ => false,
+  };
+}
+
 class LivePracticeScreenState extends State<LivePracticeScreen> {
   late final WebSocketService _ws;
   late final bool _ownsWebSocket;
@@ -148,6 +171,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _connecting = false;
   String? _sessionError;
   String? _sessionErrorCode;
+  String? _startError;
+  bool _assignmentStartBlocked = false;
   final CameraFallbackWarningTracker _fallbackWarningTracker =
       CameraFallbackWarningTracker();
   bool _leaving = false;
@@ -671,7 +696,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       final tutorials = context.read<TutorialProgressService>();
       if (!progression.isReady || !tutorials.isInitialized) {
         setState(() {
-          _sessionError =
+          _startError =
               'Progression is still loading. Wait a moment, then start Freestyle.';
         });
         return;
@@ -683,7 +708,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       final traineeId = context.read<AuthService>().currentUser?.id;
       if (traineeId == null) {
         setState(() {
-          _sessionError = 'Sign in as a trainee to practice this assignment.';
+          _startError = 'Sign in as a trainee to practice this assignment.';
+          _assignmentStartBlocked = true;
         });
         return;
       }
@@ -741,9 +767,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         if (submission.status != AssignmentAttemptStatus.inProgress) {
           if (!mounted) return;
           setState(() {
-            _sessionError = submission.status == AssignmentAttemptStatus.checked
+            _startError = submission.status == AssignmentAttemptStatus.checked
                 ? 'This assignment has already been checked.'
                 : 'This submission is waiting for your teacher to check it.';
+            _assignmentStartBlocked = true;
           });
           return;
         }
@@ -764,7 +791,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         debugPrintStack(stackTrace: stackTrace);
         if (!mounted) return;
         setState(() {
-          _sessionError = livePracticeAssignmentStartFailureMessage(error);
+          _startError = livePracticeAssignmentStartFailureMessage(error);
+          _assignmentStartBlocked = _isTerminalAssignmentStartFailure(error);
         });
         return;
       }
@@ -776,6 +804,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       return;
     }
 
+    _startError = null;
+    _assignmentStartBlocked = false;
     _sessionError = null;
     _clearFrame();
     _latestFeedback = null;
@@ -1523,9 +1553,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         )
                       : null,
                   compactStatusNote:
-                      (_sessionError ?? _run.errorMessage) != null
+                      (_startError ?? _sessionError ?? _run.errorMessage) !=
+                          null
                       ? Text(
-                          _sessionError ?? _run.errorMessage!,
+                          _startError ?? _sessionError ?? _run.errorMessage!,
                           style: AppTheme.bodySecondary.copyWith(
                             color: AppColors.error,
                           ),
@@ -1543,7 +1574,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                     kind: actionKind,
                     startLabel: assignment == null
                         ? 'Start Freestyle'
-                        : (_isTeacherActivityV2
+                        : (_assignmentStartBlocked
+                              ? 'Attempt unavailable'
+                              : _isTeacherActivityV2
                               ? 'Preparing attempt…'
                               : 'Start assignment practice'),
                     onPressed: switch (actionKind) {
@@ -1551,7 +1584,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         _isPlayground ? _finishFreestyle : _stopSession,
                       TrainingActionKind.cancel => _onCancelPressed,
                       TrainingActionKind.retry || TrainingActionKind.start =>
-                        _ws.isConnected ? _startSession : _connect,
+                        _assignmentStartBlocked
+                            ? null
+                            : (_ws.isConnected ? _startSession : _connect),
                     },
                     isLoading:
                         actionKind == TrainingActionKind.cancel ||

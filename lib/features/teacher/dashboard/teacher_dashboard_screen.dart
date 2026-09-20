@@ -813,6 +813,7 @@ class _DashboardContent extends StatelessWidget {
       eyebrow: 'CLASSROOMS',
       subtitle: 'Manage students and class activity.',
       action: ElixPrimaryButton(
+        key: const Key('teacher_dashboard_view_classrooms'),
         label: 'View classrooms',
         expanded: false,
         dense: true,
@@ -833,7 +834,10 @@ class _DashboardContent extends StatelessWidget {
     );
     final main = Column(
       children: [
-        if (gettingStarted != null) _GettingStartedCard(model: gettingStarted!),
+        if (gettingStarted?.step == _GettingStartedStep.createClassroom)
+          _EmptyTeacherWorkspace(model: gettingStarted!)
+        else if (gettingStarted != null)
+          _GettingStartedCard(model: gettingStarted!),
         if (gettingStarted != null && controller.activeGroupCount > 0)
           const SizedBox(height: AppSpacing.md),
         if (analyticsController != null && controller.activeGroupCount > 0)
@@ -1125,21 +1129,48 @@ class _WorkspaceSection extends StatelessWidget {
   final Widget child;
   final Widget? action;
   @override
-  Widget build(BuildContext context) => ElixPanelCard(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ElixSectionHeader(
-          heading: heading,
-          eyebrow: eyebrow,
-          subtitle: subtitle,
-          actions: action == null ? const [] : [action!],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        child,
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final header = ElixSectionHeader(
+      heading: heading,
+      eyebrow: eyebrow,
+      subtitle: subtitle,
+    );
+
+    return ElixPanelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (action == null)
+            header
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 620;
+                return compact
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          header,
+                          const SizedBox(height: AppSpacing.md),
+                          action!,
+                        ],
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(child: header),
+                          const SizedBox(width: AppSpacing.lg),
+                          action!,
+                        ],
+                      );
+              },
+            ),
+          const SizedBox(height: AppSpacing.md),
+          child,
+        ],
+      ),
+    );
+  }
 }
 
 class _GroupOverviewRow extends StatelessWidget {
@@ -1483,6 +1514,400 @@ class _GettingStartedCard extends StatelessWidget {
                 )
               : content;
         },
+      ),
+    );
+  }
+}
+
+class _EmptyTeacherWorkspace extends StatelessWidget {
+  const _EmptyTeacherWorkspace({required this.model});
+
+  final _GettingStartedModel model;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const Key('teacher_getting_started'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ElixPanelCard(
+          variant: ElixPanelVariant.hero,
+          accent: context.elixColors.brandPrimary,
+          showAccentBar: true,
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 700;
+              final introduction = _EmptyWorkspaceIntroduction(model: model);
+              const preview = _EmptyWorkspacePreview();
+              if (compact) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    introduction,
+                    const SizedBox(height: AppSpacing.lg),
+                    preview,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(flex: 6, child: introduction),
+                  const SizedBox(width: AppSpacing.xl),
+                  const Expanded(flex: 4, child: preview),
+                ],
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        const _EmptyWorkspaceSetupPath(),
+      ],
+    );
+  }
+}
+
+class _EmptyWorkspaceIntroduction extends StatelessWidget {
+  const _EmptyWorkspaceIntroduction({required this.model});
+
+  final _GettingStartedModel model;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ElixPill(
+          text: model.title,
+          color: context.elixColors.brandSecondary,
+          compact: true,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Everything starts with one classroom.',
+          style: AppTheme.sectionTitle(
+            context,
+            color: context.elixTextPrimary,
+          ).copyWith(fontSize: 28),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Create a home for your students, assignments, feedback, and progress. ELIXR will organize the rest as your class gets moving.',
+          style: AppTheme.supporting(
+            color: context.elixTextSecondary,
+          ).copyWith(height: 1.5),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.sm,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            ElixPrimaryButton(
+              key: const Key('teacher_getting_started_action'),
+              label: model.actionLabel,
+              expanded: false,
+              onPressed: () => context.go(model.route),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  FluentIcons.clock,
+                  size: 14,
+                  color: context.elixTextSecondary,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  'About a minute to set up',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyWorkspacePreview extends StatelessWidget {
+  const _EmptyWorkspacePreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('teacher_empty_workspace_preview'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: context.elixColors.surfaceInteractive,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: context.elixBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: context.elixColors.brandPrimary.withValues(
+                    alpha: context.isHighContrast ? 0 : 0.14,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  FluentIcons.education,
+                  size: 19,
+                  color: context.elixColors.brandPrimary,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Your classroom hub',
+                      style: AppTheme.cardTitle(color: context.elixTextPrimary),
+                    ),
+                    Text(
+                      'Ready when you are',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixColors.success,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _WorkspacePreviewRow(
+            icon: FluentIcons.people,
+            label: 'Student roster',
+            tone: context.elixColors.brandSecondary,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _WorkspacePreviewRow(
+            icon: FluentIcons.assign,
+            label: 'Practice assignments',
+            tone: context.elixColors.warning,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _WorkspacePreviewRow(
+            icon: FluentIcons.chart,
+            label: 'Progress insights',
+            tone: context.elixColors.success,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkspacePreviewRow extends StatelessWidget {
+  const _WorkspacePreviewRow({
+    required this.icon,
+    required this.label,
+    required this.tone,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: tone),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            label,
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Icon(
+          FluentIcons.chevron_right,
+          size: 10,
+          color: context.elixTextSecondary,
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyWorkspaceSetupPath extends StatelessWidget {
+  const _EmptyWorkspaceSetupPath();
+
+  @override
+  Widget build(BuildContext context) {
+    return ElixPanelCard(
+      key: const Key('teacher_empty_workspace_setup_path'),
+      padding: const EdgeInsets.all(AppSpacing.mdPlus),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Your quick-start path',
+                      style: AppTheme.cardTitle(color: context.elixTextPrimary),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Three simple steps to your first active lesson.',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ElixPill(
+                text: '0 OF 3',
+                color: context.elixColors.brandPrimary,
+                compact: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final steps = [
+                _EmptySetupStep(
+                  number: '01',
+                  title: 'Create a classroom',
+                  detail: 'Name your class and get a join code.',
+                  icon: FluentIcons.education,
+                  tone: context.elixColors.brandPrimary,
+                  active: true,
+                ),
+                _EmptySetupStep(
+                  number: '02',
+                  title: 'Invite students',
+                  detail: 'Share the code and approve your roster.',
+                  icon: FluentIcons.people_add,
+                  tone: context.elixColors.brandSecondary,
+                ),
+                _EmptySetupStep(
+                  number: '03',
+                  title: 'Assign practice',
+                  detail: 'Choose a movement and track results.',
+                  icon: FluentIcons.assign,
+                  tone: context.elixColors.success,
+                ),
+              ];
+              if (constraints.maxWidth < 720) {
+                return Column(
+                  children: [
+                    for (var index = 0; index < steps.length; index++) ...[
+                      steps[index],
+                      if (index < steps.length - 1)
+                        const SizedBox(height: AppSpacing.sm),
+                    ],
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var index = 0; index < steps.length; index++) ...[
+                    Expanded(child: steps[index]),
+                    if (index < steps.length - 1)
+                      const SizedBox(width: AppSpacing.sm),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptySetupStep extends StatelessWidget {
+  const _EmptySetupStep({
+    required this.number,
+    required this.title,
+    required this.detail,
+    required this.icon,
+    required this.tone,
+    this.active = false,
+  });
+
+  final String number;
+  final String title;
+  final String detail;
+  final IconData icon;
+  final Color tone;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.smPlus),
+      decoration: BoxDecoration(
+        color: active
+            ? tone.withValues(alpha: context.isHighContrast ? 0 : 0.09)
+            : context.elixColors.surfaceInteractive.withValues(alpha: 0.52),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: active ? tone.withValues(alpha: 0.52) : context.elixBorder,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: tone.withValues(alpha: context.isHighContrast ? 0 : 0.13),
+              borderRadius: BorderRadius.circular(11),
+              border: context.isHighContrast ? Border.all(color: tone) : null,
+            ),
+            child: Icon(icon, size: 16, color: tone),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$number  $title',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  detail,
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

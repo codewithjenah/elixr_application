@@ -182,6 +182,19 @@ void main() {
     expect(find.text('Notifications'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);
     expect(find.text('Create your first classroom'), findsOneWidget);
+    expect(find.text('Everything starts with one classroom.'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_empty_workspace_preview')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_empty_workspace_setup_path')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Create a classroom'), findsOneWidget);
+    expect(find.textContaining('Invite students'), findsOneWidget);
+    expect(find.textContaining('Assign practice'), findsOneWidget);
+    expect(find.text('No active classrooms yet.'), findsNothing);
     expect(find.byType(TeacherShell), findsOneWidget);
     expect(find.byType(AppShell), findsNothing);
     final teacherContext = tester.element(
@@ -191,6 +204,12 @@ void main() {
     expect(visuals.ambientGlowScale, 0.72);
     expect(visuals.persistentGlowScale, 0.72);
     expect(visuals.flattenDenseSurfaces, isTrue);
+
+    await tester.binding.setSurfaceSize(const Size(900, 900));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    await tester.pump();
 
     router.go(AppRoutePaths.teacherProgress);
     await tester.pump();

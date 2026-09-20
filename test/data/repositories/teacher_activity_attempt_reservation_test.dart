@@ -224,6 +224,48 @@ void main() {
     },
   );
 
+  test(
+    'a third Activity attempt remains available when policy permits',
+    () async {
+      final threeAttemptAssignment = _assignment.copyWith(
+        attemptPolicy: const AssignmentAttemptPolicy.finite(3),
+      );
+      classroom.assignments[_assignment.id] = threeAttemptAssignment;
+
+      for (var index = 0; index < 2; index++) {
+        final reserved = await classroom.reserveTeacherActivityAttempt(
+          traineeId: 'trainee-1',
+          assignment: threeAttemptAssignment,
+          requestId: 'activity-three-open-$index',
+        );
+        await classroom.consumeTeacherActivityAttempt(
+          traineeId: 'trainee-1',
+          attempt: reserved,
+        );
+        await classroom.markTeacherReviewSubmitted(
+          traineeId: 'trainee-1',
+          attempt: reserved,
+          videoStoragePath:
+              'assignment_submissions/teacher-1/g1/activity-1/trainee-1/${reserved.id}.mp4',
+          videoContentType: 'video/mp4',
+          videoSizeBytes: 1024,
+          videoDurationMs: 1000,
+          submittedAt: DateTime.utc(2026, 9, 8, 12),
+          videoExpiresAt: DateTime.utc(2026, 9, 15, 12),
+        );
+      }
+
+      final third = await classroom.reserveTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        assignment: threeAttemptAssignment,
+        requestId: 'activity-three-open-2',
+      );
+      expect(third.status, AssignmentAttemptStatus.inProgress);
+      expect(consumedCount(), 2);
+      expect(activeId(), third.id);
+    },
+  );
+
   test('graded activity remains blocked', () async {
     final graded = _assignment.copyWith(gradingLocked: true);
     classroom.assignments[_assignment.id] = graded;

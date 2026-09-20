@@ -819,6 +819,85 @@ void main() {
     );
 
     test(
+      'three sequential attempts keep fresh sessions and the selected camera',
+      () async {
+        const cameraDeviceId = 'dev-selected';
+        final sessionIds = <String>[];
+
+        Future<void> prepareAndActivate() async {
+          final sessionId = service.beginPracticeAttempt();
+          sessionIds.add(sessionId);
+          final prepare = service.sendPrepare(
+            movement: 'Normal Grip',
+            difficulty: 'Easy',
+            cameraDeviceId: cameraDeviceId,
+            sessionId: sessionId,
+          );
+          await Future<void>.delayed(Duration.zero);
+          final preparePayload = sent.last;
+          expect(preparePayload['session_id'], sessionId);
+          expect(preparePayload['camera_device_id'], cameraDeviceId);
+          await push({
+            'protocol_version': 1,
+            'message_type': 'command_ack',
+            'request_id': preparePayload['request_id'],
+            'session_id': sessionId,
+            'action': 'prepare',
+            'accepted': true,
+            'session_state': 'preparing',
+          });
+          await prepare;
+
+          final activate = service.sendActivate(sessionId: sessionId);
+          await Future<void>.delayed(Duration.zero);
+          final activatePayload = sent.last;
+          await push({
+            'protocol_version': 1,
+            'message_type': 'command_ack',
+            'request_id': activatePayload['request_id'],
+            'session_id': sessionId,
+            'action': 'activate',
+            'accepted': true,
+            'session_state': 'active',
+          });
+          await activate;
+          expect(service.currentSessionId, sessionId);
+          expect(service.sessionActive, isTrue);
+        }
+
+        Future<void> stopCurrent() async {
+          final sessionId = service.currentSessionId!;
+          final stop = service.stopPracticeSession(sessionId: sessionId);
+          await Future<void>.delayed(Duration.zero);
+          final stopPayload = sent.last;
+          expect(stopPayload['session_id'], sessionId);
+          await push({
+            'protocol_version': 1,
+            'message_type': 'command_ack',
+            'request_id': stopPayload['request_id'],
+            'session_id': sessionId,
+            'action': 'stop',
+            'accepted': true,
+            'session_state': 'idle',
+          });
+          await stop;
+          expect(service.currentSessionId, isNull);
+        }
+
+        await prepareAndActivate();
+        await stopCurrent();
+        await prepareAndActivate();
+        await stopCurrent();
+        await prepareAndActivate();
+
+        expect(sessionIds.toSet(), hasLength(3));
+        expect(service.currentSessionId, sessionIds.last);
+        expect(service.sessionPrepared, isTrue);
+        expect(service.sessionActive, isTrue);
+      },
+    );
+
+    test(
       'delayed feedback from old attempt is ignored after stop and new start',
       () async {
         final received = <PracticeFeedback>[];
