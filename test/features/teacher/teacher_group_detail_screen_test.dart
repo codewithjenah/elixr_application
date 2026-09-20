@@ -9,11 +9,13 @@ import 'package:elixr_application/core/widgets/elix_dialog.dart';
 import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
@@ -461,6 +463,48 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Remove from class'), findsOneWidget);
+  });
+
+  testWidgets('students tab uses the live public profile avatar URL', (
+    tester,
+  ) async {
+    final group = await repository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT-4A',
+    );
+    final invite = await repository.getActiveGroupInvite(groupId: group.id);
+    final approved = await repository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await repository.approveMembership(
+      membershipId: approved.id,
+      teacherId: 'teacher-1',
+    );
+    profiles.emitProfile(
+      'trainee-1',
+      const PublicProfile(
+        userId: 'trainee-1',
+        displayName: 'Ada Lovelace',
+        visibility: ProfileVisibility.private,
+        profilePictureUrl: 'https://example.test/ada.png',
+      ),
+    );
+
+    final controller = await controllerFor('teacher-1');
+    addTearDown(controller.dispose);
+    await controller.startForGroup(group.id);
+    await pumpDetail(tester, controller: controller, groupId: group.id);
+    await tester.tap(find.byKey(const Key('teacher_group_tab_students')));
+    await tester.pumpAndSettle();
+
+    final avatar = tester.widget<ProfileAvatarWidget>(
+      find.byKey(Key('teacher_group_member_avatar_${approved.id}')),
+    );
+    expect(avatar.networkImageUrl, 'https://example.test/ada.png');
+    expect(avatar.initials, 'AL');
   });
 
   testWidgets('group detail separates assignments and students into tabs', (

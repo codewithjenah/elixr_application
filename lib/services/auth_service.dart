@@ -1667,6 +1667,13 @@ class AuthService extends ChangeNotifier {
       }
     }
 
+    // The public identity root is the only cross-account-safe source for a
+    // saved avatar. Unlike leaderboard presence, a failed write here is a
+    // correctness failure: the private profile would otherwise appear saved
+    // while every Teacher still sees a stale avatar. Let it reach the caller
+    // so the save is not reported as successful. A later authenticated
+    // session will also repair the projection through the existing owner-side
+    // projection sync.
     try {
       await _publicProfileRepository?.updatePublicIdentity(
         userId: userId,
@@ -1675,19 +1682,12 @@ class AuthService extends ChangeNotifier {
         role: _currentUser?.role,
         clearProfilePicture: pictureUpdate?.isRemoval ?? false,
       );
-    } catch (error, stackTrace) {
-      if (kDebugMode) {
-        debugPrint(
-          'Public profile identity sync failed: userId=$userId error=$error',
-        );
-        debugPrint('$stackTrace');
+    } finally {
+      if (pictureUpdate?.isRemoval == true &&
+          previousStoragePath != null &&
+          previousStoragePath.isNotEmpty) {
+        await _bestEffortDeleteImage(userId, previousStoragePath);
       }
-    }
-
-    if (pictureUpdate?.isRemoval == true &&
-        previousStoragePath != null &&
-        previousStoragePath.isNotEmpty) {
-      await _bestEffortDeleteImage(userId, previousStoragePath);
     }
   }
 

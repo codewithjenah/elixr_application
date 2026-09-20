@@ -890,35 +890,70 @@ void main() {
     expect(controller.errorMessage, isNot(contains('cloud_firestore')));
   });
 
-  test('maps member public profile pictures and drops them on clear', () async {
-    final membership = await seedPendingMembership();
-    await controller.approveMembership(membership);
-    await pumpEventQueue();
+  test(
+    'maps live member public profile picture changes and drops them on clear',
+    () async {
+      final membership = await seedPendingMembership();
+      await controller.approveMembership(membership);
+      await pumpEventQueue();
+      var notifications = 0;
+      controller.addListener(() => notifications++);
 
-    expect(profiles.watchedUserIds, contains('trainee-1'));
-    expect(controller.profilePictureUrlFor('trainee-1'), isNull);
+      expect(profiles.watchedUserIds, contains('trainee-1'));
+      expect(controller.profilePictureUrlFor('trainee-1'), isNull);
 
-    profiles.emitProfile(
-      'trainee-1',
-      const PublicProfile(
-        userId: 'trainee-1',
-        displayName: 'Ada Lovelace',
-        visibility: ProfileVisibility.public,
-        profilePictureUrl: 'https://example.test/ada.png',
-      ),
-    );
-    await pumpEventQueue();
+      profiles.emitProfile(
+        'trainee-1',
+        const PublicProfile(
+          userId: 'trainee-1',
+          displayName: 'Ada Lovelace',
+          visibility: ProfileVisibility.public,
+          profilePictureUrl: 'https://example.test/ada.png',
+        ),
+      );
+      await pumpEventQueue();
 
-    expect(
-      controller.profilePictureUrlFor('trainee-1'),
-      'https://example.test/ada.png',
-    );
+      expect(
+        controller.profilePictureUrlFor('trainee-1'),
+        'https://example.test/ada.png',
+      );
+      final notificationsAfterFirstAvatar = notifications;
 
-    controller.clearSelection();
-    await pumpEventQueue();
+      profiles.emitProfile(
+        'trainee-1',
+        const PublicProfile(
+          userId: 'trainee-1',
+          displayName: 'Ada Lovelace',
+          visibility: ProfileVisibility.private,
+          profilePictureUrl: 'https://example.test/ada-replacement.png',
+        ),
+      );
+      await pumpEventQueue();
 
-    expect(controller.profilePictureUrlFor('trainee-1'), isNull);
-  });
+      expect(
+        controller.profilePictureUrlFor('trainee-1'),
+        'https://example.test/ada-replacement.png',
+      );
+      expect(notifications, greaterThan(notificationsAfterFirstAvatar));
+
+      profiles.emitProfile(
+        'trainee-1',
+        const PublicProfile(
+          userId: 'trainee-1',
+          displayName: 'Ada Lovelace',
+          visibility: ProfileVisibility.private,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(controller.profilePictureUrlFor('trainee-1'), isNull);
+
+      controller.clearSelection();
+      await pumpEventQueue();
+
+      expect(controller.profilePictureUrlFor('trainee-1'), isNull);
+    },
+  );
 
   test(
     'stops watching profiles for members who leave the selected group',

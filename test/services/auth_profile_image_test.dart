@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
+import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
@@ -173,6 +174,28 @@ class _FakeProfileImageRepository implements ProfileImageRepositoryBase {
   }
 }
 
+class _RecordingPublicProfileRepository extends PublicProfileRepository {
+  final List<({String userId, String? profilePictureUrl, bool clearPicture})>
+  identityUpdates = [];
+  Object? updateError;
+
+  @override
+  Future<void> updatePublicIdentity({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+    String? role,
+    bool clearProfilePicture = false,
+  }) async {
+    identityUpdates.add((
+      userId: userId,
+      profilePictureUrl: profilePictureUrl,
+      clearPicture: clearProfilePicture,
+    ));
+    if (updateError != null) throw updateError!;
+  }
+}
+
 User _testUser({
   String id = 'u1',
   String? profilePictureUrl,
@@ -193,15 +216,18 @@ void main() {
 
   late _FakeAuthRepository authRepository;
   late _FakeProfileImageRepository imageRepository;
+  late _RecordingPublicProfileRepository publicProfiles;
   late AuthService authService;
 
   setUp(() {
     authRepository = _FakeAuthRepository();
     imageRepository = _FakeProfileImageRepository();
+    publicProfiles = _RecordingPublicProfileRepository();
     authService = AuthService(
       repository: authRepository,
       leaderboardRepository: null,
       profileImageRepository: imageRepository,
+      publicProfileRepository: publicProfiles,
     );
   });
 
@@ -248,6 +274,13 @@ void main() {
           authService.currentUser?.profilePictureStoragePath,
           'users/u1/profile/avatar_2.jpg',
         );
+        expect(publicProfiles.identityUpdates, [
+          (
+            userId: 'u1',
+            profilePictureUrl: 'https://storage.example/new.jpg',
+            clearPicture: false,
+          ),
+        ]);
       },
     );
 
@@ -351,6 +384,11 @@ void main() {
       );
       expect(authService.currentUser?.firstName, 'Ada');
       expect(authService.currentUser?.lastName, 'Lovelace');
+      expect(publicProfiles.identityUpdates.single, (
+        userId: 'u1',
+        profilePictureUrl: 'https://storage.example/new.jpg',
+        clearPicture: false,
+      ));
     });
 
     test(
@@ -419,7 +457,34 @@ void main() {
       expect(authService.currentUser?.profilePictureUrl, isNull);
       expect(authService.currentUser?.profilePictureStoragePath, isNull);
       expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_1.jpg']);
+      expect(publicProfiles.identityUpdates.single, (
+        userId: 'u1',
+        profilePictureUrl: null,
+        clearPicture: true,
+      ));
     });
+
+    test(
+      'reports a failed public identity sync after the canonical save',
+      () async {
+        authService.seedAuthenticatedUser(_testUser());
+        publicProfiles.updateError = Exception('public profile unavailable');
+
+        await expectLater(
+          authService.updateProfilePicture(
+            bytes: Uint8List.fromList([1, 2, 3]),
+            contentType: 'image/jpeg',
+          ),
+          throwsA(isA<Exception>()),
+        );
+
+        expect(
+          authService.currentUser?.profilePictureUrl,
+          'https://storage.example/new.jpg',
+        );
+        expect(publicProfiles.identityUpdates, hasLength(1));
+      },
+    );
 
     test(
       'clears a legacy-only profile without deleting a local file',
