@@ -435,9 +435,14 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
           const SizedBox(height: AppSpacing.smPlus),
           if (bounded)
             Expanded(
-              child: SingleChildScrollView(
-                key: const Key('submission_desktop_review_details_scroll'),
-                child: middle,
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(
+                  context,
+                ).copyWith(scrollbars: false),
+                child: SingleChildScrollView(
+                  key: const Key('submission_desktop_review_details_scroll'),
+                  child: middle,
+                ),
               ),
             )
           else

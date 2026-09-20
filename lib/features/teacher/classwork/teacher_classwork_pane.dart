@@ -1504,9 +1504,6 @@ class _TeacherSubmissionReviewDetailState
     final parsedGrade = int.tryParse(_grade.text.trim());
     final validGrade =
         parsedGrade != null && parsedGrade >= 0 && parsedGrade <= maximum;
-    final legacySubmitted =
-        current.status == AssignmentAttemptStatus.submitted &&
-        !current.isCanonicalTeacherReviewSubmission;
     final hasNext = widget.controller.hasAnotherPendingReview(
       assignmentId: widget.assignment.id,
       currentAttemptId: current.id,
@@ -1538,7 +1535,6 @@ class _TeacherSubmissionReviewDetailState
             canGrade: canGrade,
             validGrade: validGrade,
             parsedGrade: parsedGrade,
-            legacySubmitted: legacySubmitted,
             activityAssessment: activityAssessment,
             rubricParse: rubricParse,
             hasNext: hasNext,
@@ -1552,7 +1548,6 @@ class _TeacherSubmissionReviewDetailState
       maximum: maximum,
       validGrade: validGrade,
       parsedGrade: parsedGrade,
-      legacySubmitted: legacySubmitted,
       activityAssessment: activityAssessment,
       hasNext: hasNext,
     );
@@ -1778,7 +1773,6 @@ class _TeacherSubmissionReviewDetailState
     required bool canGrade,
     required bool validGrade,
     required int? parsedGrade,
-    required bool legacySubmitted,
     required TeacherActivityAssessmentConfig? activityAssessment,
     required ({Map<String, int> scores, bool valid, int total})? rubricParse,
     required bool hasNext,
@@ -1866,21 +1860,6 @@ class _TeacherSubmissionReviewDetailState
         );
       }
     }
-    if (legacySubmitted) {
-      buttons.add(
-        ElixPrimaryButton(
-          label: 'Approve legacy review',
-          expanded: false,
-          onPressed: widget.controller.busy
-              ? null
-              : () => widget.controller.reviewLegacy(
-                  attempt: current,
-                  verdict: AssignmentReviewVerdict.approved,
-                  feedback: _feedback.text,
-                ),
-        ),
-      );
-    }
     if (buttons.isEmpty) return null;
     return Wrap(
       spacing: AppSpacing.sm,
@@ -1895,7 +1874,6 @@ class _TeacherSubmissionReviewDetailState
     required int maximum,
     required bool validGrade,
     required int? parsedGrade,
-    required bool legacySubmitted,
     required TeacherActivityAssessmentConfig? activityAssessment,
     required bool hasNext,
   }) {
@@ -1996,20 +1974,6 @@ class _TeacherSubmissionReviewDetailState
                         ),
                 ),
             ],
-          ),
-        ],
-        if (legacySubmitted) ...[
-          const SizedBox(height: AppSpacing.sm),
-          ElixPrimaryButton(
-            label: 'Approve legacy review',
-            expanded: false,
-            onPressed: widget.controller.busy
-                ? null
-                : () => widget.controller.reviewLegacy(
-                    attempt: current,
-                    verdict: AssignmentReviewVerdict.approved,
-                    feedback: _feedback.text,
-                  ),
           ),
         ],
       ],

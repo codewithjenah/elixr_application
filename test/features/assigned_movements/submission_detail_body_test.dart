@@ -520,6 +520,18 @@ void main() {
         const Key('submission_desktop_review_details_scroll'),
       );
       expect(detailsScroll, findsOneWidget);
+      final scrollConfiguration = find.ancestor(
+        of: detailsScroll,
+        matching: find.byType(ScrollConfiguration),
+      );
+      expect(scrollConfiguration, findsAtLeastNWidgets(1));
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('submission_desktop_review_details')),
+          matching: find.byType(Scrollbar),
+        ),
+        findsNothing,
+      );
       await tester.drag(detailsScroll, const Offset(0, -400));
       await tester.pump();
 

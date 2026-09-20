@@ -465,12 +465,12 @@ void main() {
     expect(edited?.id, scheduled.id);
   });
 
-  testWidgets('submitted work opens in the shared grading detail', (
+  testWidgets('non-canonical submitted work uses the standard grading actions', (
     tester,
   ) async {
     assignments.seedAttempt(
       AssignmentAttempt(
-        id: 'submission',
+        id: 'legacy-submission',
         traineeId: 'student',
         teacherId: 'teacher',
         groupId: 'group',
@@ -505,6 +505,11 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('teacher_classwork_roster')), findsNothing);
+    expect(find.text('Approve legacy review'), findsNothing);
+    expect(
+      find.byKey(const Key('teacher_classwork_save_review')),
+      findsOneWidget,
+    );
     await tester.enterText(
       find.byKey(const Key('teacher_classwork_grade')),
       '92',
@@ -521,7 +526,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 3600));
 
-    final checked = await assignments.getAttempt(attemptId: 'submission');
+    final checked = await assignments.getAttempt(
+      attemptId: 'legacy-submission',
+    );
     expect(checked?.status, AssignmentAttemptStatus.checked);
     expect(checked?.gradeScore, 92);
     expect(checked?.reviewFeedback, 'Strong control.');
