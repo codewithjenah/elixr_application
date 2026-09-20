@@ -1511,6 +1511,41 @@ class _TeacherSubmissionReviewDetailState
       assignmentId: widget.assignment.id,
       currentAttemptId: current.id,
     );
+    if (widget.desktopReview) {
+      final rubricParse = activityAssessment == null
+          ? null
+          : _parseRubricScores(activityAssessment);
+      return SizedBox.expand(
+        key: const Key('teacher_classwork_submission_detail'),
+        child: SubmissionDetailBody(
+          key: ValueKey('${current.id}:${current.reviewRevision}'),
+          assignment: widget.assignment,
+          attempt: current,
+          viewerRole: SubmissionDetailViewerRole.teacher,
+          submissionRepository: widget.controller.submissionRepository,
+          openLocalPlayback: widget.controller.openLocalPlayback,
+          releaseLocalPlayback: widget.controller.releaseLocalPlayback,
+          presentation: SubmissionDetailPresentation.teacherDesktopReview,
+          reviewPanel: canGrade
+              ? _buildDesktopReviewContent(
+                  maximum: maximum,
+                  activityAssessment: activityAssessment,
+                  rubricParse: rubricParse,
+                )
+              : null,
+          reviewActions: _buildDesktopReviewActions(
+            current: current,
+            canGrade: canGrade,
+            validGrade: validGrade,
+            parsedGrade: parsedGrade,
+            legacySubmitted: legacySubmitted,
+            activityAssessment: activityAssessment,
+            rubricParse: rubricParse,
+            hasNext: hasNext,
+          ),
+        ),
+      );
+    }
     final reviewControls = _buildReviewControls(
       current: current,
       canGrade: canGrade,
@@ -1529,21 +1564,328 @@ class _TeacherSubmissionReviewDetailState
       submissionRepository: widget.controller.submissionRepository,
       openLocalPlayback: widget.controller.openLocalPlayback,
       releaseLocalPlayback: widget.controller.releaseLocalPlayback,
-      presentation: widget.desktopReview
-          ? SubmissionDetailPresentation.teacherDesktopReview
-          : SubmissionDetailPresentation.standard,
-      reviewPanel: widget.desktopReview ? reviewControls : null,
     );
-    if (widget.desktopReview) {
-      return SizedBox.expand(
-        key: const Key('teacher_classwork_submission_detail'),
-        child: submissionDetail,
-      );
-    }
     return Column(
       key: const Key('teacher_classwork_submission_detail'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [submissionDetail, reviewControls],
+    );
+  }
+
+  ({Map<String, int> scores, bool valid, int total}) _parseRubricScores(
+    TeacherActivityAssessmentConfig assessment,
+  ) {
+    final scores = <String, int>{};
+    var valid = true;
+    for (final criterion in assessment.rubric.criteria) {
+      final score = int.tryParse(
+        _criterionController(criterion.id).text.trim(),
+      );
+      if (score == null || score < 0 || score > criterion.maximumPoints) {
+        valid = false;
+      } else {
+        scores[criterion.id] = score;
+      }
+    }
+    final total = scores.values.fold<int>(0, (sum, score) => sum + score);
+    return (scores: scores, valid: valid, total: total);
+  }
+
+  /// Compact desktop grading controls: scoring rows, live total, and a
+  /// compact feedback field. Action buttons live in the card footer via
+  /// [_buildDesktopReviewActions].
+  Widget _buildDesktopReviewContent({
+    required int maximum,
+    required TeacherActivityAssessmentConfig? activityAssessment,
+    required ({Map<String, int> scores, bool valid, int total})? rubricParse,
+  }) {
+    final criteria =
+        activityAssessment?.rubric.criteria ??
+        const <TeacherActivityRubricCriterion>[];
+    return Column(
+      key: Key(
+        activityAssessment != null
+            ? 'teacher_classwork_activity_rubric_controls'
+            : 'teacher_classwork_review_controls',
+      ),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (activityAssessment != null && rubricParse != null) ...[
+          Text(
+            'Scoring criteria (${activityAssessment.rubric.maximumScore} points)',
+            style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Container(
+            decoration: BoxDecoration(
+              color: context.elixColors.surfaceTinted,
+              borderRadius: BorderRadius.circular(ElixRadius.card),
+              border: Border.all(color: context.elixBorder),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < criteria.length; i++) ...[
+                  if (i > 0) Container(height: 1, color: context.elixBorder),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.smPlus,
+                      vertical: AppSpacing.sm,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                criteria[i].label,
+                                style: AppTheme.body.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (criteria[i].description.trim().isNotEmpty)
+                                Text(
+                                  criteria[i].description,
+                                  style: AppTheme.caption.copyWith(
+                                    color: context.elixTextSecondary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.smPlus),
+                        SizedBox(
+                          width: 64,
+                          child: TextBox(
+                            key: Key(
+                              'teacher_classwork_criterion_${criteria[i].id}',
+                            ),
+                            controller: _criterionController(criteria[i].id),
+                            maxLength: 3,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            placeholder: '0',
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        SizedBox(
+                          width: 44,
+                          child: Text(
+                            '/ ${criteria[i].maximumPoints}',
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.smPlus),
+          if (rubricParse.valid)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Text(
+                    'Total',
+                    style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Text(
+                  '${rubricParse.total} / ${activityAssessment.rubric.maximumScore}',
+                  key: const Key('teacher_classwork_rubric_total'),
+                  style: AppTheme.metric(context),
+                ),
+                if (activityAssessment.rubric.maximumScore > 0) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      '${(rubricParse.total / activityAssessment.rubric.maximumScore * 100).round()}%',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            )
+          else
+            Text(
+              'Enter every criterion score within its allowed range.',
+              key: const Key('teacher_classwork_rubric_total'),
+              style: AppTheme.caption.copyWith(color: AppColors.error),
+            ),
+        ] else ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Grade',
+                  style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              SizedBox(
+                width: 72,
+                child: TextBox(
+                  key: const Key('teacher_classwork_grade'),
+                  controller: _grade,
+                  maxLength: 3,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  placeholder: '0',
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                '/ $maximum',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Feedback',
+          style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: const Key('teacher_classwork_feedback'),
+          controller: _feedback,
+          maxLength: 1000,
+          minLines: 3,
+          maxLines: 5,
+          placeholder: 'Feedback for the student',
+        ),
+      ],
+    );
+  }
+
+  /// Primary grading actions for the desktop grading card footer.
+  Widget? _buildDesktopReviewActions({
+    required AssignmentAttempt current,
+    required bool canGrade,
+    required bool validGrade,
+    required int? parsedGrade,
+    required bool legacySubmitted,
+    required TeacherActivityAssessmentConfig? activityAssessment,
+    required ({Map<String, int> scores, bool valid, int total})? rubricParse,
+    required bool hasNext,
+  }) {
+    final buttons = <Widget>[];
+    if (canGrade) {
+      final rubric = activityAssessment != null;
+      final canSave = rubric ? (rubricParse?.valid ?? false) : validGrade;
+      buttons.add(
+        ElixPrimaryButton(
+          key: Key(
+            rubric
+                ? 'teacher_classwork_save_rubric_review'
+                : 'teacher_classwork_save_review',
+          ),
+          expanded: false,
+          label: current.isChecked
+              ? 'Update checked result'
+              : 'Mark as checked',
+          onPressed: widget.controller.busy || !canSave
+              ? null
+              : () => _saveAndConfirm(
+                  rubric
+                      ? () => widget.controller.saveTeacherActivityRubricReview(
+                          attempt: current,
+                          assignment: widget.assignment,
+                          criterionScores: rubricParse!.scores,
+                          feedback: _feedback.text,
+                        )
+                      : () => widget.controller.saveReview(
+                          attempt: current,
+                          assignment: widget.assignment,
+                          gradeScore: parsedGrade!,
+                          feedback: _feedback.text,
+                        ),
+                ),
+        ),
+      );
+      if (!current.isChecked && hasNext) {
+        buttons.add(
+          ElixPrimaryButton(
+            key: Key(
+              rubric
+                  ? 'teacher_classwork_save_next_rubric_review'
+                  : 'teacher_classwork_save_next_review',
+            ),
+            expanded: false,
+            variant: ElixButtonVariant.outline,
+            label: 'Save & Next',
+            onPressed: widget.controller.busy || !canSave
+                ? null
+                : () => _saveAndConfirm(
+                    rubric
+                        ? () => widget.controller
+                              .saveTeacherActivityRubricReviewAndNext(
+                                attempt: current,
+                                assignment: widget.assignment,
+                                criterionScores: rubricParse!.scores,
+                                feedback: _feedback.text,
+                              )
+                        : () => widget.controller.saveReviewAndNext(
+                            attempt: current,
+                            assignment: widget.assignment,
+                            gradeScore: parsedGrade!,
+                            feedback: _feedback.text,
+                          ),
+                  ),
+          ),
+        );
+      }
+      if (current.isChecked && !current.resultSentForCurrentRevision) {
+        buttons.add(
+          ElixPrimaryButton(
+            key: const Key('teacher_classwork_retry_result'),
+            expanded: false,
+            variant: ElixButtonVariant.outline,
+            label: 'Retry notification',
+            onPressed: widget.controller.busy
+                ? null
+                : () => widget.controller.sendReviewResult(
+                    attempt: current,
+                    assignment: widget.assignment,
+                  ),
+          ),
+        );
+      }
+    }
+    if (legacySubmitted) {
+      buttons.add(
+        ElixPrimaryButton(
+          label: 'Approve legacy review',
+          expanded: false,
+          onPressed: widget.controller.busy
+              ? null
+              : () => widget.controller.reviewLegacy(
+                  attempt: current,
+                  verdict: AssignmentReviewVerdict.approved,
+                  feedback: _feedback.text,
+                ),
+        ),
+      );
+    }
+    if (buttons.isEmpty) return null;
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: buttons,
     );
   }
 
@@ -1597,8 +1939,8 @@ class _TeacherSubmissionReviewDetailState
             key: const Key('teacher_classwork_feedback'),
             controller: _feedback,
             maxLength: 1000,
-            minLines: widget.desktopReview ? 5 : 3,
-            maxLines: widget.desktopReview ? 8 : 4,
+            minLines: 3,
+            maxLines: 4,
             placeholder: 'Feedback for the student',
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -1736,8 +2078,8 @@ class _TeacherSubmissionReviewDetailState
             key: const Key('teacher_classwork_feedback'),
             controller: _feedback,
             maxLength: 1000,
-            minLines: widget.desktopReview ? 5 : 3,
-            maxLines: widget.desktopReview ? 8 : 4,
+            minLines: 3,
+            maxLines: 4,
             placeholder: 'Feedback for the student',
           ),
           const SizedBox(height: AppSpacing.sm),

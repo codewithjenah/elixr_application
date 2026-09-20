@@ -474,7 +474,7 @@ void main() {
       final detailsSize = tester.getSize(
         find.byKey(const Key('submission_desktop_review_details')),
       );
-      expect(detailsSize.width, inInclusiveRange(360, 420));
+      expect(detailsSize.width, inInclusiveRange(380, 520));
     },
   );
 
@@ -539,6 +539,101 @@ void main() {
     },
   );
 
+  testWidgets('bounded desktop review pins grading actions without scrolling', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.light,
+        home: ScaffoldPage(
+          content: SizedBox(
+            width: 1248,
+            height: 768,
+            child: SubmissionDetailBody(
+              assignment: _teacherAssignment(),
+              attempt: _submittedClip(),
+              viewerRole: SubmissionDetailViewerRole.teacher,
+              presentation: SubmissionDetailPresentation.teacherDesktopReview,
+              openLocalPlayback: (_) async => null,
+              reviewPanel: const Text('Rubric controls'),
+              reviewActions: const SizedBox(
+                height: 40,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Mark as checked'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const Key('submission_desktop_two_column')),
+      findsOneWidget,
+    );
+    final actions = find.text('Mark as checked');
+    expect(actions, findsOneWidget);
+    // Visible without ensureVisible or manual scrolling.
+    expect(tester.getRect(actions).bottom, lessThanOrEqualTo(800));
+  });
+
+  testWidgets(
+    'teacher desktop review tolerates 1.25 text scaling without overflow',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.light,
+          home: ScaffoldPage(
+            content: MediaQuery(
+              data: const MediaQueryData(textScaler: TextScaler.linear(1.25)),
+              child: SizedBox(
+                width: 1248,
+                height: 768,
+                child: SubmissionDetailBody(
+                  assignment: _teacherAssignment(),
+                  attempt: _approvedExpired(feedback: 'Great control.'),
+                  viewerRole: SubmissionDetailViewerRole.teacher,
+                  presentation:
+                      SubmissionDetailPresentation.teacherDesktopReview,
+                  reviewPanel: const Text('Review actions'),
+                  reviewActions: const SizedBox(
+                    height: 40,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Mark as checked'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.byKey(const Key('submission_desktop_two_column')),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('stacked teacher desktop review scrolls inside a short pane', (
     tester,
   ) async {
@@ -578,7 +673,7 @@ void main() {
     expect(tester.takeException(), isNull);
     final stackedScroll = find.byKey(const Key('submission_desktop_stacked'));
     expect(stackedScroll, findsOneWidget);
-    await tester.drag(stackedScroll, const Offset(0, -800));
+    await tester.drag(stackedScroll, const Offset(0, -1200));
     await tester.pump();
 
     final scrollPosition = tester

@@ -514,7 +514,9 @@ void main() {
       'Strong control.',
     );
     final saveReview = find.byKey(const Key('teacher_classwork_save_review'));
-    await tester.ensureVisible(saveReview);
+    // The pinned grading footer keeps the primary action visible on a normal
+    // desktop viewport without ensureVisible or manual scrolling.
+    expect(tester.getRect(saveReview).bottom, lessThanOrEqualTo(720));
     await tester.tap(saveReview);
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 3600));
@@ -568,6 +570,111 @@ void main() {
       );
     }
   });
+
+  testWidgets(
+    'four-criterion rubric grading fits a 1280x800 desktop without scrolling',
+    (tester) async {
+      final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+      assignments.seedAssignment(
+        assignments.assignments['assignment']!.copyWith(
+          activityAssessment: assessment,
+          maxScore: assessment.rubric.maximumScore,
+        ),
+      );
+      assignments.seedAttempt(
+        AssignmentAttempt(
+          id: 'rubric-submission',
+          traineeId: 'student',
+          teacherId: 'teacher',
+          groupId: 'group',
+          assignmentId: 'assignment',
+          movementId: 'movement',
+          revisionId: 'revision',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+          status: AssignmentAttemptStatus.submitted,
+          submittedAt: DateTime.utc(2026, 9, 1),
+          activityAssessmentSnapshot: assessment,
+          assignmentConfigurationRevision: 1,
+        ),
+      );
+      await pumpPane(tester, const Size(1280, 800));
+      await tester.tap(
+        find.byKey(const Key('teacher_classwork_student_student')),
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+
+      expect(tester.takeException(), isNull);
+      for (final criterion in assessment.rubric.criteria) {
+        expect(
+          find.byKey(Key('teacher_classwork_criterion_${criterion.id}')),
+          findsOneWidget,
+        );
+      }
+      expect(
+        find.byKey(const Key('teacher_classwork_rubric_total')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_classwork_feedback')),
+        findsOneWidget,
+      );
+      final save = find.byKey(
+        const Key('teacher_classwork_save_rubric_review'),
+      );
+      expect(save, findsOneWidget);
+      expect(tester.getRect(save).bottom, lessThanOrEqualTo(800));
+    },
+  );
+
+  testWidgets(
+    'short 1280x520 desktop keeps a bounded scroll fallback for grading',
+    (tester) async {
+      final assessment = TeacherActivityAssessmentConfig.newActivityDefaults();
+      assignments.seedAssignment(
+        assignments.assignments['assignment']!.copyWith(
+          activityAssessment: assessment,
+          maxScore: assessment.rubric.maximumScore,
+        ),
+      );
+      assignments.seedAttempt(
+        AssignmentAttempt(
+          id: 'rubric-submission',
+          traineeId: 'student',
+          teacherId: 'teacher',
+          groupId: 'group',
+          assignmentId: 'assignment',
+          movementId: 'movement',
+          revisionId: 'revision',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+          status: AssignmentAttemptStatus.submitted,
+          submittedAt: DateTime.utc(2026, 9, 1),
+          activityAssessmentSnapshot: assessment,
+          assignmentConfigurationRevision: 1,
+        ),
+      );
+      await pumpPane(tester, const Size(1280, 520));
+      await tester.tap(
+        find.byKey(const Key('teacher_classwork_student_student')),
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.byKey(const Key('submission_desktop_review_details_scroll')),
+        findsOneWidget,
+      );
+      // The pinned footer keeps the primary action reachable even here.
+      final save = find.byKey(
+        const Key('teacher_classwork_save_rubric_review'),
+      );
+      expect(save, findsOneWidget);
+      expect(tester.getRect(save).bottom, lessThanOrEqualTo(520));
+    },
+  );
 
   testWidgets('checked work shows its saved scoring criteria read-only', (
     tester,

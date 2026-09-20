@@ -41,6 +41,7 @@ class SubmissionDetailBody extends StatefulWidget {
     this.releaseLocalPlayback,
     this.presentation = SubmissionDetailPresentation.standard,
     this.reviewPanel,
+    this.reviewActions,
   });
 
   final GroupAssignment assignment;
@@ -52,6 +53,10 @@ class SubmissionDetailBody extends StatefulWidget {
   final Future<void> Function()? releaseLocalPlayback;
   final SubmissionDetailPresentation presentation;
   final Widget? reviewPanel;
+
+  /// Desktop teacher review only: primary grading actions pinned to the
+  /// bottom of the grading card so they stay visible without scrolling.
+  final Widget? reviewActions;
 
   @override
   State<SubmissionDetailBody> createState() => _SubmissionDetailBodyState();
@@ -224,10 +229,13 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
 
   @override
   Widget build(BuildContext context) {
+    // The teacher desktop review composes its own two-panel surfaces; an
+    // additional outer card would read as one giant flat container.
+    if (_usesTeacherDesktopReview) {
+      return _buildTeacherDesktopReview(context);
+    }
     return ElixPanelCard(
-      child: _usesTeacherDesktopReview
-          ? _buildTeacherDesktopReview(context)
-          : _isTeacherDesktopWorkspace
+      child: _isTeacherDesktopWorkspace
           ? SingleChildScrollView(
               key: const Key('submission_desktop_standard_scroll'),
               child: _buildStandardPresentation(context),
@@ -241,7 +249,7 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (_isTeacherReviewedAttempt) ...[
-          _buildTeacherReviewedMedia(context, useAspectRatio: false),
+          _buildTeacherReviewedMedia(context),
           const SizedBox(height: AppSpacing.md),
         ],
         if (_isOfficialAttempt) ...[
@@ -278,35 +286,31 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   Widget _buildTeacherDesktopReview(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // The desktop review pane is a fixed workspace. Bound the inline
-        // preview to the remaining viewport height; the player exposes its
-        // own fullscreen control when a larger view is needed.
-        final maxPreviewHeight = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight - 40).clamp(0.0, double.infinity)
-            : null;
-        final media = _buildTeacherReviewedMedia(
+        final bounded = constraints.maxHeight.isFinite;
+        final wide = constraints.maxWidth >= 900;
+        final media = _buildTeacherReviewMediaCard(
           context,
-          useAspectRatio: true,
-          maxPreviewHeight: maxPreviewHeight,
+          bounded: bounded && wide,
         );
-        final details = _buildTeacherReviewDetails();
-        if (constraints.maxWidth >= 900) {
-          final detailsWidth = (constraints.maxWidth * .3)
-              .clamp(360.0, 420.0)
+        final grading = _buildTeacherGradingCard(
+          context,
+          bounded: bounded && wide,
+        );
+        if (wide) {
+          // Responsive grading column: wide enough for comfortable scoring
+          // controls while the video remains the dominant surface.
+          final gradingWidth = (constraints.maxWidth * .38)
+              .clamp(420.0, 520.0)
               .toDouble();
           return Row(
             key: const Key('submission_desktop_two_column'),
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: bounded
+                ? CrossAxisAlignment.stretch
+                : CrossAxisAlignment.start,
             children: [
               Expanded(child: media),
               const SizedBox(width: AppSpacing.lg),
-              SizedBox(
-                width: detailsWidth,
-                child: SingleChildScrollView(
-                  key: const Key('submission_desktop_review_details_scroll'),
-                  child: details,
-                ),
-              ),
+              SizedBox(width: gradingWidth, child: grading),
             ],
           );
         }
@@ -317,7 +321,7 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
             children: [
               media,
               const SizedBox(height: AppSpacing.md),
-              details,
+              grading,
             ],
           ),
         );
@@ -325,11 +329,131 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
     );
   }
 
-  Widget _buildTeacherReviewedMedia(
+  /// Left primary surface: the submission clip dominates the card.
+  Widget _buildTeacherReviewMediaCard(
     BuildContext context, {
-    required bool useAspectRatio,
-    double? maxPreviewHeight,
+    required bool bounded,
   }) {
+    final preview = _TeacherReviewedSection.video(
+      context: context,
+      clipBytesGone: _clipBytesGone,
+      shouldOfferPlayback: _shouldOfferPlayback,
+      playable: _playable,
+      playableError: _playableError,
+      playbackSession: _playbackSession,
+      onRetry: _loadForAttempt,
+    );
+    final player = AspectRatio(
+      key: const Key('submission_clip_preview'),
+      aspectRatio: 4 / 3,
+      child: preview,
+    );
+    return ElixPanelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('Submission clip', style: AppTheme.headingMedium),
+              ),
+              if (attempt.videoDurationMs != null)
+                Text(
+                  'Duration '
+                  '${formatSubmissionDurationMs(attempt.videoDurationMs!)}',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.smPlus),
+          if (bounded)
+            // Bounded desktop workspace: letterbox the 4:3 preview inside the
+            // remaining card height; fullscreen stays available in-player.
+            Expanded(child: Center(child: player))
+          else
+            player,
+        ],
+      ),
+    );
+  }
+
+  /// Right primary surface: grading controls or the read-only result, with
+  /// primary actions pinned to the bottom when the workspace is bounded.
+  Widget _buildTeacherGradingCard(
+    BuildContext context, {
+    required bool bounded,
+  }) {
+    final awaitingGrade = attempt.status == AssignmentAttemptStatus.submitted;
+    final reviewed =
+        attempt.status == AssignmentAttemptStatus.approved ||
+        attempt.status == AssignmentAttemptStatus.needsRetry;
+    final hasResult = reviewed || attempt.isChecked;
+    final showResubmissionPill =
+        attempt.supersedesAttemptId != null &&
+        !attempt.isCanonicalTeacherReviewSubmission;
+    // The selected-student header already carries the status pill and the
+    // submitted timestamp; the grading card must not repeat them.
+    final middle = Column(
+      key: const Key('submission_desktop_review_details'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (hasResult)
+          _TeacherReviewedSection(
+            attempt: attempt,
+            viewerRole: widget.viewerRole,
+            includeSubmissionMetadata: false,
+          ),
+        if (widget.reviewPanel != null) ...[
+          if (hasResult) const SizedBox(height: AppSpacing.md),
+          widget.reviewPanel!,
+        ],
+      ],
+    );
+    final actions = widget.reviewActions;
+    return ElixPanelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  awaitingGrade ? 'Grade submission' : 'Review result',
+                  style: AppTheme.headingMedium,
+                ),
+              ),
+              if (showResubmissionPill)
+                const ElixPill(
+                  text: 'Resubmission',
+                  color: AppColors.accent,
+                  compact: true,
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.smPlus),
+          if (bounded)
+            Expanded(
+              child: SingleChildScrollView(
+                key: const Key('submission_desktop_review_details_scroll'),
+                child: middle,
+              ),
+            )
+          else
+            middle,
+          if (actions != null) ...[
+            const SizedBox(height: AppSpacing.smPlus),
+            Container(height: 1, color: context.elixBorder),
+            const SizedBox(height: AppSpacing.smPlus),
+            actions,
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTeacherReviewedMedia(BuildContext context) {
     final preview = _TeacherReviewedSection.video(
       context: context,
       clipBytesGone: _clipBytesGone,
@@ -349,42 +473,11 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
           style: AppTheme.headingMedium,
         ),
         const SizedBox(height: AppSpacing.sm),
-        if (useAspectRatio)
-          ConstrainedBox(
-            constraints: maxPreviewHeight == null
-                ? const BoxConstraints()
-                : BoxConstraints(maxHeight: maxPreviewHeight),
-            child: AspectRatio(
-              key: const Key('submission_clip_preview'),
-              aspectRatio: 4 / 3,
-              child: preview,
-            ),
-          )
-        else
-          SizedBox(
-            key: const Key('submission_clip_preview'),
-            height: 240,
-            child: preview,
-          ),
-      ],
-    );
-  }
-
-  Widget _buildTeacherReviewDetails() {
-    return Column(
-      key: const Key('submission_desktop_review_details'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildStatusPills(),
-        const SizedBox(height: AppSpacing.md),
-        _TeacherReviewedSection(
-          attempt: attempt,
-          viewerRole: widget.viewerRole,
+        SizedBox(
+          key: const Key('submission_clip_preview'),
+          height: 240,
+          child: preview,
         ),
-        if (widget.reviewPanel != null) ...[
-          const SizedBox(height: AppSpacing.md),
-          widget.reviewPanel!,
-        ],
       ],
     );
   }
@@ -505,10 +598,16 @@ class _TeacherReviewedSection extends StatelessWidget {
   const _TeacherReviewedSection({
     required this.attempt,
     required this.viewerRole,
+    this.includeSubmissionMetadata = true,
   });
 
   final AssignmentAttempt attempt;
   final SubmissionDetailViewerRole viewerRole;
+
+  /// When false, the submitted timestamp and recording duration lines are
+  /// omitted. The teacher desktop workspace already surfaces them in the
+  /// selected-student header and the video card header.
+  final bool includeSubmissionMetadata;
 
   static Widget video({
     required BuildContext context,
@@ -591,18 +690,26 @@ class _TeacherReviewedSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (attempt.submittedAt != null)
-          Text(
-            'Submitted ${formatSubmissionTimestamp(attempt.submittedAt!)}',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-        if (attempt.videoDurationMs != null)
-          Text(
-            'Recording duration ${formatSubmissionDurationMs(attempt.videoDurationMs!)}',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
+        if (includeSubmissionMetadata) ...[
+          if (attempt.submittedAt != null)
+            Text(
+              'Submitted ${formatSubmissionTimestamp(attempt.submittedAt!)}',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          if (attempt.videoDurationMs != null)
+            Text(
+              'Recording duration ${formatSubmissionDurationMs(attempt.videoDurationMs!)}',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+        ],
         if (reviewed) ...[
-          const SizedBox(height: AppSpacing.md),
+          if (includeSubmissionMetadata &&
+              (attempt.submittedAt != null || attempt.videoDurationMs != null))
+            const SizedBox(height: AppSpacing.md),
           Text('$reviewLabel: ${_verdictLabel(attempt)}', style: AppTheme.body),
           if (attempt.reviewedAt != null)
             Text(
@@ -621,7 +728,9 @@ class _TeacherReviewedSection extends StatelessWidget {
           ],
         ],
         if (checked) ...[
-          const SizedBox(height: AppSpacing.md),
+          if (includeSubmissionMetadata &&
+              (attempt.submittedAt != null || attempt.videoDurationMs != null))
+            const SizedBox(height: AppSpacing.md),
           if (hasCriterionBreakdown)
             ScoringCriteriaBreakdown(
               assessment: assessment,
