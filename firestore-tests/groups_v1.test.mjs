@@ -612,11 +612,21 @@ describe('group memberships', () => {
       MEMBERSHIP_ID,
     );
     await approveMembership();
-    await assertSucceeds(
+    await assertFails(
       updateDoc(teacherMembership, {
         status: 'removed',
         updated_at: serverTimestamp(),
       }),
+    );
+    const teacher = context('teacher').firestore();
+    const batch = writeBatch(teacher);
+    batch.update(doc(teacher, 'group_memberships', MEMBERSHIP_ID), {
+      status: 'removed',
+      updated_at: serverTimestamp(),
+    });
+    batch.delete(doc(teacher, 'classroom_teacher_access', 'teacher_trainee'));
+    await assertSucceeds(
+      batch.commit(),
     );
   });
 

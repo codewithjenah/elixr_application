@@ -2303,6 +2303,14 @@ service cloud.firestore {
         && getAfter(contextRef).data.updated_at == request.time;
     }
 
+    function classroomAccessContextRemovedAfterMembership(data) {
+      let contextRef = classroomTeacherAccessPath(
+        data.teacher_id,
+        data.trainee_id
+      );
+      return !existsAfter(contextRef);
+    }
+
     function validMembershipUpdateShape(data) {
       return data.keys().hasOnly(membershipAllowedKeys())
         && data.keys().hasAll(membershipKeys())
@@ -2319,7 +2327,8 @@ service cloud.firestore {
             && linkIdentitySnapshotsUnchanged())
           || (resource.data.status == 'approved'
             && request.resource.data.status == 'removed'
-            && linkIdentitySnapshotsUnchanged())
+            && linkIdentitySnapshotsUnchanged()
+            && classroomAccessContextRemovedAfterMembership(resource.data))
           || (resource.data.status != 'approved'
             && (resource.data.status != 'pending'
               || resource.data.get('request_version', 0) != 1)
@@ -2355,7 +2364,8 @@ service cloud.firestore {
         && resource.data.status == 'approved'
         && request.resource.data.status == 'removed'
         && membershipParticipantsUnchanged()
-        && linkIdentitySnapshotsUnchanged();
+        && linkIdentitySnapshotsUnchanged()
+        && classroomAccessContextRemovedAfterMembership(resource.data);
     }
 
     match /groups/{groupId} {

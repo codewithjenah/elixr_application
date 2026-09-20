@@ -108,7 +108,9 @@ abstract class GroupRepository {
 
   /// Idempotently prepares the protected-read pointer for an approved
   /// Teacher/Trainee classroom relationship. Implementations must validate the
-  /// current membership before writing the pointer.
+  /// current membership before writing the pointer. Removing an approved
+  /// membership must delete this pointer in the same atomic operation because
+  /// Firebase Storage rules use it as their classroom authorization anchor.
   Future<void> prepareClassroomAccessContext({
     required String teacherId,
     required String traineeId,
@@ -131,6 +133,7 @@ abstract class GroupRepository {
     required String teacherId,
   });
 
+  /// Removes an approved membership and its protected-read pointer atomically.
   Future<void> removeMembership({
     required String membershipId,
     required String teacherId,
@@ -144,7 +147,8 @@ abstract class GroupRepository {
   /// Lets an approved Trainee leave their own class membership.
   ///
   /// The membership is retained as `removed` so the Trainee can request to
-  /// join again later using a current class code.
+  /// join again later using a current class code. Its protected-read pointer
+  /// is deleted atomically with the status transition.
   Future<void> leaveMembership({
     required String membershipId,
     required String traineeId,

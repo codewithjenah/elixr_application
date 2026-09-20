@@ -603,6 +603,14 @@ class InMemoryGroupRepository implements GroupRepository {
       throw const GroupException(GroupError.notFound);
     }
     memberships[membershipId] = membership.copyWith(status: to, updatedAt: now);
+    if (to == GroupMembershipStatus.removed) {
+      classroomAccessContexts.remove(
+        ClassroomTeacherAccessContext.documentId(
+          teacherId: membership.teacherId,
+          traineeId: membership.traineeId,
+        ),
+      );
+    }
     _emitMemberships();
   }
 

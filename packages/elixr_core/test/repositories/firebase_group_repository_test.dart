@@ -212,6 +212,39 @@ void main() {
     },
   );
 
+  test('removing an approved membership deletes its access context', () async {
+    await _seedMembership(
+      firestore,
+      status: GroupMembershipStatus.pending,
+      createdAt: originalCreatedAt,
+    );
+    await repository.approveMembership(
+      membershipId: membershipId,
+      teacherId: teacherId,
+    );
+
+    await repository.removeMembership(
+      membershipId: membershipId,
+      teacherId: teacherId,
+    );
+
+    final membership = await firestore
+        .collection(FirestoreCollections.groupMemberships)
+        .doc(membershipId)
+        .get();
+    final context = await firestore
+        .collection(FirestoreCollections.classroomTeacherAccess)
+        .doc(
+          ClassroomTeacherAccessContext.documentId(
+            teacherId: teacherId,
+            traineeId: traineeId,
+          ),
+        )
+        .get();
+    expect(membership.data()?['status'], GroupMembershipStatus.removed.name);
+    expect(context.exists, isFalse);
+  });
+
   test(
     'own-membership lookup does not confuse another group membership',
     () async {

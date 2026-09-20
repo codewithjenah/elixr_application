@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { deleteDoc, doc, getDoc, setDoc, Timestamp, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, setDoc, Timestamp, updateDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { deleteObject, getBytes, ref, updateMetadata, uploadBytes } from 'firebase/storage';
 
 const PROJECT_ID = 'demo-elixr';
@@ -315,14 +315,17 @@ describe('assignment_submissions Storage', () => {
     );
   });
 
-  test('removed classroom membership invalidates a saved-image read', async () => {
+  test('atomic classroom membership removal invalidates a saved-image read', async () => {
     await seedClassroomEvidence();
     await uploadSavedImage();
-    await testEnv.withSecurityRulesDisabled(async (admin) => {
-      await setDoc(doc(admin.firestore(), 'group_memberships', `${GROUP_ID}_trainee`), {
-        status: 'removed',
-      }, { merge: true });
+    const teacher = context('teacher').firestore();
+    const batch = writeBatch(teacher);
+    batch.update(doc(teacher, 'group_memberships', `${GROUP_ID}_trainee`), {
+      status: 'removed',
+      updated_at: serverTimestamp(),
     });
+    batch.delete(doc(teacher, 'classroom_teacher_access', 'teacher_trainee'));
+    await assertSucceeds(batch.commit());
     await assertFails(
       getBytes(
         ref(context('teacher').storage(), 'users/trainee/session_evidence/session-1.jpg'),
@@ -333,15 +336,16 @@ describe('assignment_submissions Storage', () => {
   test('unrelated Teacher cannot use a classroom context for another owner', async () => {
     await seedClassroomEvidence();
     await uploadSavedImage();
-    await testEnv.withSecurityRulesDisabled(async (admin) => {
-      await setDoc(doc(admin.firestore(), 'classroom_teacher_access', 'other_trainee'), {
+    const other = context('other').firestore();
+    await assertFails(
+      setDoc(doc(other, 'classroom_teacher_access', 'other_trainee'), {
         teacher_id: 'other',
         trainee_id: 'trainee',
         group_id: GROUP_ID,
         schema_version: 1,
-        updated_at: Timestamp.now(),
-      });
-    });
+        updated_at: serverTimestamp(),
+      }),
+    );
     await assertFails(
       getBytes(
         ref(context('other').storage(), 'users/trainee/session_evidence/session-1.jpg'),

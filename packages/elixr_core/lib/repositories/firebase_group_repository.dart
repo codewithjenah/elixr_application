@@ -646,11 +646,10 @@ class FirebaseGroupRepository implements GroupRepository {
   Future<void> removeMembership({
     required String membershipId,
     required String teacherId,
-  }) => _updateStatus(
+  }) => _removeApprovedMembership(
     membershipId: membershipId,
-    teacherId: teacherId,
-    from: GroupMembershipStatus.approved,
-    to: GroupMembershipStatus.removed,
+    participantId: teacherId,
+    teacherOwned: true,
   );
 
   @override
@@ -681,23 +680,45 @@ class FirebaseGroupRepository implements GroupRepository {
   Future<void> leaveMembership({
     required String membershipId,
     required String traineeId,
+  }) => _removeApprovedMembership(
+    membershipId: membershipId,
+    participantId: traineeId,
+    teacherOwned: false,
+  );
+
+  Future<void> _removeApprovedMembership({
+    required String membershipId,
+    required String participantId,
+    required bool teacherOwned,
   }) async {
-    final ref = _memberships.doc(membershipId);
-    final snapshot = await ref.get();
-    final membership = snapshot.exists
-        ? GroupMembership.tryFromMap(
-            snapshot.data() ?? const {},
-            id: membershipId,
-          )
-        : null;
-    if (membership == null ||
-        membership.traineeId != traineeId ||
-        membership.status != GroupMembershipStatus.approved) {
-      throw const GroupException(GroupError.notFound);
-    }
-    await ref.update({
-      'status': GroupMembershipStatus.removed.name,
-      'updated_at': FieldValue.serverTimestamp(),
+    final membershipRef = _memberships.doc(membershipId);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(membershipRef);
+      final membership = snapshot.exists
+          ? GroupMembership.tryFromMap(
+              snapshot.data() ?? const {},
+              id: membershipId,
+            )
+          : null;
+      final matches = teacherOwned
+          ? membership?.teacherId == participantId
+          : membership?.traineeId == participantId;
+      if (membership == null ||
+          !matches ||
+          membership.status != GroupMembershipStatus.approved) {
+        throw const GroupException(GroupError.notFound);
+      }
+      final contextRef = _classroomAccess.doc(
+        ClassroomTeacherAccessContext.documentId(
+          teacherId: membership.teacherId,
+          traineeId: membership.traineeId,
+        ),
+      );
+      transaction.update(membershipRef, {
+        'status': GroupMembershipStatus.removed.name,
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+      transaction.delete(contextRef);
     });
   }
 

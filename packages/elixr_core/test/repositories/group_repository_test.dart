@@ -103,6 +103,20 @@ void main() {
       expect(context?.traineeId, 'trainee-1');
       expect(context?.groupId, group.id);
 
+      await groupRepository.removeMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+      expect(
+        groupRepository.classroomAccessContexts.containsKey(
+          ClassroomTeacherAccessContext.documentId(
+            teacherId: 'teacher-1',
+            traineeId: 'trainee-1',
+          ),
+        ),
+        isFalse,
+      );
+
       expect(relationshipRepository.links, isEmpty);
     },
   );
