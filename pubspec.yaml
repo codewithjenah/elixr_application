@@ -51,12 +51,17 @@ dependencies:
   path_provider: ^2.1.5
   file_selector: ^1.0.3
   url_launcher: ^6.3.2
-  excel: ^4.0.6
+  # The maintained upstream 5.0.0 source supports archive 4 required by
+  # pdfrx_engine; the latest published 4.0.6 release is archive-3-only.
+  excel:
+    git:
+      url: https://github.com/justkawal/excel.git
+      ref: 751dfc597c893a0b34eccfe6921f126e03a5c683
   video_player_win: ^3.2.2
   # Windows-compatible in-app PDF rendering for trainee learning materials.
-  # 2.4.5 supports the repository's Flutter 3.44 / Dart 3.12 toolchain and
-  # its existing `excel` dependency's archive constraint.
-  pdfrx: ^2.4.5
+  # 2.4.8 resolves the nullable PdfFileCache compiler error from the older
+  # pdfrx_engine release while remaining compatible with this app's Dart SDK.
+  pdfrx: ^2.4.8
   elixr_core:
     path: packages/elixr_core
 

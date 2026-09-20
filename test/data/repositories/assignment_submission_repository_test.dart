@@ -14,10 +14,32 @@ import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
-import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
-import 'package:elixr_core/models/elixr_group.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+GroupAssignment _legacyTeacherAssignment(
+  InMemoryClassroomAssignmentRepository assignments,
+) {
+  // These Phase 6 tests cover the pre-Activity teacher-review API. New
+  // teacher-created movements intentionally default to Teacher Activity v2.
+  const assignment = GroupAssignment(
+    id: 'legacy-assignment',
+    teacherId: 'teacher-1',
+    groupId: 'g1',
+    movementId: 'tm1',
+    revisionId: 'tm1_v1',
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.teacherReviewed,
+    status: GroupAssignmentStatus.active,
+    displayTitle: 'Tin Balance',
+    teacherDisplayName: 'Grace Hopper',
+    groupName: 'BSHM 4A',
+    allowedProp: TrainingProp.bottle,
+    maxScore: 100,
+  );
+  assignments.seedAssignment(assignment);
+  return assignment;
+}
 
 void main() {
   test('submitLocalClip never awards XP and uses a new attempt', () async {
@@ -26,33 +48,7 @@ void main() {
       generateId: () => 'asg1',
     );
     addTearDown(assignments.dispose);
-    final movements = InMemoryTeacherMovementRepository(
-      now: () => DateTime.utc(2026, 8, 20),
-      generateId: () => 'tm1',
-    );
-    addTearDown(movements.dispose);
-    final movement = await movements.createMovement(
-      teacherId: 'teacher-1',
-      title: 'Tin Balance',
-      instructions: 'Hold the tin.',
-      requiredProp: TrainingProp.bottle,
-    );
-    final revision = (await movements.getRevision(
-      movementId: movement.id,
-      revisionId: movement.currentRevisionId,
-    ))!;
-    final assignment = await assignments.createTeacherCreatedAssignment(
-      teacherId: 'teacher-1',
-      teacherDisplayName: 'Grace Hopper',
-      group: const ElixrGroup(
-        id: 'g1',
-        teacherId: 'teacher-1',
-        name: 'BSHM 4A',
-        status: ElixrGroupStatus.active,
-      ),
-      movement: movement,
-      revision: revision,
-    );
+    final assignment = _legacyTeacherAssignment(assignments);
     final deleted = <String>{};
     final submissions = InMemoryAssignmentSubmissionRepository(
       classroom: assignments,
@@ -94,35 +90,7 @@ void main() {
 
   Future<GroupAssignment> teacherAssignment(
     InMemoryClassroomAssignmentRepository assignments,
-  ) async {
-    final movements = InMemoryTeacherMovementRepository(
-      now: () => DateTime.utc(2026, 8, 20),
-      generateId: () => 'tm1',
-    );
-    addTearDown(movements.dispose);
-    final movement = await movements.createMovement(
-      teacherId: 'teacher-1',
-      title: 'Tin Balance',
-      instructions: 'Hold the tin.',
-      requiredProp: TrainingProp.bottle,
-    );
-    final revision = (await movements.getRevision(
-      movementId: movement.id,
-      revisionId: movement.currentRevisionId,
-    ))!;
-    return assignments.createTeacherCreatedAssignment(
-      teacherId: 'teacher-1',
-      teacherDisplayName: 'Grace Hopper',
-      group: const ElixrGroup(
-        id: 'g1',
-        teacherId: 'teacher-1',
-        name: 'BSHM 4A',
-        status: ElixrGroupStatus.active,
-      ),
-      movement: movement,
-      revision: revision,
-    );
-  }
+  ) async => _legacyTeacherAssignment(assignments);
 
   test(
     'canonical upload reuses one submission document across retry and unsubmit',

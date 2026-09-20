@@ -225,6 +225,57 @@ void main() {
   );
 
   test(
+    'uploaded Activity candidates stay private until explicit Turn In selects one',
+    () async {
+      Future<AssignmentAttempt> completeCandidate(String requestId) async {
+        final reserved = await reserve(requestId);
+        await classroom.consumeTeacherActivityAttempt(
+          traineeId: 'trainee-1',
+          attempt: reserved,
+        );
+        return classroom.markTeacherReviewSubmitted(
+          traineeId: 'trainee-1',
+          attempt: reserved,
+          videoStoragePath:
+              'assignment_submissions/teacher-1/g1/activity-1/trainee-1/${reserved.id}.mp4',
+          videoContentType: 'video/mp4',
+          videoSizeBytes: 1024,
+          videoDurationMs: 1000,
+          submittedAt: DateTime.utc(2026, 9, 8, 12),
+          videoExpiresAt: DateTime.utc(2026, 9, 15, 12),
+        );
+      }
+
+      final first = await completeCandidate('activity-candidate-1');
+      final second = await completeCandidate('activity-candidate-2');
+
+      expect(first.status, AssignmentAttemptStatus.inProgress);
+      expect(first.hasAttachedDraftClip, isTrue);
+      expect(second.status, AssignmentAttemptStatus.inProgress);
+
+      final firstTurnedIn = await classroom.turnInAssignmentAttempt(
+        traineeId: 'trainee-1',
+        attempt: first,
+      );
+      expect(firstTurnedIn.status, AssignmentAttemptStatus.submitted);
+      expect(
+        classroom.attempts[second.id]?.status,
+        AssignmentAttemptStatus.inProgress,
+      );
+
+      final secondTurnedIn = await classroom.turnInAssignmentAttempt(
+        traineeId: 'trainee-1',
+        attempt: second,
+      );
+      expect(secondTurnedIn.status, AssignmentAttemptStatus.submitted);
+      expect(
+        classroom.attempts[first.id]?.status,
+        AssignmentAttemptStatus.inProgress,
+      );
+    },
+  );
+
+  test(
     'a third Activity attempt remains available when policy permits',
     () async {
       final threeAttemptAssignment = _assignment.copyWith(

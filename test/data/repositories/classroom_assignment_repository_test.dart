@@ -35,6 +35,25 @@ TeacherActivityAssessmentConfig _activityAssessment({int maximumScore = 50}) =>
       recordingDurationSeconds: 45,
     );
 
+GroupAssignment _legacyTeacherAssignment({
+  String id = 'legacy-assignment',
+  int maxScore = 100,
+}) => GroupAssignment(
+  id: id,
+  teacherId: 'teacher-1',
+  groupId: 'g1',
+  movementId: 'tm1',
+  revisionId: 'tm1_v1',
+  origin: MovementOrigin.teacherCreated,
+  assessmentMode: AssessmentMode.teacherReviewed,
+  status: GroupAssignmentStatus.active,
+  displayTitle: 'Tin Balance',
+  teacherDisplayName: 'Grace Hopper',
+  groupName: 'BSHM 4A',
+  allowedProp: TrainingProp.bottle,
+  maxScore: maxScore,
+);
+
 void main() {
   late InMemoryClassroomAssignmentRepository assignments;
   late InMemoryTeacherMovementRepository movements;
@@ -1065,23 +1084,9 @@ void main() {
   test(
     'video submission is a new attempt and retry does not rewrite history',
     () async {
-      final movement = await movements.createMovement(
-        teacherId: 'teacher-1',
-        title: 'Tin Balance',
-        instructions: 'First.',
-        requiredProp: TrainingProp.bottle,
-      );
-      final revision = (await movements.getRevision(
-        movementId: movement.id,
-        revisionId: movement.currentRevisionId,
-      ))!;
-      final assignment = await assignments.createTeacherCreatedAssignment(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
-        group: _group(),
-        movement: movement,
-        revision: revision,
-      );
+      // This covers the pre-Activity teacher-review submission lifecycle.
+      final assignment = _legacyTeacherAssignment();
+      assignments.seedAssignment(assignment);
       final draft = await assignments.createTeacherReviewSubmissionDraft(
         traineeId: 'trainee-1',
         assignment: assignment,
@@ -1232,24 +1237,9 @@ void main() {
   test(
     'canonical submission can be withdrawn, checked, revised, and sent once per revision',
     () async {
-      final movement = await movements.createMovement(
-        teacherId: 'teacher-1',
-        title: 'Tin Balance',
-        instructions: 'First.',
-        requiredProp: TrainingProp.bottle,
-      );
-      final revision = (await movements.getRevision(
-        movementId: movement.id,
-        revisionId: movement.currentRevisionId,
-      ))!;
-      var assignment = await assignments.createTeacherCreatedAssignment(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
-        group: _group(),
-        movement: movement,
-        revision: revision,
-        maxScore: 80,
-      );
+      // This covers the pre-Activity canonical submission lifecycle.
+      var assignment = _legacyTeacherAssignment(maxScore: 80);
+      assignments.seedAssignment(assignment);
 
       final first = await assignments.getOrCreateTeacherReviewSubmission(
         traineeId: 'trainee-1',

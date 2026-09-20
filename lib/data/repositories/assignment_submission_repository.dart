@@ -41,8 +41,9 @@ abstract class AssignmentSubmissionRepository {
     required SubmissionRecordResult clip,
   });
 
-  /// Uploads and immediately submits a v2 clip against its already-reserved
-  /// authoritative attempt. Upload retries reuse [attempt].
+  /// Uploads a completed private v2 candidate against its already-reserved
+  /// authoritative attempt. Upload retries reuse [attempt]; explicit Turn In
+  /// controls when the candidate becomes teacher-facing.
   Future<AssignmentAttempt> submitTeacherActivityAttemptClip({
     required String traineeId,
     required GroupAssignment assignment,
