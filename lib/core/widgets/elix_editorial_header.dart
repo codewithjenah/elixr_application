@@ -19,6 +19,7 @@ class ElixEditorialPageHeader extends StatelessWidget {
     this.variant = ElixEditorialHeaderVariant.standard,
     this.commandBar,
     this.leading,
+    this.headingColor,
     this.actions = const [],
   });
 
@@ -28,6 +29,7 @@ class ElixEditorialPageHeader extends StatelessWidget {
   final ElixEditorialHeaderVariant variant;
   final CommandBar? commandBar;
   final Widget? leading;
+  final Color? headingColor;
   final List<Widget> actions;
 
   @override
@@ -38,6 +40,7 @@ class ElixEditorialPageHeader extends StatelessWidget {
       subtitle: subtitle,
       variant: variant,
       leading: leading,
+      headingColor: headingColor,
       actions: actions,
     ),
     commandBar: commandBar,

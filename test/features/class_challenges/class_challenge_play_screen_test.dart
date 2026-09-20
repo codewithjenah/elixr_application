@@ -39,7 +39,7 @@ class _FakeClassChallengeRepository implements ClassChallengeRepository {
 }
 
 void main() {
-  testWidgets('ready-up back button returns to the classroom Challenges tab', (
+  testWidgets('ready-up header stays readable and returns to Challenges', (
     tester,
   ) async {
     final now = DateTime.now().toUtc();
@@ -92,15 +92,29 @@ void main() {
           Provider<ClassChallengeRepository>.value(value: repository),
           ChangeNotifierProvider<AuthService>.value(value: auth),
         ],
-        child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        child: FluentApp.router(theme: AppTheme.light, routerConfig: router),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Body Grip Challenge'), findsOneWidget);
     expect(
+      tester.widget<Text>(find.text('Class Challenge')).style?.color,
+      Colors.white,
+    );
+    expect(
       find.bySemanticsLabel('Back to classroom challenges'),
       findsOneWidget,
+    );
+    final backButton = tester.widget<Button>(
+      find.descendant(
+        of: find.byKey(const Key('class_challenge_play_back')),
+        matching: find.byType(Button),
+      ),
+    );
+    expect(
+      backButton.style?.foregroundColor?.resolve(const <WidgetState>{}),
+      Colors.white,
     );
 
     await tester.tap(find.byKey(const Key('class_challenge_play_back')));

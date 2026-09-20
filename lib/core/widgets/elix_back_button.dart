@@ -16,12 +16,14 @@ class ElixBackButton extends StatelessWidget {
     this.label,
     this.tooltip = 'Back',
     this.semanticLabel,
+    this.foregroundColor,
   });
 
   final VoidCallback? onPressed;
   final String? label;
   final String tooltip;
   final String? semanticLabel;
+  final Color? foregroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +55,7 @@ class ElixBackButton extends StatelessWidget {
         }),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) return colors.disabledText;
+          if (foregroundColor != null) return foregroundColor;
           if (states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused)) {
             return highContrast ? colors.textPrimary : colors.brandPrimary;

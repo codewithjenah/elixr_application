@@ -307,14 +307,21 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
     heading: 'Class Challenge',
     eyebrow: 'READY UP',
     variant: ElixEditorialHeaderVariant.compact,
+    headingColor: _headerForegroundColor,
     leading: ElixBackButton(
       key: const Key('class_challenge_play_back'),
       label: 'Challenges',
       tooltip: 'Back to classroom challenges',
       semanticLabel: 'Back to classroom challenges',
+      foregroundColor: _headerForegroundColor,
       onPressed: _backToChallenges,
     ),
   );
+
+  Color? get _headerForegroundColor {
+    if (context.isDarkTheme || context.isHighContrast) return null;
+    return Colors.white;
+  }
 
   void _backToChallenges() {
     context.go(
