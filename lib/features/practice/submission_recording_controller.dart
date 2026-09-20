@@ -448,9 +448,8 @@ class SubmissionRecordingController extends ChangeNotifier {
     }
   }
 
-  /// Uploads and turns in a v2 Teacher Activity as one trainee action. The
-  /// underlying repository operations remain separate for compatibility with
-  /// the legacy private-draft flow.
+  /// Uploads a v2 Teacher Activity as a private candidate. The trainee chooses
+  /// which completed attempt to turn in from the assignment page.
   Future<void> _saveActivityClip() async {
     final current = clip;
     if (current == null) return;
@@ -471,7 +470,7 @@ class SubmissionRecordingController extends ChangeNotifier {
         clip: current,
       );
       latestSubmission = submitted;
-      phase = SubmissionRecordingPhase.submitted;
+      phase = SubmissionRecordingPhase.attached;
       await _discardLocalClip();
       if (_disposed) return;
       clip = null;

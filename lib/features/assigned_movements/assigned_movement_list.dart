@@ -1068,12 +1068,6 @@ bool canStartAssignedMovement(
     );
     final workflow = _latestTeacherActivityWorkflowAttempt(attempts);
     if (workflow?.status == AssignmentAttemptStatus.checked) return false;
-    if (attempts.any(
-      (candidate) =>
-          candidate.hasAttachedDraftClip || candidate.isDraftClipRemovalPending,
-    )) {
-      return false;
-    }
     final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
     final consumedAttempts = attempts
         .where(

@@ -237,14 +237,6 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
           return;
         }
         if (assignment.activityAssessment != null) {
-          if (current?.hasAttachedDraftClip == true) {
-            setState(() {
-              _loading = false;
-              _error =
-                  'Your Activity recording is waiting to be submitted. Open the Activity to retry sending it to your Teacher.';
-            });
-            return;
-          }
           try {
             reservedActivityAttempt =
                 await reserveTeacherActivityAttemptWithRecovery(

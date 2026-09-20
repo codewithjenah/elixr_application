@@ -244,11 +244,18 @@ class AssignmentAttempt {
       videoDeletedAt == null;
 
   bool get hasAttachedDraftClip =>
-      isCanonicalTeacherReviewSubmission &&
+      isTeacherReviewSubmission &&
       status == AssignmentAttemptStatus.inProgress &&
       draftSavedAt != null &&
       draftCleanupStartedAt == null &&
       hasPlayableVideo;
+
+  bool get isSelectableSubmissionCandidate =>
+      status == AssignmentAttemptStatus.inProgress &&
+      ((attemptKind == AssignmentAttemptKind.practicePointer &&
+              origin == MovementOrigin.officialElixr &&
+              rubric != null) ||
+          (activityAssessmentSnapshot != null && hasAttachedDraftClip));
 
   bool get isDraftClipRemovalPending =>
       isCanonicalTeacherReviewSubmission &&
@@ -349,6 +356,8 @@ class AssignmentAttempt {
     bool clearGrade = false,
     bool clearResultSent = false,
     bool clearDeletionFailedAt = false,
+    bool clearSubmittedAt = false,
+    bool clearVideoExpiresAt = false,
   }) {
     return AssignmentAttempt(
       id: id,
@@ -387,10 +396,10 @@ class AssignmentAttempt {
       draftCleanupStartedAt: clearVideoMetadata || clearDraftCleanupStartedAt
           ? null
           : (draftCleanupStartedAt ?? this.draftCleanupStartedAt),
-      submittedAt: clearVideoMetadata
+      submittedAt: clearVideoMetadata || clearSubmittedAt
           ? null
           : (submittedAt ?? this.submittedAt),
-      videoExpiresAt: clearVideoMetadata
+      videoExpiresAt: clearVideoMetadata || clearVideoExpiresAt
           ? null
           : (videoExpiresAt ?? this.videoExpiresAt),
       videoDeletedAt: clearVideoDeletedAt
@@ -645,7 +654,10 @@ class AssignmentAttempt {
     if (attemptKind == AssignmentAttemptKind.practicePointer) {
       if (sourceSessionId == null) return null;
       if (origin != MovementOrigin.officialElixr) return null;
-      if (status != AssignmentAttemptStatus.submitted) return null;
+      if (status != AssignmentAttemptStatus.inProgress &&
+          status != AssignmentAttemptStatus.submitted) {
+        return null;
+      }
       if (videoStoragePath != null ||
           videoContentType != null ||
           videoSizeBytes != null ||
@@ -1191,6 +1203,7 @@ abstract final class AssignmentAttemptSemantics {
           attempt.isAbandonedTeacherReviewDraft) {
         continue;
       }
+      if (!isTurnedIn(attempt)) continue;
       if (attempt.isCanonicalTeacherReviewSubmission) {
         if (canonical == null || _isLater(attempt, canonical)) {
           canonical = attempt;

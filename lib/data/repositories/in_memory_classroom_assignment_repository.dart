@@ -1401,13 +1401,22 @@ class InMemoryClassroomAssignmentRepository
       );
     }
     final submitted = existing.copyWith(
-      status: AssignmentAttemptStatus.submitted,
+      status: existing.activityAssessmentSnapshot != null
+          ? AssignmentAttemptStatus.inProgress
+          : AssignmentAttemptStatus.submitted,
       videoStoragePath: videoStoragePath,
       videoContentType: videoContentType,
       videoSizeBytes: videoSizeBytes,
       videoDurationMs: videoDurationMs,
-      submittedAt: submittedAt,
-      videoExpiresAt: videoExpiresAt,
+      draftSavedAt: existing.activityAssessmentSnapshot != null
+          ? submittedAt
+          : null,
+      submittedAt: existing.activityAssessmentSnapshot == null
+          ? submittedAt
+          : null,
+      videoExpiresAt: existing.activityAssessmentSnapshot == null
+          ? videoExpiresAt
+          : null,
     );
     attempts[existing.id] = submitted;
     if (existing.activityAssessmentSnapshot != null) {
@@ -1497,6 +1506,50 @@ class InMemoryClassroomAssignmentRepository
     _emitTraineeAttempts(existing.traineeId);
     _emitTeacherAttempts(existing.teacherId);
     return submitted;
+  }
+
+  @override
+  Future<AssignmentAttempt> turnInAssignmentAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    final existing = attempts[attempt.id];
+    final assignment = existing == null
+        ? null
+        : assignments[existing.assignmentId];
+    if (existing == null ||
+        existing.traineeId != traineeId ||
+        !existing.isSelectableSubmissionCandidate) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (assignment == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
+    for (final entry in attempts.entries.toList()) {
+      final candidate = entry.value;
+      if (candidate.assignmentId == existing.assignmentId &&
+          candidate.traineeId == traineeId &&
+          candidate.status == AssignmentAttemptStatus.submitted) {
+        attempts[entry.key] = candidate.copyWith(
+          status: AssignmentAttemptStatus.inProgress,
+          clearSubmittedAt: true,
+          clearVideoExpiresAt: true,
+        );
+      }
+    }
+    final selected = existing.copyWith(
+      status: AssignmentAttemptStatus.submitted,
+      submittedAt: now,
+      videoExpiresAt: existing.hasPlayableVideo
+          ? unreviewedVideoExpiresAt(now)
+          : null,
+    );
+    attempts[existing.id] = selected;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return selected;
   }
 
   @override

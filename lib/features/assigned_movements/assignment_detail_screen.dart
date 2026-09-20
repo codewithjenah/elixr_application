@@ -1282,9 +1282,10 @@ class _YourWork extends StatelessWidget {
               ),
             ),
           ],
-          if (assignment.isTeacherCreated &&
-              !isTeacherActivity &&
-              current?.hasAttachedDraftClip == true) ...[
+          if (current?.isSelectableSubmissionCandidate == true ||
+              (assignment.isTeacherCreated &&
+                  !isTeacherActivity &&
+                  current?.hasAttachedDraftClip == true)) ...[
             const SizedBox(height: AppSpacing.md),
             if (controller.turnInErrorMessage != null)
               ElixStatusPanel(
@@ -1294,9 +1295,9 @@ class _YourWork extends StatelessWidget {
               ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              isTeacherActivity
-                  ? 'Your Activity recording uploaded but was not sent to your Teacher.'
-                  : 'Recording attached. Your Teacher cannot see it until you turn it in.',
+              current!.attemptKind == AssignmentAttemptKind.practicePointer
+                  ? 'Attempt completed. Your Teacher cannot see this result until you turn it in.'
+                  : 'Recording saved. Your Teacher cannot see it until you turn it in.',
               style: AppTheme.bodySecondary.copyWith(
                 color: context.elixTextSecondary,
               ),
@@ -1309,24 +1310,22 @@ class _YourWork extends StatelessWidget {
                 runSpacing: AppSpacing.sm,
                 children: [
                   ElixPrimaryButton(
-                    label: isTeacherActivity
-                        ? 'Retry automatic submission'
-                        : 'Turn in',
+                    label: 'Turn in this attempt',
                     expanded: false,
                     dense: true,
                     isLoading: controller.turnInBusy,
                     onPressed: controller.turnInBusy
                         ? null
-                        : isTeacherActivity
-                        ? controller.turnIn
                         : () => _confirmTurnIn(
                             context,
                             controller,
                             assignment,
-                            current!,
+                            current,
                           ),
                   ),
-                  if (!isTeacherActivity)
+                  if (!isTeacherActivity &&
+                      current.attemptKind !=
+                          AssignmentAttemptKind.practicePointer)
                     _DetailOutlineButton(
                       label: controller.draftRemovalBusy
                           ? 'Removing…'
@@ -1573,7 +1572,7 @@ Future<void> _confirmTurnIn(
         'This recording will be submitted to ${assignment.teacherDisplayName} for checking.',
     confirmLabel: 'Turn in',
   );
-  if (confirmed) await controller.turnIn();
+  if (confirmed) await controller.turnIn(attempt);
 }
 
 Future<bool> _confirmAssignmentAction(

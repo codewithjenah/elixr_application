@@ -336,6 +336,13 @@ abstract class ClassroomAssignmentRepository {
     required DateTime videoExpiresAt,
   });
 
+  /// Atomically selects one completed Official ELIXR or Teacher Activity
+  /// attempt as the trainee's sole teacher-facing submission.
+  Future<AssignmentAttempt> turnInAssignmentAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  });
+
   Future<AssignmentAttempt> beginTeacherReviewDraftClipRemoval({
     required String traineeId,
     required AssignmentAttempt attempt,

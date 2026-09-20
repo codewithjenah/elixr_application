@@ -208,15 +208,16 @@ class AssignmentDetailController extends ChangeNotifier {
     }
   }
 
-  Future<bool> turnIn() async {
-    final current = currentSubmission;
+  Future<bool> turnIn([AssignmentAttempt? candidate]) async {
+    final current = candidate ?? currentSubmission;
     final currentAssignment = assignment;
     final activityAssessment =
         current?.activityAssessmentSnapshot ??
         currentAssignment?.activityAssessment;
     if (current == null ||
         currentAssignment == null ||
-        !current.hasAttachedDraftClip) {
+        !(current.hasAttachedDraftClip ||
+            current.isSelectableSubmissionCandidate)) {
       return false;
     }
     if (!isTeacherAssignmentSubmissionOpen(assignment: currentAssignment)) {
@@ -231,12 +232,21 @@ class AssignmentDetailController extends ChangeNotifier {
     turnInErrorMessage = null;
     _notify();
     try {
-      await assignmentRepository.turnInTeacherReviewSubmission(
-        traineeId: traineeId,
-        attempt: current,
-        submittedAt: clock,
-        videoExpiresAt: unreviewedVideoExpiresAt(clock),
-      );
+      if (current.isSelectableSubmissionCandidate &&
+          (current.activityAssessmentSnapshot != null ||
+              current.attemptKind == AssignmentAttemptKind.practicePointer)) {
+        await assignmentRepository.turnInAssignmentAttempt(
+          traineeId: traineeId,
+          attempt: current,
+        );
+      } else {
+        await assignmentRepository.turnInTeacherReviewSubmission(
+          traineeId: traineeId,
+          attempt: current,
+          submittedAt: clock,
+          videoExpiresAt: unreviewedVideoExpiresAt(clock),
+        );
+      }
       turnInBusy = false;
       _notify();
       return true;

@@ -386,7 +386,7 @@ void main() {
   );
 
   test(
-    'Activity recording submits the reserved attempt automatically',
+    'Activity recording saves the reserved attempt for explicit turn in',
     () async {
       final socket = _GatedRecordSocket();
       final controller = SubmissionRecordingController(
@@ -413,9 +413,9 @@ void main() {
       socket.stopAck.complete(_acceptedStop());
       await stopping;
 
-      expect(controller.phase, SubmissionRecordingPhase.submitted);
+      expect(controller.phase, SubmissionRecordingPhase.attached);
       expect(controller.latestSubmission?.id, reserved.id);
-      expect(controller.latestSubmission?.isReviewFacingSubmission, isTrue);
+      expect(controller.latestSubmission?.hasAttachedDraftClip, isTrue);
     },
   );
 
@@ -472,10 +472,10 @@ void main() {
       await stopping;
       await controller.releaseActivityAttempt();
 
-      expect(controller.phase, SubmissionRecordingPhase.submitted);
+      expect(controller.phase, SubmissionRecordingPhase.attached);
       expect(
         controller.latestSubmission?.status,
-        AssignmentAttemptStatus.submitted,
+        AssignmentAttemptStatus.inProgress,
       );
       expect(
         classroom.teacherActivityConsumedCount(
@@ -538,7 +538,7 @@ void main() {
 
       gatedClassroom.allowRefresh.complete();
       await submitting;
-      expect(controller.phase, SubmissionRecordingPhase.submitted);
+      expect(controller.phase, SubmissionRecordingPhase.attached);
     },
   );
 

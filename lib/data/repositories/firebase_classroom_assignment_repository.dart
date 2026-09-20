@@ -1192,6 +1192,28 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> turnInAssignmentAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    if (attempt.traineeId != traineeId ||
+        !attempt.isSelectableSubmissionCandidate) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final decoded = await _postAuthorizedFunction('turnInAssignmentAttempt', {
+      'assignment_id': attempt.assignmentId,
+      'attempt_id': attempt.id,
+    }, timeout: const Duration(seconds: 30));
+    final raw = decoded['attempt'];
+    if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);
+    final map = Map<String, dynamic>.from(raw);
+    final id = map.remove('id');
+    if (id is! String) throw const ClassroomException(ClassroomError.malformed);
+    return AssignmentAttempt.tryFromMap(map, id: id) ??
+        (throw const ClassroomException(ClassroomError.malformed));
+  }
+
+  @override
   Future<AssignmentAttempt> beginTeacherReviewDraftClipRemoval({
     required String traineeId,
     required AssignmentAttempt attempt,

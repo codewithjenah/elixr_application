@@ -220,14 +220,18 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
         if (controller.isTeacherActivity) {
           return [
             Text(
-              'Your Activity recording is waiting to be sent to your Teacher.',
+              'Recording saved. Open the Activity and choose which attempt to turn in.',
               style: AppTheme.body,
             ),
             const SizedBox(height: AppSpacing.sm),
             ElixPrimaryButton(
-              label: 'Retry automatic submission',
+              label: 'Open activity',
               variant: ElixButtonVariant.outline,
-              onPressed: busy ? null : controller.retryActivitySubmission,
+              onPressed: busy
+                  ? null
+                  : () => context.go(
+                      AppRoutePaths.assignmentDetail(controller.assignment.id),
+                    ),
             ),
           ];
         }

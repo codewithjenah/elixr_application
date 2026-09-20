@@ -50,6 +50,7 @@ const {
   abandonTeacherActivityAttemptHandler,
   finalizeTeacherActivityAttemptHandler,
   completeOfficialAssignmentSessionHandler,
+  turnInAssignmentAttemptHandler,
   normalizeSearchText,
   sanitizeDirectoryDocuments,
   sanitizedResult,
@@ -3102,6 +3103,7 @@ function fakeTeacherActivityAttemptDatabase({
     const data = docs.get(path);
     return {
       id,
+      ref: {path, id},
       exists: Boolean(data),
       data: () => data,
       get: (field) => data?.[field],
@@ -3250,6 +3252,16 @@ async function invokeFinalize(database, attemptId) {
         },
       })})}),
     },
+  );
+  return response;
+}
+
+async function invokeTurnIn(database, attemptId) {
+  const response = fakeResponse();
+  await turnInAssignmentAttemptHandler(
+    activityAttemptRequest({assignment_id: 'assignment-1', attempt_id: attemptId}),
+    response,
+    {authenticate: async () => 'trainee', databaseFactory: () => database},
   );
   return response;
 }
@@ -3565,11 +3577,31 @@ test('Teacher Activity finalization retry is idempotent and late release cannot 
   assert.equal(release.statusCode, 200);
   assert.equal(release.body.already_released, true);
   const attempt = database.docs.get(`assignment_attempts/${attemptId}`);
-  assert.equal(attempt.status, 'submitted');
+  assert.equal(attempt.status, 'in_progress');
+  assert.ok(attempt.draft_saved_at);
   assert.equal(attempt.abandoned_at, undefined);
   assert.equal(
     database.docs.get('assignment_attempt_states/assignment-1__trainee').consumed_count,
     1,
+  );
+});
+
+test('turn in keeps exactly one Teacher Activity attempt selected', async () => {
+  const database = fakeTeacherActivityAttemptDatabase();
+  const first = await invokeReserve(database, 'activity-open-1');
+  await invokeConsume(database, first.body.attempt.id);
+  await invokeFinalize(database, first.body.attempt.id);
+  const second = await invokeReserve(database, 'activity-open-2');
+  await invokeConsume(database, second.body.attempt.id);
+  await invokeFinalize(database, second.body.attempt.id);
+
+  assert.equal((await invokeTurnIn(database, first.body.attempt.id)).statusCode, 200);
+  assert.equal((await invokeTurnIn(database, second.body.attempt.id)).statusCode, 200);
+  assert.equal(database.docs.get(`assignment_attempts/${first.body.attempt.id}`).status, 'in_progress');
+  assert.equal(database.docs.get(`assignment_attempts/${second.body.attempt.id}`).status, 'submitted');
+  assert.equal(
+    database.docs.get('assignment_attempt_states/assignment-1__trainee').latest_submission_id,
+    second.body.attempt.id,
   );
 });
 
