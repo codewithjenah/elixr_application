@@ -194,6 +194,12 @@ class AssignmentAttempt {
     }
   }
 
+  /// Current Teacher Activity attempts are reserved server-side and therefore
+  /// use a distinct ID for each attempt. Their immutable assessment snapshot
+  /// identifies them independently of the legacy canonical submission ID.
+  bool get isTeacherActivityReviewSubmission =>
+      isTeacherReviewSubmission && activityAssessmentSnapshot != null;
+
   bool get isChecked =>
       isTeacherReviewSubmission && status == AssignmentAttemptStatus.checked;
 
@@ -1188,14 +1194,18 @@ abstract final class AssignmentAttemptSemantics {
     }
   }
 
-  /// Selects the current attempt for one assignment/student pair using the
-  /// same canonical-submission preference as the teacher Movements view.
+  /// Selects the current attempt for one assignment/student pair.
+  ///
+  /// Teacher Activity uses server-reserved multi-attempt documents, so its
+  /// snapshot-backed submissions take precedence over an older canonical
+  /// legacy submission. Legacy-only work retains canonical-ID preference.
   static AssignmentAttempt? latestVisible({
     required Iterable<AssignmentAttempt> attempts,
     required String assignmentId,
     required String traineeId,
   }) {
     AssignmentAttempt? canonical;
+    AssignmentAttempt? activity;
     AssignmentAttempt? latest;
     for (final attempt in attempts) {
       if (attempt.assignmentId != assignmentId ||
@@ -1204,6 +1214,12 @@ abstract final class AssignmentAttemptSemantics {
         continue;
       }
       if (!isTurnedIn(attempt)) continue;
+      if (attempt.isTeacherActivityReviewSubmission) {
+        if (activity == null || _isLater(attempt, activity)) {
+          activity = attempt;
+        }
+        continue;
+      }
       if (attempt.isCanonicalTeacherReviewSubmission) {
         if (canonical == null || _isLater(attempt, canonical)) {
           canonical = attempt;
@@ -1214,7 +1230,7 @@ abstract final class AssignmentAttemptSemantics {
         latest = attempt;
       }
     }
-    return canonical ?? latest;
+    return activity ?? canonical ?? latest;
   }
 
   static bool _isLater(AssignmentAttempt candidate, AssignmentAttempt other) {

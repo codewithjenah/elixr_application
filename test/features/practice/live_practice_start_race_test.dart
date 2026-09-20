@@ -19,6 +19,7 @@ import 'package:elixr_application/features/practice/freestyle/freestyle_models.d
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
+import 'package:elixr_application/features/practice/submission_recording_controller.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/trainee_progression_service.dart';
@@ -172,6 +173,7 @@ class _RecordingWebSocketService extends WebSocketService {
   int beginReadinessCalls = 0;
   int confirmReadinessCalls = 0;
   int activateCalls = 0;
+  int startRecordingCalls = 0;
   int stopCalls = 0;
   Object? confirmReadinessError;
   Completer<CommandAck>? confirmReadinessAck;
@@ -179,6 +181,7 @@ class _RecordingWebSocketService extends WebSocketService {
   final preparePayloads = <Map<String, Object?>>[];
   Completer<CommandAck> prepareAck = Completer<CommandAck>();
   Completer<CommandAck> activateAck = Completer<CommandAck>();
+  Completer<CommandAck> startRecordingAck = Completer<CommandAck>();
   final _previewFrames = StreamController<PreviewFrame>.broadcast();
   final _feedbackFrames = StreamController<PracticeFeedback>.broadcast();
 
@@ -245,6 +248,15 @@ class _RecordingWebSocketService extends WebSocketService {
   Future<CommandAck> sendActivate({String? sessionId}) {
     activateCalls += 1;
     return activateAck.future;
+  }
+
+  @override
+  Future<CommandAck> sendStartSubmissionRecord({
+    String? sessionId,
+    int durationSeconds = 30,
+  }) {
+    startRecordingCalls += 1;
+    return startRecordingAck.future;
   }
 
   @override
@@ -619,6 +631,79 @@ void main() {
 
       ws.acceptPrepare();
       await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'normal assignment starts one recorder immediately after activation',
+    (tester) async {
+      assignments.startDelay = null;
+      settings.cameraDelay = null;
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _assignment,
+        ),
+      );
+
+      unawaited(screenKey.currentState!.debugStartSession());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pump(const Duration(milliseconds: 20));
+      ws.acceptPrepare();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      expect(
+        screenKey.currentState!.debugRun.phase,
+        PracticeRunPhase.preparingCamera,
+      );
+      expect(
+        screenKey.currentState!.debugRun.onPreviewFeedback(
+          hasJpegFrame: true,
+          isFatal: false,
+        ),
+        isTrue,
+      );
+      screenKey.currentState!.debugRun.enterCountdown();
+      expect(
+        screenKey.currentState!.debugRun.phase,
+        PracticeRunPhase.countdown,
+      );
+
+      unawaited(screenKey.currentState!.debugBeginSessionAfterCountdown());
+      unawaited(screenKey.currentState!.debugBeginSessionAfterCountdown());
+      await tester.pump();
+      expect(ws.activateCalls, 1);
+      expect(ws.startRecordingCalls, 0);
+
+      ws.acceptActivate();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      expect(ws.startRecordingCalls, 1);
+      expect(
+        screenKey.currentState!.debugRecording!.phase,
+        SubmissionRecordingPhase.idle,
+        reason: 'Recording waits for the backend start acknowledgement.',
+      );
+      expect(find.text('Starting recording…'), findsOneWidget);
+
+      ws.startRecordingAck.complete(
+        const CommandAck(
+          protocolVersion: 1,
+          requestId: 'start-recording-test',
+          action: 'start_submission_record',
+          accepted: true,
+          sessionId: 'session-test',
+        ),
+      );
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      expect(ws.startRecordingCalls, 1);
+      expect(
+        screenKey.currentState!.debugRecording!.phase,
+        SubmissionRecordingPhase.recording,
+      );
+      expect(find.text('Stop recording'), findsOneWidget);
     },
   );
 

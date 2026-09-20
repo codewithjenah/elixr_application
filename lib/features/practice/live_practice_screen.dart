@@ -180,6 +180,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _stopInFlight = false;
   bool _startInFlight = false;
   bool _activityAutoStartRequested = false;
+  bool _recordingAutoStartRequested = false;
   SubmissionRecordingController? _recording;
   Future<void>? _webSocketStopFuture;
 
@@ -249,6 +250,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   @override
   void dispose() {
     _recording?.removeListener(_onRecordingChanged);
+    _run.removeListener(_onRunChanged);
     unawaited(_recording?.releaseActivityAttempt() ?? Future<void>.value());
     _recording?.dispose();
     _feedbackSub?.cancel();
@@ -260,7 +262,6 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _freestyle.removeListener(_onFreestyleChanged);
     _freestyle.dispose();
     _ws.removeListener(_onWsStateChanged);
-    _run.removeListener(_onRunChanged);
     _run.dispose();
     if (_ownsWebSocket) {
       _ws.dispose();
@@ -282,6 +283,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   @visibleForTesting
   Future<void> debugConfirmActivityReadiness() => _confirmActivityReadiness();
+
+  @visibleForTesting
+  Future<void> debugBeginSessionAfterCountdown() =>
+      _beginSessionAfterCountdown();
+
+  @visibleForTesting
+  SubmissionRecordingController? get debugRecording => _recording;
 
   List<({String movement, TrainingProp prop})> _freestyleAllowlist() {
     final progression = context.read<TraineeProgressionService>();
@@ -861,6 +869,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       return;
     }
     _ws.beginPracticeAttempt();
+    _recordingAutoStartRequested = false;
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
 
@@ -1211,15 +1220,16 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       }
 
       _run.enterActive();
-      _sfx.stop();
       final settings = context.read<SettingsService>();
+      if (!_isPlayground && !_recordingAutoStartRequested) {
+        _recordingAutoStartRequested = true;
+        await _recording?.beginRecordingNow();
+      }
+      _sfx.stop();
       await _music.start(
         selectedTrackId: settings.selectedMusicTrackId,
         customTracks: settings.customMusicTracks,
       );
-      if (_isTeacherActivityV2) {
-        await _recording?.beginActivityRecordingNow();
-      }
       if (mounted) setState(() {});
     } catch (error) {
       if (!mounted) return;

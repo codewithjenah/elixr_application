@@ -113,6 +113,13 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
     final busy = controller.recordCommandInFlight;
     switch (controller.phase) {
       case SubmissionRecordingPhase.idle:
+        if (busy && widget.cameraReady) {
+          return const [
+            Center(child: ProgressRing()),
+            SizedBox(height: AppSpacing.sm),
+            Text('Starting recording…'),
+          ];
+        }
         return [
           ElixPrimaryButton(
             label: controller.isTeacherActivity
@@ -203,11 +210,7 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           ElixPrimaryButton(
             label: 'Retake',
             variant: ElixButtonVariant.outline,
-            onPressed: busy
-                ? null
-                : () => controller.retake(
-                    releasePlayback: _previewPlayback.release,
-                  ),
+            onPressed: busy ? null : _retakeAndRestart,
           ),
         ];
       case SubmissionRecordingPhase.submitting:
@@ -286,9 +289,7 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
                 ? null
                 : canRetryActivityUpload
                 ? controller.retryActivitySubmission
-                : () => controller.retake(
-                    releasePlayback: _previewPlayback.release,
-                  ),
+                : _retakeAndRestart,
           ),
         ];
     }
@@ -307,6 +308,14 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
       await _previewPlayback.release();
       await controller.saveDraft();
     }
+  }
+
+  Future<void> _retakeAndRestart() async {
+    await controller.retake(releasePlayback: _previewPlayback.release);
+    if (controller.isTeacherActivity || !mounted || !widget.cameraReady) {
+      return;
+    }
+    await controller.beginRecordingNow();
   }
 
   Widget _submittedVideo() {

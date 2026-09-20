@@ -298,11 +298,13 @@ class SubmissionRecordingController extends ChangeNotifier {
 
   Future<void> beginRecording() => _beginRecording(skipCountdown: false);
 
-  /// Starts an Activity recording after the camera readiness countdown has
-  /// already completed in [LivePracticeScreen]. Legacy submissions keep their
-  /// own consent/countdown flow through [beginRecording].
-  Future<void> beginActivityRecordingNow() =>
-      _beginRecording(skipCountdown: true);
+  /// Starts recording immediately after the practice session becomes active.
+  ///
+  /// The camera/session countdown has already completed in
+  /// [LivePracticeScreen], so this deliberately bypasses the submission
+  /// recorder countdown. The same backend acknowledgement still controls
+  /// when elapsed timing begins.
+  Future<void> beginRecordingNow() => _beginRecording(skipCountdown: true);
 
   Future<void> _beginRecording({required bool skipCountdown}) async {
     if (!_acquireRecordCommand()) return;

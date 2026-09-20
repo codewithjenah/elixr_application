@@ -3,6 +3,7 @@ import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/assignment_review_state.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -96,13 +97,82 @@ void main() {
       AssignmentReviewState.missing,
     );
   });
+
+  test('submitted Teacher Activity attempts use their reserved identity', () {
+    final activityAttempt = _attempt(
+      AssignmentAttemptStatus.submitted,
+      id: 'teacher-activity-attempt-2',
+      activityAssessmentSnapshot:
+          TeacherActivityAssessmentConfig.newActivityDefaults(),
+    );
+
+    expect(
+      AssignmentReviewSemantics.isActionablePending(
+        activityAttempt,
+        now: DateTime.utc(2026, 9, 2),
+      ),
+      isTrue,
+    );
+    expect(
+      AssignmentReviewSemantics.isActionablePending(
+        _attempt(
+          AssignmentAttemptStatus.submitted,
+          id: 'legacy-random-submission',
+        ),
+        now: DateTime.utc(2026, 9, 2),
+      ),
+      isFalse,
+    );
+  });
+
+  test(
+    'noncanonical Teacher Activity work is not pending once unavailable',
+    () {
+      final snapshot = TeacherActivityAssessmentConfig.newActivityDefaults();
+      for (final attempt in [
+        _attempt(
+          AssignmentAttemptStatus.checked,
+          id: 'activity-checked',
+          activityAssessmentSnapshot: snapshot,
+        ),
+        _attempt(
+          AssignmentAttemptStatus.submitted,
+          id: 'activity-expired',
+          activityAssessmentSnapshot: snapshot,
+          videoExpiresAt: DateTime.utc(2026, 9, 1),
+        ),
+        _attempt(
+          AssignmentAttemptStatus.submitted,
+          id: 'activity-deleted',
+          activityAssessmentSnapshot: snapshot,
+          videoDeletedAt: DateTime.utc(2026, 9, 1),
+        ),
+      ]) {
+        expect(
+          AssignmentReviewSemantics.isActionablePending(
+            attempt,
+            now: DateTime.utc(2026, 9, 2),
+          ),
+          isFalse,
+        );
+      }
+    },
+  );
 }
 
-AssignmentAttempt _attempt(AssignmentAttemptStatus status) => AssignmentAttempt(
-  id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
-    assignmentId: 'assignment',
-    traineeId: 'student',
-  ),
+AssignmentAttempt _attempt(
+  AssignmentAttemptStatus status, {
+  String? id,
+  TeacherActivityAssessmentConfig? activityAssessmentSnapshot,
+  DateTime? videoExpiresAt,
+  DateTime? videoDeletedAt,
+}) => AssignmentAttempt(
+  id:
+      id ??
+      assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+        assignmentId: 'assignment',
+        traineeId: 'student',
+      ),
   traineeId: 'student',
   teacherId: 'teacher',
   groupId: 'group',
@@ -115,5 +185,7 @@ AssignmentAttempt _attempt(AssignmentAttemptStatus status) => AssignmentAttempt(
   status: status,
   submittedAt: DateTime.utc(2026, 9, 1, 16),
   videoStoragePath: 'assignment_submissions/clip.mp4',
-  videoExpiresAt: DateTime.utc(2026, 10, 1),
+  videoExpiresAt: videoExpiresAt ?? DateTime.utc(2026, 10, 1),
+  videoDeletedAt: videoDeletedAt,
+  activityAssessmentSnapshot: activityAssessmentSnapshot,
 );

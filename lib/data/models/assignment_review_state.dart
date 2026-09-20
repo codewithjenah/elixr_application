@@ -29,15 +29,17 @@ abstract final class AssignmentReviewSemantics {
 
   /// A pending item that can be opened and acted on by a teacher now.
   ///
-  /// Global queues and Save & Next intentionally require the canonical
-  /// assignment/student document and an available submitted clip. Legacy
-  /// submissions remain readable through their existing classroom history.
+  /// Global queues and Save & Next require an available submitted clip from
+  /// either the canonical legacy submission or a snapshot-backed, reserved
+  /// Teacher Activity attempt. Other legacy submissions remain readable
+  /// through their existing classroom history.
   static bool isActionablePending(
     AssignmentAttempt? attempt, {
     required DateTime now,
   }) {
     if (attempt == null ||
-        !attempt.isCanonicalTeacherReviewSubmission ||
+        !(attempt.isCanonicalTeacherReviewSubmission ||
+            attempt.isTeacherActivityReviewSubmission) ||
         attempt.status != AssignmentAttemptStatus.submitted ||
         attempt.submittedAt == null ||
         !attempt.isReviewFacingSubmission ||

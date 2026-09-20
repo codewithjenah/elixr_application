@@ -296,6 +296,37 @@ void main() {
     expect(controller.phase, SubmissionRecordingPhase.recording);
   });
 
+  test(
+    'immediate recording bypasses countdown and waits for start ack',
+    () async {
+      final socket = _GatedRecordSocket();
+      final controller = SubmissionRecordingController(
+        websocket: socket,
+        classroom: classroom,
+        submissions: submissions,
+        assignment: _assignment,
+        traineeId: 'trainee-1',
+        recordingCountdown: const Duration(seconds: 3),
+      );
+      addTearDown(controller.dispose);
+      final phases = <SubmissionRecordingPhase>[];
+      controller.addListener(() => phases.add(controller.phase));
+
+      final starting = controller.beginRecordingNow();
+      expect(socket.startCalls, 1);
+      expect(controller.phase, SubmissionRecordingPhase.idle);
+      expect(controller.elapsedSeconds, 0);
+      expect(phases, isNot(contains(SubmissionRecordingPhase.countdown)));
+
+      socket.startAck.complete(_acceptedStart());
+      await starting;
+      expect(controller.phase, SubmissionRecordingPhase.recording);
+      expect(controller.elapsedSeconds, 0);
+      expect(phases, isNot(contains(SubmissionRecordingPhase.countdown)));
+      expect(classroom.consumedTeacherActivityAttemptIds, isEmpty);
+    },
+  );
+
   test('Activity recording sends its configured duration', () async {
     final socket = _GatedRecordSocket();
     final controller = SubmissionRecordingController(
@@ -315,7 +346,7 @@ void main() {
     );
     await controller.refreshLatestSubmission();
 
-    final starting = controller.beginRecording();
+    final starting = controller.beginRecordingNow();
     socket.startAck.complete(_acceptedStart());
     await starting;
 
@@ -588,6 +619,41 @@ void main() {
     await stopping;
     expect(controller.phase, SubmissionRecordingPhase.preview);
     expect(socket.stopCalls, 1);
+  });
+
+  test('retake restarts immediately without the recorder countdown', () async {
+    final socket = _GatedRecordSocket();
+    final controller = SubmissionRecordingController(
+      websocket: socket,
+      classroom: classroom,
+      submissions: submissions,
+      assignment: _assignment,
+      traineeId: 'trainee-1',
+      recordingCountdown: const Duration(seconds: 3),
+    );
+    addTearDown(controller.dispose);
+    final phases = <SubmissionRecordingPhase>[];
+    controller.addListener(() => phases.add(controller.phase));
+
+    final firstStart = controller.beginRecordingNow();
+    socket.startAck.complete(_acceptedStart());
+    await firstStart;
+    final stopping = controller.stopRecording();
+    socket.stopAck.complete(_acceptedStop());
+    await stopping;
+    expect(controller.phase, SubmissionRecordingPhase.preview);
+
+    await controller.retake();
+    socket.startAck = Completer<CommandAck>();
+    final retakeStart = controller.beginRecordingNow();
+    expect(socket.startCalls, 2);
+    expect(controller.phase, SubmissionRecordingPhase.idle);
+    expect(phases, isNot(contains(SubmissionRecordingPhase.countdown)));
+
+    socket.startAck.complete(_acceptedStart());
+    await retakeStart;
+    expect(controller.phase, SubmissionRecordingPhase.recording);
+    expect(phases, isNot(contains(SubmissionRecordingPhase.countdown)));
   });
 
   test('retake waits for playback release before deleting the clip', () async {
