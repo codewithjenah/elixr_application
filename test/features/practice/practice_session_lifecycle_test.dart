@@ -417,6 +417,33 @@ void main() {
       run.dispose();
     });
 
+    test('command timeout rejection remains inline and recoverable', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.applyReadinessFeedback(
+        items: const [],
+        complete: true,
+        stable: true,
+        progress: 1,
+      );
+      expect(run.requestStartPractice(readinessStable: true), isTrue);
+
+      run.onConfirmReadinessRejected(
+        errorCode: 'command_timeout',
+        message: 'Readiness confirmation timed out.',
+      );
+
+      expect(run.phase, PracticeRunPhase.readiness);
+      expect(run.readiness.confirming, isFalse);
+      expect(
+        run.readiness.recoverableMessage,
+        'Readiness confirmation timed out.',
+      );
+      run.dispose();
+    });
+
     test('onActivationRejected returns to readiness from countdown', () {
       final run = PracticeRunController();
       run.beginPreparing(onTimeout: () {});

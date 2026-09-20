@@ -1365,23 +1365,10 @@ class VisionSession:
 
         snapshot = None
         observed_at = time.monotonic()
-        if self._readiness_tracker is not None and (
-            not self._readiness_confirmed or self.readiness_spec is not None
-        ):
+        if self._readiness_tracker is not None and not self._readiness_confirmed:
             snapshot = self._readiness_tracker.update(obs)
             self._latest_readiness_snapshot = snapshot
             self._latest_readiness_observed_at = observed_at
-            # Teacher Activities require the configured inputs to remain
-            # observable through the countdown. Unlike guided calibration,
-            # losing readiness revokes confirmation so activation cannot start
-            # a finite assessment recording unfairly.
-            if (
-                self.readiness_spec is not None
-                and self._readiness_confirmed
-                and not snapshot.readiness_stable
-            ):
-                self._readiness_confirmed = False
-                self._frozen_readiness_snapshot = None
         elif self._readiness_confirmed and self._frozen_readiness_snapshot is not None:
             snapshot = self._frozen_readiness_snapshot
             # Keep freshness advancing so post-confirm frames stay current, but

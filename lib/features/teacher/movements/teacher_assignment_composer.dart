@@ -1150,6 +1150,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
     final actions = _AssignmentActionFooter(
       validationError: _validationError,
+      primaryMutationSucceeded:
+          (_createdAssignment != null || _savedEditAssignment != null) &&
+          (_queuedMaterials.any((item) => !item.isPersisted) ||
+              _materialsMarkedForRemoval.isNotEmpty),
       onDismissValidation: () => setState(() => _validationError = null),
       canSubmit: _canSubmit,
       isSubmitting: _submitting,
@@ -1227,7 +1231,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       padding: EdgeInsets.zero,
       child: Scrollbar(
         controller: _editorScrollController,
-        thumbVisibility: true,
         child: SingleChildScrollView(
           key: const Key('teacher_assignment_editor_scroll'),
           controller: _editorScrollController,
@@ -5766,6 +5769,7 @@ class _SummaryReadinessMessage extends StatelessWidget {
 class _AssignmentActionFooter extends StatelessWidget {
   const _AssignmentActionFooter({
     required this.validationError,
+    required this.primaryMutationSucceeded,
     required this.onDismissValidation,
     required this.canSubmit,
     required this.isSubmitting,
@@ -5777,6 +5781,7 @@ class _AssignmentActionFooter extends StatelessWidget {
   });
 
   final String? validationError;
+  final bool primaryMutationSucceeded;
   final VoidCallback onDismissValidation;
   final bool canSubmit;
   final bool isSubmitting;
@@ -5808,12 +5813,18 @@ class _AssignmentActionFooter extends StatelessWidget {
             _ComposerAlert(
               key: const Key('teacher_assignment_error'),
               title: Text(
-                isEditing
+                primaryMutationSucceeded
+                    ? isEditing
+                          ? 'Assignment updated with material issues'
+                          : 'Assignment created with material issues'
+                    : isEditing
                     ? 'Could not save assignment'
                     : 'Could not create assignment',
               ),
               content: Text(validationError!),
-              severity: InfoBarSeverity.error,
+              severity: primaryMutationSucceeded
+                  ? InfoBarSeverity.warning
+                  : InfoBarSeverity.error,
               action: _ComposerSecondaryButton(
                 onPressed: onDismissValidation,
                 child: const Text('Dismiss'),

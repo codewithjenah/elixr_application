@@ -107,18 +107,44 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
+        final exportEnabled =
+            !_exporting &&
+            !controller.sessionLoading &&
+            controller.snapshot != null &&
+            (controller.snapshot!.hasActivity ||
+                controller.snapshot!.hasExpectedWork);
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
             heading: 'Analytics',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle: 'See how your class is practicing and completing work.',
-            actions: [
-              _AnalyticsActions(
-                exporting: _exporting,
-                controller: controller,
-                onExport: () => _export(controller),
-              ),
-            ],
+            commandBar: CommandBar(
+              mainAxisAlignment: MainAxisAlignment.end,
+              primaryItems: [
+                CommandBarButton(
+                  key: const Key('teacher_progress_student_rankings'),
+                  icon: const Icon(FluentIcons.trophy2_solid),
+                  label: const Text('Student rankings'),
+                  onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
+                ),
+                CommandBarButton(
+                  key: const Key('teacher_analytics_export'),
+                  icon: const Icon(FluentIcons.download),
+                  label: Text(_exporting ? 'Exporting…' : 'Export'),
+                  onPressed: exportEnabled ? () => _export(controller) : null,
+                ),
+                CommandBarButton(
+                  key: const Key('teacher_analytics_refresh'),
+                  icon: const Tooltip(
+                    message: 'Refresh analytics',
+                    child: Icon(FluentIcons.refresh),
+                  ),
+                  onPressed: controller.sessionLoading
+                      ? null
+                      : controller.refresh,
+                ),
+              ],
+            ),
           ),
           content: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -210,71 +236,6 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
-  }
-}
-
-class _AnalyticsActions extends StatelessWidget {
-  const _AnalyticsActions({
-    required this.exporting,
-    required this.controller,
-    required this.onExport,
-  });
-
-  final bool exporting;
-  final TeacherAnalyticsController controller;
-  final VoidCallback onExport;
-
-  @override
-  Widget build(BuildContext context) {
-    final exportEnabled =
-        !exporting &&
-        !controller.sessionLoading &&
-        controller.snapshot != null &&
-        (controller.snapshot!.hasActivity ||
-            controller.snapshot!.hasExpectedWork);
-    final actions = [
-      ElixPrimaryButton(
-        key: const Key('teacher_progress_student_rankings'),
-        label: 'Student rankings',
-        variant: ElixButtonVariant.outline,
-        expanded: false,
-        icon: FluentIcons.trophy2_solid,
-        onPressed: () => context.go(AppRoutePaths.teacherLeaderboard),
-      ),
-      ElixPrimaryButton(
-        key: const Key('teacher_analytics_export'),
-        label: exporting ? 'Exporting…' : 'Export',
-        variant: ElixButtonVariant.outline,
-        expanded: false,
-        icon: FluentIcons.download,
-        onPressed: exportEnabled ? onExport : null,
-      ),
-      if (context.isHighContrast || shad.ShadTheme.maybeOf(context) == null)
-        ElixPrimaryButton(
-          key: const Key('teacher_analytics_refresh'),
-          label: 'Refresh',
-          variant: ElixButtonVariant.outline,
-          expanded: false,
-          icon: FluentIcons.refresh,
-          onPressed: controller.sessionLoading ? null : controller.refresh,
-        )
-      else
-        shad.ShadTooltip(
-          builder: (context) => const Text('Refresh analytics'),
-          child: shad.ShadIconButton.ghost(
-            key: const Key('teacher_analytics_refresh'),
-            icon: const Icon(FluentIcons.refresh, size: 16),
-            enabled: !controller.sessionLoading,
-            onPressed: controller.sessionLoading ? null : controller.refresh,
-          ),
-        ),
-    ];
-    return Wrap(
-      spacing: AppSpacing.sm,
-      runSpacing: AppSpacing.sm,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: actions,
-    );
   }
 }
 

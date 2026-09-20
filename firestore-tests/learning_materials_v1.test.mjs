@@ -127,7 +127,7 @@ describe('Learning Material Storage quarantine and access projection', () => {
       new Uint8Array([1]), {contentType: 'application/pdf'}));
   });
 
-  test('all supported file MIME types can use an exact server reservation', async () => {
+  test('all supported file MIME types allow exact create and immutable Windows metadata bootstrap', async () => {
     const imagePath = await reserveStage({
       uploadId: 'image-upload', type: 'image', contentType: 'image/png', sizeBytes: 3,
     });
@@ -135,10 +135,16 @@ describe('Learning Material Storage quarantine and access projection', () => {
       uploadId: 'video-upload', type: 'video', contentType: 'video/mp4', sizeBytes: 3,
     });
 
-    await assertSucceeds(uploadBytes(ref(storage('teacher'), imagePath),
+    const imageStage = ref(storage('teacher'), imagePath);
+    const videoStage = ref(storage('teacher'), videoPath);
+    await assertSucceeds(uploadBytes(imageStage,
       new Uint8Array([1, 2, 3]), {contentType: 'image/png'}));
-    await assertSucceeds(uploadBytes(ref(storage('teacher'), videoPath),
+    await assertSucceeds(uploadBytes(videoStage,
       new Uint8Array([1, 2, 3]), {contentType: 'video/mp4'}));
+    await assertSucceeds(updateMetadata(imageStage, {contentType: 'image/png'}));
+    await assertSucceeds(updateMetadata(videoStage, {contentType: 'video/mp4'}));
+    await assertFails(updateMetadata(imageStage, {contentType: 'image/jpeg'}));
+    await assertFails(updateMetadata(videoStage, {customMetadata: {owner: 'forged'}}));
   });
 
   test('wrong byte count, MIME type, and expired capabilities are denied', async () => {
@@ -153,6 +159,15 @@ describe('Learning Material Storage quarantine and access projection', () => {
     });
     await assertFails(uploadBytes(ref(storage('teacher'), STAGING_PATH),
       new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+  });
+
+  test('assignment and upload path components must match the capability exactly', async () => {
+    await assertFails(uploadBytes(ref(storage('teacher'),
+      `activity_material_staging/teacher/other-assignment/${UPLOAD_ID}`),
+    new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+    await assertFails(uploadBytes(ref(storage('teacher'),
+      `activity_material_staging/teacher/${ASSIGNMENT_ID}/other-upload`),
+    new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
   });
 
   test('staging is never client-readable and cannot be overwritten', async () => {

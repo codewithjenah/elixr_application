@@ -129,10 +129,38 @@ void main() {
       tester.getRect(find.text('Not enough data yet')).height,
       lessThan(40),
     );
-    expect(
-      tester.getRect(find.byKey(const Key('teacher_analytics_refresh'))).right,
-      greaterThan(1000),
+    final rankings = find.byKey(const Key('teacher_progress_student_rankings'));
+    final export = find.byKey(const Key('teacher_analytics_export'));
+    final refresh = find.byKey(const Key('teacher_analytics_refresh'));
+    expect(rankings, findsOneWidget);
+    expect(export, findsOneWidget);
+    expect(refresh, findsOneWidget);
+
+    final rankingsRect = tester.getRect(rankings);
+    final exportRect = tester.getRect(export);
+    final refreshRect = tester.getRect(refresh);
+    expect(rankingsRect.center.dx, lessThan(exportRect.center.dx));
+    expect(exportRect.center.dx, lessThan(refreshRect.center.dx));
+    expect(1280 - refreshRect.right, lessThan(64));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('keeps header identity and commands separated on wide desktop', (
+    tester,
+  ) async {
+    const width = 1640.0;
+    await pumpScreen(tester, const Size(width, 900));
+
+    final titleRect = tester.getRect(find.text('Analytics'));
+    final rankingsRect = tester.getRect(
+      find.byKey(const Key('teacher_progress_student_rankings')),
     );
+    final refreshRect = tester.getRect(
+      find.byKey(const Key('teacher_analytics_refresh')),
+    );
+
+    expect(titleRect.right, lessThan(rankingsRect.left));
+    expect(width - refreshRect.right, lessThan(64));
     expect(tester.takeException(), isNull);
   });
 
@@ -180,6 +208,15 @@ void main() {
 
       expect(find.text('Analytics'), findsOneWidget);
       expect(find.text('Class comparison'), findsOneWidget);
+      expect(
+        find.byKey(const Key('teacher_progress_student_rankings')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('teacher_analytics_export')), findsOneWidget);
+      expect(
+        find.byKey(const Key('teacher_analytics_refresh')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     },
   );

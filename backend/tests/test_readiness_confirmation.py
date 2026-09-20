@@ -208,6 +208,31 @@ class TestVisionSessionConfirmation:
         assert session.readiness_confirmed is True
         session.close()
 
+    def test_teacher_activity_detection_loss_after_confirmation_does_not_revoke(
+        self, monkeypatch
+    ):
+        _patch_vision(monkeypatch)
+        session = websocket_api.VisionSession(
+            "Free Practice",
+            readiness_spec={"hands": "two_hands", "body": "upper_body"},
+        )
+        session.start()
+        session.begin_readiness()
+        import time
+
+        session._latest_readiness_snapshot = _stable_readiness_snapshot()
+        session._latest_readiness_observed_at = time.monotonic()
+        assert session.confirm_readiness() == (True, None)
+
+        msg = session.process_readiness_frame()
+
+        assert msg is not None
+        assert msg.readiness_stable is True
+        assert session.readiness_confirmed is True
+        assert session.activate() == (True, None)
+        assert session.is_active
+        session.close()
+
     def test_new_prepare_resets_confirmation(self, monkeypatch):
         _patch_vision(monkeypatch)
         session = websocket_api.VisionSession("Hand Stall")

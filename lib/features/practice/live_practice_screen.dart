@@ -180,9 +180,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _stopInFlight = false;
   bool _startInFlight = false;
   bool _activityAutoStartRequested = false;
-  bool _activityReservationReleased = false;
-  bool _reservationReleaseInFlight = false;
   SubmissionRecordingController? _recording;
+  Future<void>? _webSocketStopFuture;
 
   /// True while a WebSocket prepare/activate command is awaiting ack.
   bool _commandInFlight = false;
@@ -281,6 +280,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   @visibleForTesting
   PracticeRunController get debugRun => _run;
 
+  @visibleForTesting
+  Future<void> debugConfirmActivityReadiness() => _confirmActivityReadiness();
+
   List<({String movement, TrainingProp prop})> _freestyleAllowlist() {
     final progression = context.read<TraineeProgressionService>();
     final tutorials = context.read<TutorialProgressService>();
@@ -356,7 +358,21 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _frameBytes.value = null;
   }
 
-  Future<void> _stopWebSocketSession() async {
+  Future<void> _stopWebSocketSession() {
+    final pending = _webSocketStopFuture;
+    if (pending != null) return pending;
+
+    late final Future<void> tracked;
+    tracked = _performWebSocketStop().whenComplete(() {
+      if (identical(_webSocketStopFuture, tracked)) {
+        _webSocketStopFuture = null;
+      }
+    });
+    _webSocketStopFuture = tracked;
+    return tracked;
+  }
+
+  Future<void> _performWebSocketStop() async {
     await _recording?.abandonLocalClip();
     await _recording?.cancelActivityAttempt();
     try {
@@ -483,14 +499,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       if (_sessionError != null) {
         setState(() => _sessionError = null);
       }
-      if (_isTeacherActivityV2 && feedback.readinessStable == false) {
-        _run.onActivationRejected();
-        unawaited(_releaseReservationAfterReadinessLoss());
-        setState(() {
-          _sessionError =
-              'Readiness was lost. Hold the required setup steady to restart the countdown.';
-        });
-      }
+      // Accepted confirm_readiness freezes the approved setup for this
+      // attempt. Late readying fields can race with countdown feedback and
+      // must not demote the run or release its reserved Activity attempt.
       return;
     }
 
@@ -560,9 +571,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   void _onActivityReadinessStable() {
-    if (!_isTeacherActivityV2 ||
-        _commandInFlight ||
-        _reservationReleaseInFlight) {
+    if (!_isTeacherActivityV2 || _commandInFlight) {
       return;
     }
     final stable = _run.readiness.stable || (_run.readinessStable == true);
@@ -574,11 +583,6 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     final generation = _run.lifecycleGeneration;
     _commandInFlight = true;
     try {
-      if (_activityReservationReleased) {
-        await _recording?.reserveActivityAttempt();
-        if (!mounted || generation != _run.lifecycleGeneration) return;
-        _activityReservationReleased = false;
-      }
       final ack = await _ws.sendConfirmReadiness();
       if (!mounted || generation != _run.lifecycleGeneration) return;
       if (!ack.accepted) {
@@ -593,32 +597,63 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       await _sfx.playCountdown(
         volume: settings.soundEnabled ? settings.musicVolume : 0.0,
       );
+    } on CommandTimeoutException {
+      if (!mounted || generation != _run.lifecycleGeneration) return;
+      _run.onConfirmReadinessRejected(
+        errorCode: 'command_timeout',
+        message:
+            'Readiness confirmation timed out. Keep the required setup visible to try again.',
+      );
+    } on CommandDisconnectedException {
+      if (!mounted || generation != _run.lifecycleGeneration) return;
+      _failActivityReadinessSession(
+        errorCode: 'connection_lost',
+        message:
+            'Lost connection to the camera service during readiness confirmation.',
+      );
+    } on CommandAckMismatchException catch (error) {
+      if (!mounted || generation != _run.lifecycleGeneration) return;
+      _failActivityReadinessSession(
+        errorCode: error.errorCode,
+        message:
+            'Readiness confirmation was out of sync with the camera service.',
+      );
     } catch (_) {
       if (!mounted || generation != _run.lifecycleGeneration) return;
-      _run.onConfirmReadinessRejected();
-      setState(() {
-        _sessionError = 'Readiness confirmation failed. Try again.';
-      });
+      if (!_ws.isConnected) {
+        _failActivityReadinessSession(
+          errorCode: 'connection_lost',
+          message:
+              'Lost connection to the camera service during readiness confirmation.',
+        );
+        return;
+      }
+      _run.onConfirmReadinessRejected(
+        message:
+            'Readiness confirmation failed. Keep the required setup visible.',
+      );
     } finally {
       _commandInFlight = false;
       if (mounted) setState(() {});
     }
   }
 
-  Future<void> _releaseReservationAfterReadinessLoss() async {
-    if (_reservationReleaseInFlight) return;
-    _reservationReleaseInFlight = true;
-    try {
-      await _recording?.releaseActivityAttempt();
-      if (!mounted) return;
-      _activityReservationReleased = true;
-    } finally {
-      _reservationReleaseInFlight = false;
-      if (mounted) {
-        setState(() {});
-        _onActivityReadinessStable();
-      }
-    }
+  void _failActivityReadinessSession({
+    required String errorCode,
+    required String message,
+  }) {
+    _run.onPreviewFeedback(
+      hasJpegFrame: false,
+      isFatal: true,
+      fatalMessage: message,
+    );
+    unawaited(_stopWebSocketSession());
+    _clearFrame();
+    setState(() {
+      _sessionErrorCode = errorCode;
+      _sessionError = message;
+      _latestFeedback = null;
+    });
   }
 
   Future<void> _connect() async {
@@ -682,7 +717,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _connect();
       return;
     }
-    if (_startInFlight || _leaving || _stopInFlight || _freestyleSummaryOpen) {
+    if (_startInFlight ||
+        _leaving ||
+        _stopInFlight ||
+        _webSocketStopFuture != null ||
+        _freestyleSummaryOpen) {
       return;
     }
     if (_commandInFlight) return;

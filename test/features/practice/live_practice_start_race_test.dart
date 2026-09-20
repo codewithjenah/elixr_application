@@ -7,6 +7,7 @@ import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
@@ -17,6 +18,7 @@ import 'package:elixr_application/data/repositories/in_memory_classroom_assignme
 import 'package:elixr_application/features/practice/freestyle/freestyle_models.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
+import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/trainee_progression_service.dart';
@@ -109,6 +111,7 @@ class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
   Object? startError;
   List<AssignmentAttempt>? attemptSnapshot;
   int startCalls = 0;
+  int abandonCalls = 0;
 
   @override
   Stream<List<AssignmentAttempt>> watchAttemptsForTrainee({
@@ -137,6 +140,18 @@ class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
       assignment: assignment,
     );
   }
+
+  @override
+  Future<void> abandonTeacherActivityAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    abandonCalls += 1;
+    return super.abandonTeacherActivityAttempt(
+      traineeId: traineeId,
+      attempt: attempt,
+    );
+  }
 }
 
 class _GatedSettingsService extends SettingsService {
@@ -154,11 +169,18 @@ class _GatedSettingsService extends SettingsService {
 
 class _RecordingWebSocketService extends WebSocketService {
   int beginCalls = 0;
+  int beginReadinessCalls = 0;
+  int confirmReadinessCalls = 0;
   int activateCalls = 0;
+  int stopCalls = 0;
+  Object? confirmReadinessError;
+  Completer<CommandAck>? confirmReadinessAck;
+  Completer<void>? stopGate;
   final preparePayloads = <Map<String, Object?>>[];
   Completer<CommandAck> prepareAck = Completer<CommandAck>();
   Completer<CommandAck> activateAck = Completer<CommandAck>();
   final _previewFrames = StreamController<PreviewFrame>.broadcast();
+  final _feedbackFrames = StreamController<PracticeFeedback>.broadcast();
 
   @override
   WebSocketConnectionState get connectionState =>
@@ -172,6 +194,9 @@ class _RecordingWebSocketService extends WebSocketService {
 
   @override
   Stream<PreviewFrame> get previewStream => _previewFrames.stream;
+
+  @override
+  Stream<PracticeFeedback> get feedbackStream => _feedbackFrames.stream;
 
   @override
   String beginPracticeAttempt() {
@@ -223,15 +248,56 @@ class _RecordingWebSocketService extends WebSocketService {
   }
 
   @override
-  Future<CommandAck> stopPracticeSession({String? sessionId}) {
-    return Future.value(
-      const CommandAck(
-        protocolVersion: 1,
-        requestId: 'stop-test',
-        action: 'stop',
-        accepted: true,
-        sessionState: 'idle',
-      ),
+  Future<CommandAck> sendBeginReadiness({String? sessionId}) async {
+    beginReadinessCalls += 1;
+    return CommandAck(
+      protocolVersion: 1,
+      requestId: 'begin-readiness-test',
+      action: 'begin_readiness',
+      accepted: true,
+      sessionId: currentSessionId,
+      sessionState: 'readying',
+    );
+  }
+
+  @override
+  Future<CommandAck> sendConfirmReadiness({String? sessionId}) async {
+    confirmReadinessCalls += 1;
+    final error = confirmReadinessError;
+    if (error != null) throw error;
+    final pending = confirmReadinessAck;
+    if (pending != null) return pending.future;
+    return CommandAck(
+      protocolVersion: 1,
+      requestId: 'confirm-readiness-test',
+      action: 'confirm_readiness',
+      accepted: true,
+      sessionId: currentSessionId,
+      sessionState: 'readying',
+    );
+  }
+
+  @override
+  Future<CommandAck> stopPracticeSession({String? sessionId}) async {
+    stopCalls += 1;
+    final gate = stopGate;
+    if (gate != null) await gate.future;
+    return const CommandAck(
+      protocolVersion: 1,
+      requestId: 'stop-test',
+      action: 'stop',
+      accepted: true,
+      sessionState: 'idle',
+    );
+  }
+
+  @override
+  Future<CommandAck> sendCancelSubmissionRecord({String? sessionId}) async {
+    return const CommandAck(
+      protocolVersion: 1,
+      requestId: 'cancel-record-test',
+      action: 'cancel_submission_record',
+      accepted: true,
     );
   }
 
@@ -347,6 +413,36 @@ class _RecordingWebSocketService extends WebSocketService {
     );
   }
 
+  void emitReadiness({required bool stable}) {
+    _feedbackFrames.add(
+      PracticeFeedback(
+        bottleDetected: stable,
+        movement: 'Free Practice',
+        feedback: stable ? 'Ready' : 'Keep the bottle visible',
+        feedbackType: stable ? 'positive' : 'warning',
+        postureStatus: 'unknown',
+        sessionState: 'readying',
+        readinessComplete: stable,
+        readinessStable: stable,
+        readinessStableProgress: stable ? 1 : 0,
+      ),
+    );
+  }
+
+  void emitFatal({required String errorCode}) {
+    _feedbackFrames.add(
+      PracticeFeedback(
+        bottleDetected: false,
+        movement: 'Free Practice',
+        feedback: 'Camera unavailable',
+        feedbackType: 'error',
+        postureStatus: 'unknown',
+        errorCode: errorCode,
+        sessionState: 'unavailable',
+      ),
+    );
+  }
+
   void acceptActivate() {
     if (activateAck.isCompleted) return;
     activateAck.complete(
@@ -364,6 +460,7 @@ class _RecordingWebSocketService extends WebSocketService {
   @override
   void dispose() {
     unawaited(_previewFrames.close());
+    unawaited(_feedbackFrames.close());
     super.dispose();
   }
 }
@@ -642,6 +739,287 @@ void main() {
       expect(assignments.startCalls, 1);
       expect(ws.beginCalls, 0);
       expect(ws.preparePayloads, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'accepted Activity readiness ignores late loss but still honors fatal camera feedback',
+    (tester) async {
+      const reservedAttempt = AssignmentAttempt(
+        id: 'reserved-attempt',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'activity-bbb',
+        movementId: 'tm-bbb',
+        revisionId: 'tm-bbb_v1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.inProgress,
+        activityAssessmentSnapshot: _activityAssessment,
+      );
+      assignments
+        ..startDelay = null
+        ..attemptSnapshot = const [reservedAttempt];
+      settings.cameraDelay = null;
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _activityAssignment,
+          reservedActivityAttempt: reservedAttempt,
+        ),
+      );
+
+      unawaited(screenKey.currentState!.debugStartSession());
+      await tester.pump();
+      ws.acceptPrepare();
+      await tester.pump();
+      ws.emitPreview();
+      await tester.pump();
+      expect(ws.beginReadinessCalls, 1);
+
+      ws.emitReadiness(stable: true);
+      await tester.pump();
+      expect(
+        screenKey.currentState!.debugRun.requestStartPractice(
+          readinessStable: true,
+        ),
+        isTrue,
+      );
+      unawaited(screenKey.currentState!.debugConfirmActivityReadiness());
+      await tester.pump();
+      expect(ws.confirmReadinessCalls, 1);
+      expect(
+        screenKey.currentState!.debugRun.phase,
+        PracticeRunPhase.countdown,
+      );
+
+      ws.emitReadiness(stable: false);
+      await tester.pump();
+      expect(
+        screenKey.currentState!.debugRun.phase,
+        PracticeRunPhase.countdown,
+      );
+      expect(assignments.abandonCalls, 0);
+      expect(find.text('Camera session interrupted'), findsNothing);
+
+      ws.emitFatal(errorCode: 'camera_unavailable');
+      await tester.pump();
+      expect(screenKey.currentState!.debugRun.phase, PracticeRunPhase.error);
+      expect(find.text('No usable camera'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Activity readiness timeout stays recoverable instead of showing camera interruption',
+    (tester) async {
+      const reservedAttempt = AssignmentAttempt(
+        id: 'reserved-attempt',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'activity-bbb',
+        movementId: 'tm-bbb',
+        revisionId: 'tm-bbb_v1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.inProgress,
+        activityAssessmentSnapshot: _activityAssessment,
+      );
+      assignments
+        ..startDelay = null
+        ..attemptSnapshot = const [reservedAttempt];
+      settings.cameraDelay = null;
+      ws.confirmReadinessError = CommandTimeoutException(
+        'confirm-readiness-test',
+        'confirm_readiness',
+      );
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _activityAssignment,
+          reservedActivityAttempt: reservedAttempt,
+        ),
+      );
+
+      unawaited(screenKey.currentState!.debugStartSession());
+      await tester.pump();
+      ws.acceptPrepare();
+      await tester.pump();
+      ws.emitPreview();
+      await tester.pump();
+      ws.emitReadiness(stable: true);
+      await tester.pump();
+      expect(
+        screenKey.currentState!.debugRun.requestStartPractice(
+          readinessStable: true,
+        ),
+        isTrue,
+      );
+
+      await screenKey.currentState!.debugConfirmActivityReadiness();
+      await tester.pump();
+
+      expect(
+        screenKey.currentState!.debugRun.phase,
+        PracticeRunPhase.readiness,
+      );
+      expect(
+        screenKey.currentState!.debugRun.readiness.recoverableMessage,
+        contains('timed out'),
+      );
+      expect(assignments.abandonCalls, 0);
+      expect(find.text('Camera session interrupted'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'fatal readiness teardown blocks an immediate overlapping prepare',
+    (tester) async {
+      const reservedAttempt = AssignmentAttempt(
+        id: 'reserved-attempt',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'activity-bbb',
+        movementId: 'tm-bbb',
+        revisionId: 'tm-bbb_v1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.inProgress,
+        activityAssessmentSnapshot: _activityAssessment,
+      );
+      assignments
+        ..startDelay = null
+        ..attemptSnapshot = const [reservedAttempt];
+      settings.cameraDelay = null;
+      ws
+        ..confirmReadinessError = CommandDisconnectedException(
+          'confirm-readiness-test',
+          'confirm_readiness',
+        )
+        ..stopGate = Completer<void>();
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _activityAssignment,
+          reservedActivityAttempt: reservedAttempt,
+        ),
+      );
+
+      unawaited(screenKey.currentState!.debugStartSession());
+      await tester.pump();
+      ws.acceptPrepare();
+      await tester.pump();
+      ws.emitPreview();
+      await tester.pump();
+      ws.emitReadiness(stable: true);
+      await tester.pump();
+      expect(
+        screenKey.currentState!.debugRun.requestStartPractice(
+          readinessStable: true,
+        ),
+        isTrue,
+      );
+      await screenKey.currentState!.debugConfirmActivityReadiness();
+      await tester.pump();
+      expect(screenKey.currentState!.debugRun.phase, PracticeRunPhase.error);
+      expect(ws.stopCalls, 1);
+
+      ws.confirmReadinessError = null;
+      unawaited(screenKey.currentState!.debugStartSession());
+      await tester.pump();
+      expect(ws.beginCalls, 1);
+      expect(ws.stopCalls, 1);
+
+      ws.stopGate!.complete();
+      ws.stopGate = null;
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      expect(ws.stopCalls, 1);
+      expect(ws.beginCalls, 1);
+    },
+  );
+
+  testWidgets(
+    'stale confirm acknowledgment after reset cannot advance the restarted run',
+    (tester) async {
+      const reservedAttempt = AssignmentAttempt(
+        id: 'reserved-attempt',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'activity-bbb',
+        movementId: 'tm-bbb',
+        revisionId: 'tm-bbb_v1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.inProgress,
+        activityAssessmentSnapshot: _activityAssessment,
+      );
+      assignments
+        ..startDelay = null
+        ..attemptSnapshot = const [reservedAttempt];
+      settings.cameraDelay = null;
+      final staleAck = Completer<CommandAck>();
+      ws.confirmReadinessAck = staleAck;
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _activityAssignment,
+          reservedActivityAttempt: reservedAttempt,
+        ),
+      );
+
+      unawaited(screenKey.currentState!.debugStartSession());
+      await tester.pump();
+      ws.acceptPrepare();
+      await tester.pump();
+      ws.emitPreview();
+      await tester.pump();
+      ws.emitReadiness(stable: true);
+      await tester.pump();
+      expect(
+        screenKey.currentState!.debugRun.requestStartPractice(
+          readinessStable: true,
+        ),
+        isTrue,
+      );
+      unawaited(screenKey.currentState!.debugConfirmActivityReadiness());
+      await tester.pump();
+      final oldGeneration =
+          screenKey.currentState!.debugRun.lifecycleGeneration;
+
+      final run = screenKey.currentState!.debugRun;
+      run.cancelToIdle();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      await tester.pump();
+      expect(run.lifecycleGeneration, greaterThan(oldGeneration));
+      expect(run.phase, PracticeRunPhase.readiness);
+      final abandonCallsBeforeAck = assignments.abandonCalls;
+
+      staleAck.complete(
+        const CommandAck(
+          protocolVersion: 1,
+          requestId: 'stale-confirm-readiness',
+          action: 'confirm_readiness',
+          accepted: true,
+          sessionState: 'readying',
+        ),
+      );
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+
+      expect(run.phase, PracticeRunPhase.readiness);
+      expect(run.readinessFrozen, isFalse);
+      expect(assignments.abandonCalls, abandonCallsBeforeAck);
+      expect(ws.activateCalls, 0);
     },
   );
 

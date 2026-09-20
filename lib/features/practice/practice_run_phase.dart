@@ -381,9 +381,10 @@ class PracticeRunController extends ChangeNotifier {
   ///
   /// For [readiness_not_stable] and [readiness_stale] errors the rejection is
   /// recoverable: clears confirming, sets [recoverableMessage], and stays in
-  /// readiness. Other error codes are also recoverable (the session is not
-  /// fatal) but do not set a specific message. Soft rejects re-arm auto-start
-  /// when stable feedback returns.
+  /// readiness. Command timeouts and other connected command failures can
+  /// also provide an inline recovery message without turning the session into
+  /// a camera failure. Soft rejects re-arm auto-start when stable feedback
+  /// returns.
   void onConfirmReadinessRejected({String? errorCode, String? message}) {
     if (!_readiness.confirming) return;
     String? recoverable;
@@ -391,6 +392,8 @@ class PracticeRunController extends ChangeNotifier {
       recoverable =
           message ??
           'Readiness is no longer stable. Keep required inputs visible.';
+    } else if (message != null && message.isNotEmpty) {
+      recoverable = message;
     }
     _readiness = _readiness.copyWith(
       confirming: false,

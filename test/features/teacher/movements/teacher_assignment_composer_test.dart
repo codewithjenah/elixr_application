@@ -21,6 +21,7 @@ import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
@@ -228,6 +229,7 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
   int removeCalls = 0;
   int beginUploadCalls = 0;
   int uploadStagedFileCalls = 0;
+  int remainingUploadFailures = 0;
   int uploadStatusCalls = 0;
 
   @override
@@ -332,6 +334,14 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     required File file,
   }) async {
     uploadStagedFileCalls++;
+    if (remainingUploadFailures > 0) {
+      remainingUploadFailures--;
+      throw FirebaseException(
+        plugin: 'firebase_storage',
+        code: 'unauthorized',
+        message: 'User is not authorized to perform the desired action.',
+      );
+    }
   }
 }
 
@@ -1549,6 +1559,12 @@ void main() {
         find.textContaining('some learning materials could not be saved'),
         findsOneWidget,
       );
+      expect(
+        find.text('Assignment created with material issues'),
+        findsOneWidget,
+      );
+      expect(find.text('Could not create assignment'), findsNothing);
+      expect(tester.takeException(), isNull);
 
       await tester.tap(publish);
       await tester.pumpAndSettle();
@@ -1559,6 +1575,57 @@ void main() {
         Uri.parse('https://example.com/first'),
       ]);
       expect(materials.linkRequestIds[0], materials.linkRequestIds[2]);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'edit material failure reports an updated partial success and retries the existing assignment',
+    (tester) async {
+      final assignment = await service().create(
+        group: group,
+        officialMovement: movementCatalog.first,
+      );
+      final materials = _MaterialRepository()..remainingLinkFailures = 1;
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        existingAssignment: assignment,
+        materialRepository: materials,
+      );
+      final url = find.byKey(const Key('teacher_assignment_material_link_url'));
+      final addLink = find.byKey(
+        const Key('teacher_assignment_add_material_link'),
+      );
+      await tester.ensureVisible(url);
+      await tester.enterText(url, 'https://example.com/edit-reference');
+      await tester.tap(addLink);
+      await tester.pump();
+
+      final save = find.byKey(const Key('teacher_assignment_save_changes'));
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(assignments.officialCalls, 1);
+      expect(materials.linkedAssignmentIds, [assignment.id]);
+      expect(
+        find.text('Assignment updated with material issues'),
+        findsOneWidget,
+      );
+      expect(find.text('Could not save assignment'), findsNothing);
+      expect(
+        find.textContaining('Assignment changes were saved.'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(assignments.officialCalls, 1);
+      expect(materials.linkedAssignmentIds, [assignment.id, assignment.id]);
+      expect(materials.linkRequestIds[0], materials.linkRequestIds[1]);
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -1627,6 +1694,61 @@ void main() {
     expect(materials.uploadStagedFileCalls, 1);
     expect(materials.uploadStatusCalls, 1);
   });
+
+  testWidgets(
+    'failed staged upload retries against the created assignment without creating again',
+    (tester) async {
+      final directory = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('elixr_material_retry_'),
+      ))!;
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}${Platform.pathSeparator}guide.pdf');
+      await tester.runAsync(() => file.writeAsBytes([0x25, 0x50, 0x44, 0x46]));
+      final materials = _MaterialRepository()..remainingUploadFailures = 1;
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+        materialRepository: materials,
+        materialFilePicker: ({required acceptedTypeGroups}) async =>
+            XFile(file.path, name: 'guide.pdf'),
+      );
+
+      final chooseFile = find.byKey(
+        const Key('teacher_assignment_choose_material_file'),
+      );
+      await tester.ensureVisible(chooseFile);
+      await tester.tap(chooseFile);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+
+      final publish = find.byKey(const Key('teacher_assignment_publish_now'));
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+
+      expect(assignments.officialCalls, 1);
+      expect(materials.beginUploadCalls, 1);
+      expect(materials.uploadStagedFileCalls, 1);
+      expect(materials.uploadStatusCalls, 0);
+      expect(
+        find.text('Assignment created with material issues'),
+        findsOneWidget,
+      );
+      expect(find.text('Could not create assignment'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+
+      expect(assignments.officialCalls, 1);
+      expect(materials.beginUploadCalls, 1);
+      expect(materials.uploadStagedFileCalls, 2);
+      expect(materials.uploadStatusCalls, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('queued local material previews before assignment publish', (
     tester,
