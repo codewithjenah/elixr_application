@@ -184,7 +184,6 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   String _playbackRequestKey(AssignmentAttempt candidate) {
     return <Object?>[
       candidate.id,
-      candidate.status.wireValue,
       candidate.videoStoragePath,
       candidate.videoDeletedAt?.toIso8601String(),
       candidate.videoExpiresAt?.toIso8601String(),

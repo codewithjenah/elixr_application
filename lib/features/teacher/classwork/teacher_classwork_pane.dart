@@ -1515,7 +1515,9 @@ class _TeacherSubmissionReviewDetailState
       return SizedBox.expand(
         key: const Key('teacher_classwork_submission_detail'),
         child: SubmissionDetailBody(
-          key: ValueKey('${current.id}:${current.reviewRevision}'),
+          // Review metadata updates must preserve the media state for this
+          // attempt. SubmissionDetailBody reloads itself when a clip changes.
+          key: ValueKey(current.id),
           assignment: widget.assignment,
           attempt: current,
           viewerRole: SubmissionDetailViewerRole.teacher,
@@ -1552,7 +1554,10 @@ class _TeacherSubmissionReviewDetailState
       hasNext: hasNext,
     );
     final submissionDetail = SubmissionDetailBody(
-      key: ValueKey('${current.id}:${current.reviewRevision}'),
+      // A checked review is still the same submission clip. Keep this state
+      // alive so a grading update cannot race its old disposal against a new
+      // authenticated playback request.
+      key: ValueKey(current.id),
       assignment: widget.assignment,
       attempt: current,
       viewerRole: SubmissionDetailViewerRole.teacher,

@@ -754,6 +754,53 @@ void main() {
     expect(find.byKey(const Key('submission_retention_empty')), findsOneWidget);
   });
 
+  testWidgets(
+    'checking the same submission preserves its active playback lifecycle',
+    (tester) async {
+      final attempt = ValueNotifier<AssignmentAttempt>(_submittedClip());
+      addTearDown(attempt.dispose);
+      final openedPlayback = Completer<SubmissionPlaybackFile?>();
+      var opens = 0;
+      var releases = 0;
+      await _pumpMutableBody(
+        tester,
+        attempt: attempt,
+        openLocalPlayback: (_) async {
+          opens++;
+          return openedPlayback.future;
+        },
+        releaseLocalPlayback: () async => releases++,
+      );
+
+      expect(opens, 1);
+
+      // Saving a review changes status and reviewRevision, but neither alters
+      // the clip identity or its availability.
+      attempt.value = attempt.value.copyWith(
+        status: AssignmentAttemptStatus.checked,
+        reviewRevision: 1,
+        checkedAt: DateTime.utc(2026, 9, 2),
+        gradeScore: 3,
+        gradeMaxScore: 3,
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(opens, 1);
+      expect(releases, 0);
+
+      // The original, successful authenticated open remains the active
+      // playback request; an obsolete body must not release it while it
+      // completes.
+      openedPlayback.complete(
+        const SubmissionPlaybackFile(localPath: 'active-submission.mp4'),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('submission_clip_retry')), findsNothing);
+      expect(releases, 0);
+    },
+  );
+
   testWidgets('stale playback completion cannot replace a newer attempt', (
     tester,
   ) async {

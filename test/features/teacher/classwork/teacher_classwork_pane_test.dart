@@ -7,6 +7,7 @@ import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/features/assigned_movements/widgets/submission_detail_body.dart';
 import 'package:elixr_application/features/teacher/classwork/teacher_classwork_controller.dart';
 import 'package:elixr_application/features/teacher/classwork/teacher_classwork_pane.dart';
 import 'package:elixr_core/elixr_core.dart';
@@ -264,6 +265,51 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'checking an open submission preserves its submission detail state',
+    (tester) async {
+      final submission = AssignmentAttempt(
+        id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+          assignmentId: 'assignment',
+          traineeId: 'student',
+        ),
+        traineeId: 'student',
+        teacherId: 'teacher',
+        groupId: 'group',
+        assignmentId: 'assignment',
+        movementId: 'movement',
+        revisionId: 'revision',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.submitted,
+        submittedAt: DateTime.utc(2026, 9, 1, 16),
+        videoStoragePath: 'assignment_submissions/submission.mp4',
+        videoExpiresAt: DateTime.utc(2026, 10, 1),
+      );
+      assignments.seedAttempt(submission);
+      await pumpPane(tester, const Size(1280, 720));
+      await tester.tap(
+        find.byKey(const Key('teacher_classwork_student_student')),
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+      final detailState = tester.state(find.byType(SubmissionDetailBody));
+
+      await controller.saveReview(
+        attempt: submission,
+        assignment: assignments.assignments['assignment']!,
+        gradeScore: 90,
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+
+      expect(
+        tester.state(find.byType(SubmissionDetailBody)),
+        same(detailState),
+      );
+      expect(find.text('Review result'), findsOneWidget);
+    },
+  );
 
   testWidgets('roster rows expose semantics and support keyboard activation', (
     tester,
