@@ -5,6 +5,7 @@ import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/activity_learning_material.dart';
 import 'package:elixr_application/data/models/class_challenge.dart';
+import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/repositories/activity_learning_material_repository.dart';
@@ -195,6 +196,30 @@ void main() {
       await controller.retry();
       await _settle();
       expect(controller.hasStreamError, isTrue);
+      expect(
+        controller.activities.any(
+          (item) => item.type == TraineeActivityType.newAssignment,
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'keeps core activity available when the optional materials endpoint is absent',
+    () async {
+      assignments.seedAssignment(_assignment(id: 'work', title: 'Practice'));
+      materials.error = const ClassroomException.fromFunction(
+        ClassroomError.endpointUnavailable,
+        httpStatus: 404,
+        serverCode: 'non_json_function_response',
+      );
+      final controller = createController()..setTrainee('trainee');
+      addTearDown(controller.dispose);
+      await _settle();
+
+      expect(controller.learningMaterialsError, isNull);
+      expect(controller.hasStreamError, isFalse);
       expect(
         controller.activities.any(
           (item) => item.type == TraineeActivityType.newAssignment,

@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
@@ -195,101 +195,18 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
                         }
                         return Center(
                           child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 760),
-                            child: ElixPanelCard(
-                              padding: const EdgeInsets.all(AppSpacing.xl),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Text(
-                                    challenge.title,
-                                    style: AppTheme.headingLarge,
-                                  ),
-                                  const SizedBox(height: AppSpacing.sm),
-                                  Text(
-                                    challenge.description,
-                                    style: AppTheme.body,
-                                  ),
-                                  const SizedBox(height: AppSpacing.lg),
-                                  _InfoRow(
-                                    label: 'Movement',
-                                    value: challenge.movementName,
-                                  ),
-                                  _InfoRow(
-                                    label: 'Prop',
-                                    value: challenge.prop.displayLabel,
-                                  ),
-                                  _InfoRow(
-                                    label: 'Scoring',
-                                    value: 'Best ELIXR rubric total (0–12)',
-                                  ),
-                                  _InfoRow(
-                                    label: 'Attempts',
-                                    value: remaining == null
-                                        ? 'Unlimited'
-                                        : '$remaining remaining',
-                                  ),
-                                  _InfoRow(
-                                    label: 'Personal best',
-                                    value: personal == null
-                                        ? 'No score yet'
-                                        : '${personal.score}/12',
-                                  ),
-                                  if (_error != null) ...[
-                                    const SizedBox(height: AppSpacing.sm),
-                                    context.isHighContrast ||
-                                            shad.ShadTheme.maybeOf(context) ==
-                                                null
-                                        ? InfoBar(
-                                            title: const Text('Cannot start'),
-                                            content: Text(_error!),
-                                            severity: InfoBarSeverity.error,
-                                          )
-                                        : shad.ShadAlert.destructive(
-                                            title: const Text('Cannot start'),
-                                            description: Text(_error!),
-                                          ),
-                                  ],
-                                  const SizedBox(height: AppSpacing.lg),
-                                  Wrap(
-                                    spacing: AppSpacing.sm,
-                                    runSpacing: AppSpacing.sm,
-                                    children: [
-                                      ElixPrimaryButton(
-                                        label: 'Begin Challenge',
-                                        icon: FluentIcons.play,
-                                        expanded: false,
-                                        isLoading: _reserving,
-                                        onPressed:
-                                            challenge.canStartAt(
-                                                  DateTime.now(),
-                                                ) &&
-                                                (remaining == null ||
-                                                    remaining > 0)
-                                            ? _begin
-                                            : null,
-                                      ),
-                                      context.isHighContrast ||
-                                              shad.ShadTheme.maybeOf(context) ==
-                                                  null
-                                          ? Button(
-                                              onPressed: () =>
-                                                  _showTutorial(challenge),
-                                              child: const Text(
-                                                'View Tutorial',
-                                              ),
-                                            )
-                                          : shad.ShadButton.outline(
-                                              onPressed: () =>
-                                                  _showTutorial(challenge),
-                                              child: const Text(
-                                                'View Tutorial',
-                                              ),
-                                            ),
-                                    ],
-                                  ),
-                                ],
-                              ),
+                            constraints: const BoxConstraints(maxWidth: 920),
+                            child: _ChallengeReadyPanel(
+                              challenge: challenge,
+                              remaining: remaining,
+                              personalBest: personal?.score,
+                              error: _error,
+                              isReserving: _reserving,
+                              canBegin:
+                                  challenge.canStartAt(DateTime.now()) &&
+                                  (remaining == null || remaining > 0),
+                              onBegin: _begin,
+                              onViewTutorial: () => _showTutorial(challenge),
                             ),
                           ),
                         );
@@ -409,25 +326,326 @@ class _ClassChallengePlayScreenState extends State<ClassChallengePlayScreen> {
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
+class _ChallengeReadyPanel extends StatelessWidget {
+  const _ChallengeReadyPanel({
+    required this.challenge,
+    required this.remaining,
+    required this.personalBest,
+    required this.error,
+    required this.isReserving,
+    required this.canBegin,
+    required this.onBegin,
+    required this.onViewTutorial,
+  });
+
+  final ClassChallenge challenge;
+  final int? remaining;
+  final int? personalBest;
+  final String? error;
+  final bool isReserving;
+  final bool canBegin;
+  final VoidCallback onBegin;
+  final VoidCallback onViewTutorial;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    return ElixPanelCard(
+      variant: ElixPanelVariant.hero,
+      accent: colors.brandPrimary,
+      showAccentBar: true,
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: colors.brandPrimary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(ElixRadius.control),
+                  border: Border.all(
+                    color: colors.brandPrimary.withValues(alpha: 0.42),
+                  ),
+                ),
+                child: Icon(
+                  FluentIcons.lightning_bolt,
+                  color: colors.brandPrimary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const ElixEyebrow(label: 'LIVE CLASS CHALLENGE'),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      challenge.title,
+                      style: AppTheme.displayHero(
+                        context,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _AvailabilityBadge(enabled: canBegin),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            challenge.description,
+            style: AppTheme.body.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 580;
+              final stats = [
+                _ChallengeStat(
+                  icon: FluentIcons.completed_solid,
+                  label: 'Movement',
+                  value: challenge.movementName,
+                ),
+                _ChallengeStat(
+                  icon: FluentIcons.product,
+                  label: 'Prop',
+                  value: challenge.prop.displayLabel,
+                ),
+                const _ChallengeStat(
+                  icon: FluentIcons.bullseye_target,
+                  label: 'Scoring',
+                  value: 'Best score · 0–12',
+                ),
+                _ChallengeStat(
+                  icon: FluentIcons.redo,
+                  label: 'Attempts',
+                  value: remaining == null ? 'Unlimited' : '$remaining left',
+                ),
+              ];
+              return GridView.count(
+                crossAxisCount: compact ? 1 : 2,
+                crossAxisSpacing: AppSpacing.sm,
+                mainAxisSpacing: AppSpacing.sm,
+                childAspectRatio: compact ? 4.4 : 2.85,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                children: stats,
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _PersonalBestStrip(score: personalBest),
+          if (error != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _ChallengeError(message: error!),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 480;
+              final begin = ElixPrimaryButton(
+                label: 'Begin Challenge',
+                icon: FluentIcons.play,
+                expanded: compact,
+                isLoading: isReserving,
+                onPressed: canBegin ? onBegin : null,
+              );
+              final tutorial = ElixPrimaryButton(
+                label: 'View Tutorial',
+                icon: FluentIcons.play_resume,
+                variant: ElixButtonVariant.outline,
+                expanded: compact,
+                onPressed: onViewTutorial,
+              );
+              return compact
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        begin,
+                        const SizedBox(height: AppSpacing.sm),
+                        tutorial,
+                      ],
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        begin,
+                        const SizedBox(width: AppSpacing.sm),
+                        tutorial,
+                      ],
+                    );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AvailabilityBadge extends StatelessWidget {
+  const _AvailabilityBadge({required this.enabled});
+
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    final tone = enabled ? colors.success : colors.textMuted;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(ElixRadius.pill),
+        border: Border.all(color: tone.withValues(alpha: 0.42)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            enabled ? FluentIcons.completed_solid : FluentIcons.clock,
+            size: 12,
+            color: tone,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Text(
+            enabled ? 'READY NOW' : 'UNAVAILABLE',
+            style: AppTheme.caption.copyWith(
+              color: tone,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChallengeStat extends StatelessWidget {
+  const _ChallengeStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+    final colors = context.elixColors;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfaceBase.withValues(alpha: 0.54),
+        borderRadius: BorderRadius.circular(ElixRadius.control),
+        border: Border.all(color: colors.borderSubtle),
+      ),
       child: Row(
         children: [
-          SizedBox(
-            width: 130,
-            child: Text(label, style: AppTheme.bodySecondary),
+          Icon(icon, size: 16, color: colors.brandSecondary),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppTheme.caption.copyWith(color: colors.textMuted),
+                ),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.label(color: colors.textPrimary),
+                ),
+              ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PersonalBestStrip extends StatelessWidget {
+  const _PersonalBestStrip({required this.score});
+
+  final int? score;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.smPlus,
+      ),
+      decoration: BoxDecoration(
+        color: colors.brandSecondary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(ElixRadius.control),
+        border: Border.all(
+          color: colors.brandSecondary.withValues(alpha: 0.32),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(FluentIcons.trophy2, color: colors.milestone, size: 20),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
-              value,
-              style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+              'Personal best',
+              style: AppTheme.label(color: colors.textSecondary),
+            ),
+          ),
+          Text(
+            score == null ? 'No score yet' : '$score/12',
+            style: AppTheme.compactMetric(color: colors.textPrimary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChallengeError extends StatelessWidget {
+  const _ChallengeError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.smPlus),
+      decoration: BoxDecoration(
+        color: colors.error.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(ElixRadius.control),
+        border: Border.all(color: colors.error.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(FluentIcons.error_badge, color: colors.error, size: 18),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTheme.supporting(color: colors.textPrimary),
             ),
           ),
         ],

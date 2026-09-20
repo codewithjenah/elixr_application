@@ -11,6 +11,7 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/activity_learning_material.dart';
 import '../../../data/models/class_challenge.dart';
+import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/class_challenge_repository.dart';
@@ -382,7 +383,14 @@ class TraineeActivityController extends ChangeNotifier {
           if (_isStale(generation) || refreshGeneration != _refreshGeneration) {
             return;
           }
-          learningMaterialsError = error;
+          // Learning-material activity was added after the core assignment
+          // endpoint. An older Functions deployment returns a non-JSON 404
+          // for this optional feed, which must not make otherwise loaded
+          // assignments, announcements, and challenges look unavailable.
+          // Other failures remain visible so a real refresh problem is not
+          // hidden from the trainee.
+          learningMaterialsError =
+              _isUnavailableLearningMaterialsEndpoint(error) ? null : error;
         }
       }
     } catch (error) {
@@ -393,6 +401,10 @@ class TraineeActivityController extends ChangeNotifier {
     }
     _publish();
   }
+
+  static bool _isUnavailableLearningMaterialsEndpoint(Object error) =>
+      error is ClassroomException &&
+      error.code == ClassroomError.endpointUnavailable;
 
   Future<void> _syncChallengeWatches(
     int generation,
