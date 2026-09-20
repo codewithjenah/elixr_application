@@ -85,7 +85,10 @@ class ClassChallengeLeaderboardScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                _LeaderboardHero(challenge: challenge, entryCount: entries.length),
+                _LeaderboardHero(
+                  challenge: challenge,
+                  entryCount: entries.length,
+                ),
                 const SizedBox(height: AppSpacing.md),
                 if (entries.isEmpty)
                   const ElixStatusPanel(
@@ -174,7 +177,9 @@ class _LeaderboardHero extends StatelessWidget {
             decoration: BoxDecoration(
               color: colors.milestone.withValues(alpha: 0.13),
               borderRadius: BorderRadius.circular(ElixRadius.control),
-              border: Border.all(color: colors.milestone.withValues(alpha: 0.4)),
+              border: Border.all(
+                color: colors.milestone.withValues(alpha: 0.4),
+              ),
             ),
             child: Icon(FluentIcons.trophy2, color: colors.milestone, size: 24),
           ),
@@ -307,9 +312,9 @@ class _PodiumCard extends StatelessWidget {
             ),
             child: Text(
               '#$rank',
-              style: AppTheme.label(color: medal).copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: AppTheme.label(
+                color: medal,
+              ).copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -327,11 +332,7 @@ class _PodiumCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xs),
           if (isYou)
-            ElixPill(
-              text: 'YOU',
-              color: colors.brandSecondary,
-              compact: true,
-            )
+            ElixPill(text: 'YOU', color: colors.brandSecondary, compact: true)
           else
             Text(
               'Best attempt',
@@ -391,7 +392,9 @@ class _RankMarker extends StatelessWidget {
       ),
       child: Text(
         '$rank',
-        style: AppTheme.label(color: tone).copyWith(fontWeight: FontWeight.w700),
+        style: AppTheme.label(
+          color: tone,
+        ).copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -416,9 +419,9 @@ class _ScorePill extends StatelessWidget {
       ),
       child: Text(
         '$score/12',
-        style: AppTheme.label(color: colors.textPrimary).copyWith(
-          fontWeight: FontWeight.w700,
-        ),
+        style: AppTheme.label(
+          color: colors.textPrimary,
+        ).copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }

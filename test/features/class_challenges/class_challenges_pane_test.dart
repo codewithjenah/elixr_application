@@ -338,16 +338,15 @@ void main() {
   });
 
   testWidgets('Shad schedule uses only its two time pickers', (tester) async {
-    await _pumpTeacherPane(
-      tester,
-      const Size(1440, 900),
-      shadTheme: true,
-    );
+    await _pumpTeacherPane(tester, const Size(1440, 900), shadTheme: true);
     await tester.tap(find.byKey(const Key('class_challenge_create')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('class_challenge_start_time')), findsNothing);
-    expect(find.byKey(const Key('class_challenge_deadline_time')), findsNothing);
+    expect(
+      find.byKey(const Key('class_challenge_deadline_time')),
+      findsNothing,
+    );
     tester
         .widget<shad.ShadSwitch>(
           find.byKey(const Key('class_challenge_specific_times_toggle')),
@@ -758,7 +757,9 @@ void main() {
       expect(repository.permanentDeleteCalls, 1);
       expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNull);
 
-      repository.permanentDeleteError = const ClassChallengeException('offline');
+      repository.permanentDeleteError = const ClassChallengeException(
+        'offline',
+      );
       repository.permanentDeleteGate!.complete();
       await tester.pumpAndSettle();
 
@@ -845,18 +846,18 @@ Future<void> _pumpTeacherPane(
                   participantCount: 0,
                   onOpenLeaderboard: (_) {},
                 ),
-            )
+              )
             : ClassChallengesPane(
-          repository: repository ?? _FakeClassChallengeRepository(),
-          groupId: 'group-1',
-          teacherId: 'teacher-1',
-          teacherDisplayName: 'Coach',
-          currentUserId: 'teacher-1',
-          isTeacher: true,
-          groupIsActive: true,
-          participantCount: 0,
-          onOpenLeaderboard: (_) {},
-        ),
+                repository: repository ?? _FakeClassChallengeRepository(),
+                groupId: 'group-1',
+                teacherId: 'teacher-1',
+                teacherDisplayName: 'Coach',
+                currentUserId: 'teacher-1',
+                isTeacher: true,
+                groupIsActive: true,
+                participantCount: 0,
+                onOpenLeaderboard: (_) {},
+              ),
       ),
     ),
   );

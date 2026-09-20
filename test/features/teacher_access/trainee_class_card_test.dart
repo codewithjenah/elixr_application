@@ -248,9 +248,7 @@ void main() {
     );
   });
 
-  testWidgets('cards in a row share height and work baseline', (
-    tester,
-  ) async {
+  testWidgets('cards in a row share height and work baseline', (tester) async {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.dark,
@@ -307,23 +305,15 @@ void main() {
     expect(a.height, b.height);
     expect(a.bottom, b.bottom);
 
-    expect(
-      find.byKey(const Key('class_card_people_grid-a')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const Key('class_card_people_grid-b')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('class_card_people_grid-a')), findsNothing);
+    expect(find.byKey(const Key('class_card_people_grid-b')), findsNothing);
 
     final firstWork = tester.getRect(find.text('Normal Grip'));
     final emptyWork = tester.getRect(find.text('No upcoming classwork'));
     expect(firstWork.top, closeTo(emptyWork.top, 8));
   });
 
-  testWidgets('high contrast keeps status and avatar readable', (
-    tester,
-  ) async {
+  testWidgets('high contrast keeps status and avatar readable', (tester) async {
     await tester.pumpWidget(
       FluentApp(
         theme: AppTheme.highContrastDark,
