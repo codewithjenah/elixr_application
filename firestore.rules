@@ -2524,6 +2524,8 @@ service cloud.firestore {
     function assignmentAttemptPath(attemptId) { return /databases/$(database)/documents/assignment_attempts/$(attemptId); }
     function teacherMovementPath(movementId) { return /databases/$(database)/documents/teacher_movements/$(movementId); }
     function teacherMovementRevisionPath(movementId, revisionId) { return /databases/$(database)/documents/teacher_movements/$(movementId)/revisions/$(revisionId); }
+    function customMovementPath(movementId) { return /databases/$(database)/documents/custom_movements/$(movementId); }
+    function customMovementRevisionPath(movementId, revisionId) { return /databases/$(database)/documents/custom_movements/$(movementId)/revisions/$(revisionId); }
     function officialAssignmentAttemptId(sessionId) { return 'official_ptr_' + sessionId; }
     function teacherCreatedDraftAttemptId(assignmentId, traineeId) { return 'tc_draft_' + assignmentId + '_' + traineeId; }
     function isClassroomDocId(value) {
@@ -2881,6 +2883,186 @@ service cloud.firestore {
       }
     }
 
+    // Shared data-only automatic movements. Teacher and Trainee creators use
+    // the same root/revision contract; role differences are authorization and
+    // product behavior, never separate CV implementations. Revisions are
+    // immutable and no custom record is allowed to opt into official XP.
+    function customMovementRootKeys() {
+      return ['owner_uid', 'owner_role', 'name', 'description', 'difficulty',
+        'prop_type', 'status', 'active_revision_id', 'schema_version',
+        'created_at', 'updated_at'];
+    }
+    function customMovementRevisionKeys() {
+      return ['movement_id', 'owner_uid', 'owner_role', 'schema_version',
+        'template', 'created_at'];
+    }
+    function validCustomOwnerRole(ownerUid, ownerRole) {
+      return ownerUid == request.auth.uid
+        && ((ownerRole == 'teacher' && isVerifiedTeacher())
+          || (ownerRole == 'trainee'
+            && exists(userPath(request.auth.uid))
+            && get(userPath(request.auth.uid)).data.role == 'Trainee'));
+    }
+    function validCustomCapabilities(value) {
+      return value is map
+        && value.keys().hasOnly(['pose', 'hands', 'prop_translation',
+          'release_catch', 'prop_rotation'])
+        && value.pose is bool
+        && value.hands is bool
+        && value.prop_translation is bool
+        && value.release_catch is bool
+        && value.prop_rotation == false;
+    }
+    function validMovementTemplate(value) {
+      return value is map
+        && value.keys().hasOnly(['schema_version', 'capture_version',
+          'duration_ms', 'reference_count', 'required_modalities',
+          'normalization_metadata', 'feature_capabilities',
+          'canonical_sequence', 'variability_metadata', 'prop_events'])
+        && value.schema_version == 1
+        && value.capture_version is int && value.capture_version >= 1
+        && value.duration_ms is int && value.duration_ms > 0
+        && value.duration_ms <= 120000
+        && value.reference_count is int && value.reference_count >= 3
+        && value.reference_count <= 10
+        && value.required_modalities is list
+        && value.required_modalities.size() >= 1
+        && value.required_modalities.size() <= 3
+        && value.normalization_metadata is map
+        && validCustomCapabilities(value.feature_capabilities)
+        && value.canonical_sequence is list
+        && value.canonical_sequence.size() >= 2
+        && value.canonical_sequence.size() <= 600
+        && value.variability_metadata is map
+        && value.prop_events is list
+        && value.prop_events.size() <= 64;
+    }
+    function validCustomMovementCreate(data, movementId) {
+      let revisionPath = customMovementRevisionPath(
+        movementId, data.active_revision_id
+      );
+      return isSignedIn()
+        && isClassroomDocId(movementId)
+        && data.keys().hasOnly(customMovementRootKeys())
+        && validCustomOwnerRole(data.owner_uid, data.owner_role)
+        && isBoundedText(data.name, 80)
+        && data.description is string && data.description.size() <= 1000
+        && data.difficulty in ['Easy', 'Medium', 'Hard']
+        && data.prop_type in ['bottle', 'shaker']
+        && data.status == 'active'
+        && isClassroomDocId(data.active_revision_id)
+        && data.schema_version == 1
+        && data.created_at == request.time
+        && data.updated_at == request.time
+        && existsAfter(revisionPath)
+        && getAfter(revisionPath).data.movement_id == movementId
+        && getAfter(revisionPath).data.owner_uid == request.auth.uid
+        && getAfter(revisionPath).data.owner_role == data.owner_role;
+    }
+    function validCustomMovementUpdate(movementId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let revisionPath = customMovementRevisionPath(
+        movementId, request.resource.data.active_revision_id
+      );
+      return isSignedIn()
+        && resource.data.owner_uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(customMovementRootKeys())
+        && request.resource.data.owner_uid == resource.data.owner_uid
+        && request.resource.data.owner_role == resource.data.owner_role
+        && request.resource.data.schema_version == resource.data.schema_version
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.updated_at == request.time
+        && isBoundedText(request.resource.data.name, 80)
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 1000
+        && request.resource.data.difficulty in ['Easy', 'Medium', 'Hard']
+        && request.resource.data.prop_type in ['bottle', 'shaker']
+        && request.resource.data.status in ['active', 'archived']
+        && (
+          (resource.data.status == 'active'
+            && request.resource.data.status == 'archived'
+            && request.resource.data.active_revision_id
+              == resource.data.active_revision_id
+            && changed.hasOnly(['status', 'updated_at']))
+          || (resource.data.status == 'active'
+            && request.resource.data.status == 'active'
+            && request.resource.data.active_revision_id
+              != resource.data.active_revision_id
+            && changed.hasOnly(['name', 'description', 'difficulty',
+              'prop_type', 'active_revision_id', 'updated_at'])
+            && !exists(revisionPath)
+            && existsAfter(revisionPath)
+            && getAfter(revisionPath).data.movement_id == movementId
+            && getAfter(revisionPath).data.owner_uid == request.auth.uid
+            && getAfter(revisionPath).data.owner_role
+              == resource.data.owner_role)
+        );
+    }
+    function validCustomRevisionCreate(data, movementId, revisionId) {
+      let root = getAfter(customMovementPath(movementId)).data;
+      return isSignedIn()
+        && isClassroomDocId(revisionId)
+        && data.keys().hasOnly(customMovementRevisionKeys())
+        && data.movement_id == movementId
+        && validCustomOwnerRole(data.owner_uid, data.owner_role)
+        && data.schema_version == 1
+        && validMovementTemplate(data.template)
+        && data.created_at == request.time
+        && root.owner_uid == request.auth.uid
+        && root.owner_role == data.owner_role
+        && root.active_revision_id == revisionId;
+    }
+    match /custom_movements/{movementId} {
+      allow get, list: if isSignedIn()
+        && resource.data.owner_uid == request.auth.uid;
+      allow create: if validCustomMovementCreate(
+        request.resource.data, movementId
+      );
+      allow update: if validCustomMovementUpdate(movementId);
+      // Archive preserves revision/history references. Permanent cascading
+      // deletion is intentionally unavailable to untrusted clients.
+      allow delete: if false;
+
+      match /revisions/{revisionId} {
+        allow get, list: if isSignedIn()
+          && resource.data.owner_uid == request.auth.uid;
+        allow create: if validCustomRevisionCreate(
+          request.resource.data, movementId, revisionId
+        );
+        allow update, delete: if false;
+      }
+    }
+
+    function customMovementResultKeys() {
+      return ['owner_uid', 'movement_id', 'revision_id', 'result_type',
+        'total_score', 'component_scores', 'feedback', 'awards_global_xp',
+        'created_at'];
+    }
+    match /custom_movement_results/{resultId} {
+      allow get, list: if isSignedIn()
+        && resource.data.owner_uid == request.auth.uid;
+      allow create: if isSignedIn()
+        && isClassroomDocId(resultId)
+        && request.resource.data.keys().hasOnly(customMovementResultKeys())
+        && request.resource.data.owner_uid == request.auth.uid
+        && request.resource.data.result_type == 'personal_practice'
+        && request.resource.data.awards_global_xp == false
+        && request.resource.data.total_score is number
+        && request.resource.data.total_score >= 0
+        && request.resource.data.total_score <= 100
+        && request.resource.data.component_scores is map
+        && request.resource.data.feedback is list
+        && request.resource.data.feedback.size() <= 8
+        && request.resource.data.created_at == request.time
+        && get(customMovementPath(request.resource.data.movement_id)).data.owner_uid
+          == request.auth.uid
+        && exists(customMovementRevisionPath(
+          request.resource.data.movement_id,
+          request.resource.data.revision_id
+        ));
+      allow update, delete: if false;
+    }
+
     function groupAssignmentRequiredKeys() {
       return ['teacher_id', 'group_id', 'movement_id', 'revision_id', 'origin',
         'assessment_mode', 'status', 'display_title', 'teacher_display_name',
@@ -2891,7 +3073,7 @@ service cloud.firestore {
         'display_instructions', 'display_safety_guidance', 'allowed_prop',
         'due_at', 'max_score', 'grading_locked', 'audience_type', 'topic',
         'configuration_revision', 'activity_assessment', 'attempt_policy',
-        'deletion_state', 'publish_at'
+        'deletion_state', 'publish_at', 'movement_template'
       ]);
     }
     function groupAssignmentAllowedKeys() {
@@ -2987,7 +3169,7 @@ service cloud.firestore {
         && officialMovementSupportsProp(
           data.official_movement_name, data.allowed_prop
         )
-        && !data.keys().hasAny(['assessment_spec'])
+        && !data.keys().hasAny(['assessment_spec', 'movement_template'])
         && (
           !data.keys().hasAny(['display_instructions'])
           || isBoundedText(data.display_instructions, 2000)
@@ -3006,6 +3188,7 @@ service cloud.firestore {
       let allowedProp = data.allowed_prop;
       let spec = revision.spec;
       return data.assessment_mode == 'teacher_reviewed'
+        && !keys.hasAny(['movement_template'])
         && movement.teacher_id == teacherId
         && movement.status == 'active'
         && movement.current_revision_id == revisionId
@@ -3030,6 +3213,32 @@ service cloud.firestore {
         )
         && data.get('grading_locked', false) == false
         ;
+    }
+    function validCustomMovementAssignmentCreate(data, teacherId) {
+      let movement = get(customMovementPath(data.movement_id)).data;
+      let revision = get(customMovementRevisionPath(
+        data.movement_id, data.revision_id
+      )).data;
+      let keys = data.keys();
+      return data.origin == 'teacher_created'
+        && data.assessment_mode == 'reference_matched'
+        && keys.hasOnly(teacherCreatedAssignmentAllowedKeys())
+        && !keys.hasAny(['activity_assessment', 'configuration_revision',
+          'grading_locked', 'grading_locked_at', 'assessment_spec',
+          'display_safety_guidance'])
+        && movement.owner_uid == teacherId
+        && movement.owner_role == 'teacher'
+        && movement.status == 'active'
+        && movement.active_revision_id == data.revision_id
+        && revision.owner_uid == teacherId
+        && revision.owner_role == 'teacher'
+        && revision.movement_id == data.movement_id
+        && data.display_title == movement.name
+        && data.display_instructions == movement.description
+        && data.allowed_prop == movement.prop_type
+        && data.movement_template == revision.template
+        && validMovementTemplate(data.movement_template)
+        && data.max_score == 12;
     }
     function validTeacherCreatedActivityAssignmentCreate(data) {
       let groupId = data.group_id;
@@ -3130,13 +3339,19 @@ service cloud.firestore {
               && validOfficialAssignmentCreate(data)
             : data.origin == 'teacher_created'
               && keys.hasOnly(teacherCreatedAssignmentAllowedKeys())
-              && validTeacherCreatedAssignmentCreate(data, teacherId)
+              && (
+                validTeacherCreatedAssignmentCreate(data, teacherId)
+                || validCustomMovementAssignmentCreate(data, teacherId)
+              )
         );
     }
     function validGroupAssignmentUpdate() {
       return isVerifiedTeacher()
         && resource.data.teacher_id == request.auth.uid
         && resource.data.assessment_mode != 'template_scored'
+        && (resource.data.assessment_mode != 'reference_matched'
+          || keysUnchanged(['movement_id', 'revision_id', 'assessment_mode',
+            'movement_template', 'allowed_prop', 'max_score']))
         && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
         && request.resource.data.keys().hasOnly(groupAssignmentAllowedKeys())
         && validAssignmentPublicationShape(request.resource.data)
@@ -3448,6 +3663,79 @@ service cloud.firestore {
         'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
       ]);
     }
+    function referenceMatchAllowedKeys() {
+      return assignmentAttemptIdentityKeys().concat([
+        'reference_total', 'reference_max_total',
+        'reference_component_scores', 'performance_level', 'prop_type',
+        'completed_at'
+      ]);
+    }
+    function validReferenceComponentScores(value) {
+      return value is map
+        && value.keys().hasOnly(['Body technique', 'Hand technique',
+          'Prop path', 'Timing', 'Control/stability'])
+        && value['Body technique'] is int
+        && value['Body technique'] >= 0 && value['Body technique'] <= 3
+        && value['Hand technique'] is int
+        && value['Hand technique'] >= 0 && value['Hand technique'] <= 3
+        && value['Prop path'] is int
+        && value['Prop path'] >= 0 && value['Prop path'] <= 3
+        && value.Timing is int && value.Timing >= 0 && value.Timing <= 3
+        && value['Control/stability'] is int
+        && value['Control/stability'] >= 0
+        && value['Control/stability'] <= 3;
+    }
+    function validReferencePerformance(total, level) {
+      return (total <= 3 && level == 'beginning')
+        || (total >= 4 && total <= 6 && level == 'developing')
+        || (total >= 7 && total <= 9 && level == 'competent')
+        || (total >= 10 && total <= 11 && level == 'proficient')
+        || (total == 12 && level == 'mastered');
+    }
+    function referenceComponentTotal(value) {
+      let sum = value['Body technique'] + value['Hand technique']
+        + value['Prop path'] + value.Timing + value['Control/stability'];
+      // Positive integer round(sum * 12 / 15), matching the backend's
+      // five-component projection onto the established 0..12 rubric.
+      return int((sum * 12 + 7) / 15);
+    }
+    function validReferenceAttemptId(data, attemptId, assignment) {
+      let base = 'custom_' + data.assignment_id + '_' + data.trainee_id + '_';
+      let policy = assignment.attempt_policy;
+      return policy.type == 'unlimited'
+        ? isClassroomDocId(attemptId)
+        : attemptId == base + '1'
+          || (policy.maximum_attempts >= 2 && attemptId == base + '2')
+          || (policy.maximum_attempts >= 3 && attemptId == base + '3');
+    }
+    function validReferenceMatchCreate(data, attemptId) {
+      let assignment = get(assignmentPath(data.assignment_id)).data;
+      return data.keys().hasOnly(referenceMatchAllowedKeys())
+        && data.attempt_kind == 'reference_match'
+        && data.origin == 'teacher_created'
+        && data.assessment_mode == 'reference_matched'
+        && data.status == 'submitted'
+        && assignment.teacher_id == data.teacher_id
+        && assignment.group_id == data.group_id
+        && assignment.movement_id == data.movement_id
+        && assignment.revision_id == data.revision_id
+        && assignment.assessment_mode == 'reference_matched'
+        && assignment.origin == 'teacher_created'
+        && assignment.allowed_prop == data.prop_type
+        && assignment.movement_template is map
+        && assignmentSubmissionIsOpen(data)
+        && validReferenceAttemptId(data, attemptId, assignment)
+        && data.reference_total is int
+        && data.reference_total >= 0 && data.reference_total <= 12
+        && data.reference_max_total == 12
+        && validReferenceComponentScores(data.reference_component_scores)
+        && data.reference_total
+          == referenceComponentTotal(data.reference_component_scores)
+        && validReferencePerformance(
+          data.reference_total, data.performance_level
+        )
+        && data.completed_at == request.time;
+    }
     function teacherReviewSubmissionCreateKeys() {
       return assignmentAttemptIdentityKeys().concat([
         'supersedes_attempt_id', 'attempt_number', 'reservation_request_id',
@@ -3657,13 +3945,17 @@ service cloud.firestore {
         && membership.trainee_id == request.auth.uid
         && membership.teacher_id == data.teacher_id
         && membership.status == 'approved'
-        && attemptMatchesAssignment(data)
         && (
-          data.attempt_kind == 'practice_pointer'
-            ? validOfficialPointerCreate(data, attemptId)
-            : data.attempt_kind == 'teacher_review_draft'
-              ? validTeacherDraftAttemptCreate(data, attemptId)
-              : validTeacherReviewSubmissionCreate(data, attemptId)
+          data.attempt_kind == 'reference_match'
+            ? validReferenceMatchCreate(data, attemptId)
+            : attemptMatchesAssignment(data)
+              && (
+                data.attempt_kind == 'practice_pointer'
+                  ? validOfficialPointerCreate(data, attemptId)
+                  : data.attempt_kind == 'teacher_review_draft'
+                    ? validTeacherDraftAttemptCreate(data, attemptId)
+                    : validTeacherReviewSubmissionCreate(data, attemptId)
+              )
         );
     }
     function assignmentAttemptFrozenKeys() {

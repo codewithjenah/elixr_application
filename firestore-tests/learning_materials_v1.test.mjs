@@ -107,6 +107,14 @@ async function reserveStage({
   return stagingPath;
 }
 
+async function setStageState(uploadId, state) {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(admin.firestore(), 'activity_material_uploads', uploadId), {
+      state,
+    }, {merge: true});
+  });
+}
+
 describe('Learning Material Storage quarantine and access projection', () => {
   test('only the server-authorized owning Teacher can create the exact staging object', async () => {
     // The Function has already authorized this UID as a Teacher and created
@@ -185,6 +193,85 @@ describe('Learning Material Storage quarantine and access projection', () => {
     await assertSucceeds(updateMetadata(staged, {contentType: 'application/pdf'}));
     await assertFails(updateMetadata(staged, {contentType: 'image/png'}));
     await assertFails(updateMetadata(staged, {customMetadata: {capability: 'forged'}}));
+  });
+
+  test('Windows metadata bootstrap survives validating and ready finalizer races', async () => {
+    const validatingPath = await reserveStage({
+      uploadId: 'validating-race', type: 'pdf',
+      contentType: 'application/pdf', sizeBytes: 3,
+    });
+    const readyPath = await reserveStage({
+      uploadId: 'ready-race', type: 'pdf',
+      contentType: 'application/pdf', sizeBytes: 3,
+    });
+    const rejectedPath = await reserveStage({
+      uploadId: 'rejected-race', type: 'pdf',
+      contentType: 'application/pdf', sizeBytes: 3,
+    });
+    const deletingPath = await reserveStage({
+      uploadId: 'deleting-race', type: 'pdf',
+      contentType: 'application/pdf', sizeBytes: 3,
+    });
+    const expiredPath = await reserveStage({
+      uploadId: 'expired-race', type: 'pdf',
+      contentType: 'application/pdf', sizeBytes: 3,
+    });
+    const validatingStage = ref(storage('teacher'), validatingPath);
+    const readyStage = ref(storage('teacher'), readyPath);
+    const rejectedStage = ref(storage('teacher'), rejectedPath);
+    const deletingStage = ref(storage('teacher'), deletingPath);
+    const expiredStage = ref(storage('teacher'), expiredPath);
+
+    await assertSucceeds(uploadBytes(validatingStage,
+      new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+    await assertSucceeds(uploadBytes(readyStage,
+      new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+    await assertSucceeds(uploadBytes(rejectedStage,
+      new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+    await assertSucceeds(uploadBytes(deletingStage,
+      new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+    await assertSucceeds(uploadBytes(expiredStage,
+      new Uint8Array([1, 2, 3]), {contentType: 'application/pdf'}));
+
+    await setStageState('validating-race', 'validating');
+    await assertSucceeds(updateMetadata(validatingStage, {
+      contentType: 'application/pdf',
+    }));
+
+    await setStageState('ready-race', 'validating');
+    await setStageState('ready-race', 'ready');
+    await assertSucceeds(updateMetadata(readyStage, {
+      contentType: 'application/pdf',
+    }));
+
+    await assertFails(updateMetadata(readyStage, {contentType: 'image/png'}));
+    await assertFails(updateMetadata(readyStage, {
+      customMetadata: {capability: 'forged'},
+    }));
+    await assertFails(updateMetadata(ref(storage('otherTeacher'), readyPath), {
+      contentType: 'application/pdf',
+    }));
+    await assertFails(uploadBytes(readyStage,
+      new Uint8Array([3, 2, 1]), {contentType: 'application/pdf'}));
+
+    await setStageState('rejected-race', 'rejected');
+    await setStageState('deleting-race', 'deleting');
+    await assertFails(updateMetadata(rejectedStage, {
+      contentType: 'application/pdf',
+    }));
+    await assertFails(updateMetadata(deletingStage, {
+      contentType: 'application/pdf',
+    }));
+
+    await setStageState('expired-race', 'ready');
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'activity_material_uploads', 'expired-race'), {
+        expires_at: Timestamp.fromMillis(Date.now() - 1000),
+      }, {merge: true});
+    });
+    await assertFails(updateMetadata(expiredStage, {
+      contentType: 'application/pdf',
+    }));
   });
 
   test('final material reads succeed within the two-document Storage rule lookup budget', async () => {

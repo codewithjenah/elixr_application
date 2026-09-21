@@ -2750,9 +2750,11 @@ async function finalizeStagedActivityMaterial(uploadId, {
       console.error('Activity material access projection sync failed', error);
       return {processed: true, materialId: stage.material_id, projectionPending: true};
     }
-    // Cleanup is non-authoritative once publication committed. Retrying a
-    // delete must never regress the already-ready stage back to staging.
-    await stagedFile.delete({ignoreNotFound: true}).catch(() => undefined);
+    // Keep the quarantine object during the retained ready-state window. The
+    // Windows Firebase C++ client can issue its immutable metadata bootstrap
+    // PATCH after this finalizer commits ready; deleting here races putFile's
+    // completion. The bounded terminal reconciliation pass deletes both this
+    // object and its server-owned stage record after retention.
     return {processed: true, materialId: stage.material_id};
   } catch (error) {
     const rejection = ['invalid_size', 'invalid_content', 'material_unavailable'].includes(error.code);

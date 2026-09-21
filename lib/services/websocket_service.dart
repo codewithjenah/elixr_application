@@ -165,6 +165,7 @@ class WebSocketService extends ChangeNotifier {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
+    Map<String, dynamic>? customMovementTemplate,
   }) {
     final resolvedSessionId =
         sessionId ?? _currentSessionId ?? beginPracticeAttempt();
@@ -186,7 +187,58 @@ class WebSocketService extends ChangeNotifier {
         readinessSpec: readinessSpec,
         sessionMode: sessionMode,
         allowedMovements: allowedMovements,
+        customMovementTemplate: customMovementTemplate,
       ),
+    );
+  }
+
+  Future<CommandAck> sendStartCustomCapture({
+    String? sessionId,
+    int durationSeconds = 15,
+  }) => _sendCustomCommand(
+    action: 'start_custom_capture',
+    sessionId: sessionId,
+    payload: {'duration_seconds': durationSeconds},
+  );
+
+  Future<CommandAck> sendStopCustomCapture({String? sessionId}) =>
+      _sendCustomCommand(action: 'stop_custom_capture', sessionId: sessionId);
+
+  Future<CommandAck> sendDiscardCustomReference({String? sessionId}) =>
+      _sendCustomCommand(
+        action: 'discard_custom_reference',
+        sessionId: sessionId,
+      );
+
+  Future<CommandAck> sendBuildCustomTemplate({String? sessionId}) =>
+      _sendCustomCommand(action: 'build_custom_template', sessionId: sessionId);
+
+  Future<CommandAck> sendFinishCustomAssessment({String? sessionId}) =>
+      _sendCustomCommand(
+        action: 'finish_custom_assessment',
+        sessionId: sessionId,
+      );
+
+  Future<CommandAck> _sendCustomCommand({
+    required String action,
+    String? sessionId,
+    Map<String, dynamic> payload = const {},
+  }) {
+    final resolvedSessionId = sessionId ?? _currentSessionId;
+    if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
+      return Future.error(StateError('Cannot $action without a session_id'));
+    }
+    return _sendTrackedCommand(
+      action: action,
+      timeout: commandTimeout,
+      sessionId: resolvedSessionId,
+      payload: <String, dynamic>{
+        'protocol_version': wsProtocolVersion,
+        'request_id': _nextId('req'),
+        'session_id': resolvedSessionId,
+        'action': action,
+        ...payload,
+      },
     );
   }
 
@@ -584,6 +636,7 @@ class WebSocketService extends ChangeNotifier {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
+    Map<String, dynamic>? customMovementTemplate,
   }) {
     return _buildSessionPayload(
       action: 'prepare',
@@ -598,6 +651,7 @@ class WebSocketService extends ChangeNotifier {
       readinessSpec: readinessSpec,
       sessionMode: sessionMode,
       allowedMovements: allowedMovements,
+      customMovementTemplate: customMovementTemplate,
     );
   }
 
@@ -751,6 +805,7 @@ class WebSocketService extends ChangeNotifier {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
+    Map<String, dynamic>? customMovementTemplate,
   }) {
     final payload = <String, dynamic>{
       'protocol_version': wsProtocolVersion,
@@ -781,11 +836,17 @@ class WebSocketService extends ChangeNotifier {
       payload['readiness_spec'] = readinessSpec.toMap();
     }
     if (sessionMode == 'freestyle') {
-      payload['session_mode'] = 'freestyle';
+      payload['session_mode'] = sessionMode;
       payload['allowed_movements'] = [
         for (final entry in allowedMovements ?? const [])
           {'movement': entry.movement, 'prop_type': entry.prop.protocolValue},
       ];
+    } else if (sessionMode == 'custom_capture' ||
+        sessionMode == 'custom_assessment') {
+      payload['session_mode'] = sessionMode;
+      if (customMovementTemplate != null) {
+        payload['custom_movement_template'] = customMovementTemplate;
+      }
     }
     return payload;
   }
@@ -1131,6 +1192,11 @@ class WebSocketService extends ChangeNotifier {
       case 'start_submission_record':
       case 'stop_submission_record':
       case 'cancel_submission_record':
+      case 'start_custom_capture':
+      case 'stop_custom_capture':
+      case 'discard_custom_reference':
+      case 'build_custom_template':
+      case 'finish_custom_assessment':
       case 'pause':
       case 'resume':
         // Recording must not mutate prepare/activate/stop session flags.

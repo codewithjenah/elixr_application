@@ -15,8 +15,28 @@ import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
+import '../models/custom_movement.dart';
 
 abstract class ClassroomAssignmentRepository {
+  Future<GroupAssignment> createCustomMovementAssignment({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required CustomMovement movement,
+    required CustomMovementRevision revision,
+    DateTime? dueAt,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
+  });
+
+  Future<void> saveCustomMovementAssignmentAttempt({
+    required GroupAssignment assignment,
+    required String traineeId,
+    required int total,
+    required String performanceLevel,
+    required Map<String, int> componentScores,
+  });
+
   Future<GroupAssignment> createOfficialAssignment({
     required String teacherId,
     required String teacherDisplayName,
@@ -536,6 +556,51 @@ DateTime? _validatedPublication({
     );
   }
   return null;
+}
+
+Map<String, dynamic> customMovementAssignmentPayload({
+  required String teacherId,
+  required String teacherDisplayName,
+  required ElixrGroup group,
+  required CustomMovement movement,
+  required CustomMovementRevision revision,
+  required AssignmentAttemptPolicy attemptPolicy,
+  DateTime? dueAt,
+  required Object createdAt,
+  required Object updatedAt,
+}) {
+  if (movement.ownerUid != teacherId ||
+      movement.ownerRole != CustomMovementOwnerRole.teacher ||
+      revision.ownerUid != teacherId ||
+      revision.ownerRole != CustomMovementOwnerRole.teacher ||
+      revision.movementId != movement.id ||
+      revision.id != movement.activeRevisionId ||
+      !movement.isActive ||
+      !revision.template.isReady) {
+    throw const ClassroomException(ClassroomError.identityMismatch);
+  }
+  ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
+  return {
+    'teacher_id': teacherId,
+    'group_id': group.id,
+    'movement_id': movement.id,
+    'revision_id': revision.id,
+    'origin': MovementOrigin.teacherCreated.wireValue,
+    'assessment_mode': AssessmentMode.referenceMatched.wireValue,
+    'status': GroupAssignmentStatus.active.name,
+    'display_title': movement.name,
+    'display_instructions': movement.description,
+    'allowed_prop': movement.propType.protocolValue,
+    'teacher_display_name': teacherDisplayName.trim(),
+    'group_name': group.name,
+    'audience_type': AssignmentAudienceType.entireClass.wireValue,
+    'attempt_policy': attemptPolicy.toMap(),
+    'max_score': 12,
+    'movement_template': revision.template.toMap(),
+    'created_at': createdAt,
+    'updated_at': updatedAt,
+    if (dueAt != null) 'due_at': dueAt.toUtc(),
+  };
 }
 
 Map<String, dynamic> teacherCreatedAssignmentPayload({

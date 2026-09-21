@@ -73,7 +73,7 @@ abstract final class AssignmentReviewSemantics {
     required DateTime now,
   }) {
     final submittedAt = AssignmentAttemptSemantics.isTurnedIn(attempt)
-        ? attempt?.submittedAt
+        ? attempt?.submittedAt ?? attempt?.completedAt
         : null;
     return deadlineState(
       dueAt: !assignment.isActive && submittedAt == null

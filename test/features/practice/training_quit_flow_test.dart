@@ -71,6 +71,7 @@ class _TestWebSocket extends WebSocketService {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
+    Map<String, dynamic>? customMovementTemplate,
   }) {
     prepareCameraDeviceIds.add(cameraDeviceId);
     return prepareAck.future;

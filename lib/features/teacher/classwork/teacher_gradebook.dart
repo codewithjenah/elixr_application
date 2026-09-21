@@ -114,6 +114,9 @@ abstract final class TeacherGradebookSemantics {
     AssignmentAttempt? attempt,
   ) {
     if (attempt == null) return null;
+    if (assignment.isReferenceMatched && attempt.referenceTotal != null) {
+      return _split('${attempt.referenceTotal}/12 • Automatic');
+    }
     if (assignment.isTeacherCreated &&
         attempt.isChecked &&
         attempt.gradeScore != null &&

@@ -278,6 +278,15 @@ class _Body extends StatelessWidget {
       }
       return controller.latestClipSubmission;
     }
+    if (controller.assignment?.isReferenceMatched == true) {
+      final id = selectedAttemptId;
+      if (id != null) {
+        for (final attempt in controller.attempts) {
+          if (attempt.id == id) return attempt;
+        }
+      }
+      return controller.latestAttempt;
+    }
     if (controller.assignment?.isTeacherCreated == true) {
       return controller.currentSubmission ?? controller.latestAttempt;
     }
@@ -1175,6 +1184,8 @@ class _YourWork extends StatelessWidget {
     // score and scoring criteria for that exact submission.
     final current = isTeacherActivity
         ? selected
+        : assignment.isReferenceMatched
+        ? selected
         : assignment.isTeacherCreated
         ? controller.currentSubmission
         : selected;
@@ -1193,10 +1204,12 @@ class _YourWork extends StatelessWidget {
               .length
         : attemptHistory
               .where(
-                (attempt) =>
-                    attempt.origin == MovementOrigin.officialElixr &&
-                    attempt.attemptKind ==
-                        AssignmentAttemptKind.practicePointer,
+                (attempt) => assignment.isReferenceMatched
+                    ? attempt.attemptKind ==
+                          AssignmentAttemptKind.referenceMatch
+                    : attempt.origin == MovementOrigin.officialElixr &&
+                          attempt.attemptKind ==
+                              AssignmentAttemptKind.practicePointer,
               )
               .length;
     final hasAvailableAttempt =
@@ -1282,10 +1295,11 @@ class _YourWork extends StatelessWidget {
               ),
             ),
           ],
-          if (current?.isSelectableSubmissionCandidate == true ||
-              (assignment.isTeacherCreated &&
-                  !isTeacherActivity &&
-                  current?.hasAttachedDraftClip == true)) ...[
+          if (!assignment.isReferenceMatched &&
+              (current?.isSelectableSubmissionCandidate == true ||
+                  (assignment.isTeacherCreated &&
+                      !isTeacherActivity &&
+                      current?.hasAttachedDraftClip == true))) ...[
             const SizedBox(height: AppSpacing.md),
             if (controller.turnInErrorMessage != null)
               ElixStatusPanel(
@@ -1339,6 +1353,7 @@ class _YourWork extends StatelessWidget {
             ),
           ],
           if (assignment.isTeacherCreated &&
+              !assignment.isReferenceMatched &&
               current?.isDraftClipRemovalPending == true) ...[
             const SizedBox(height: AppSpacing.md),
             Text(
@@ -1358,7 +1373,9 @@ class _YourWork extends StatelessWidget {
                   : controller.removeAttachedDraft,
             ),
           ],
-          if ((!assignment.isTeacherCreated || isTeacherActivity) &&
+          if ((!assignment.isTeacherCreated ||
+                  assignment.isReferenceMatched ||
+                  isTeacherActivity) &&
               controller.attempts
                       .where(
                         (attempt) => !attempt.isAbandonedTeacherReviewDraft,
@@ -1381,6 +1398,7 @@ class _YourWork extends StatelessWidget {
                 ),
           ],
           if (assignment.isTeacherCreated &&
+              !assignment.isReferenceMatched &&
               !isTeacherActivity &&
               current?.status == AssignmentAttemptStatus.submitted) ...[
             const SizedBox(height: AppSpacing.md),
@@ -1414,6 +1432,7 @@ class _YourWork extends StatelessWidget {
               ),
           ],
           if (assignment.isTeacherCreated &&
+              !assignment.isReferenceMatched &&
               !isTeacherActivity &&
               current?.status == AssignmentAttemptStatus.unsubmitting) ...[
             const SizedBox(height: AppSpacing.md),

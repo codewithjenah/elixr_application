@@ -130,6 +130,22 @@ AssignmentAttempt _teacherSubmittedAttempt(String assignmentId) {
   );
 }
 
+AssignmentAttempt _referenceMatchAttempt(String assignmentId, String id) {
+  return AssignmentAttempt(
+    id: id,
+    traineeId: 'trainee-1',
+    teacherId: 'teacher-1',
+    groupId: 'group-1',
+    assignmentId: assignmentId,
+    movementId: 'custom-1',
+    revisionId: 'revision-1',
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.referenceMatched,
+    attemptKind: AssignmentAttemptKind.referenceMatch,
+    status: AssignmentAttemptStatus.submitted,
+  );
+}
+
 Future<GoRouter> _pumpList(
   WidgetTester tester, {
   required List<AssignedMovementItem> items,
@@ -435,6 +451,48 @@ void main() {
         activityAttempts: [officialSubmitted],
       ),
       isFalse,
+    );
+  });
+
+  test('reference-matched retries remain available until the limit', () {
+    final assignment = _assignment(
+      id: 'reference-assignment',
+      title: 'Bottle Toss',
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.referenceMatched,
+      attemptPolicy: AssignmentAttemptPolicy.finite(2),
+    );
+    final first = _referenceMatchAttempt(assignment.id, 'reference-1');
+    final second = _referenceMatchAttempt(assignment.id, 'reference-2');
+
+    expect(
+      canStartAssignedMovement(
+        assignment,
+        first,
+        first,
+        activityAttempts: [first],
+      ),
+      isTrue,
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment,
+        second,
+        second,
+        activityAttempts: [first, second],
+      ),
+      isFalse,
+    );
+    expect(
+      canStartAssignedMovement(
+        assignment.copyWith(
+          attemptPolicy: const AssignmentAttemptPolicy.unlimited(),
+        ),
+        second,
+        second,
+        activityAttempts: [first, second],
+      ),
+      isTrue,
     );
   });
 

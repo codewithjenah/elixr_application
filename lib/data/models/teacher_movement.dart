@@ -160,6 +160,7 @@ class TeacherMovementRevision {
       ),
       AssessmentMode.templateScored => TemplateScoredRevisionSpec.tryFrom(raw),
       AssessmentMode.officialGuided => null,
+      AssessmentMode.referenceMatched => null,
     };
   }
 }

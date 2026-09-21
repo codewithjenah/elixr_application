@@ -38,6 +38,8 @@ import 'data/repositories/class_challenge_repository.dart';
 import 'data/repositories/firebase_class_challenge_repository.dart';
 import 'data/repositories/firebase_teacher_movement_repository.dart';
 import 'data/repositories/teacher_movement_repository.dart';
+import 'data/repositories/custom_movement_repository.dart';
+import 'data/repositories/firebase_custom_movement_repository.dart';
 import 'features/teacher/activity_center/activity_read_store.dart';
 import 'features/teacher/activity_center/teacher_activity_controller.dart';
 import 'features/trainee/activity_center/trainee_activity_controller.dart';
@@ -286,6 +288,9 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
         Provider<JoinCodeResolver>.value(value: _joinCodeResolver),
         Provider<TeacherMovementRepository>(
           create: (_) => FirebaseTeacherMovementRepository(),
+        ),
+        Provider<CustomMovementRepository>(
+          create: (_) => FirebaseCustomMovementRepository(),
         ),
         Provider<ClassroomAssignmentRepository>(
           create: (_) => FirebaseClassroomAssignmentRepository(),

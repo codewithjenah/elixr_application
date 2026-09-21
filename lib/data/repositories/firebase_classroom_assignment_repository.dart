@@ -16,10 +16,12 @@ import '../models/assignment_attempt_ids.dart';
 import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
+import '../models/movement_origin.dart';
 import '../models/phase6_submission_diagnostics.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
 import '../models/training_prop.dart';
+import '../models/custom_movement.dart';
 import 'classroom_assignment_repository.dart';
 
 class FirebaseClassroomAssignmentRepository
@@ -54,6 +56,115 @@ class FirebaseClassroomAssignmentRepository
 
   CollectionReference<Map<String, dynamic>> get _memberships =>
       _firestore.collection(FirestoreCollections.groupMemberships);
+
+  @override
+  Future<GroupAssignment> createCustomMovementAssignment({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required CustomMovement movement,
+    required CustomMovementRevision revision,
+    DateTime? dueAt,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
+  }) async {
+    final payload = customMovementAssignmentPayload(
+      teacherId: teacherId,
+      teacherDisplayName: teacherDisplayName,
+      group: group,
+      movement: movement,
+      revision: revision,
+      attemptPolicy: attemptPolicy,
+      dueAt: dueAt,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    );
+    final ref = _assignments.doc();
+    await ref.set(payload);
+    return GroupAssignment(
+      id: ref.id,
+      teacherId: teacherId,
+      groupId: group.id,
+      movementId: movement.id,
+      revisionId: revision.id,
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.referenceMatched,
+      status: GroupAssignmentStatus.active,
+      displayTitle: movement.name,
+      teacherDisplayName: teacherDisplayName.trim(),
+      groupName: group.name,
+      displayInstructions: movement.description,
+      allowedProp: movement.propType,
+      movementTemplate: revision.template,
+      maxScore: 12,
+      attemptPolicy: attemptPolicy,
+      dueAt: dueAt,
+    );
+  }
+
+  @override
+  Future<void> saveCustomMovementAssignmentAttempt({
+    required GroupAssignment assignment,
+    required String traineeId,
+    required int total,
+    required String performanceLevel,
+    required Map<String, int> componentScores,
+  }) async {
+    if (!assignment.isReferenceMatched ||
+        assignment.movementTemplate == null ||
+        total < 0 ||
+        total > 12 ||
+        componentScores.keys.toSet().length !=
+            referenceMatchedComponentNames.length ||
+        !componentScores.keys.toSet().containsAll(
+          referenceMatchedComponentNames,
+        ) ||
+        componentScores.values.any((value) => value < 0 || value > 3) ||
+        referenceMatchedTotal(componentScores.values) != total ||
+        referenceMatchedPerformanceLevel(total) != performanceLevel) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final payload = <String, dynamic>{
+      'trainee_id': traineeId,
+      'teacher_id': assignment.teacherId,
+      'group_id': assignment.groupId,
+      'assignment_id': assignment.id,
+      'movement_id': assignment.movementId,
+      'revision_id': assignment.revisionId,
+      'origin': MovementOrigin.teacherCreated.wireValue,
+      'assessment_mode': AssessmentMode.referenceMatched.wireValue,
+      'attempt_kind': 'reference_match',
+      'status': AssignmentAttemptStatus.submitted.wireValue,
+      'awards_global_xp': false,
+      'reference_total': total,
+      'reference_max_total': 12,
+      'reference_component_scores': componentScores,
+      'performance_level': performanceLevel,
+      'prop_type': assignment.allowedProp!.protocolValue,
+      'completed_at': FieldValue.serverTimestamp(),
+      'created_at': FieldValue.serverTimestamp(),
+    };
+    final maximum = assignment.attemptPolicy.maximumAttempts;
+    if (maximum == null) {
+      await _attempts.doc().set(payload);
+      return;
+    }
+    // A missing attempt document has no resource identity for rules to
+    // authorize as a read. Claim each deterministic slot with a create;
+    // occupied slots become denied updates and cannot be overwritten.
+    for (var slot = 1; slot <= maximum; slot++) {
+      final candidate = _attempts.doc(
+        'custom_${assignment.id}_${traineeId}_$slot',
+      );
+      try {
+        await candidate.set(payload);
+        return;
+      } on FirebaseException catch (error) {
+        if (error.code != 'permission-denied') rethrow;
+      }
+    }
+    throw const ClassroomException(ClassroomError.attemptLimitConflict);
+  }
 
   DocumentReference<Map<String, dynamic>> _deadlineOverride(
     String assignmentId,

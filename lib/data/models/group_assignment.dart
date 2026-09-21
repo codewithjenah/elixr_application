@@ -7,6 +7,7 @@ import 'movement_origin.dart';
 import 'teacher_reviewed_movement_spec.dart';
 import 'teacher_activity_assessment.dart';
 import 'training_prop.dart';
+import 'movement_template.dart';
 
 enum GroupAssignmentStatus {
   /// Unpublished work visible only to its owner.
@@ -200,6 +201,7 @@ class GroupAssignment {
     this.displaySafetyGuidance,
     this.allowedProp,
     this.assessmentSpec,
+    this.movementTemplate,
     this.maxScore,
     this.attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
     this.configurationRevision = 1,
@@ -232,6 +234,7 @@ class GroupAssignment {
 
   /// Historical `assessment_spec` payload, parsed only for retired records.
   final AssessmentSpec? assessmentSpec;
+  final MovementTemplate? movementTemplate;
 
   /// Maximum score for a Teacher-created recorded assignment.
   ///
@@ -271,6 +274,8 @@ class GroupAssignment {
   bool get isOfficial => origin == MovementOrigin.officialElixr;
   bool get isTeacherCreated => origin == MovementOrigin.teacherCreated;
   bool get isRetiredTemplate => assessmentMode == AssessmentMode.templateScored;
+  bool get isReferenceMatched =>
+      assessmentMode == AssessmentMode.referenceMatched;
   bool isAvailableToTrainee(String traineeId) =>
       audience.isAvailableToTrainee(traineeId);
 
@@ -315,6 +320,7 @@ class GroupAssignment {
       displaySafetyGuidance: displaySafetyGuidance,
       allowedProp: allowedProp,
       assessmentSpec: assessmentSpec,
+      movementTemplate: movementTemplate,
       maxScore: maxScore ?? this.maxScore,
       attemptPolicy: attemptPolicy ?? this.attemptPolicy,
       configurationRevision:
@@ -415,6 +421,7 @@ class GroupAssignment {
     } else {
       if (officialName != null) return null;
       if (assessmentMode != AssessmentMode.teacherReviewed &&
+          assessmentMode != AssessmentMode.referenceMatched &&
           assessmentMode != AssessmentMode.templateScored) {
         return null;
       }
@@ -429,7 +436,8 @@ class GroupAssignment {
     AssessmentSpec? assessmentSpec;
     final hasAssessmentSpec = map.containsKey('assessment_spec');
     if (origin == MovementOrigin.officialElixr ||
-        assessmentMode == AssessmentMode.teacherReviewed) {
+        assessmentMode == AssessmentMode.teacherReviewed ||
+        assessmentMode == AssessmentMode.referenceMatched) {
       if (hasAssessmentSpec) return null;
     } else if (assessmentMode == AssessmentMode.templateScored) {
       if (!hasAssessmentSpec) return null;
@@ -441,6 +449,20 @@ class GroupAssignment {
       if (assessmentSpec.prop != AssessmentProp.bottle) return null;
     }
 
+    MovementTemplate? movementTemplate;
+    final hasMovementTemplate = map.containsKey('movement_template');
+    if (assessmentMode == AssessmentMode.referenceMatched) {
+      if (origin != MovementOrigin.teacherCreated ||
+          allowedProp == null ||
+          !hasMovementTemplate) {
+        return null;
+      }
+      movementTemplate = MovementTemplate.tryFrom(map['movement_template']);
+      if (movementTemplate == null || !movementTemplate.isReady) return null;
+    } else if (hasMovementTemplate) {
+      return null;
+    }
+
     int? maxScore;
     var attemptPolicy = AssignmentAttemptPolicy.legacyDefault;
     var configurationRevision = 1;
@@ -448,6 +470,18 @@ class GroupAssignment {
     var gradingLocked = false;
     DateTime? gradingLockedAt;
     if (origin == MovementOrigin.teacherCreated &&
+        assessmentMode == AssessmentMode.referenceMatched) {
+      maxScore = map['max_score'] == 12 ? 12 : null;
+      if (maxScore == null ||
+          map.keys.any(
+            (key) =>
+                key == 'activity_assessment' ||
+                key == 'grading_locked' ||
+                key == 'grading_locked_at',
+          )) {
+        return null;
+      }
+    } else if (origin == MovementOrigin.teacherCreated &&
         assessmentMode == AssessmentMode.teacherReviewed) {
       if (map.containsKey('max_score')) {
         maxScore = _readScore(map['max_score']);
@@ -534,6 +568,7 @@ class GroupAssignment {
       ),
       allowedProp: allowedProp,
       assessmentSpec: assessmentSpec,
+      movementTemplate: movementTemplate,
       maxScore: maxScore,
       attemptPolicy: attemptPolicy,
       configurationRevision: configurationRevision,

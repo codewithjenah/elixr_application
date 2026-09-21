@@ -311,6 +311,17 @@ def test_prepare_and_start_accept_supported_props(prop_type):
     assert start.prop_type == prop_type
 
 
+def test_custom_prepare_rejects_dual_prop_until_template_supports_two_tracks():
+    with pytest.raises(ValidationError):
+        PrepareCommand.model_validate(
+            _prepare_payload(
+                movement="Custom Movement",
+                session_mode="custom_capture",
+                prop_type="bottle_and_shaker",
+            )
+        )
+
+
 def test_missing_prop_defaults_to_bottle():
     payload = _prepare_payload()
     payload.pop("prop_type", None)

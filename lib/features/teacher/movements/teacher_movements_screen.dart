@@ -1,4 +1,5 @@
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/models/elixr_group.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -19,10 +20,14 @@ import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
+import '../../../data/models/custom_movement.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
+import '../../../data/repositories/custom_movement_repository.dart';
+import '../../custom_movements/custom_movement_builder_dialog.dart';
+import '../../custom_movements/custom_movement_practice_screen.dart';
 import '../../movements/movements_presentation.dart';
 import '../../learning/movement_lesson_content.dart';
 import '../../../services/auth_service.dart';
@@ -229,6 +234,16 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
                           ),
                           if (controller.tab == TeacherMovementsTab.mine)
                             ElixPrimaryButton(
+                              label: 'Create Movement',
+                              icon: FluentIcons.video,
+                              expanded: false,
+                              dense: true,
+                              onPressed: controller.busy
+                                  ? null
+                                  : () => _showCreateAutomaticMovement(context),
+                            ),
+                          if (controller.tab == TeacherMovementsTab.mine)
+                            ElixPrimaryButton(
                               label: 'Create activity',
                               icon: FluentIcons.add,
                               expanded: false,
@@ -292,8 +307,292 @@ class _TabBody extends StatelessWidget {
     }
     return switch (controller.tab) {
       TeacherMovementsTab.official => _OfficialList(controller: controller),
-      TeacherMovementsTab.mine => _MyMovementsList(controller: controller),
+      TeacherMovementsTab.mine => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _TeacherAutomaticMovementsSection(
+            controller: controller,
+            ownerUid: controller.teacherId,
+          ),
+          Expanded(child: _MyMovementsList(controller: controller)),
+        ],
+      ),
     };
+  }
+}
+
+Future<void> _showCreateAutomaticMovement(BuildContext context) async {
+  final user = context.read<AuthService>().currentUser;
+  final uid = user?.id;
+  if (uid == null || user?.isTeacher != true) return;
+  await CustomMovementBuilderDialog.show(
+    context,
+    ownerUid: uid,
+    ownerRole: CustomMovementOwnerRole.teacher,
+    repository: context.read<CustomMovementRepository>(),
+  );
+}
+
+class _TeacherAutomaticMovementsSection extends StatelessWidget {
+  const _TeacherAutomaticMovementsSection({
+    required this.controller,
+    required this.ownerUid,
+  });
+
+  final TeacherMovementsController controller;
+  final String ownerUid;
+
+  Future<CustomMovementRevision?> _revisionFor(
+    CustomMovementRepository repository,
+    CustomMovement movement,
+  ) => repository.getRevision(
+    movementId: movement.id,
+    revisionId: movement.activeRevisionId,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    // Older embedders and focused tests can supply the existing teacher
+    // controller without opting into the additive custom-movement feature.
+    final repository = context.read<CustomMovementRepository?>();
+    if (repository == null) return const SizedBox.shrink();
+    return StreamBuilder<List<CustomMovement>>(
+      stream: repository.watchOwnedMovements(ownerUid: ownerUid),
+      builder: (context, snapshot) {
+        final movements = snapshot.data ?? const <CustomMovement>[];
+        if (movements.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.sm,
+            AppSpacing.lg,
+            AppSpacing.md,
+          ),
+          child: ElixPanelCard(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Automatic reference movements',
+                  style: AppTheme.headingMedium.copyWith(
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    for (final movement in movements)
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.sm),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: context.elixBorder),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 180),
+                              child: Text(
+                                movement.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Button(
+                              onPressed: () async {
+                                final revision = await _revisionFor(
+                                  repository,
+                                  movement,
+                                );
+                                if (!context.mounted || revision == null) {
+                                  return;
+                                }
+                                await Navigator.of(context).push(
+                                  FluentPageRoute<void>(
+                                    builder: (_) =>
+                                        CustomMovementPracticeScreen(
+                                          movement: movement,
+                                          revision: revision,
+                                          repository: repository,
+                                        ),
+                                  ),
+                                );
+                              },
+                              child: const Text('Test'),
+                            ),
+                            const SizedBox(width: 6),
+                            Button(
+                              onPressed: () async {
+                                final revision = await _revisionFor(
+                                  repository,
+                                  movement,
+                                );
+                                if (!context.mounted || revision == null) {
+                                  return;
+                                }
+                                await CustomMovementBuilderDialog.show(
+                                  context,
+                                  ownerUid: ownerUid,
+                                  ownerRole: CustomMovementOwnerRole.teacher,
+                                  repository: repository,
+                                  existing: movement,
+                                  existingRevision: revision,
+                                );
+                              },
+                              child: const Text('Edit'),
+                            ),
+                            const SizedBox(width: 6),
+                            FilledButton(
+                              onPressed: controller.activeGroups.isEmpty
+                                  ? null
+                                  : () async {
+                                      final revision = await _revisionFor(
+                                        repository,
+                                        movement,
+                                      );
+                                      if (!context.mounted ||
+                                          revision == null) {
+                                        return;
+                                      }
+                                      await showDialog<void>(
+                                        context: context,
+                                        builder: (_) =>
+                                            _AutomaticMovementAssignmentDialog(
+                                              controller: controller,
+                                              movement: movement,
+                                              revision: revision,
+                                            ),
+                                      );
+                                    },
+                              child: const Text('Assign'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AutomaticMovementAssignmentDialog extends StatefulWidget {
+  const _AutomaticMovementAssignmentDialog({
+    required this.controller,
+    required this.movement,
+    required this.revision,
+  });
+
+  final TeacherMovementsController controller;
+  final CustomMovement movement;
+  final CustomMovementRevision revision;
+
+  @override
+  State<_AutomaticMovementAssignmentDialog> createState() =>
+      _AutomaticMovementAssignmentDialogState();
+}
+
+class _AutomaticMovementAssignmentDialogState
+    extends State<_AutomaticMovementAssignmentDialog> {
+  ElixrGroup? _group;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _group = widget.controller.activeGroups.firstOrNull;
+  }
+
+  Future<void> _assign() async {
+    final group = _group;
+    if (group == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final authorized =
+          await widget.controller.ensureTeacherAuthorization?.call() ?? true;
+      if (!authorized) {
+        throw StateError('Teacher authorization could not be verified.');
+      }
+      await widget.controller.assignmentRepository
+          .createCustomMovementAssignment(
+            teacherId: widget.controller.teacherId,
+            teacherDisplayName: widget.controller.teacherDisplayName,
+            group: group,
+            movement: widget.movement,
+            revision: widget.revision,
+          );
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'Could not assign this movement. Please try again.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ContentDialog(
+      title: Text('Assign ${widget.movement.name}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Students will be assessed automatically against this exact reference revision. Results do not award global XP.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          InfoLabel(
+            label: 'Class',
+            child: ComboBox<ElixrGroup>(
+              value: _group,
+              isExpanded: true,
+              items: [
+                for (final group in widget.controller.activeGroups)
+                  ComboBoxItem(value: group, child: Text(group.name)),
+              ],
+              onChanged: _busy
+                  ? null
+                  : (value) => setState(() => _group = value),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            InfoBar(
+              title: const Text('Assignment failed'),
+              content: Text(_error!),
+              severity: InfoBarSeverity.error,
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        Button(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy || _group == null ? null : _assign,
+          child: _busy
+              ? const SizedBox(width: 16, height: 16, child: ProgressRing())
+              : const Text('Assign'),
+        ),
+      ],
+    );
   }
 }
 

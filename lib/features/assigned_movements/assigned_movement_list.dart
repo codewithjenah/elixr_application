@@ -14,6 +14,7 @@ import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../core/widgets/profile_avatar.dart';
+import '../../data/models/assessment_mode.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/assessment_score_display.dart';
 import '../../data/models/group_assignment.dart';
@@ -988,6 +989,9 @@ String assignedMovementPracticeButtonLabel(
   if (assignment?.activityAssessment != null) {
     return attempt == null ? 'Start attempt' : 'Try again';
   }
+  if (assignment?.isReferenceMatched == true) {
+    return attempt == null ? 'Start assessment' : 'Try again';
+  }
   if (attempt == null) return 'Start practice';
   return 'Continue practice';
 }
@@ -997,6 +1001,7 @@ String assignedMovementActionLabel(
   AssignmentAttempt? attempt,
 ) {
   if (assignment.isRetiredTemplate) return 'Retired';
+  if (assignment.isReferenceMatched && attempt != null) return 'Completed';
   if (assignment.isTeacherCreated &&
       (attempt == null ||
           attempt.status == AssignmentAttemptStatus.draft ||
@@ -1059,6 +1064,23 @@ bool canStartAssignedMovement(
     return consumedAttempts < maximumAttempts;
   }
   if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) return false;
+  if (assignment.assessmentMode == AssessmentMode.referenceMatched) {
+    final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
+    if (maximumAttempts == null) return true;
+    final attempts = _allAttemptsForAssignment(
+      activityAttempts: activityAttempts,
+      attempt: attempt,
+      submission: submission,
+    );
+    final consumedAttempts = attempts
+        .where(
+          (candidate) =>
+              candidate.assignmentId == assignment.id &&
+              candidate.attemptKind == AssignmentAttemptKind.referenceMatch,
+        )
+        .length;
+    return consumedAttempts < maximumAttempts;
+  }
   if (assignment.activityAssessment != null) {
     if (assignment.gradingLocked) return false;
     final attempts = _teacherActivityAttempts(
@@ -1185,6 +1207,9 @@ String assignedMovementStatusLabel(
   AssignmentAttempt? submission,
 ) {
   if (assignment.isRetiredTemplate) return 'Historical';
+  if (assignment.isReferenceMatched) {
+    return attempt == null ? 'Not started' : 'Completed';
+  }
   if (assignment.isTeacherCreated) {
     final current = submission ?? attempt;
     if (current == null ||
@@ -1224,7 +1249,7 @@ Color assignedMovementStatusColor(
   if (assignment.isRetiredTemplate) return AppColors.warning;
   final label = assignedMovementStatusLabel(assignment, attempt, submission);
   return switch (label) {
-    'Approved' || 'Checked' => AppColors.success,
+    'Approved' || 'Checked' || 'Completed' => AppColors.success,
     'Awaiting review' || 'Awaiting check' || 'Submitted' => AppColors.accent,
     'Needs retry' => AppColors.error,
     'Withdrawing' => AppColors.warning,
@@ -1263,6 +1288,13 @@ String? assignedMovementDetailLine(
   if (assignment.isRetiredTemplate) {
     return assignedMovementStatusLine(assignment, attempt, submission);
   }
+  if (assignment.isReferenceMatched && attempt != null) {
+    final total = attempt.referenceTotal;
+    final level = attempt.referencePerformanceLevel;
+    if (total != null && level != null) {
+      return 'Automatic score $total/12 · ${_titleCaseWords(level)}';
+    }
+  }
   if (assignment.isTeacherCreated) {
     final current = submission ?? attempt;
     final feedback = current?.reviewFeedback?.trim();
@@ -1289,3 +1321,9 @@ String? assignedMovementDetailLine(
   }
   return null;
 }
+
+String _titleCaseWords(String value) => value
+    .split(RegExp(r'[_\s]+'))
+    .where((part) => part.isNotEmpty)
+    .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+    .join(' ');

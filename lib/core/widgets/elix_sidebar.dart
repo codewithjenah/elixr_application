@@ -72,6 +72,12 @@ const elixSidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
+    label: 'My Movements',
+    icon: FluentIcons.edit_create,
+    route: AppRoutePaths.myMovements,
+    group: SidebarGroup.training,
+  ),
+  SidebarItem(
     label: 'Playground',
     icon: FluentIcons.video,
     route: AppRoutePaths.livePractice,

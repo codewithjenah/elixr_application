@@ -193,6 +193,35 @@ void main() {
       expect(ack.calibrationSource, 'palm_fallback');
     });
 
+    test('custom movement acknowledgment parses data-only results', () {
+      final decoded = decoder.decode(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': 'req-custom',
+          'session_id': 'session-custom',
+          'action': 'finish_custom_assessment',
+          'accepted': true,
+          'session_state': 'readying',
+          'reference_count': 3,
+          'reference_quality': {'valid': true},
+          'movement_template': {'schema_version': 1},
+          'custom_assessment': {
+            'total': 10,
+            'max_total': 12,
+            'performance_level': 'proficient',
+          },
+        }),
+      );
+
+      expect(decoded, isA<WsCommandAckMessage>());
+      final ack = (decoded as WsCommandAckMessage).ack;
+      expect(ack.referenceCount, 3);
+      expect(ack.referenceQuality, {'valid': true});
+      expect(ack.movementTemplate, {'schema_version': 1});
+      expect(ack.customAssessment?['total'], 10);
+    });
+
     test('prepare acknowledgment parses selected-camera fallback metadata', () {
       final decoded = decoder.decode(
         jsonEncode({

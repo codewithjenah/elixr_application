@@ -18,7 +18,10 @@ import '../../data/models/group_assignment.dart';
 import '../../data/models/movement_origin.dart';
 import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
+import '../../data/models/custom_movement.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/custom_movement_repository.dart';
+import '../custom_movements/custom_movement_practice_screen.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
 import '../../services/auth_service.dart';
@@ -27,6 +30,7 @@ import '../../services/tutorial_progress_service.dart';
 enum AssignedPracticeDispatch {
   officialGuided,
   teacherReviewed,
+  referenceMatched,
   retiredTemplate,
   invalid,
 }
@@ -47,6 +51,11 @@ AssignedPracticeDispatch dispatchAssignedPractice(GroupAssignment assignment) {
       return AssignedPracticeDispatch.invalid;
     }
     return AssignedPracticeDispatch.teacherReviewed;
+  }
+  if (assignment.assessmentMode == AssessmentMode.referenceMatched &&
+      assignment.movementTemplate != null &&
+      assignment.allowedProp != null) {
+    return AssignedPracticeDispatch.referenceMatched;
   }
   return AssignedPracticeDispatch.invalid;
 }
@@ -204,8 +213,25 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
           return;
         }
       }
+      if (assignment.isReferenceMatched) {
+        final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
+        final consumedAttempts = attempts
+            .where(
+              (attempt) =>
+                  attempt.assignmentId == assignment.id &&
+                  attempt.attemptKind == AssignmentAttemptKind.referenceMatch,
+            )
+            .length;
+        if (maximumAttempts != null && consumedAttempts >= maximumAttempts) {
+          setState(() {
+            _loading = false;
+            _error = 'This assignment has no remaining attempts.';
+          });
+          return;
+        }
+      }
       AssignmentAttempt? reservedActivityAttempt;
-      if (assignment.isTeacherCreated) {
+      if (assignment.isTeacherCreated && !assignment.isReferenceMatched) {
         final current = _currentSubmissionFrom(
           attempts: attempts,
           assignmentId: assignment.id,
@@ -272,6 +298,38 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
                 assignment: assignment,
                 reservedActivityAttempt: reservedActivityAttempt,
               ),
+            );
+          });
+        case AssignedPracticeDispatch.referenceMatched:
+          final template = assignment.movementTemplate!;
+          final movement = CustomMovement(
+            id: assignment.movementId,
+            ownerUid: assignment.teacherId,
+            ownerRole: CustomMovementOwnerRole.teacher,
+            name: assignment.displayTitle,
+            description: assignment.displayInstructions ?? '',
+            difficulty: 'Medium',
+            propType: assignment.allowedProp!,
+            status: CustomMovementStatus.active,
+            activeRevisionId: assignment.revisionId,
+          );
+          final revision = CustomMovementRevision(
+            id: assignment.revisionId,
+            movementId: assignment.movementId,
+            ownerUid: assignment.teacherId,
+            ownerRole: CustomMovementOwnerRole.teacher,
+            template: template,
+          );
+          setState(() {
+            _loading = false;
+            _child = CustomMovementPracticeScreen(
+              movement: movement,
+              revision: revision,
+              repository: context.read<CustomMovementRepository>(),
+              assignment: assignment,
+              traineeUid: traineeId,
+              classroomRepository: context
+                  .read<ClassroomAssignmentRepository>(),
             );
           });
         case AssignedPracticeDispatch.retiredTemplate:

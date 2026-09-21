@@ -219,6 +219,7 @@ class _RecordingWebSocketService extends WebSocketService {
     TeacherActivityReadinessSpec? readinessSpec,
     String? sessionMode,
     List<({String movement, TrainingProp prop})>? allowedMovements,
+    Map<String, dynamic>? customMovementTemplate,
   }) {
     final resolvedSessionId =
         sessionId ?? currentSessionId ?? beginPracticeAttempt();
@@ -240,6 +241,7 @@ class _RecordingWebSocketService extends WebSocketService {
           for (final entry in allowedMovements)
             {'movement': entry.movement, 'prop_type': entry.prop.protocolValue},
         ],
+      'custom_movement_template': ?customMovementTemplate,
     });
     return prepareAck.future;
   }

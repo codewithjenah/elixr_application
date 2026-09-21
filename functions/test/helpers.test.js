@@ -2247,7 +2247,7 @@ function fakeMaterialFinalization({buffer}) {
     save: async (value) => files.set(path, value),
     delete: async () => files.delete(path),
   })})};
-  return {firestore, storage};
+  return {firestore, storage, files, stagingPath};
 }
 
 test('file material receives published_at only after successful validation', async () => {
@@ -2275,6 +2275,11 @@ test('file material receives published_at only after successful validation', asy
   assert.equal(published.processed, true);
   assert.equal(material.status, 'ready');
   assert.ok(material.published_at instanceof Timestamp);
+  assert.equal(
+    valid.files.has('activity_learning_materials/assignment/material'),
+    true,
+  );
+  assert.equal(valid.files.has(valid.stagingPath), true);
 });
 
 function fakeLinkCreationDatabase() {
@@ -2693,11 +2698,13 @@ function reconciliationSnapshot(data) {
   };
 }
 
-function fakeReconciliationFirestore({deleting = [], pending = [], failDeleting = new Set()} = {}) {
+function fakeReconciliationFirestore({
+  deleting = [], pending = [], uploads = [], failDeleting = new Set(),
+} = {}) {
   const state = {value: {cursors: {}}};
   const access = new Map();
   const assignment = {id: 'assignment', data: {teacher_id: 'teacher', status: 'draft'}};
-  const records = [...deleting, ...pending].map((record) => ({...record}));
+  const records = [...deleting, ...pending, ...uploads].map((record) => ({...record}));
   const attempts = [];
 
   function merge(target, patch) {
@@ -2767,10 +2774,18 @@ function fakeReconciliationFirestore({deleting = [], pending = [], failDeleting 
       },
       limit(value) { return query(kind, {filters, cursor, limit: value}); },
       async get() {
-        let values = kind === 'material_group' || kind === 'assignment_materials'
+        let values = kind === 'material_group' || kind === 'assignment_materials' || kind === 'uploads'
           ? records.filter((record) => !record.deleted) : [];
         for (const filter of filters) {
           if (filter.operator === '==') values = values.filter((record) => record[filter.field] === filter.value);
+          if (filter.operator === '<=') values = values.filter((record) => {
+            const current = record[filter.field];
+            const currentValue = typeof current?.toMillis === 'function'
+              ? current.toMillis() : current;
+            const expectedValue = typeof filter.value?.toMillis === 'function'
+              ? filter.value.toMillis() : filter.value;
+            return currentValue <= expectedValue;
+          });
         }
         values.sort((left, right) => left.id.localeCompare(right.id));
         if (cursor) values = values.filter((record) => record.id > cursor);
@@ -2798,7 +2813,10 @@ function fakeReconciliationFirestore({deleting = [], pending = [], failDeleting 
           doc: (id) => ({set: async (value) => access.set(id, value)}),
         };
       }
-      if (name === 'activity_material_uploads') return {where: () => query('uploads')};
+      if (name === 'activity_material_uploads') {
+        return {where: (field, operator, value) =>
+          query('uploads').where(field, operator, value)};
+      }
       if (name === 'group_memberships') return {where: () => query('memberships'), doc: () => ({get: async () => ({exists: false})})};
       throw new Error(`unexpected collection ${name}`);
     },
@@ -2859,6 +2877,28 @@ test('Learning Material reconciliation advances past 100 records, retries failur
   await runActivityMaterialReconciliation({firestore: fake.firestore, storage: fake.storage, now});
   assert.equal(fake.records.find((record) => record.id === 'delete-000').deleted, true);
   assert.ok(fake.attempts.includes('activity_learning_materials/assignment/delete-100'));
+});
+
+test('Learning Material reconciliation removes retained ready staging objects after retention', async () => {
+  const now = Timestamp.fromMillis(Date.now());
+  const stagingPath = 'activity_material_staging/teacher/assignment/ready-upload';
+  const uploads = [{
+    id: 'ready-upload', state: 'ready', staging_path: stagingPath,
+    created_at: Timestamp.fromMillis(
+      now.toMillis() - ACTIVITY_MATERIAL_LIMITS.terminalUploadRetentionMs - 1,
+    ),
+    terminal_at: Timestamp.fromMillis(
+      now.toMillis() - ACTIVITY_MATERIAL_LIMITS.terminalUploadRetentionMs - 1,
+    ),
+  }];
+  const fake = fakeReconciliationFirestore({uploads});
+
+  await runActivityMaterialReconciliation({
+    firestore: fake.firestore, storage: fake.storage, now,
+  });
+
+  assert.deepEqual(fake.attempts, [stagingPath]);
+  assert.equal(fake.records[0].deleted, true);
 });
 
 function fakeMaterialRemovalDatabase() {

@@ -79,9 +79,12 @@ service firebase.storage {
 
     function canBootstrapActivityMaterialStaging(teacherId, assignmentId, uploadId) {
       let stage = firestore.get(stagingUploadPath(teacherId, assignmentId, uploadId)).data;
+      // The Windows C++ SDK can issue this immutable PATCH after the Storage
+      // finalizer has already committed ready. Terminal rejection/deletion
+      // remain denied, and every byte/type/ownership predicate still applies.
       return isOwner(teacherId)
         && stage.schema_version == 1
-        && stage.state in ['staging', 'validating']
+        && stage.state in ['staging', 'validating', 'ready']
         && stage.upload_id == uploadId
         && stage.assignment_id == assignmentId
         && stage.owner_teacher_id == teacherId

@@ -24,6 +24,7 @@ abstract final class AppRoutePaths {
   static const dashboard = '/dashboard';
   static const leaderboard = '/leaderboard';
   static const movements = '/movements';
+  static const myMovements = '/my-movements';
   static const assignedMovements = '/assigned-movements';
   static const assignedPracticePrefix = '/assigned-practice';
   static const classChallengePlayPrefix = '/class-challenge-play';
@@ -92,6 +93,7 @@ abstract final class AppRoutePaths {
     teacherAccess,
     leaderboard,
     movements,
+    myMovements,
     assignedMovements,
     learn,
     training,
@@ -105,6 +107,9 @@ abstract final class AppRoutePaths {
   };
 
   static const traineePracticeRoutes = {practice, livePractice};
+
+  static String myMovementPractice(String movementId) =>
+      '$myMovements/practice/${Uri.encodeComponent(movementId)}';
 
   static String teacherAccessClass(String groupId) {
     return '$teacherAccess/${Uri.encodeComponent(groupId)}';

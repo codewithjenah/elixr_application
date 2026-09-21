@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,6 +31,10 @@ class CommandAck(BaseModel):
     video_size_bytes: Optional[int] = None
     content_type: Optional[str] = None
     video_sha256: Optional[str] = None
+    reference_count: Optional[int] = None
+    reference_quality: Optional[dict[str, Any]] = None
+    movement_template: Optional[dict[str, Any]] = None
+    custom_assessment: Optional[dict[str, Any]] = None
 
 
 class ProtocolError(BaseModel):

@@ -43,6 +43,14 @@ from assessment.rule_engine import (
 )
 from assessment.scoring import RubricTracker
 from assessment.rubric import RubricAssessment
+from assessment.custom_movement import (
+    FrameSample as CustomFrameSample,
+    Landmark as CustomLandmark,
+    MovementTemplate as CustomMovementTemplate,
+    build_template as build_custom_movement_template,
+    compare_sequence as compare_custom_movement_sequence,
+    validate_sequence as validate_custom_movement_sequence,
+)
 from config import (
     FPS_LOG_INTERVAL,
     EVIDENCE_JPEG_QUALITY,
@@ -62,15 +70,20 @@ from schemas.commands import (
     ActivateCommand,
     BeginReadinessCommand,
     CancelSubmissionRecordCommand,
+    BuildCustomTemplateCommand,
     ConfirmReadinessCommand,
+    DiscardCustomReferenceCommand,
+    FinishCustomAssessmentCommand,
     PauseCommand,
     PrepareCommand,
     PropType,
     ResumeCommand,
     StartCommand,
     StartSubmissionRecordCommand,
+    StartCustomCaptureCommand,
     StopCommand,
     StopSubmissionRecordCommand,
+    StopCustomCaptureCommand,
     parse_v1_command,
 )
 from schemas.feedback import AssessmentPayload, CriterionScorePayload, FeedbackMessage, PreviewFrameMessage
@@ -345,6 +358,8 @@ _PREPARE_VALUE_ERROR_CODES = (
     "invalid_camera_index",
     "invalid_session_purpose",
     "unexpected_assessment_spec",
+    "missing_custom_movement_template",
+    "unexpected_custom_movement_template",
 )
 
 
@@ -451,6 +466,17 @@ def _human_error_message(error_code: str) -> str:
         "unexpected_assessment_spec": (
             "assessment_spec is no longer accepted by the WebSocket API."
         ),
+        "invalid_custom_movement": "This custom movement request is invalid.",
+        "missing_custom_movement_template": "The saved movement template is missing.",
+        "unexpected_custom_movement_template": "A template is not valid for this capture mode.",
+        "custom_capture_already_recording": "A movement reference is already being recorded.",
+        "custom_capture_not_recording": "No movement reference is being recorded.",
+        "invalid_reference_count": "Record three valid references before building the template.",
+        "insufficient_frames": "The recording was too short. Perform the complete movement and retry.",
+        "missing_modality": "Keep your upper body, hands, and selected prop visible.",
+        "track_loss": "The selected prop was lost for too long. Reposition and retry.",
+        "invalid_timestamps": "The recording timing was invalid. Please retry.",
+        "invalid_schema": "The movement template format is not supported.",
     }.get(error_code, "The WebSocket command was rejected.")
 
 
@@ -483,11 +509,15 @@ class VisionSession:
         readiness_spec: dict | None = None,
         session_mode: str | None = None,
         allowed_movements: list[tuple[str, str]] | None = None,
+        custom_movement_template: dict[str, Any] | None = None,
     ):
         if prop_type not in {"bottle", "shaker", "bottle_and_shaker"}:
             raise ValueError("invalid_prop_type")
 
         self._is_freestyle = session_mode == "freestyle"
+        self._is_custom_capture = session_mode == "custom_capture"
+        self._is_custom_assessment = session_mode == "custom_assessment"
+        self._is_custom = self._is_custom_capture or self._is_custom_assessment
         if self._is_freestyle:
             prop_type = "bottle_and_shaker"
 
@@ -505,6 +535,8 @@ class VisionSession:
         self.readiness_spec = readiness_spec
         if self._is_freestyle:
             diagnostics_mode = "freestyle"
+        elif self._is_custom:
+            diagnostics_mode = session_mode or "custom_capture"
         elif movement == "Free Practice":
             diagnostics_mode = "free_practice"
         else:
@@ -540,12 +572,13 @@ class VisionSession:
         self.hands_detector: HandsDetector | None = None
         self.pose_detector: PoseDetector | None = None
         self._prop_detection_only = movement_is_prop_detection_only(movement)
-        if self._is_freestyle:
+        if self._is_freestyle or self._is_custom:
             self._prop_detection_only = False
         self._hands_rotated_fallback = (
             not self._prop_detection_only
             and (
                 self._is_freestyle
+                or self._is_custom
                 or movement in HANDS_ROTATED_FALLBACK_MOVEMENTS
             )
         )
@@ -553,19 +586,20 @@ class VisionSession:
             not self._prop_detection_only
             and (
                 self._is_freestyle
+                or self._is_custom
                 or movement in HANDS_BARTENDER_ROI_MOVEMENTS
             )
         )
         self._hands_needed = (
             not self._prop_detection_only
             and (
-                self._is_freestyle or movement_requires_hands(movement)
+                self._is_freestyle or self._is_custom or movement_requires_hands(movement)
             )
         )
         self._pose_needed = (
             not self._prop_detection_only
             and (
-                self._is_freestyle or movement_requires_pose(movement)
+                self._is_freestyle or self._is_custom or movement_requires_pose(movement)
             )
         )
         if readiness_spec is not None:
@@ -580,7 +614,7 @@ class VisionSession:
             }.get(readiness_spec.get("hands"), 0)
         else:
             self._hands_max = (
-                2 if self._is_freestyle else movement_max_hands(movement)
+                2 if (self._is_freestyle or self._is_custom) else movement_max_hands(movement)
             )
         self.rubric = RubricTracker()
 
@@ -640,6 +674,18 @@ class VisionSession:
         self._ai_lifecycle_skips = 0
         self._submission_recorder: SubmissionRecorder | None = None
         self._submission_recorder_lock = threading.Lock()
+        self._custom_template = (
+            CustomMovementTemplate.from_dict(custom_movement_template)
+            if custom_movement_template is not None
+            else None
+        )
+        if self._is_custom_assessment and self._custom_template is None:
+            raise ValueError("missing_custom_movement_template")
+        self._custom_references: list[tuple[CustomFrameSample, ...]] = []
+        self._custom_samples: list[CustomFrameSample] | None = None
+        self._custom_capture_started_at: float | None = None
+        self._custom_capture_deadline: float | None = None
+        self._custom_previous_prop: tuple[float, float, int] | None = None
 
     def set_submission_recorder(self, recorder: SubmissionRecorder | None) -> None:
         with self._submission_recorder_lock:
@@ -655,6 +701,201 @@ class VisionSession:
             captured_at_monotonic=captured.captured_at_monotonic,
             sequence=captured.sequence,
         )
+
+    @property
+    def is_custom_capture_session(self) -> bool:
+        return self._is_custom_capture
+
+    @property
+    def is_custom_assessment_session(self) -> bool:
+        return self._is_custom_assessment
+
+    @property
+    def custom_reference_count(self) -> int:
+        return len(self._custom_references)
+
+    def start_custom_capture(self, *, duration_seconds: int) -> tuple[bool, str | None]:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_custom or not self.is_active:
+                return False, "invalid_session_purpose"
+            if self._custom_samples is not None:
+                return False, "custom_capture_already_recording"
+            self._custom_samples = []
+            self._custom_capture_started_at = time.monotonic()
+            self._custom_capture_deadline = (
+                self._custom_capture_started_at + duration_seconds
+            )
+            self._custom_previous_prop = None
+            return True, None
+        finally:
+            self._release_ai_state()
+
+    def stop_custom_capture(self) -> tuple[bool, str | None, dict[str, Any]]:
+        self._acquire_ai_state(blocking=True)
+        try:
+            samples = tuple(self._custom_samples or ())
+            self._custom_samples = None
+            self._custom_capture_started_at = None
+            self._custom_capture_deadline = None
+            self._custom_previous_prop = None
+            if not samples:
+                return False, "custom_capture_not_recording", {}
+            validation = validate_custom_movement_sequence(
+                samples, ("pose", "hands", "prop_translation")
+            )
+            quality = {
+                "valid": validation.valid,
+                "frame_count": len(samples),
+                "duration_ms": samples[-1].timestamp_ms,
+                "codes": [code.value for code in validation.codes],
+            }
+            if not validation.valid:
+                code = validation.codes[0].value if validation.codes else "invalid_reference"
+                return False, code, quality
+            if self._is_custom_capture:
+                self._custom_references.append(samples)
+            else:
+                # Assessment capture is retained until finish_custom_assessment.
+                self._custom_samples = list(samples)
+            return True, None, quality
+        finally:
+            self._release_ai_state()
+
+    def discard_custom_reference(self) -> int:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_custom_capture:
+                raise ValueError("invalid_session_purpose")
+            if self._custom_samples is not None:
+                raise ValueError("custom_capture_already_recording")
+            if self._custom_references:
+                self._custom_references.pop()
+            return len(self._custom_references)
+        finally:
+            self._release_ai_state()
+
+    def build_custom_template(self) -> dict[str, Any]:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_custom_capture:
+                raise ValueError("invalid_session_purpose")
+            template = build_custom_movement_template(
+                tuple(self._custom_references),
+                ("pose", "hands", "prop_translation"),
+            )
+            return template.to_dict()
+        finally:
+            self._release_ai_state()
+
+    def finish_custom_assessment(self) -> dict[str, Any]:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_custom_assessment or self._custom_template is None:
+                raise ValueError("invalid_session_purpose")
+            samples = tuple(self._custom_samples or ())
+            if not samples:
+                raise ValueError("custom_capture_not_recording")
+            result = compare_custom_movement_sequence(self._custom_template, samples)
+            if not result.validation.valid:
+                code = result.validation.codes[0].value
+                raise ValueError(code)
+            payload = result.to_dict()
+            payload["max_total"] = 12
+            payload["score_percent"] = round(result.total * 100 / 12, 1)
+            payload["feedback"] = [
+                f"{name}: {score}/3"
+                for name, score in result.component_scores.items()
+                if score is not None
+            ]
+            self._custom_samples = None
+            return payload
+        finally:
+            self._release_ai_state()
+
+    def _record_custom_sample(
+        self,
+        *,
+        captured: CapturedFrame,
+        frame,
+        normalized: _NormalizedFrameDetections,
+        hands,
+        pose,
+    ) -> None:
+        samples = self._custom_samples
+        started = self._custom_capture_started_at
+        if samples is None or started is None:
+            return
+        if self._custom_capture_deadline is not None and time.monotonic() > self._custom_capture_deadline:
+            return
+        raw_timestamp = round((captured.captured_at_monotonic - started) * 1000)
+        timestamp_ms = max(0, raw_timestamp)
+        if samples:
+            timestamp_ms = max(samples[-1].timestamp_ms + 1, timestamp_ms)
+
+        pose_points: dict[str, CustomLandmark] = {}
+        if pose is not None:
+            for index, point in pose.points.items():
+                pose_points[str(index)] = CustomLandmark(
+                    float(point.x), float(point.y),
+                    float(pose.visibility.get(index, 0.0)),
+                )
+
+        hand_points: dict[str, CustomLandmark] = {}
+        if hands is not None:
+            for hand_index, hand in enumerate(hands.hands):
+                side = str(hand.handedness or "unknown").strip().lower()
+                for landmark_index, point in hand.points.items():
+                    hand_points[f"{side}:{hand_index}:{landmark_index}"] = CustomLandmark(
+                        float(point.x), float(point.y), 1.0
+                    )
+
+        live = (
+            self._last_live_shakers
+            if self.prop_type == "shaker"
+            else self._last_live_bottles
+        )
+        detection = max(live, key=lambda item: item.confidence) if live else None
+        prop_point = None
+        prop_metadata: dict[str, Any] = {}
+        if detection is not None:
+            height, width = int(frame.shape[0]), int(frame.shape[1])
+            center = detection.center_normalized(width, height)
+            prop_point = CustomLandmark(
+                float(center.x), float(center.y), float(detection.confidence)
+            )
+            velocity_x = velocity_y = 0.0
+            if self._custom_previous_prop is not None:
+                previous_x, previous_y, previous_ms = self._custom_previous_prop
+                elapsed = max(1, timestamp_ms - previous_ms) / 1000.0
+                velocity_x = (center.x - previous_x) / elapsed
+                velocity_y = (center.y - previous_y) / elapsed
+            self._custom_previous_prop = (center.x, center.y, timestamp_ms)
+            prop_metadata = {
+                "track_id": detection.track_id,
+                "class": self.prop_type,
+                "bbox_width": (detection.x2 - detection.x1) / max(width, 1),
+                "bbox_height": (detection.y2 - detection.y1) / max(height, 1),
+                "velocity_x": velocity_x,
+                "velocity_y": velocity_y,
+                "movement_direction": (
+                    "stationary" if abs(velocity_x) + abs(velocity_y) < 0.05
+                    else "up" if velocity_y < -abs(velocity_x)
+                    else "down" if velocity_y > abs(velocity_x)
+                    else "left" if velocity_x < 0
+                    else "right"
+                ),
+                "yolo_confirmed": bool(detection.yolo_confirmed),
+                "coasted": not bool(detection.yolo_confirmed),
+            }
+
+        samples.append(CustomFrameSample(
+            timestamp_ms=timestamp_ms,
+            pose=pose_points,
+            hands=hand_points,
+            prop=prop_point,
+            prop_metadata=prop_metadata,
+        ))
 
     def _acquire_ai_state(self, *, blocking: bool) -> bool:
         """Exclusive access to AI/lifecycle mutation. Preview must not call this.
@@ -1633,6 +1874,50 @@ class VisionSession:
             pose = self.pose_detector.detect(frame)
             self.timings.add("pose", time.perf_counter() - t0)
 
+        if self._is_custom:
+            self._record_custom_sample(
+                captured=captured,
+                frame=frame,
+                normalized=normalized,
+                hands=hands,
+                pose=pose,
+            )
+            feedback = (
+                "Recording movement reference…"
+                if self._custom_samples is not None
+                else "Ready to record the full movement"
+            )
+            self._publish_overlay(
+                freeze_overlay(
+                    published_at_monotonic=time.monotonic(),
+                    captured_at_monotonic=captured.captured_at_monotonic,
+                    capture_sequence=captured.sequence,
+                    boxes=list(normalized.annotation),
+                    hands=hands,
+                    pose=pose,
+                    feedback=feedback,
+                    feedback_type="positive",
+                    movement=self.display_movement,
+                    prop_label=self.prop_display_name,
+                )
+            )
+            message = self._stamp(
+                FeedbackMessage(
+                    bottle_detected=normalized.selected_detected,
+                    bottle_count=normalized.selected_count,
+                    prop_type=self.prop_type,
+                    movement=self.display_movement,
+                    feedback=feedback,
+                    feedback_type="positive",
+                    posture_status="unknown",
+                    frame_jpeg_base64=None,
+                    camera_ready=True,
+                    session_state="active",
+                )
+            )
+            self.timings.add("processing_total", time.perf_counter() - total_start)
+            return message
+
         if self._is_freestyle:
             return self._finish_freestyle_frame(
                 frame=frame,
@@ -2070,6 +2355,7 @@ async def _cv_session_loop(
     readiness_spec: dict | None = None,
     session_mode: str | None = None,
     allowed_movements: list[tuple[str, str]] | None = None,
+    custom_movement_template: dict[str, Any] | None = None,
 ):
     async def _send(payload: str) -> None:
         if send_text is not None:
@@ -2088,6 +2374,7 @@ async def _cv_session_loop(
             readiness_spec=readiness_spec,
             session_mode=session_mode,
             allowed_movements=allowed_movements,
+            custom_movement_template=custom_movement_template,
         )
     except Exception:
         logger.exception("Failed to initialize vision session")
@@ -2669,6 +2956,10 @@ async def websocket_endpoint(websocket: WebSocket):
         video_size_bytes: int | None = None,
         content_type: str | None = None,
         video_sha256: str | None = None,
+        reference_count: int | None = None,
+        reference_quality: dict[str, Any] | None = None,
+        movement_template: dict[str, Any] | None = None,
+        custom_assessment: dict[str, Any] | None = None,
     ) -> None:
         ack = CommandAck(
             protocol_version=PROTOCOL_VERSION,
@@ -2689,6 +2980,10 @@ async def websocket_endpoint(websocket: WebSocket):
             video_size_bytes=video_size_bytes,
             content_type=content_type,
             video_sha256=video_sha256,
+            reference_count=reference_count,
+            reference_quality=reference_quality,
+            movement_template=movement_template,
+            custom_assessment=custom_assessment,
         )
         await safe_send(ack.model_dump_json())
 
@@ -2754,6 +3049,7 @@ async def websocket_endpoint(websocket: WebSocket):
         readiness_spec: dict | None = None,
         session_mode: str | None = None,
         allowed_movements: list[tuple[str, str]] | None = None,
+        custom_movement_template: dict[str, Any] | None = None,
     ) -> tuple[bool, str | None, str | None]:
         nonlocal session_task, current_session_id, submission_recording_allowed
 
@@ -2792,6 +3088,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 readiness_spec=readiness_spec,
                 session_mode=session_mode,
                 allowed_movements=allowed_movements,
+                custom_movement_template=custom_movement_template,
             )
         )
 
@@ -2835,10 +3132,20 @@ async def websocket_endpoint(websocket: WebSocket):
     async def handle_v1_prepare_or_start(command: PrepareCommand | StartCommand) -> None:
         nonlocal movement, difficulty, current_session_id, submission_recording_allowed
 
-        auth_difficulty, movement_error = validate_movement_difficulty(
-            command.movement,
-            command.difficulty,
-        )
+        session_mode = getattr(command, "session_mode", None)
+        if session_mode in {"custom_capture", "custom_assessment"}:
+            auth_difficulty = command.difficulty
+            movement_error = (
+                None
+                if command.movement == "Custom Movement"
+                and command.difficulty in {"Easy", "Medium", "Hard"}
+                else "invalid_custom_movement"
+            )
+        else:
+            auth_difficulty, movement_error = validate_movement_difficulty(
+                command.movement,
+                command.difficulty,
+            )
         if movement_error is not None:
             await send_ack(
                 request_id=command.request_id,
@@ -2875,7 +3182,6 @@ async def websocket_endpoint(websocket: WebSocket):
         movement = command.movement
         difficulty = auth_difficulty
         start_active = command.action == "start"
-        session_mode = getattr(command, "session_mode", None)
         allowed_entries: list[tuple[str, str]] | None = None
         prop_type = command.prop_type
         if session_mode == "freestyle":
@@ -2901,6 +3207,9 @@ async def websocket_endpoint(websocket: WebSocket):
             ),
             session_mode=session_mode,
             allowed_movements=allowed_entries,
+            custom_movement_template=getattr(
+                command, "custom_movement_template", None
+            ),
         )
 
         if ok:
@@ -3452,6 +3761,138 @@ async def websocket_endpoint(websocket: WebSocket):
             ),
         )
 
+    async def handle_v1_custom_command(
+        command: StartCustomCaptureCommand
+        | StopCustomCaptureCommand
+        | DiscardCustomReferenceCommand
+        | BuildCustomTemplateCommand
+        | FinishCustomAssessmentCommand,
+    ) -> None:
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+        state = _public_session_state(
+            session, current_session_id=current_session_id
+        )
+        if active_id is not None and command.session_id != active_id:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=state,
+                error_code="session_id_mismatch",
+                message=_human_error_message("session_id_mismatch"),
+            )
+            return
+        if session is None or not session.is_active:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=state,
+                error_code="session_not_active",
+                message=_human_error_message("session_not_active"),
+            )
+            return
+
+        try:
+            if isinstance(command, StartCustomCaptureCommand):
+                accepted, code = await asyncio.to_thread(
+                    session.start_custom_capture,
+                    duration_seconds=command.duration_seconds,
+                )
+                await send_ack(
+                    request_id=command.request_id,
+                    session_id=command.session_id,
+                    action=command.action,
+                    accepted=accepted,
+                    session_state=state,
+                    error_code=code,
+                    message=None if accepted else _human_error_message(code or "invalid_command"),
+                    reference_count=session.custom_reference_count,
+                )
+                return
+
+            if isinstance(command, StopCustomCaptureCommand):
+                accepted, code, quality = await asyncio.to_thread(
+                    session.stop_custom_capture
+                )
+                await send_ack(
+                    request_id=command.request_id,
+                    session_id=command.session_id,
+                    action=command.action,
+                    accepted=accepted,
+                    session_state=state,
+                    error_code=code,
+                    message=(
+                        "Reference accepted."
+                        if accepted
+                        else _human_error_message(code or "invalid_command")
+                    ),
+                    reference_count=session.custom_reference_count,
+                    reference_quality=quality,
+                )
+                return
+
+            if isinstance(command, DiscardCustomReferenceCommand):
+                count = await asyncio.to_thread(session.discard_custom_reference)
+                await send_ack(
+                    request_id=command.request_id,
+                    session_id=command.session_id,
+                    action=command.action,
+                    accepted=True,
+                    session_state=state,
+                    reference_count=count,
+                )
+                return
+
+            if isinstance(command, BuildCustomTemplateCommand):
+                template = await asyncio.to_thread(session.build_custom_template)
+                await send_ack(
+                    request_id=command.request_id,
+                    session_id=command.session_id,
+                    action=command.action,
+                    accepted=True,
+                    session_state=state,
+                    reference_count=session.custom_reference_count,
+                    movement_template=template,
+                )
+                return
+
+            assessment = await asyncio.to_thread(session.finish_custom_assessment)
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=True,
+                session_state=state,
+                custom_assessment=assessment,
+            )
+        except ValueError as exc:
+            code = str(exc).split(",", 1)[0] or "invalid_command"
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=state,
+                error_code=code,
+                message=_human_error_message(code),
+                reference_count=getattr(session, "custom_reference_count", None),
+            )
+        except Exception:
+            logger.exception("Custom movement command failed: %s", command.action)
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=state,
+                error_code="pipeline_error",
+                message=_human_error_message("pipeline_error"),
+            )
+
     async def handle_v1(data: dict) -> None:
         request_id = _extract_optional_id(data.get("request_id"))
         session_id = _extract_optional_id(data.get("session_id"))
@@ -3565,6 +4006,17 @@ async def websocket_endpoint(websocket: WebSocket):
             await handle_v1_stop_submission_record(command)
         elif isinstance(command, CancelSubmissionRecordCommand):
             await handle_v1_cancel_submission_record(command)
+        elif isinstance(
+            command,
+            (
+                StartCustomCaptureCommand,
+                StopCustomCaptureCommand,
+                DiscardCustomReferenceCommand,
+                BuildCustomTemplateCommand,
+                FinishCustomAssessmentCommand,
+            ),
+        ):
+            await handle_v1_custom_command(command)
 
     async def handle_legacy(data: dict) -> None:
         nonlocal movement, difficulty, session_task, current_session_id

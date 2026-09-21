@@ -28,6 +28,10 @@ class CommandAck {
     this.videoSizeBytes,
     this.contentType,
     this.videoSha256,
+    this.referenceCount,
+    this.referenceQuality,
+    this.movementTemplate,
+    this.customAssessment,
   });
 
   final int protocolVersion;
@@ -48,6 +52,10 @@ class CommandAck {
   final int? videoSizeBytes;
   final String? contentType;
   final String? videoSha256;
+  final int? referenceCount;
+  final Map<String, dynamic>? referenceQuality;
+  final Map<String, dynamic>? movementTemplate;
+  final Map<String, dynamic>? customAssessment;
 
   factory CommandAck.fromJson(Map<String, dynamic> json) {
     return CommandAck(
@@ -72,10 +80,23 @@ class CommandAck {
       videoSizeBytes: (json['video_size_bytes'] as num?)?.toInt(),
       contentType: json['content_type'] as String?,
       videoSha256: json['video_sha256'] as String?,
+      referenceCount: (json['reference_count'] as num?)?.toInt(),
+      referenceQuality: _jsonMap(json['reference_quality']),
+      movementTemplate: _jsonMap(json['movement_template']),
+      customAssessment: _jsonMap(json['custom_assessment']),
     );
   }
 
   bool get isAccepted => accepted;
+
+  static Map<String, dynamic>? _jsonMap(Object? value) {
+    if (value is! Map) return null;
+    try {
+      return Map<String, dynamic>.from(value);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// Local recording result. Never contains video bytes.

@@ -12,6 +12,7 @@ enum AssignmentAttemptKind {
   practicePointer('practice_pointer'),
   teacherReviewDraft('teacher_review_draft'),
   teacherReviewSubmission('teacher_review_submission'),
+  referenceMatch('reference_match'),
   // Historical Firestore value. New attempts must use a current kind.
   templateScore('template_score');
 
@@ -27,6 +28,35 @@ enum AssignmentAttemptKind {
     return null;
   }
 }
+
+const referenceMatchedComponentNames = <String>{
+  'Body technique',
+  'Hand technique',
+  'Prop path',
+  'Timing',
+  'Control/stability',
+};
+
+/// Projects five bounded 0..3 component scores onto the shared 0..12 rubric.
+int referenceMatchedTotal(Iterable<int> componentScores) {
+  final values = componentScores.toList(growable: false);
+  if (values.length != referenceMatchedComponentNames.length ||
+      values.any((score) => score < 0 || score > 3)) {
+    throw ArgumentError(
+      'Reference-match scores must contain five 0..3 values.',
+    );
+  }
+  return (values.fold<int>(0, (sum, score) => sum + score) * 12 / 15).round();
+}
+
+String referenceMatchedPerformanceLevel(int total) => switch (total) {
+  <= 3 => 'beginning',
+  <= 6 => 'developing',
+  <= 9 => 'competent',
+  <= 11 => 'proficient',
+  12 => 'mastered',
+  _ => throw ArgumentError.value(total, 'total'),
+};
 
 enum AssignmentAttemptStatus {
   draft('draft'),
@@ -123,6 +153,9 @@ class AssignmentAttempt {
     this.assignmentConfigurationRevision,
     this.activityAssessmentSnapshot,
     this.criterionScores,
+    this.referenceTotal,
+    this.referenceComponentScores,
+    this.referencePerformanceLevel,
   });
 
   final String id;
@@ -174,6 +207,9 @@ class AssignmentAttempt {
   final int? assignmentConfigurationRevision;
   final TeacherActivityAssessmentConfig? activityAssessmentSnapshot;
   final Map<String, int>? criterionScores;
+  final int? referenceTotal;
+  final Map<String, int>? referenceComponentScores;
+  final String? referencePerformanceLevel;
 
   int? get rubricTotal => rubric?.total;
   PerformanceLevel? get performanceLevel => rubric?.performanceLevel;
@@ -318,6 +354,12 @@ class AssignmentAttempt {
           assignmentConfigurationRevision;
       map['activity_assessment_snapshot'] = activityAssessmentSnapshot!.toMap();
     }
+    if (attemptKind == AssignmentAttemptKind.referenceMatch) {
+      map['reference_total'] = referenceTotal;
+      map['reference_max_total'] = 12;
+      map['reference_component_scores'] = referenceComponentScores;
+      map['performance_level'] = referencePerformanceLevel;
+    }
     return map;
   }
 
@@ -351,6 +393,9 @@ class AssignmentAttempt {
     int? assignmentConfigurationRevision,
     TeacherActivityAssessmentConfig? activityAssessmentSnapshot,
     Map<String, int>? criterionScores,
+    int? referenceTotal,
+    Map<String, int>? referenceComponentScores,
+    String? referencePerformanceLevel,
     bool clearVideoStoragePath = false,
     bool clearVideoMetadata = false,
     bool clearDraftSavedAt = false,
@@ -451,6 +496,11 @@ class AssignmentAttempt {
           assignmentConfigurationRevision ??
           this.assignmentConfigurationRevision,
       criterionScores: criterionScores ?? this.criterionScores,
+      referenceTotal: referenceTotal ?? this.referenceTotal,
+      referenceComponentScores:
+          referenceComponentScores ?? this.referenceComponentScores,
+      referencePerformanceLevel:
+          referencePerformanceLevel ?? this.referencePerformanceLevel,
     );
   }
 
@@ -559,6 +609,23 @@ class AssignmentAttempt {
       for (final entry in rawScores.entries) {
         if (entry.key is! String || entry.value is! int) return null;
         criterionScores[entry.key as String] = entry.value as int;
+      }
+    }
+    final referenceTotal = _readInt(map['reference_total']);
+    final referencePerformanceLevel = map['performance_level'] is String
+        ? map['performance_level'] as String
+        : null;
+    Map<String, int>? referenceComponentScores;
+    if (map['reference_component_scores'] is Map) {
+      referenceComponentScores = {};
+      for (final entry in (map['reference_component_scores'] as Map).entries) {
+        if (entry.key is! String ||
+            entry.value is! int ||
+            (entry.value as int) < 0 ||
+            (entry.value as int) > 3) {
+          return null;
+        }
+        referenceComponentScores[entry.key as String] = entry.value as int;
       }
     }
     if ((assignmentConfigurationRevision == null) !=
@@ -739,6 +806,32 @@ class AssignmentAttempt {
           supersedesAttemptId != null) {
         return null;
       }
+    } else if (attemptKind == AssignmentAttemptKind.referenceMatch) {
+      final hasExactReferenceComponents =
+          referenceComponentScores?.keys.toSet().length ==
+              referenceMatchedComponentNames.length &&
+          referenceComponentScores!.keys.toSet().containsAll(
+            referenceMatchedComponentNames,
+          );
+      if (sourceSessionId != null ||
+          origin != MovementOrigin.teacherCreated ||
+          assessmentMode != AssessmentMode.referenceMatched ||
+          status != AssignmentAttemptStatus.submitted ||
+          referenceTotal == null ||
+          referenceTotal < 0 ||
+          referenceTotal > 12 ||
+          map['reference_max_total'] != 12 ||
+          referenceComponentScores == null ||
+          !hasExactReferenceComponents ||
+          referenceMatchedTotal(referenceComponentScores.values) !=
+              referenceTotal ||
+          referencePerformanceLevel == null ||
+          referenceMatchedPerformanceLevel(referenceTotal) !=
+              referencePerformanceLevel ||
+          TeacherRosterInvite.readDateTime(map['completed_at']) == null ||
+          TrainingProp.tryParseStrict(map['prop_type']) == null) {
+        return null;
+      }
     } else if (attemptKind == AssignmentAttemptKind.templateScore) {
       if (sourceSessionId != null) return null;
       if (origin != MovementOrigin.teacherCreated) return null;
@@ -820,6 +913,9 @@ class AssignmentAttempt {
       assignmentConfigurationRevision: assignmentConfigurationRevision,
       activityAssessmentSnapshot: activityAssessmentSnapshot,
       criterionScores: criterionScores,
+      referenceTotal: referenceTotal,
+      referenceComponentScores: referenceComponentScores,
+      referencePerformanceLevel: referencePerformanceLevel,
     );
   }
 
@@ -1185,6 +1281,7 @@ abstract final class AssignmentAttemptSemantics {
 
     switch (attempt.attemptKind) {
       case AssignmentAttemptKind.practicePointer:
+      case AssignmentAttemptKind.referenceMatch:
       case AssignmentAttemptKind.templateScore:
         return true;
       case AssignmentAttemptKind.teacherReviewSubmission:

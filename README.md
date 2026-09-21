@@ -626,7 +626,7 @@ Playground Freestyle uses the same `prepare` command with optional fields:
 }
 ```
 
-`session_mode: "freestyle"` keeps one observation session active. The backend evaluates shared frame observations against the allowlist and must not disclose locked official movement names. Omit `session_mode` for guided practice, teacher assignments, and Free Practice recording. Pause and resume freeze or resume recognition without tearing down the camera:
+`session_mode: "freestyle"` keeps one observation session active. The backend evaluates shared frame observations against the allowlist and must not disclose locked official movement names. Omit `session_mode` for official guided practice, Teacher-reviewed assignments, and Free Practice recording; automatically assessed custom movements use the custom modes documented below. Pause and resume freeze or resume recognition without tearing down the camera:
 
 ```json
 {
@@ -718,6 +718,42 @@ Every version-1 command receives a correlated acknowledgment:
   "message": null
 }
 ```
+
+Custom movement creation and assessment use the same protocol-v1 camera
+lifecycle and the same backend-owned Pose, Hands, and prop pipeline for both
+Teachers and Trainees. They never register a custom name in the official rule
+registry:
+
+- `session_mode: "custom_capture"` prepares readiness for recording reference
+  sequences. After accepted readiness confirmation and activation,
+  `start_custom_capture` begins one bounded monotonic sequence;
+  `stop_custom_capture` returns `reference_count` and `reference_quality`.
+  `discard_custom_reference` removes the most recent accepted sequence and
+  `build_custom_template` returns `movement_template` after at least three
+  valid references.
+- `session_mode: "custom_assessment"` requires a versioned
+  `custom_movement_template` on `prepare`. After readiness and activation, the
+  same `start_custom_capture` / `stop_custom_capture` pair records the
+  performance, and `finish_custom_assessment` returns `custom_assessment` with
+  five bounded component scores and a derived `0..12` total.
+
+All custom actions require `protocol_version`, `request_id`, and `session_id`
+and receive correlated `command_ack` responses. Templates are inert data;
+there is no authored code, `eval`, or authored threshold support. Current
+capabilities include Pose, Hands, prop translation, and observable
+release/catch events. `prop_rotation` is always false because ordinary YOLO
+axis-aligned boxes do not provide reliable orientation or spin counts. Custom
+templates currently accept one Bottle or one Cocktail Shaker; the combined
+Bottle + Shaker option is rejected until the template format can preserve two
+synchronized prop tracks instead of silently dropping one.
+
+Custom movement roots live in `custom_movements`, with immutable nested
+`revisions`. Personal results live in `custom_movement_results`; Teacher
+classroom results use `assignment_attempts` with `assessment_mode:
+"reference_matched"`. Both result paths require `awards_global_xp: false` and
+remain outside official `sessions`, processed-session markers, and leaderboard
+aggregation. Teacher assignments pin an exact revision/template snapshot;
+Trainee-created movements remain owner-private and are not assignable.
 
 Accepted `prepare` acknowledgments also include optional camera metadata: `selected_camera_fallback_used` (retained for compatibility and false under the explicit-device-only contract), `active_camera_device_id`, and `active_camera_display_name`. These fields describe the camera opened for that session; they never update the saved camera preference and do not advance client lifecycle state independently of the correlated accepted acknowledgment.
 

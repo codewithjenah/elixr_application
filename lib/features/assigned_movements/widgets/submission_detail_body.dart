@@ -196,6 +196,9 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
         attempt.attemptKind == AssignmentAttemptKind.templateScore;
   }
 
+  bool get _isReferenceMatchedAttempt =>
+      attempt.attemptKind == AssignmentAttemptKind.referenceMatch;
+
   bool get _isTeacherReviewedAttempt {
     return _isTeacherReviewedAttemptFor(attempt);
   }
@@ -251,7 +254,7 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
           _buildTeacherReviewedMedia(context),
           const SizedBox(height: AppSpacing.md),
         ],
-        if (_isOfficialAttempt) ...[
+        if (_isOfficialAttempt || _isReferenceMatchedAttempt) ...[
           Text(
             widget.viewerRole == SubmissionDetailViewerRole.teacher
                 ? 'Submission clip'
@@ -259,10 +262,12 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
             style: AppTheme.headingMedium,
           ),
           const SizedBox(height: AppSpacing.sm),
-          const SizedBox(
-            key: Key('submission_official_no_clip'),
+          SizedBox(
+            key: const Key('submission_official_no_clip'),
             height: 240,
-            child: _OfficialNoClipPreview(),
+            child: _OfficialNoClipPreview(
+              referenceMatched: _isReferenceMatchedAttempt,
+            ),
           ),
           const SizedBox(height: AppSpacing.md),
         ],
@@ -270,6 +275,10 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
         if (_isOfficialAttempt) ...[
           const SizedBox(height: AppSpacing.md),
           _OfficialRubricSection(attempt: attempt),
+        ],
+        if (_isReferenceMatchedAttempt) ...[
+          const SizedBox(height: AppSpacing.md),
+          _ReferenceMatchedSection(attempt: attempt),
         ],
         if (_isTeacherReviewedAttempt) ...[
           const SizedBox(height: AppSpacing.md),
@@ -525,7 +534,9 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
 }
 
 class _OfficialNoClipPreview extends StatelessWidget {
-  const _OfficialNoClipPreview();
+  const _OfficialNoClipPreview({this.referenceMatched = false});
+
+  final bool referenceMatched;
 
   @override
   Widget build(BuildContext context) {
@@ -538,9 +549,9 @@ class _OfficialNoClipPreview extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
           child: Text(
-            'No recording. Official ELIXR scores live practice and does '
-            'not save a video clip. Recorded previews are on Teacher-created '
-            'assignments after you submit.',
+            referenceMatched
+                ? 'No recording is stored. ELIXR compares live measurements with the Teacher\'s saved reference template and keeps only the result.'
+                : 'No recording. Official ELIXR scores live practice and does not save a video clip. Recorded previews are on Teacher-created assignments after you submit.',
             textAlign: TextAlign.center,
             style: AppTheme.body.copyWith(color: const Color(0xFFE8E8E8)),
           ),
@@ -548,6 +559,51 @@ class _OfficialNoClipPreview extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ReferenceMatchedSection extends StatelessWidget {
+  const _ReferenceMatchedSection({required this.attempt});
+
+  final AssignmentAttempt attempt;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = attempt.referenceTotal;
+    final scores = attempt.referenceComponentScores;
+    final level = attempt.referencePerformanceLevel;
+    return Column(
+      key: const Key('submission_reference_matched_score'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          total == null
+              ? 'Automatic score unavailable'
+              : '$total/12${level == null ? '' : ' · ${_titleCase(level)}'}',
+          style: AppTheme.headingMedium,
+        ),
+        if (scores != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          for (final entry in scores.entries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text('${entry.key}: ${entry.value}/3'),
+            ),
+        ],
+        if (attempt.completedAt != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Completed ${formatSubmissionTimestamp(attempt.completedAt!)}',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _titleCase(String value) => value
+      .split('_')
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
 }
 
 class _OfficialRubricSection extends StatelessWidget {

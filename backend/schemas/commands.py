@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -70,7 +70,10 @@ class PrepareCommand(_CommandBase):
     camera_index: Optional[StrictInt] = None
     allow_submission_recording: StrictBool = False
     readiness_spec: Optional[TeacherActivityReadinessSpec] = None
-    session_mode: Optional[Literal["freestyle"]] = None
+    session_mode: Optional[
+        Literal["freestyle", "custom_capture", "custom_assessment"]
+    ] = None
+    custom_movement_template: Optional[dict[str, Any]] = None
     allowed_movements: Optional[list[AllowedMovement]] = Field(
         default=None, max_length=32
     )
@@ -113,6 +116,19 @@ class PrepareCommand(_CommandBase):
         # camera_device_id=null without camera_index.
         if self.camera_device_id is not None and self.camera_index is not None:
             raise ValueError("invalid_camera_device_id")
+        if (
+            self.session_mode in {"custom_capture", "custom_assessment"}
+            and self.prop_type == "bottle_and_shaker"
+        ):
+            # The v1 template format has one synchronized prop trajectory.
+            # Reject dual-prop custom capture instead of silently recording only
+            # the bottle and misrepresenting the resulting capability.
+            raise ValueError("unsupported_custom_prop_type")
+        if self.session_mode == "custom_assessment":
+            if self.custom_movement_template is None:
+                raise ValueError("missing_custom_movement_template")
+        elif self.custom_movement_template is not None:
+            raise ValueError("unexpected_custom_movement_template")
         return self
 
 class ActivateCommand(_CommandBase):
@@ -150,6 +166,27 @@ class StopSubmissionRecordCommand(_CommandBase):
 
 class CancelSubmissionRecordCommand(_CommandBase):
     action: Literal["cancel_submission_record"]
+
+
+class StartCustomCaptureCommand(_CommandBase):
+    action: Literal["start_custom_capture"]
+    duration_seconds: Annotated[StrictInt, Field(ge=5, le=60)] = 15
+
+
+class StopCustomCaptureCommand(_CommandBase):
+    action: Literal["stop_custom_capture"]
+
+
+class DiscardCustomReferenceCommand(_CommandBase):
+    action: Literal["discard_custom_reference"]
+
+
+class BuildCustomTemplateCommand(_CommandBase):
+    action: Literal["build_custom_template"]
+
+
+class FinishCustomAssessmentCommand(_CommandBase):
+    action: Literal["finish_custom_assessment"]
 
 
 class StartCommand(_CommandBase):
@@ -201,6 +238,11 @@ InboundCommand = Union[
     StartSubmissionRecordCommand,
     StopSubmissionRecordCommand,
     CancelSubmissionRecordCommand,
+    StartCustomCaptureCommand,
+    StopCustomCaptureCommand,
+    DiscardCustomReferenceCommand,
+    BuildCustomTemplateCommand,
+    FinishCustomAssessmentCommand,
 ]
 
 
@@ -229,4 +271,14 @@ def parse_v1_command(data: dict) -> InboundCommand:
         return StopSubmissionRecordCommand.model_validate(data)
     if action == "cancel_submission_record":
         return CancelSubmissionRecordCommand.model_validate(data)
+    if action == "start_custom_capture":
+        return StartCustomCaptureCommand.model_validate(data)
+    if action == "stop_custom_capture":
+        return StopCustomCaptureCommand.model_validate(data)
+    if action == "discard_custom_reference":
+        return DiscardCustomReferenceCommand.model_validate(data)
+    if action == "build_custom_template":
+        return BuildCustomTemplateCommand.model_validate(data)
+    if action == "finish_custom_assessment":
+        return FinishCustomAssessmentCommand.model_validate(data)
     raise ValueError("unknown_action")

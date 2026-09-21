@@ -21,6 +21,8 @@ import '../../features/legal/terms_of_service_screen.dart';
 import '../../features/learning/learning_center_screen.dart';
 import '../../features/learning/movement_lesson.dart';
 import '../../features/movements/movements_screen.dart';
+import '../../features/custom_movements/my_movements_screen.dart';
+import '../../features/custom_movements/custom_movement_route_screen.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
 import '../../features/profile/profile_route_args.dart';
@@ -280,6 +282,24 @@ class AppRouter {
                 key: state.pageKey,
                 child: const MovementsScreen(),
               ),
+            ),
+            GoRoute(
+              path: AppRoutePaths.myMovements,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const MyMovementsScreen(),
+              ),
+              routes: [
+                GoRoute(
+                  path: 'practice/:movementId',
+                  pageBuilder: (context, state) => fadeTransitionPage(
+                    key: state.pageKey,
+                    child: CustomMovementRouteScreen(
+                      movementId: state.pathParameters['movementId'] ?? '',
+                    ),
+                  ),
+                ),
+              ],
             ),
             GoRoute(
               path: AppRoutePaths.assignedMovements,

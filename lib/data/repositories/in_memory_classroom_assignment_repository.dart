@@ -17,6 +17,7 @@ import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
+import '../models/custom_movement.dart';
 import '../../core/constants/movements.dart';
 import 'classroom_assignment_repository.dart';
 
@@ -96,6 +97,113 @@ class InMemoryClassroomAssignmentRepository
   static String _defaultId() => 'asg-${DateTime.now().microsecondsSinceEpoch}';
 
   DateTime get now => (_now?.call() ?? DateTime.now()).toUtc();
+
+  @override
+  Future<GroupAssignment> createCustomMovementAssignment({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required CustomMovement movement,
+    required CustomMovementRevision revision,
+    DateTime? dueAt,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
+  }) async {
+    customMovementAssignmentPayload(
+      teacherId: teacherId,
+      teacherDisplayName: teacherDisplayName,
+      group: group,
+      movement: movement,
+      revision: revision,
+      attemptPolicy: attemptPolicy,
+      dueAt: dueAt,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final assignment = GroupAssignment(
+      id: _generateId(),
+      teacherId: teacherId,
+      groupId: group.id,
+      movementId: movement.id,
+      revisionId: revision.id,
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.referenceMatched,
+      status: GroupAssignmentStatus.active,
+      displayTitle: movement.name,
+      teacherDisplayName: teacherDisplayName,
+      groupName: group.name,
+      displayInstructions: movement.description,
+      allowedProp: movement.propType,
+      movementTemplate: revision.template,
+      maxScore: 12,
+      attemptPolicy: attemptPolicy,
+      dueAt: dueAt,
+      createdAt: now,
+      updatedAt: now,
+    );
+    assignments[assignment.id] = assignment;
+    _emitTeacher(teacherId);
+    return assignment;
+  }
+
+  @override
+  Future<void> saveCustomMovementAssignmentAttempt({
+    required GroupAssignment assignment,
+    required String traineeId,
+    required int total,
+    required String performanceLevel,
+    required Map<String, int> componentScores,
+  }) async {
+    if (!assignment.isReferenceMatched ||
+        assignment.movementTemplate == null ||
+        total < 0 ||
+        total > 12 ||
+        componentScores.keys.toSet().length !=
+            referenceMatchedComponentNames.length ||
+        !componentScores.keys.toSet().containsAll(
+          referenceMatchedComponentNames,
+        ) ||
+        componentScores.values.any((value) => value < 0 || value > 3) ||
+        referenceMatchedTotal(componentScores.values) != total ||
+        referenceMatchedPerformanceLevel(total) != performanceLevel) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final existing = attempts.values
+        .where(
+          (attempt) =>
+              attempt.assignmentId == assignment.id &&
+              attempt.traineeId == traineeId &&
+              attempt.attemptKind == AssignmentAttemptKind.referenceMatch,
+        )
+        .length;
+    final maximum = assignment.attemptPolicy.maximumAttempts;
+    if (maximum != null && existing >= maximum) {
+      throw const ClassroomException(ClassroomError.attemptLimitConflict);
+    }
+    final attempt = AssignmentAttempt(
+      id: _generateId(),
+      traineeId: traineeId,
+      teacherId: assignment.teacherId,
+      groupId: assignment.groupId,
+      assignmentId: assignment.id,
+      movementId: assignment.movementId,
+      revisionId: assignment.revisionId,
+      origin: MovementOrigin.teacherCreated,
+      assessmentMode: AssessmentMode.referenceMatched,
+      attemptKind: AssignmentAttemptKind.referenceMatch,
+      status: AssignmentAttemptStatus.submitted,
+      propType: assignment.allowedProp,
+      completedAt: now,
+      createdAt: now,
+      referenceTotal: total,
+      referenceComponentScores: componentScores,
+      referencePerformanceLevel: performanceLevel,
+    );
+    attempts[attempt.id] = attempt;
+    _emitAssignmentAttempts(assignment.teacherId, assignment.id);
+    _emitTraineeAttempts(traineeId);
+    _emitTeacherAttempts(assignment.teacherId);
+  }
 
   void dispose() {
     for (final controller in _teacherControllers.values) {

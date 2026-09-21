@@ -2,6 +2,7 @@
 enum AssessmentMode {
   officialGuided('official_guided'),
   teacherReviewed('teacher_reviewed'),
+  referenceMatched('reference_matched'),
   templateScored('template_scored');
 
   const AssessmentMode(this.wireValue);
@@ -19,6 +20,7 @@ enum AssessmentMode {
   String get displayLabel => switch (this) {
     AssessmentMode.officialGuided => 'Official ELIXR guided assessment',
     AssessmentMode.teacherReviewed => 'Teacher reviewed — no automatic score',
+    AssessmentMode.referenceMatched => 'Automatic reference matching',
     AssessmentMode.templateScored => 'Retired template scoring (historical)',
   };
 }

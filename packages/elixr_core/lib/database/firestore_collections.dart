@@ -27,6 +27,9 @@ abstract final class FirestoreCollections {
   static const classroomTeacherAccess = 'classroom_teacher_access';
   static const trainingPlans = 'training_plans';
   static const teacherMovements = 'teacher_movements';
+  static const customMovements = 'custom_movements';
+  static const customMovementRevisions = 'revisions';
+  static const customMovementResults = 'custom_movement_results';
   static const groupAssignments = 'group_assignments';
 
   /// Private subcollection under each group assignment, keyed by trainee UID.
