@@ -150,6 +150,13 @@ class PreviewFrameMessage(BaseModel):
     camera_ready: bool = True
     session_state: Optional[str] = None
     capture_sequence: Optional[int] = None
+    # Rendering-only state for the geometry baked into this exact JPEG.  These
+    # fields are intentionally separate from FeedbackMessage/readiness.
+    vision_overlay_present: Optional[bool] = None
+    prop_presentation_state: Optional[Literal["confirmed", "coasted", "missing"]] = None
+    hands_presentation_state: Optional[Literal["tracking", "missing"]] = None
+    pose_presentation_state: Optional[Literal["tracking", "missing"]] = None
+    overlay_capture_sequence: Optional[int] = None
     protocol_version: Optional[Literal[1]] = None
     message_type: Literal["preview_frame"] = "preview_frame"
     session_id: Optional[str] = None

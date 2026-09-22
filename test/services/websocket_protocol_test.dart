@@ -262,6 +262,11 @@ void main() {
           'camera_ready': true,
           'session_state': 'active',
           'capture_sequence': 9,
+          'vision_overlay_present': true,
+          'prop_presentation_state': 'coasted',
+          'hands_presentation_state': 'tracking',
+          'pose_presentation_state': 'missing',
+          'overlay_capture_sequence': 7,
         }),
       );
       expect(decoded, isA<WsPreviewFrameMessage>());
@@ -270,6 +275,11 @@ void main() {
       expect(frame.captureSequence, 9);
       expect(frame.sessionId, 'session-1');
       expect(frame.sessionState, 'active');
+      expect(frame.visionOverlayPresent, isTrue);
+      expect(frame.propPresentationState, 'coasted');
+      expect(frame.handsPresentationState, 'tracking');
+      expect(frame.posePresentationState, 'missing');
+      expect(frame.overlayCaptureSequence, 7);
     });
   });
 

@@ -12,8 +12,6 @@ FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 JPEG_QUALITY = 70
 
-# Publication age is a lifecycle backstop for overlays that stop updating.
-OVERLAY_MAX_AGE_S = 0.25
 # Geometry is only visually truthful for a much shorter interval relative to
 # the preview frame it is drawn on. Two preview periods tolerate normal
 # inference completion jitter without pinning old landmarks to current video.
@@ -22,7 +20,15 @@ OVERLAY_MAX_CAPTURE_AGE_S = 2.0 / TARGET_FPS
 # newly paired AI result.  This second, rendering-only grace bridges preview
 # frames while the next AI tick is still in flight.  It never reaches
 # readiness, rules, custom samples, or scoring.
-OVERLAY_PRESENTATION_CONTINUITY_S = 0.25
+# Presentation is allowed to bridge the interval between completed AI ticks,
+# not to become inference-rate video.  The grace is calculated from the recent
+# publication cadence, with these values as its lower/upper bounds.
+OVERLAY_PRESENTATION_BASE_GRACE_S = 0.25
+OVERLAY_PRESENTATION_CADENCE_MULTIPLIER = 1.5
+OVERLAY_PRESENTATION_MAX_GRACE_S = 0.75
+# A separate watchdog drops a snapshot whose producer has stopped entirely.
+# This is deliberately not the rendering grace and never reaches assessment.
+OVERLAY_DEAD_WORKER_TIMEOUT_S = 0.90
 
 # A private, annotated snapshot is emitted only when a Guided Practice hold is
 # first confirmed.  Keep it small enough for the client-side Firebase upload

@@ -56,6 +56,8 @@ class _CustomMovementPracticeScreenState
   StreamSubscription<PreviewFrame>? _previewSubscription;
   StreamSubscription<PracticeFeedback>? _feedbackSubscription;
   final ValueNotifier<Uint8List?> _preview = ValueNotifier<Uint8List?>(null);
+  final ValueNotifier<PreviewFrame?> _presentation =
+      ValueNotifier<PreviewFrame?>(null);
   bool _preparing = true;
   bool _ready = false;
   bool _active = false;
@@ -64,7 +66,6 @@ class _CustomMovementPracticeScreenState
   String? _error;
   bool _isSetupError = false;
   Map<String, dynamic>? _result;
-  PracticeFeedback? _latestFeedback;
 
   @override
   void initState() {
@@ -76,21 +77,20 @@ class _CustomMovementPracticeScreenState
 
   Future<void> _prepare() async {
     _previewSubscription = _socket.previewStream.listen((frame) {
-      if (mounted && frame.hasJpeg) _preview.value = frame.jpegBytes;
+      if (!mounted) return;
+      _presentation.value = frame;
+      if (!frame.hasJpeg) return;
+      _preview.value = frame.jpegBytes;
     });
     _feedbackSubscription = _socket.feedbackStream.listen((feedback) {
       if (!mounted) return;
 
-      // Preview JPEGs are delivered through the separate ValueNotifier path.
-      // Rebuild this screen only when low-frequency status information changes.
-      final previous = _latestFeedback;
+      // Preview JPEGs and their presentation state are delivered through the
+      // separate ValueNotifier path. Feedback remains authoritative only for
+      // the readiness gate.
       final readinessChanged =
           !_active && _ready != (feedback.readinessStable == true);
-      final statusChanged =
-          previous?.bottleDetected != feedback.bottleDetected ||
-          previous?.postureStatus != feedback.postureStatus;
-      _latestFeedback = feedback;
-      if (readinessChanged || statusChanged) {
+      if (readinessChanged) {
         setState(() {
           if (!_active) _ready = feedback.readinessStable == true;
         });
@@ -108,7 +108,7 @@ class _CustomMovementPracticeScreenState
         _active = false;
         _error = null;
         _isSetupError = false;
-        _latestFeedback = null;
+        _presentation.value = null;
       });
     }
     try {
@@ -235,7 +235,7 @@ class _CustomMovementPracticeScreenState
         setState(() {
           _active = false;
           _ready = false;
-          _latestFeedback = null;
+          _presentation.value = null;
           _result = assessment;
         });
       }
@@ -245,7 +245,7 @@ class _CustomMovementPracticeScreenState
         setState(() {
           _active = false;
           _ready = false;
-          _latestFeedback = null;
+          _presentation.value = null;
           _error =
               'The performance could not be assessed. Reposition and retry.';
           _isSetupError = false;
@@ -285,6 +285,7 @@ class _CustomMovementPracticeScreenState
     unawaited(_previewSubscription?.cancel());
     unawaited(_feedbackSubscription?.cancel());
     _preview.dispose();
+    _presentation.dispose();
     if (_ownsSocket) _socket.dispose();
     super.dispose();
   }
@@ -401,11 +402,6 @@ class _CustomMovementPracticeScreenState
     final phase = _panelPhase(result);
     final detectionObserving =
         !_preparing && result == null && _error == null && !_isSetupError;
-    final detection = !detectionObserving
-        ? TrainingDetectionStatus.inactive
-        : _latestFeedback?.bottleDetected == true
-        ? TrainingDetectionStatus.detected
-        : TrainingDetectionStatus.searching;
     final propLabel = widget.movement.propType.displayLabel;
     final setupText = _preparing
         ? 'Checking setup…'
@@ -413,8 +409,6 @@ class _CustomMovementPracticeScreenState
         ? 'Perform the full movement, then finish when you are done.'
         : _ready
         ? 'Your setup is stable. Start when ready.'
-        : _latestFeedback?.bottleDetected == true
-        ? '$propLabel detected. Waiting for the remaining setup requirements.'
         : widget.revision.template.readinessGuidance;
     return TrainingSessionPanel(
       phase: phase,
@@ -433,10 +427,25 @@ class _CustomMovementPracticeScreenState
           : _CustomAssessmentResult(result: result),
       statusContent: result != null
           ? _CustomResultStatus(assignment: widget.assignment != null)
-          : TrainingStatusRow(
-              detection: detection,
-              propLabel: propLabel,
-              postureLabel: _postureLabel(_latestFeedback?.postureStatus),
+          : ValueListenableBuilder<PreviewFrame?>(
+              valueListenable: _presentation,
+              builder: (context, presentation, _) => TrainingStatusRow(
+                detection: resolvePresentationDetectionStatus(
+                  sessionObserving: detectionObserving,
+                  propPresentationState: presentation?.propPresentationState,
+                ),
+                propLabel: propLabel,
+                handLabel: modalityPresentationLabel(
+                  label: 'Hand',
+                  required: _handsRequired,
+                  presentationState: presentation?.handsPresentationState,
+                ),
+                bodyLabel: modalityPresentationLabel(
+                  label: 'Body',
+                  required: _poseRequired,
+                  presentationState: presentation?.posePresentationState,
+                ),
+              ),
             ),
       supportingContent: Column(
         children: [
@@ -507,10 +516,11 @@ class _CustomMovementPracticeScreenState
     return _ready ? TrainingSessionPhase.ready : TrainingSessionPhase.readiness;
   }
 
-  String? _postureLabel(String? postureStatus) {
-    if (postureStatus == null || postureStatus == 'unknown') return null;
-    return postureDisplayLabel(postureStatus);
-  }
+  bool get _handsRequired =>
+      widget.revision.template.featureCapabilities['hands'] == true;
+
+  bool get _poseRequired =>
+      widget.revision.template.featureCapabilities['pose'] == true;
 }
 
 class _CustomCountdownOverlay extends StatelessWidget {

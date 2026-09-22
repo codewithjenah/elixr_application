@@ -11,6 +11,7 @@ import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/websocket_service.dart';
 import '../../services/settings_service.dart';
+import '../practice/widgets/training_status_row.dart';
 
 class CustomReferenceRecorderDialog extends StatefulWidget {
   const CustomReferenceRecorderDialog({
@@ -47,6 +48,8 @@ class _CustomReferenceRecorderDialogState
   StreamSubscription<PreviewFrame>? _previewSubscription;
   StreamSubscription<PracticeFeedback>? _feedbackSubscription;
   final ValueNotifier<Uint8List?> _preview = ValueNotifier<Uint8List?>(null);
+  final ValueNotifier<PreviewFrame?> _presentation =
+      ValueNotifier<PreviewFrame?>(null);
   bool _initializing = true;
   bool _ready = false;
   bool _active = false;
@@ -71,7 +74,9 @@ class _CustomReferenceRecorderDialogState
 
   Future<void> _initialize() async {
     _previewSubscription = _socket.previewStream.listen((frame) {
-      if (!mounted || !frame.hasJpeg) return;
+      if (!mounted) return;
+      _presentation.value = frame;
+      if (!frame.hasJpeg) return;
       _preview.value = frame.jpegBytes;
     });
     _feedbackSubscription = _socket.feedbackStream.listen((feedback) {
@@ -251,6 +256,7 @@ class _CustomReferenceRecorderDialogState
     unawaited(_previewSubscription?.cancel());
     unawaited(_feedbackSubscription?.cancel());
     _preview.dispose();
+    _presentation.dispose();
     if (_ownsSocket) _socket.dispose();
     super.dispose();
   }
@@ -272,14 +278,19 @@ class _CustomReferenceRecorderDialogState
             cameraName: _cameraName,
             prop: widget.prop,
           );
-          final status = _RecorderStatusPanel(
-            referenceCount: _referenceCount,
-            ready: _ready,
-            active: _active,
-            initializing: _initializing,
-            recording: _recording,
-            quality: _quality,
-            error: _error,
+          final status = ValueListenableBuilder<PreviewFrame?>(
+            valueListenable: _presentation,
+            builder: (context, presentation, _) => _RecorderStatusPanel(
+              referenceCount: _referenceCount,
+              ready: _ready,
+              active: _active,
+              initializing: _initializing,
+              recording: _recording,
+              quality: _quality,
+              error: _error,
+              prop: widget.prop,
+              presentation: presentation,
+            ),
           );
           return SizedBox(
             height: compact ? 480 : 390,
@@ -445,6 +456,8 @@ class _RecorderStatusPanel extends StatelessWidget {
     required this.recording,
     required this.quality,
     required this.error,
+    required this.prop,
+    required this.presentation,
   });
   final int referenceCount;
   final bool ready;
@@ -453,6 +466,8 @@ class _RecorderStatusPanel extends StatelessWidget {
   final bool recording;
   final String quality;
   final String? error;
+  final TrainingProp prop;
+  final PreviewFrame? presentation;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -478,6 +493,24 @@ class _RecorderStatusPanel extends StatelessWidget {
             count: referenceCount,
             recording: recording,
           ),
+        const SizedBox(height: AppSpacing.sm),
+        _RecorderVisionStatus(
+          detection: resolvePresentationDetectionStatus(
+            sessionObserving: !initializing,
+            propPresentationState: presentation?.propPresentationState,
+          ),
+          propLabel: prop.displayLabel,
+          handLabel: modalityPresentationLabel(
+            label: 'Hand',
+            required: true,
+            presentationState: presentation?.handsPresentationState,
+          ),
+          bodyLabel: modalityPresentationLabel(
+            label: 'Body',
+            required: true,
+            presentationState: presentation?.posePresentationState,
+          ),
+        ),
         const Spacer(),
         Text(
           initializing
@@ -504,6 +537,41 @@ class _RecorderStatusPanel extends StatelessWidget {
       ],
     ),
   );
+}
+
+class _RecorderVisionStatus extends StatelessWidget {
+  const _RecorderVisionStatus({
+    required this.detection,
+    required this.propLabel,
+    this.handLabel,
+    this.bodyLabel,
+  });
+
+  final TrainingDetectionStatus detection;
+  final String propLabel;
+  final String? handLabel;
+  final String? bodyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final prop = switch (detection) {
+      TrainingDetectionStatus.detected => '$propLabel detected',
+      TrainingDetectionStatus.coasted => 'Tracking ${propLabel.toLowerCase()}',
+      TrainingDetectionStatus.searching =>
+        'Searching for ${propLabel.toLowerCase()}',
+      TrainingDetectionStatus.inactive => 'Detection inactive',
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(prop, style: const TextStyle(fontSize: 12)),
+        if (handLabel != null)
+          Text(handLabel!, style: const TextStyle(fontSize: 12)),
+        if (bodyLabel != null)
+          Text(bodyLabel!, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
 }
 
 class _ReferenceStep extends StatelessWidget {

@@ -218,6 +218,131 @@ def test_recently_published_overlay_bridges_preview_ai_scheduling_gap(monkeypatc
     session.close()
 
 
+def test_custom_preview_metadata_and_annotation_share_confirmed_prop(monkeypatch):
+    """A custom status may say detected only when this JPEG drew the box."""
+    _patch_vision(monkeypatch)
+    annotate_boxes: list[list[PropDetection]] = []
+
+    def tracking_annotate(current_frame, boxes, *args, **kwargs):
+        annotate_boxes.append(list(boxes))
+        return current_frame
+
+    monkeypatch.setattr(websocket_api, "annotate_frame", tracking_annotate)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_capture"
+    )
+    session.start()
+    box = PropDetection(1, 2, 20, 40, 0.9, yolo_confirmed=True)
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.0,
+            capture_sequence=1,
+            boxes=[box],
+            hands=None,
+            pose=None,
+            feedback="Bottle detected",
+            feedback_type="positive",
+            movement="Custom Movement",
+            prop_label="Bottle",
+        )
+    )
+    # Simulate a measured 3.0 FPS AI cadence. This is a normal interval, not
+    # an indefinitely stale overlay; the hard cap still bounds it.
+    with session._overlay_lock:
+        session._overlay_publish_period_s = 1.0 / 3.0
+    session.camera.peek_latest = lambda **kwargs: CapturedFrame(
+        frame=np.full((48, 64, 3), 120, dtype=np.uint8),
+        captured_at_monotonic=10.4,
+        sequence=8,
+    )
+
+    message = session.render_preview()
+
+    assert message is not None
+    assert message.prop_presentation_state == "confirmed"
+    assert message.overlay_capture_sequence == 1
+    assert annotate_boxes == [[box]]
+    session.close()
+
+
+def test_new_custom_ai_absence_clears_preview_metadata(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_capture"
+    )
+    session.start()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.0,
+            capture_sequence=1,
+            boxes=[PropDetection(1, 2, 20, 40, 0.9, yolo_confirmed=True)],
+            hands=HandsResult(
+                hands=[HandLandmarks(points={0: Point2D(.2, .3)}, handedness="Right")]
+            ),
+            pose=None,
+            feedback="present",
+            feedback_type="positive",
+            movement="Custom Movement",
+            prop_label="Bottle",
+        )
+    )
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.01,
+            capture_sequence=2,
+            boxes=[],
+            hands=None,
+            pose=None,
+            feedback="missing",
+            feedback_type="warning",
+            movement="Custom Movement",
+            prop_label="Bottle",
+        )
+    )
+
+    metadata = session._preview_presentation_metadata(
+        session._read_fresh_overlay(
+            preview=CapturedFrame(np.zeros((8, 8, 3), dtype=np.uint8), 10.02, 3)
+        )
+    )
+
+    assert metadata["prop_presentation_state"] == "missing"
+    assert metadata["hands_presentation_state"] == "missing"
+    assert metadata["pose_presentation_state"] == "missing"
+    session.close()
+
+
+def test_dead_ai_watchdog_clears_custom_presentation(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_capture"
+    )
+    session.start()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=10.0,
+            captured_at_monotonic=10.0,
+            capture_sequence=1,
+            boxes=[PropDetection(1, 2, 20, 40, 0.9, yolo_confirmed=True)],
+            hands=None,
+            pose=None,
+            feedback="present",
+            feedback_type="positive",
+            movement="Custom Movement",
+            prop_label="Bottle",
+        )
+    )
+
+    overlay = session._read_fresh_overlay(now=10.0 + websocket_api.OVERLAY_DEAD_WORKER_TIMEOUT_S + .01)
+
+    assert overlay is None
+    assert session._preview_presentation_metadata(overlay)["prop_presentation_state"] == "missing"
+    session.close()
+
+
 def test_recent_capture_overlay_is_drawn(monkeypatch):
     _patch_vision(monkeypatch)
     monkeypatch.setattr(websocket_api, "OVERLAY_MAX_CAPTURE_AGE_S", 0.1)
@@ -331,7 +456,7 @@ def test_overlay_past_presentation_grace_counts_stale_rejection(monkeypatch):
     )
     preview = CapturedFrame(
         frame=np.full((48, 64, 3), 120, dtype=np.uint8),
-        captured_at_monotonic=10.0 + websocket_api.OVERLAY_PRESENTATION_CONTINUITY_S + 0.001,
+        captured_at_monotonic=10.0 + websocket_api.OVERLAY_PRESENTATION_BASE_GRACE_S + 0.001,
         sequence=24,
         generation=2,
     )

@@ -60,8 +60,8 @@ CommandAck _ack(String action, {int? referenceCount, bool accepted = true}) =>
     );
 
 class _CustomSocket extends WebSocketService {
-  final _previews = StreamController<PreviewFrame>.broadcast();
-  final _feedback = StreamController<PracticeFeedback>.broadcast();
+  final _previews = StreamController<PreviewFrame>.broadcast(sync: true);
+  final _feedback = StreamController<PracticeFeedback>.broadcast(sync: true);
 
   TeacherActivityReadinessSpec? preparedReadiness;
   String? preparedMode;
@@ -182,6 +182,21 @@ class _CustomSocket extends WebSocketService {
     );
   }
 
+  void emitPresentation({
+    String prop = 'missing',
+    String? hands,
+    String? pose,
+  }) {
+    _previews.add(
+      PreviewFrame(
+        jpegBytes: Uint8List(0),
+        propPresentationState: prop,
+        handsPresentationState: hands,
+        posePresentationState: pose,
+      ),
+    );
+  }
+
   Future<void> closeTestStreams() async {
     await _previews.close();
     await _feedback.close();
@@ -247,6 +262,15 @@ void main() {
     expect(socket.preparedReadiness!.isCameraOnly, isTrue);
     expect(socket.preparedCameraDeviceId, isNull);
     expect(socket.preparedLegacyCameraIndex, isNull);
+    socket.emitPresentation(
+      prop: 'confirmed',
+      hands: 'tracking',
+      pose: 'tracking',
+    );
+    await tester.pump();
+    expect(find.text('Bottle detected'), findsOne);
+    expect(find.text('Hand tracking'), findsOne);
+    expect(find.text('Body tracking'), findsOne);
 
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
@@ -308,6 +332,7 @@ void main() {
       expect(find.text('Reference matched'), findsOne);
 
       socket.emitFeedback(bottleDetected: false, readinessStable: false);
+      socket.emitPresentation();
       await tester.pump();
       expect(find.text('Searching for bottle'), findsOne);
       await tester.tap(find.text('Start Practice'));
@@ -315,9 +340,24 @@ void main() {
       expect(socket.startCustomCaptureCalls, 0);
 
       socket.emitFeedback(bottleDetected: true, readinessStable: false);
+      socket.emitPresentation(prop: 'confirmed', hands: 'tracking');
       await tester.pump();
       expect(find.text('Bottle detected'), findsOne);
+      expect(find.text('Hand tracking'), findsOne);
+      expect(find.text('Body tracking'), findsNothing);
       expect(socket.startCustomCaptureCalls, 0);
+
+      // Feedback remains authoritative for readiness, but a newer preview
+      // state owns the tracking words shown beside the rendered JPEG.
+      socket.emitPresentation(prop: 'coasted', hands: 'tracking');
+      await tester.pump();
+      expect(find.text('Tracking bottle'), findsOne);
+      socket.emitPresentation();
+      await tester.pump();
+      expect(find.text('Searching for bottle'), findsOne);
+      socket.emitPresentation(prop: 'confirmed', hands: 'tracking');
+      await tester.pump();
+      expect(find.text('Bottle detected'), findsOne);
 
       socket.emitReady();
       await tester.pump();
@@ -333,11 +373,13 @@ void main() {
       expect(find.text('Finish Session'), findsOne);
 
       socket.emitFeedback(bottleDetected: false);
+      socket.emitPresentation();
       await tester.pump();
       expect(find.text('Searching for bottle'), findsOne);
       expect(find.text('Finish Session'), findsOne);
 
       socket.emitFeedback(bottleDetected: true);
+      socket.emitPresentation(prop: 'confirmed', hands: 'tracking');
       await tester.pump();
       expect(find.text('Bottle detected'), findsOne);
 
@@ -399,9 +441,11 @@ void main() {
       await tester.pump();
 
       socket.emitFeedback(bottleDetected: false, readinessStable: false);
+      socket.emitPresentation();
       await tester.pump();
       expect(find.text('Searching for cocktail shaker'), findsOne);
       socket.emitFeedback(bottleDetected: true, readinessStable: false);
+      socket.emitPresentation(prop: 'confirmed', hands: 'tracking');
       await tester.pump();
       expect(find.text('Cocktail Shaker detected'), findsOne);
       expect(find.text('Bottle detected'), findsNothing);

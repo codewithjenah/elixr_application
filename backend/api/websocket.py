@@ -59,9 +59,11 @@ from config import (
     EVIDENCE_MAX_HEIGHT,
     EVIDENCE_MAX_WIDTH,
     JPEG_QUALITY,
+    OVERLAY_DEAD_WORKER_TIMEOUT_S,
     OVERLAY_MAX_CAPTURE_AGE_S,
-    OVERLAY_MAX_AGE_S,
-    OVERLAY_PRESENTATION_CONTINUITY_S,
+    OVERLAY_PRESENTATION_BASE_GRACE_S,
+    OVERLAY_PRESENTATION_CADENCE_MULTIPLIER,
+    OVERLAY_PRESENTATION_MAX_GRACE_S,
     READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
     TARGET_FPS,
@@ -647,6 +649,19 @@ class VisionSession:
                 self._is_freestyle or custom_pose_needed or movement_requires_pose(movement)
             )
         )
+        if self._is_custom_assessment and self._custom_template is not None:
+            logger.info(
+                "CUSTOM_TEMPLATE_CAPABILITIES session_id=%s movement=%s "
+                "hands=%s hand_sides=%s pose=%s prop_translation=%s",
+                self.session_id,
+                self.movement,
+                self._custom_template.feature_capabilities.get("hands", False),
+                list(self._custom_template.required_hand_sides),
+                self._custom_template.feature_capabilities.get("pose", False),
+                self._custom_template.feature_capabilities.get(
+                    "prop_translation", False
+                ),
+            )
         if self._is_custom_capture:
             self._hands_max = 2
         elif self._is_custom_assessment and self._custom_template is not None:
@@ -708,6 +723,8 @@ class VisionSession:
         self._preview_started_at: float | None = None
         self._overlay_lock = threading.Lock()
         self._overlay_snapshot: OverlaySnapshot | None = None
+        self._last_overlay_published_at: float | None = None
+        self._overlay_publish_period_s: float | None = None
         self._preview_run_lock = threading.Lock()
         # State lock serializes lifecycle mutation against AI analysis.
         # Tick lock enforces at most one actual analyze_tick() execution.
@@ -1176,11 +1193,69 @@ class VisionSession:
 
     def _publish_overlay(self, snapshot: OverlaySnapshot) -> None:
         with self._overlay_lock:
+            previous = self._last_overlay_published_at
+            if previous is not None:
+                period = snapshot.published_at_monotonic - previous
+                if period > 0.0:
+                    # A small EMA resists one scheduling outlier while staying
+                    # responsive to a sustained slower custom pipeline.
+                    old = self._overlay_publish_period_s
+                    self._overlay_publish_period_s = (
+                        period if old is None else (old * 0.7) + (period * 0.3)
+                    )
+            self._last_overlay_published_at = snapshot.published_at_monotonic
             self._overlay_snapshot = snapshot
 
     def _clear_overlay(self) -> None:
         with self._overlay_lock:
             self._overlay_snapshot = None
+            self._last_overlay_published_at = None
+            self._overlay_publish_period_s = None
+
+    def _presentation_continuity_s(self) -> float:
+        with self._overlay_lock:
+            period = self._overlay_publish_period_s
+        cadence_grace = (
+            period * OVERLAY_PRESENTATION_CADENCE_MULTIPLIER
+            if period is not None
+            else OVERLAY_PRESENTATION_BASE_GRACE_S
+        )
+        return min(
+            OVERLAY_PRESENTATION_MAX_GRACE_S,
+            max(OVERLAY_PRESENTATION_BASE_GRACE_S, cadence_grace),
+        )
+
+    def _preview_presentation_metadata(
+        self, overlay: OverlaySnapshot | None
+    ) -> dict[str, Any]:
+        """State of the annotation drawn into a preview JPEG, never scoring."""
+        if not self._is_custom:
+            return {}
+        if overlay is None:
+            return {
+                "vision_overlay_present": False,
+                "prop_presentation_state": "missing",
+                "hands_presentation_state": "missing" if self._hands_needed else None,
+                "pose_presentation_state": "missing" if self._pose_needed else None,
+                "overlay_capture_sequence": None,
+            }
+        boxes = overlay.boxes
+        prop_state = (
+            "confirmed"
+            if any(box.yolo_confirmed for box in boxes)
+            else "coasted" if boxes else "missing"
+        )
+        return {
+            "vision_overlay_present": True,
+            "prop_presentation_state": prop_state,
+            "hands_presentation_state": (
+                "tracking" if overlay.hands is not None and overlay.hands.hands else "missing"
+            ) if self._hands_needed else None,
+            "pose_presentation_state": (
+                "tracking" if overlay.pose is not None and overlay.pose.points else "missing"
+            ) if self._pose_needed else None,
+            "overlay_capture_sequence": overlay.capture_sequence,
+        }
 
     def _presentation_boxes(self) -> list[PropDetection]:
         """Live tracker boxes for drawing only; never normalize for scoring."""
@@ -1202,7 +1277,12 @@ class VisionSession:
             return None
         if now is None:
             now = time.monotonic()
-        if not snapshot.is_fresh(now, OVERLAY_MAX_AGE_S):
+        if not snapshot.is_fresh(now, OVERLAY_DEAD_WORKER_TIMEOUT_S):
+            # A dead AI worker must not leave a positive presentation snapshot
+            # around for a later camera frame.
+            with self._overlay_lock:
+                if self._overlay_snapshot is snapshot:
+                    self._overlay_snapshot = None
             return None
         if preview is None:
             return snapshot
@@ -1234,7 +1314,7 @@ class VisionSession:
         # gap, but only for the short rendering grace.  A newer AI result
         # (including one with no hands/pose) always wins, so detector absence
         # is not masked by a cached landmark graph.
-        if capture_age_s <= OVERLAY_PRESENTATION_CONTINUITY_S:
+        if capture_age_s <= self._presentation_continuity_s():
             return snapshot
         return None
 
@@ -1853,6 +1933,7 @@ class VisionSession:
                 camera_ready=True,
                 session_state=self._wire_session_state(),
                 capture_sequence=captured.sequence,
+                **self._preview_presentation_metadata(overlay),
             )
         )
         self.preview_timings.add("encode", time.perf_counter() - t0)

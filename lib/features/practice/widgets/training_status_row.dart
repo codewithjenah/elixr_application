@@ -4,7 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 
-enum TrainingDetectionStatus { inactive, searching, detected }
+enum TrainingDetectionStatus { inactive, searching, coasted, detected }
 
 TrainingDetectionStatus resolveDetectionStatus({
   required bool sessionActive,
@@ -14,6 +14,29 @@ TrainingDetectionStatus resolveDetectionStatus({
   if (bottleDetected == true) return TrainingDetectionStatus.detected;
   // Active but not detected, or feedback temporarily unavailable → searching
   return TrainingDetectionStatus.searching;
+}
+
+TrainingDetectionStatus resolvePresentationDetectionStatus({
+  required bool sessionObserving,
+  String? propPresentationState,
+}) {
+  if (!sessionObserving) return TrainingDetectionStatus.inactive;
+  return switch (propPresentationState) {
+    'confirmed' => TrainingDetectionStatus.detected,
+    'coasted' => TrainingDetectionStatus.coasted,
+    _ => TrainingDetectionStatus.searching,
+  };
+}
+
+String? modalityPresentationLabel({
+  required String label,
+  required bool required,
+  String? presentationState,
+}) {
+  if (!required) return null;
+  return presentationState == 'tracking'
+      ? '$label tracking'
+      : 'Searching for ${label.toLowerCase()}';
 }
 
 String? postureDisplayLabel(String? postureStatus) {
@@ -37,11 +60,15 @@ class TrainingStatusRow extends StatelessWidget {
     required this.detection,
     this.propLabel = 'Bottle',
     this.postureLabel,
+    this.handLabel,
+    this.bodyLabel,
   });
 
   final TrainingDetectionStatus detection;
   final String propLabel;
   final String? postureLabel;
+  final String? handLabel;
+  final String? bodyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +79,12 @@ class TrainingStatusRow extends StatelessWidget {
         'Tracking is active for this session.',
         AppColors.success,
         FluentIcons.status_circle_checkmark,
+      ),
+      TrainingDetectionStatus.coasted => (
+        'Tracking ${objectLabel.toLowerCase()}',
+        'Keeping the most recent tracker position in view.',
+        AppColors.warning,
+        FluentIcons.sync,
       ),
       TrainingDetectionStatus.searching => (
         'Searching for ${objectLabel.toLowerCase()}',
@@ -76,6 +109,8 @@ class TrainingStatusRow extends StatelessWidget {
         color: color,
         pulse: detection == TrainingDetectionStatus.searching,
         postureLabel: postureLabel,
+        handLabel: handLabel,
+        bodyLabel: bodyLabel,
       ),
     );
   }
@@ -89,6 +124,8 @@ class _StatusCallout extends StatefulWidget {
     required this.color,
     required this.pulse,
     this.postureLabel,
+    this.handLabel,
+    this.bodyLabel,
   });
 
   final IconData icon;
@@ -97,6 +134,8 @@ class _StatusCallout extends StatefulWidget {
   final Color color;
   final bool pulse;
   final String? postureLabel;
+  final String? handLabel;
+  final String? bodyLabel;
 
   @override
   State<_StatusCallout> createState() => _StatusCalloutState();
@@ -217,7 +256,41 @@ class _StatusCalloutState extends State<_StatusCallout>
             ],
           ),
         ],
+        if (widget.handLabel != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _ModalityStatus(
+            label: widget.handLabel!,
+            icon: FluentIcons.handwriting,
+          ),
+        ],
+        if (widget.bodyLabel != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _ModalityStatus(label: widget.bodyLabel!, icon: FluentIcons.contact),
+        ],
       ],
     );
   }
+}
+
+class _ModalityStatus extends StatelessWidget {
+  const _ModalityStatus({required this.label, required this.icon});
+  final String label;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Icon(icon, size: 16, color: context.elixTextSecondary),
+      const SizedBox(width: AppSpacing.sm),
+      Expanded(
+        child: Text(
+          label,
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    ],
+  );
 }

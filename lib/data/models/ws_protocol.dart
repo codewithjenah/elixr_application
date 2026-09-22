@@ -225,6 +225,11 @@ class PreviewFrame {
     this.sessionState,
     this.cameraReady = true,
     this.captureSequence,
+    this.visionOverlayPresent,
+    this.propPresentationState,
+    this.handsPresentationState,
+    this.posePresentationState,
+    this.overlayCaptureSequence,
     this.protocolVersion,
   });
 
@@ -233,6 +238,13 @@ class PreviewFrame {
   final String? sessionState;
   final bool cameraReady;
   final int? captureSequence;
+
+  /// Rendering-only status of the geometry baked into this exact JPEG.
+  final bool? visionOverlayPresent;
+  final String? propPresentationState;
+  final String? handsPresentationState;
+  final String? posePresentationState;
+  final int? overlayCaptureSequence;
   final int? protocolVersion;
 
   factory PreviewFrame.fromJson(Map<String, dynamic> json) {
@@ -243,6 +255,12 @@ class PreviewFrame {
       sessionState: json['session_state'] as String?,
       cameraReady: json['camera_ready'] as bool? ?? true,
       captureSequence: (json['capture_sequence'] as num?)?.toInt(),
+      visionOverlayPresent: json['vision_overlay_present'] as bool?,
+      propPresentationState: json['prop_presentation_state'] as String?,
+      handsPresentationState: json['hands_presentation_state'] as String?,
+      posePresentationState: json['pose_presentation_state'] as String?,
+      overlayCaptureSequence: (json['overlay_capture_sequence'] as num?)
+          ?.toInt(),
       protocolVersion: json['protocol_version'] as int?,
     );
   }
