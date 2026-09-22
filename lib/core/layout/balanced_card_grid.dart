@@ -19,6 +19,24 @@ int elixrActivityGridColumnsFor({
   spacing: spacing,
 );
 
+/// Returns the number of ELIXR catalog tracks that fit in the supplied width,
+/// without considering how many activity cards are currently available.
+///
+/// Use this for sparse catalogs that should retain the normal catalog card
+/// width. Callers that need balanced rows based on their item count should use
+/// [elixrActivityGridColumnsFor] instead.
+int elixrActivityGridTrackCapacityFor({
+  required double availableWidth,
+  required double spacing,
+  double minCardWidth = elixrActivityGridMinCardWidth,
+}) {
+  if (availableWidth <= 0) return 1;
+
+  final widthLimitedColumns =
+      ((availableWidth + spacing) / (minCardWidth + spacing)).floor();
+  return widthLimitedColumns.clamp(1, elixrActivityGridMaxColumns);
+}
+
 /// Chooses a compact catalog grid without leaving a single card in its last
 /// row when a smaller, still comfortable column count is available.
 ///

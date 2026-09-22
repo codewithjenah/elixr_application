@@ -34,6 +34,11 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _TrackingMovements extends InMemoryTeacherMovementRepository {
+  _TrackingMovements()
+    : super(generateId: () => 'test-teacher-movement-${_nextId++}');
+
+  static var _nextId = 0;
+
   int createCalls = 0;
   int editCalls = 0;
   TeacherActivityAssessmentConfig? lastAssessment;
@@ -951,6 +956,136 @@ void main() {
     }
   });
 
+  test('ELIXR activity track capacity follows the available content width', () {
+    const spacing = 16.0;
+    expect(
+      elixrActivityGridTrackCapacityFor(availableWidth: 964, spacing: spacing),
+      5,
+    );
+    expect(
+      elixrActivityGridTrackCapacityFor(availableWidth: 768, spacing: spacing),
+      4,
+    );
+    expect(
+      elixrActivityGridTrackCapacityFor(availableWidth: 572, spacing: spacing),
+      3,
+    );
+    expect(
+      elixrActivityGridTrackCapacityFor(availableWidth: 376, spacing: spacing),
+      2,
+    );
+    expect(
+      elixrActivityGridTrackCapacityFor(availableWidth: 180, spacing: spacing),
+      1,
+    );
+  });
+
+  testWidgets(
+    'My activities keeps two teacher-created cards on five desktop tracks',
+    (tester) async {
+      final activityOne = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'Balance the tin upright.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final activityTwo = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Shaker Roll',
+        instructions: 'Roll the shaker across your hand.',
+        requiredProp: TrainingProp.shaker,
+      );
+
+      await pumpScreen(tester, size: const Size(1280, 900));
+      await tester.tap(find.text('My activities').last);
+      await tester.pumpAndSettle();
+
+      final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
+      final delegate = grid.gridDelegate as BalancedSliverGridDelegate;
+      final firstCard = find.byKey(
+        Key('teacher_movement_card_custom_${activityOne.id}'),
+      );
+      final secondCard = find.byKey(
+        Key('teacher_movement_card_custom_${activityTwo.id}'),
+      );
+
+      expect(delegate.crossAxisCount, 5);
+      expect(firstCard, findsOneWidget);
+      expect(secondCard, findsOneWidget);
+      expect(tester.getRect(firstCard).width, lessThan(300));
+      expect(
+        tester.getRect(secondCard).width,
+        closeTo(tester.getRect(firstCard).width, 1),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('My activities puts a sixth activity on the next row', (
+    tester,
+  ) async {
+    final activities = <TeacherMovement>[];
+    for (var index = 1; index <= 6; index++) {
+      activities.add(
+        await movements.createMovement(
+          teacherId: 'teacher-1',
+          title: 'Teacher activity $index',
+          instructions: 'Practice activity $index.',
+          requiredProp: TrainingProp.bottle,
+        ),
+      );
+    }
+
+    await pumpScreen(tester, size: const Size(1280, 900));
+    await tester.tap(find.text('My activities').last);
+    await tester.pumpAndSettle();
+
+    final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
+    final delegate = grid.gridDelegate as BalancedSliverGridDelegate;
+    final cardRows =
+        activities
+            .map(
+              (activity) => tester
+                  .getTopLeft(
+                    find.byKey(
+                      Key('teacher_movement_card_custom_${activity.id}'),
+                    ),
+                  )
+                  .dy,
+            )
+            .toSet()
+            .toList()
+          ..sort();
+
+    expect(delegate.crossAxisCount, 5);
+    expect(cardRows, hasLength(2));
+    expect(cardRows.last, greaterThan(cardRows.first));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'My activities reduces tracks at narrower widths without overflow',
+    (tester) async {
+      for (var index = 1; index <= 2; index++) {
+        await movements.createMovement(
+          teacherId: 'teacher-1',
+          title: 'Teacher activity $index',
+          instructions: 'Practice activity $index.',
+          requiredProp: TrainingProp.bottle,
+        );
+      }
+
+      await pumpScreen(tester, size: const Size(760, 780));
+      await tester.tap(find.text('My activities').last);
+      await tester.pumpAndSettle();
+
+      final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
+      final delegate = grid.gridDelegate as BalancedSliverGridDelegate;
+      expect(delegate.crossAxisCount, 3);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'Official ELIXR Bottle and Cocktail Shaker cards align their content',
     (tester) async {
@@ -1246,7 +1381,7 @@ void main() {
       lessThan(150),
     );
     expect(tester.getCenter(assign).dy, greaterThan(tester.getCenter(edit).dy));
-    expect(tester.getRect(assign).width, greaterThan(200));
+    expect(tester.getRect(assign).width, greaterThan(190));
   });
 
   testWidgets('Official ELIXR card uses a simple hover highlight', (

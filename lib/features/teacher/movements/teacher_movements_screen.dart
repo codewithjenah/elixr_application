@@ -800,9 +800,12 @@ class _MyMovementsList extends StatelessWidget {
           ),
           itemCount: controller.myMovements.length,
           gridDelegate: BalancedSliverGridDelegate(
-            crossAxisCount: _gridColumnsFor(
-              constraints.maxWidth,
-              controller.myMovements.length,
+            crossAxisCount: elixrActivityGridTrackCapacityFor(
+              // GridView applies this horizontal padding inside the available
+              // constraints, so calculate only the tracks that its content
+              // width can safely accommodate.
+              availableWidth: constraints.maxWidth - (AppSpacing.lg * 2),
+              spacing: AppSpacing.md,
             ),
             childCount: controller.myMovements.length,
             maxSingleCardWidth: 460,
