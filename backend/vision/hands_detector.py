@@ -390,6 +390,11 @@ class HandsDetector:
         )
         return merged
 
+    @property
+    def requires_current_prop(self) -> bool:
+        """Whether detect() may consume current-frame prop geometry."""
+        return self._bartender_roi_fallback
+
     def close(self) -> None:
         self._landmarker.close()
         if self._fallback_landmarker is not None:

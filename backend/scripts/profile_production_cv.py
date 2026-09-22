@@ -24,6 +24,7 @@ from api.websocket import VisionSession
 from assessment.hands_profile import hands_profile_for
 from config import MOVEMENT_CONFIG, TARGET_FPS
 from vision.camera import snapshot_capture_producer_telemetry
+from vision.prop_inference import yolo_runtime_device_id, yolo_runtime_info
 from vision.production_cv_profile import (
     OPTIONAL_NO_FALLBACK_MOVEMENT,
     REPRESENTATIVE_MOVEMENTS,
@@ -122,8 +123,10 @@ def _run_loops(
     while time.perf_counter() < deadline and not stop.is_set():
         time.sleep(0.05)
     stop.set()
-    preview_thread.join(timeout=2.0)
-    ai_thread.join(timeout=2.0)
+    preview_thread.join(timeout=10.0)
+    ai_thread.join(timeout=10.0)
+    if preview_thread.is_alive() or ai_thread.is_alive():
+        raise RuntimeError("CV profiler worker did not stop before the next phase")
 
 
 def run_profile(
@@ -214,6 +217,32 @@ def run_profile(
         )
         print()
         print(format_snapshot_report(snap))
+        overlay = session.preview_timings.overlay_alignment_summary()
+        concurrency = session.timings.inference_concurrency_summary()
+        runtime, provider = yolo_runtime_info(session.prop_detector)
+        print(
+            "Inference concurrency: "
+            f"parallel={concurrency['parallel_frames']} "
+            f"sequential={concurrency['sequential_frames']} "
+            f"join_mean={session.timings.average_ms('inference_join'):.1f}ms "
+            f"join_p95={session.timings.percentile_ms('inference_join', 95):.1f}ms"
+        )
+        print(
+            "Overlay alignment: "
+            f"capture_age_mean={overlay['capture_age_mean_ms']:.1f}ms "
+            f"capture_age_p95={overlay['capture_age_p95_ms']:.1f}ms "
+            f"capture_age_max={overlay['capture_age_max_ms']:.1f}ms "
+            f"sequence_gap_mean={overlay['sequence_gap_mean']:.1f} "
+            f"sequence_gap_p95={overlay['sequence_gap_p95']:.0f} "
+            f"stale_age_reject={overlay['stale_age_rejections']} "
+            f"ahead_reject={overlay['ahead_rejections']} "
+            f"generation_reject={overlay['generation_rejections']}"
+        )
+        print(
+            "YOLO runtime: "
+            f"runtime={runtime or 'unknown'} provider={provider or 'unknown'} "
+            f"device_id={yolo_runtime_device_id(session.prop_detector)}"
+        )
         print()
         print(format_comparison_table([snap]))
         print()

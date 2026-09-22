@@ -91,6 +91,7 @@ class StubHandsDetector:
         self.max_num_hands = kwargs.get("max_num_hands", 2)
         self.rotated_fallback = kwargs.get("rotated_fallback", False)
         self.bartender_roi_fallback = kwargs.get("bartender_roi_fallback", False)
+        self.requires_current_prop = self.bartender_roi_fallback
 
     def detect(self, current_frame, bottle=None):
         self.detect_calls += 1

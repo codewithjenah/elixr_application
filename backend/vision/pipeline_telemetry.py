@@ -236,6 +236,9 @@ class PipelineTimings:
         self._overlay_sequence_gap_samples: list[int] = []
         self._overlay_ahead_rejections = 0
         self._overlay_generation_rejections = 0
+        self._overlay_stale_age_rejections = 0
+        self._parallel_inference_frames = 0
+        self._sequential_inference_frames = 0
 
     def add(self, stage: str, seconds: float) -> None:
         with self._lock:
@@ -275,6 +278,7 @@ class PipelineTimings:
         *,
         ahead: bool = False,
         generation_mismatch: bool = False,
+        stale_capture_age: bool = False,
     ) -> None:
         """Count incomparable overlays without polluting age/gap distributions."""
         with self._lock:
@@ -282,6 +286,23 @@ class PipelineTimings:
                 self._overlay_ahead_rejections += 1
             if generation_mismatch:
                 self._overlay_generation_rejections += 1
+            if stale_capture_age:
+                self._overlay_stale_age_rejections += 1
+
+    def record_inference_frame(self, *, parallel: bool) -> None:
+        """Count whether one analyzed frame overlapped YOLO and landmarks."""
+        with self._lock:
+            if parallel:
+                self._parallel_inference_frames += 1
+            else:
+                self._sequential_inference_frames += 1
+
+    def inference_concurrency_summary(self) -> dict[str, int]:
+        with self._lock:
+            return {
+                "parallel_frames": self._parallel_inference_frames,
+                "sequential_frames": self._sequential_inference_frames,
+            }
 
     def overlay_alignment_summary(self) -> dict[str, float | int]:
         with self._lock:
@@ -289,6 +310,7 @@ class PipelineTimings:
             gaps = list(self._overlay_sequence_gap_samples)
             ahead_rejections = self._overlay_ahead_rejections
             generation_rejections = self._overlay_generation_rejections
+            stale_age_rejections = self._overlay_stale_age_rejections
 
         def _percentile(values: list[float] | list[int], pct: float) -> float:
             if not values:
@@ -312,6 +334,7 @@ class PipelineTimings:
             "sequence_gap_max": max(gaps, default=0),
             "ahead_rejections": ahead_rejections,
             "generation_rejections": generation_rejections,
+            "stale_age_rejections": stale_age_rejections,
         }
 
     def reset(self) -> None:
@@ -329,6 +352,9 @@ class PipelineTimings:
             self._overlay_sequence_gap_samples.clear()
             self._overlay_ahead_rejections = 0
             self._overlay_generation_rejections = 0
+            self._overlay_stale_age_rejections = 0
+            self._parallel_inference_frames = 0
+            self._sequential_inference_frames = 0
 
     def count(self, stage: str) -> int:
         with self._lock:
@@ -565,6 +591,9 @@ def format_perf_line(
         runtime_fields += f" yolo_threads={yolo_threads}"
     hands_fields = f" {hands_diag}" if hands_diag else ""
     overlay = timings.overlay_alignment_summary()
+    inference_concurrency = inference.inference_concurrency_summary()
+    join_mean_ms = inference.average_ms("inference_join")
+    join_p95_ms = inference.percentile_ms("inference_join", 95)
     return (
         "CV PERF | "
         f"preview={preview:.1f}fps ai={ai_fps:.1f}fps capture={capture_fps:.1f}fps"
@@ -579,7 +608,12 @@ def format_perf_line(
         f"p95={overlay['sequence_gap_p95']:.0f} "
         f"max={overlay['sequence_gap_max']} "
         f"ahead_reject={overlay['ahead_rejections']} "
-        f"generation_reject={overlay['generation_rejections']}"
+        f"generation_reject={overlay['generation_rejections']} "
+        f"stale_age_reject={overlay['stale_age_rejections']}"
+        f" | ai_parallel_frames={inference_concurrency['parallel_frames']} "
+        f"ai_sequential_frames={inference_concurrency['sequential_frames']} "
+        f"inference_join={join_mean_ms:.1f}ms "
+        f"inference_join_p95={join_p95_ms:.1f}ms"
         f" | {' '.join(stage_parts)}"
         f" | preview_e2e={preview_e2e_ms:.1f}ms ai_e2e={ai_e2e_ms:.1f}ms"
         f" | preview_over_budget={over_budget:.0f}%"

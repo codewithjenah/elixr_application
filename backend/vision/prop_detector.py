@@ -554,6 +554,10 @@ class PropDetector:
         """Load and validate the combined model now."""
         self._combined.ensure_ready()
 
+    def reset_cache(self) -> None:
+        """Clear tracked identities after a camera-generation replacement."""
+        self._combined.reset_tracks()
+
     def extrapolate_detections(
         self,
         *,

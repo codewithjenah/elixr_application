@@ -4,8 +4,9 @@ import json
 import logging
 import threading
 import time
-from dataclasses import dataclass
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 import cv2
@@ -719,6 +720,13 @@ class VisionSession:
         self._ai_inflight_max = 0
         self._ai_inflight = 0
         self._ai_lifecycle_skips = 0
+        # Two bounded lanes overlap independent GPU YOLO and CPU landmark work
+        # inside the one analyze_tick that is already allowed in flight.
+        self._inference_executor = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="elixr-inference",
+        )
+        self._inference_executor_shutdown = False
         self._submission_recorder: SubmissionRecorder | None = None
         self._submission_recorder_lock = threading.Lock()
         self._custom_references: list[tuple[CustomFrameSample, ...]] = []
@@ -1209,8 +1217,160 @@ class VisionSession:
             preview_capture_generation=preview.generation,
             max_capture_age_s=OVERLAY_MAX_CAPTURE_AGE_S,
         ):
+            self.preview_timings.add_overlay_alignment_rejection(
+                stale_capture_age=True
+            )
             return None
         return snapshot
+
+    def _timed_detect_normalized_props(self, frame) -> _NormalizedFrameDetections:
+        started = time.perf_counter()
+        try:
+            return self._detect_normalized_props(frame)
+        finally:
+            self.timings.add("yolo", time.perf_counter() - started)
+
+    def _detect_landmarks(
+        self,
+        frame,
+        *,
+        needs_hands: bool,
+        needs_pose: bool,
+        hand_reference: PropDetection | None,
+    ) -> tuple[Any, Any]:
+        """Run the ordered per-session MediaPipe stream for one captured frame."""
+        hands = None
+        if needs_hands:
+            assert self.hands_detector is not None
+            started = time.perf_counter()
+            try:
+                hands = self.hands_detector.detect(
+                    frame,
+                    bottle=hand_reference,
+                )
+            finally:
+                self.timings.add("hands", time.perf_counter() - started)
+
+        pose = None
+        if needs_pose:
+            assert self.pose_detector is not None
+            started = time.perf_counter()
+            try:
+                pose = self.pose_detector.detect(frame)
+            finally:
+                self.timings.add("pose", time.perf_counter() - started)
+        return hands, pose
+
+    def _run_frame_inference(
+        self,
+        frame,
+        *,
+        run_yolo: bool,
+        needs_hands: bool,
+        needs_pose: bool,
+    ) -> tuple[_NormalizedFrameDetections, Any, Any]:
+        """Produce same-frame prop and landmark observations with bounded overlap."""
+        has_landmark_work = needs_hands or needs_pose
+        hands_can_run_without_prop = (
+            not needs_hands
+            or (
+                self.hands_detector is not None
+                and not getattr(
+                    self.hands_detector,
+                    "requires_current_prop",
+                    True,
+                )
+            )
+        )
+        can_overlap = (
+            self.bottle_detection_enabled
+            and run_yolo
+            and has_landmark_work
+            and hands_can_run_without_prop
+            # Bartender ROI recovery needs this frame's selected prop. Custom
+            # and freestyle sessions also enable that production fallback.
+            and not (needs_hands and self._hands_bartender_roi)
+        )
+
+        if can_overlap:
+            join_started = time.perf_counter()
+            prop_future = self._inference_executor.submit(
+                self._timed_detect_normalized_props,
+                frame,
+            )
+            landmark_future = self._inference_executor.submit(
+                self._detect_landmarks,
+                frame,
+                needs_hands=needs_hands,
+                needs_pose=needs_pose,
+                hand_reference=None,
+            )
+            # Wait for both even when one failed so no orphan worker can touch
+            # a detector after error handling or teardown begins.
+            wait((prop_future, landmark_future))
+            self.timings.add("inference_join", time.perf_counter() - join_started)
+            self.timings.record_inference_frame(parallel=True)
+            normalized = prop_future.result()
+            hands, pose = landmark_future.result()
+            self._store_normalized_props(normalized)
+            return normalized, hands, pose
+
+        if self.bottle_detection_enabled and run_yolo:
+            normalized = self._timed_detect_normalized_props(frame)
+            self._store_normalized_props(normalized)
+        elif not self.bottle_detection_enabled:
+            normalized = self._normalize_detections(bottles=[], shakers=[])
+            self._store_normalized_props(normalized)
+        else:
+            normalized = self._cached_normalized_props()
+
+        bottle = normalized.primary[0] if normalized.primary else None
+        shakers = list(normalized.shakers)
+        shaker = shakers[0] if shakers else None
+        hand_reference = (
+            (shaker if shaker is not None else bottle)
+            if self._is_dual_prop
+            else bottle
+        )
+        hands, pose = self._detect_landmarks(
+            frame,
+            needs_hands=needs_hands,
+            needs_pose=needs_pose,
+            hand_reference=hand_reference,
+        )
+        self.timings.record_inference_frame(parallel=False)
+        return normalized, hands, pose
+
+    def _captured_generation_is_current(self, captured: CapturedFrame) -> bool:
+        current_generation = getattr(
+            self.camera,
+            "current_capture_generation",
+            None,
+        )
+        if callable(current_generation):
+            generation = current_generation()
+        else:
+            generation = getattr(self.camera, "last_capture_generation", None)
+        return generation is None or int(generation) == captured.generation
+
+    def _reject_replaced_capture(self, captured: CapturedFrame) -> bool:
+        """Drop inference from a producer generation that was replaced mid-tick."""
+        if self._captured_generation_is_current(captured):
+            return False
+        # Do not let old-camera tracker state reach the first frame from the
+        # replacement producer. Reset cadence so that frame runs YOLO.
+        self._last_bottles = []
+        self._last_shakers = []
+        self._last_live_bottles = []
+        self._last_live_shakers = []
+        self._frame_index = 0
+        self._last_ai_sequence = None
+        reset_prop_cache = getattr(self.prop_detector, "reset_cache", None)
+        if callable(reset_prop_cache):
+            reset_prop_cache()
+        self._custom_previous_prop = None
+        self._clear_overlay()
+        return True
 
     def _wire_session_state(self) -> str:
         if self._lifecycle == SESSION_ACTIVE:
@@ -1689,9 +1849,11 @@ class VisionSession:
                 if self._lifecycle == SESSION_PREPARED:
                     return None
                 if self._lifecycle == SESSION_READYING:
-                    return self.process_readiness_frame(emit_preview_jpeg=False)
+                    return self._process_readiness_frame_unlocked(
+                        emit_preview_jpeg=False
+                    )
                 if self._lifecycle == SESSION_ACTIVE:
-                    return self.process_frame(emit_preview_jpeg=False)
+                    return self._process_frame_unlocked(emit_preview_jpeg=False)
                 return None
             finally:
                 self._ai_inflight -= 1
@@ -1703,6 +1865,20 @@ class VisionSession:
             self._ai_tick_lock.release()
 
     def process_readiness_frame(
+        self, *, emit_preview_jpeg: bool = True
+    ) -> FeedbackMessage | None:
+        """Run one readiness frame, serialized with lifecycle mutation."""
+        self._acquire_ai_state(blocking=True)
+        try:
+            if self._lifecycle == SESSION_CLOSED:
+                return None
+            return self._process_readiness_frame_unlocked(
+                emit_preview_jpeg=emit_preview_jpeg
+            )
+        finally:
+            self._release_ai_state()
+
+    def _process_readiness_frame_unlocked(
         self, *, emit_preview_jpeg: bool = True
     ) -> FeedbackMessage | None:
         """Run observability checklist without movement evaluation or scoring."""
@@ -1728,41 +1904,22 @@ class VisionSession:
         self._frame_index += 1
         run_yolo = (self._frame_index - 1) % self._yolo_frame_skip == 0
 
-        if self.bottle_detection_enabled and run_yolo:
-            t0 = time.perf_counter()
-            normalized = self._detect_normalized_props(frame)
-            self.timings.add("yolo", time.perf_counter() - t0)
-            self._store_normalized_props(normalized)
-        elif not self.bottle_detection_enabled:
-            normalized = self._normalize_detections(bottles=[], shakers=[])
-            self._store_normalized_props(normalized)
-        else:
-            normalized = self._cached_normalized_props()
-
-        bottles = list(normalized.bottles)
-        shakers = list(normalized.shakers)
-
         needs_h = readiness_needs_hands(
             self.movement, self.prop_type, self.readiness_spec
         )
         needs_p = readiness_needs_pose(
             self.movement, self.prop_type, self.readiness_spec
         )
-
-        hands = None
-        if needs_h and self.hands_detector is not None:
-            bottle_ref = (
-                normalized.primary[0] if normalized.primary else None
-            )
-            t0 = time.perf_counter()
-            hands = self.hands_detector.detect(frame, bottle=bottle_ref)
-            self.timings.add("hands", time.perf_counter() - t0)
-
-        pose = None
-        if needs_p and self.pose_detector is not None:
-            t0 = time.perf_counter()
-            pose = self.pose_detector.detect(frame)
-            self.timings.add("pose", time.perf_counter() - t0)
+        normalized, hands, pose = self._run_frame_inference(
+            frame,
+            run_yolo=run_yolo,
+            needs_hands=needs_h,
+            needs_pose=needs_p,
+        )
+        if self._reject_replaced_capture(captured):
+            return None
+        bottles = list(normalized.bottles)
+        shakers = list(normalized.shakers)
 
         if not self._calibration.locked:
             self._calibration.sample(pose, hands)
@@ -1865,6 +2022,20 @@ class VisionSession:
     def process_prop_detection_frame(
         self, *, emit_preview_jpeg: bool = True
     ) -> FeedbackMessage | None:
+        """Run one prop-only frame, serialized with lifecycle mutation."""
+        self._acquire_ai_state(blocking=True)
+        try:
+            if self._lifecycle == SESSION_CLOSED:
+                return None
+            return self._process_prop_detection_frame_unlocked(
+                emit_preview_jpeg=emit_preview_jpeg
+            )
+        finally:
+            self._release_ai_state()
+
+    def _process_prop_detection_frame_unlocked(
+        self, *, emit_preview_jpeg: bool = True
+    ) -> FeedbackMessage | None:
         """Active Free Practice: camera + prop detect + annotate, no MediaPipe/scoring."""
         self._pipeline_started_at = time.perf_counter()
         total_start = self._pipeline_started_at
@@ -1898,6 +2069,9 @@ class VisionSession:
             self._store_normalized_props(normalized)
         else:
             normalized = self._cached_normalized_props()
+
+        if self._reject_replaced_capture(captured):
+            return None
 
         detected = normalized.selected_detected
         if detected:
@@ -1967,8 +2141,22 @@ class VisionSession:
         return message
 
     def process_frame(self, *, emit_preview_jpeg: bool = True) -> FeedbackMessage | None:
+        """Run one active frame, serialized with lifecycle mutation."""
+        self._acquire_ai_state(blocking=True)
+        try:
+            if self._lifecycle == SESSION_CLOSED:
+                return None
+            return self._process_frame_unlocked(
+                emit_preview_jpeg=emit_preview_jpeg
+            )
+        finally:
+            self._release_ai_state()
+
+    def _process_frame_unlocked(
+        self, *, emit_preview_jpeg: bool = True
+    ) -> FeedbackMessage | None:
         if self._prop_detection_only:
-            return self.process_prop_detection_frame(
+            return self._process_prop_detection_frame_unlocked(
                 emit_preview_jpeg=emit_preview_jpeg
             )
 
@@ -1997,16 +2185,14 @@ class VisionSession:
         # Frame index starts at 1; subtract 1 so the very first frame runs YOLO.
         run_yolo = (self._frame_index - 1) % self._yolo_frame_skip == 0
 
-        if self.bottle_detection_enabled and run_yolo:
-            t0 = time.perf_counter()
-            normalized = self._detect_normalized_props(frame)
-            self.timings.add("yolo", time.perf_counter() - t0)
-            self._store_normalized_props(normalized)
-        elif not self.bottle_detection_enabled:
-            normalized = self._normalize_detections(bottles=[], shakers=[])
-            self._store_normalized_props(normalized)
-        else:
-            normalized = self._cached_normalized_props()
+        normalized, hands, pose = self._run_frame_inference(
+            frame,
+            run_yolo=run_yolo,
+            needs_hands=self._hands_needed,
+            needs_pose=self._pose_needed,
+        )
+        if self._reject_replaced_capture(captured):
+            return None
 
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)
@@ -2016,36 +2202,12 @@ class VisionSession:
         # detection list via `bottles`.
         # For shaker sessions, primary holds the shaker detections (compatibility).
         bottle = normalized.primary[0] if normalized.primary else None
-        shaker = shakers[0] if shakers else None
-        # The hand is holding the shaker for the dual-prop movement, so prefer
-        # it as the hand-detector reference; fall back to the bottle if the
-        # shaker is not currently detected.
-        hand_reference = (
-            (shaker if shaker is not None else bottle)
-            if self._is_dual_prop
-            else bottle
-        )
-
         # Important fix:
         # Do not use previous hand landmarks when the current frame has no hand.
         # This prevents "naiiwan yung daliri" / ghost hand dots.
         # Missing Hands when required is a lifecycle bug, not a detection miss.
-        hands = None
-        if self._hands_needed:
-            assert self.hands_detector is not None
-            t0 = time.perf_counter()
-            hands = self.hands_detector.detect(
-                frame,
-                bottle=hand_reference,
-            )
-            self.timings.add("hands", time.perf_counter() - t0)
-
-        pose = None
-        if self._pose_needed:
-            assert self.pose_detector is not None
-            t0 = time.perf_counter()
-            pose = self.pose_detector.detect(frame)
-            self.timings.add("pose", time.perf_counter() - t0)
+        # `_run_frame_inference` always returns current-frame landmarks and
+        # never reuses a previous Hands/Pose result.
 
         if self._is_custom:
             self._record_custom_sample(
@@ -2394,6 +2556,12 @@ class VisionSession:
             self._hold_validator.reset()
             self._clear_overlay()
             self.camera.release()
+            if not self._inference_executor_shutdown:
+                self._inference_executor.shutdown(
+                    wait=True,
+                    cancel_futures=True,
+                )
+                self._inference_executor_shutdown = True
             self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
         finally:
             self._release_ai_state()

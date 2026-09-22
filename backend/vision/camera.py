@@ -1316,6 +1316,15 @@ class CameraCapture:
     def last_capture_generation(self) -> int | None:
         return self._last_capture_generation
 
+    def current_capture_generation(self) -> int | None:
+        """Generation owned by the active producer, without acquiring a frame."""
+        # The monotonic token is incremented under this lightweight lock when
+        # a replacement producer is created. Avoid _CAMERA_LOCK here: camera
+        # recovery may hold it for seconds and must not extend AI latency.
+        with _capture_identity_lock:
+            generation = _capture_generation
+        return max(generation, int(self._last_capture_generation or 0))
+
     def _resolve_allowed_indices(self) -> list[int] | None:
         """Return candidate indices, or ``None`` when explicit device is missing."""
         if self._requested_device_id is not None:
@@ -1784,6 +1793,7 @@ class CameraCapture:
             frame=frame.copy(order="C"),
             captured_at_monotonic=captured_at,
             sequence=sequence,
+            generation=int(self._last_capture_generation or 0),
         )
 
     def _peek_from_latest_slot(

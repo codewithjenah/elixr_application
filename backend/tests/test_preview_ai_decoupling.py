@@ -310,6 +310,41 @@ def test_overlay_from_previous_camera_generation_is_rejected(monkeypatch):
     session.close()
 
 
+def test_overlay_past_capture_age_limit_counts_stale_rejection(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.0,
+            capture_sequence=20,
+            capture_generation=2,
+            boxes=[],
+            hands=None,
+            pose=None,
+            feedback="stale geometry",
+            feedback_type="positive",
+            movement="Hand Stall",
+            prop_label="Bottle",
+        )
+    )
+    preview = CapturedFrame(
+        frame=np.full((48, 64, 3), 120, dtype=np.uint8),
+        captured_at_monotonic=10.0 + websocket_api.OVERLAY_MAX_CAPTURE_AGE_S + 0.001,
+        sequence=24,
+        generation=2,
+    )
+
+    assert session._read_fresh_overlay(preview=preview) is None
+    summary = session.preview_timings.overlay_alignment_summary()
+    assert summary["count"] == 1
+    assert summary["stale_age_rejections"] == 1
+    assert summary["ahead_rejections"] == 0
+    assert summary["generation_rejections"] == 0
+    session.close()
+
+
 def test_render_preview_does_not_evaluate_or_score(monkeypatch):
     _patch_vision(monkeypatch)
     evaluate_calls = {"n": 0}

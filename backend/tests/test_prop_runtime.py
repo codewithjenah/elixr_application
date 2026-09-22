@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +12,7 @@ import numpy as np
 import pytest
 
 import vision.prop_detector as prop_detector_mod
+import vision.prop_inference as prop_inference_mod
 from vision.prop_detector import CombinedPropDetector, ModelLoadError, PropDetector
 from vision.prop_inference import (
     OnnxPropBackend,
@@ -453,6 +457,52 @@ def test_onnx_backend_reuses_one_session_across_frames(tmp_path: Path):
     assert feed.shape == (1, 3, 640, 640)
     assert feed.dtype == np.float32
     assert feed.max() <= 1.0
+
+
+def test_onnx_backend_serializes_same_session_run_calls(
+    tmp_path: Path,
+    monkeypatch,
+):
+    class ConcurrentRunProbe(_FakeOrtSession):
+        def __init__(self):
+            super().__init__()
+            self._probe_lock = threading.Lock()
+            self.in_run = 0
+            self.max_in_run = 0
+
+        def run(self, output_names, feeds):
+            with self._probe_lock:
+                self.in_run += 1
+                self.max_in_run = max(self.max_in_run, self.in_run)
+            try:
+                time.sleep(0.05)
+                return super().run(output_names, feeds)
+            finally:
+                with self._probe_lock:
+                    self.in_run -= 1
+
+    session = ConcurrentRunProbe()
+    backend = OnnxPropBackend(
+        model_path=_onnx(tmp_path / "best.onnx"),
+        runtime_name="onnx_dml",
+        providers=["DmlExecutionProvider"],
+        session_factory=lambda *_args: session,
+        session_options_factory=object,
+    )
+    backend.load()
+    monkeypatch.setattr(
+        prop_inference_mod,
+        "_postprocess_yolo_onnx",
+        lambda *_args, **_kwargs: [],
+    )
+    frame = np.zeros((48, 64, 3), dtype=np.uint8)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(backend.infer, frame) for _ in range(2)]
+        assert [future.result() for future in futures] == [[], []]
+
+    assert session.run_calls == 2
+    assert session.max_in_run == 1
 
 
 def test_onnx_backend_does_not_recreate_session_on_second_load(tmp_path: Path):

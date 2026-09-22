@@ -68,6 +68,7 @@ def test_incomparable_overlay_rejections_do_not_pollute_age_metrics():
     timings = PipelineTimings()
     timings.add_overlay_alignment_rejection(ahead=True)
     timings.add_overlay_alignment_rejection(generation_mismatch=True)
+    timings.add_overlay_alignment_rejection(stale_capture_age=True)
 
     summary = timings.overlay_alignment_summary()
     assert summary["count"] == 0
@@ -75,6 +76,28 @@ def test_incomparable_overlay_rejections_do_not_pollute_age_metrics():
     assert summary["sequence_gap_mean"] == 0.0
     assert summary["ahead_rejections"] == 1
     assert summary["generation_rejections"] == 1
+    assert summary["stale_age_rejections"] == 1
+
+
+def test_inference_concurrency_counters_and_join_timing_reset():
+    timings = PipelineTimings()
+    timings.record_inference_frame(parallel=True)
+    timings.record_inference_frame(parallel=False)
+    timings.add("inference_join", 0.060)
+
+    assert timings.inference_concurrency_summary() == {
+        "parallel_frames": 1,
+        "sequential_frames": 1,
+    }
+    assert timings.average_ms("inference_join") == 60.0
+
+    timings.reset()
+
+    assert timings.inference_concurrency_summary() == {
+        "parallel_frames": 0,
+        "sequential_frames": 0,
+    }
+    assert timings.count("inference_join") == 0
 
 
 def test_over_budget_percentage_uses_end_to_end_samples():
@@ -327,6 +350,10 @@ def test_format_perf_line_is_one_aggregated_summary():
     assert "ai_frame_age avg=" in line
     assert "overlay_capture_age avg=" in line
     assert "overlay_sequence_gap avg=" in line
+    assert "stale_age_reject=" in line
+    assert "ai_parallel_frames=" in line
+    assert "ai_sequential_frames=" in line
+    assert "inference_join=" in line
     assert "max=" in line
     assert "yolo=58.0ms" in line
     assert "hands=14.0ms" in line

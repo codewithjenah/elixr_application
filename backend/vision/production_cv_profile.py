@@ -207,7 +207,8 @@ def snapshot_from_parts(
 
     share_notes = (
         "YOLO/Hands/Pose percentages are estimates: stage_sum / AI "
-        "processing_total_sum. Stages are sequential and non-overlapping. "
+        "processing_total_sum. Independent YOLO and landmark stages may overlap, "
+        "so their percentages are not additive. "
         "Fallback percentage is a subset of Hands (not additive with Hands). "
         "AI e2e is processing_total (excludes WebSocket send)."
     )
