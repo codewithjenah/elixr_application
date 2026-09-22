@@ -19,11 +19,25 @@ CANONICAL_FRAMES = 32
 MIN_FRAMES = 8
 MIN_COVERAGE = 0.70
 MAX_TRACK_GAP = 2
+POSE_MOTION_THRESHOLD = 0.08
+MEANINGFUL_POSE_KEYS = frozenset(
+    {
+        "13",
+        "14",
+        "15",
+        "16",
+        "left_elbow",
+        "right_elbow",
+        "left_wrist",
+        "right_wrist",
+    }
+)
 EPSILON = 1e-6
 SUPPORTED_MODALITIES = frozenset({"pose", "hands", "prop_translation"})
-SUPPORTED_CAPABILITIES = frozenset(
+BASE_CAPABILITIES = frozenset(
     {"pose", "hands", "prop_translation", "release_catch", "prop_rotation"}
 )
+SIDE_CAPABILITIES = frozenset({"left_hand", "right_hand"})
 
 
 class FailureCode(str, Enum):
@@ -124,6 +138,20 @@ class MovementTemplate:
     variability_metadata: Mapping[str, float]
     prop_events: tuple[PropEvent, ...] = ()
 
+    @property
+    def required_hand_sides(self) -> tuple[str, ...]:
+        if not self.feature_capabilities.get("hands", False):
+            return ()
+        if SIDE_CAPABILITIES.issubset(self.feature_capabilities):
+            return tuple(
+                side
+                for side in ("left", "right")
+                if self.feature_capabilities.get(f"{side}_hand", False)
+            )
+        # Version-1 templates produced before side capabilities existed always
+        # required two hands.  Preserve that conservative legacy behavior.
+        return ("left", "right")
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
@@ -151,7 +179,11 @@ class MovementTemplate:
             if int(raw["schema_version"]) != SCHEMA_VERSION or int(raw["capture_version"]) != CAPTURE_VERSION:
                 raise ValueError("unsupported custom movement template schema")
             raw_capabilities = raw["feature_capabilities"]
-            if set(raw_capabilities) != SUPPORTED_CAPABILITIES or any(
+            capability_keys = set(raw_capabilities)
+            if capability_keys not in {
+                BASE_CAPABILITIES,
+                BASE_CAPABILITIES | SIDE_CAPABILITIES,
+            } or any(
                 not isinstance(value, bool) for value in raw_capabilities.values()
             ):
                 raise ValueError("invalid feature capabilities")
@@ -176,6 +208,10 @@ class MovementTemplate:
             or len(template.canonical_sequence) != CANONICAL_FRAMES
             or not set(template.required_modalities).issubset(SUPPORTED_MODALITIES)
             or not template.required_modalities
+            or (
+                template.feature_capabilities.get("hands", False)
+                and not template.required_hand_sides
+            )
         ):
             raise ValueError(FailureCode.INVALID_SCHEMA.value)
         return template
@@ -203,13 +239,44 @@ def _usable(point: Landmark | None) -> bool:
     return point is not None and point.usable()
 
 
-def _coverage(samples: Sequence[FrameSample], modality: str) -> tuple[float, int]:
+def _hand_side(key: str) -> str | None:
+    side = str(key).split(":", 1)[0].strip().lower()
+    return side if side in {"left", "right"} else None
+
+
+def _semantic_hands(hands: Mapping[str, Landmark]) -> dict[str, Landmark]:
+    """Drop detector-list position while retaining side and landmark identity."""
+    semantic: dict[str, Landmark] = {}
+    for raw_key, point in hands.items():
+        parts = str(raw_key).split(":")
+        side = _hand_side(raw_key)
+        if side is None:
+            continue
+        key = f"{side}:{parts[-1]}" if len(parts) >= 3 else str(raw_key)
+        existing = semantic.get(key)
+        if existing is None or point.confidence > existing.confidence:
+            semantic[key] = point
+    return semantic
+
+
+def _coverage(
+    samples: Sequence[FrameSample],
+    modality: str,
+    *,
+    hand_side: str | None = None,
+) -> tuple[float, int]:
     present: list[bool] = []
     for frame in samples:
         if modality == "pose":
             present.append(any(_usable(p) for p in frame.pose.values()))
         elif modality == "hands":
-            present.append(any(_usable(p) for p in frame.hands.values()))
+            present.append(
+                any(
+                    _usable(point)
+                    and (hand_side is None or _hand_side(key) == hand_side)
+                    for key, point in frame.hands.items()
+                )
+            )
         else:
             present.append(_usable(frame.prop))
     longest = current = 0
@@ -219,7 +286,12 @@ def _coverage(samples: Sequence[FrameSample], modality: str) -> tuple[float, int
     return sum(present) / len(samples) if samples else 0.0, longest
 
 
-def validate_sequence(samples: Sequence[FrameSample], required_modalities: Iterable[str]) -> ValidationResult:
+def validate_sequence(
+    samples: Sequence[FrameSample],
+    required_modalities: Iterable[str],
+    *,
+    required_hand_sides: Iterable[str] = (),
+) -> ValidationResult:
     required = tuple(sorted(set(required_modalities)))
     codes: list[FailureCode] = []
     if not set(required).issubset(SUPPORTED_MODALITIES):
@@ -230,26 +302,56 @@ def validate_sequence(samples: Sequence[FrameSample], required_modalities: Itera
     if any(not isinstance(ts, int) for ts in timestamps) or any(b <= a for a, b in zip(timestamps, timestamps[1:])):
         codes.append(FailureCode.INVALID_TIMESTAMPS)
     for modality in required:
-        coverage, gap = _coverage(samples, modality)
-        if coverage < MIN_COVERAGE:
-            codes.append(FailureCode.MISSING_MODALITY)
-        if gap > MAX_TRACK_GAP:
-            codes.append(FailureCode.TRACK_LOSS)
+        sides = tuple(sorted(set(required_hand_sides))) if modality == "hands" else ()
+        coverage_checks = (
+            [_coverage(samples, modality, hand_side=side) for side in sides]
+            if sides
+            else [_coverage(samples, modality)]
+        )
+        for coverage, gap in coverage_checks:
+            if coverage < MIN_COVERAGE:
+                codes.append(FailureCode.MISSING_MODALITY)
+            if gap > MAX_TRACK_GAP:
+                codes.append(FailureCode.TRACK_LOSS)
     return ValidationResult(not codes, tuple(dict.fromkeys(codes)))
 
 
-def _anchor_and_scale(frame: FrameSample) -> tuple[Landmark, float]:
-    left = frame.pose.get("11") or frame.pose.get("left_shoulder")
-    right = frame.pose.get("12") or frame.pose.get("right_shoulder")
-    if _usable(left) and _usable(right):
-        assert left is not None and right is not None
-        scale = math.hypot(left.x - right.x, left.y - right.y)
-        if scale > EPSILON:
-            return Landmark((left.x + right.x) / 2, (left.y + right.y) / 2), scale
-    usable_hands = [p for p in frame.hands.values() if _usable(p)]
+def _anchor_and_scale(
+    frame: FrameSample,
+    *,
+    use_pose_anchor: bool,
+    hands: Mapping[str, Landmark],
+) -> tuple[Landmark, float]:
+    if use_pose_anchor:
+        left = frame.pose.get("11") or frame.pose.get("left_shoulder")
+        right = frame.pose.get("12") or frame.pose.get("right_shoulder")
+        if _usable(left) and _usable(right):
+            assert left is not None and right is not None
+            scale = math.hypot(left.x - right.x, left.y - right.y)
+            if scale > EPSILON:
+                return Landmark((left.x + right.x) / 2, (left.y + right.y) / 2), scale
+    usable_hands = [p for p in hands.values() if _usable(p)]
     if usable_hands:
-        anchor = usable_hands[0]
-        return Landmark(anchor.x, anchor.y), 1.0
+        roots = [
+            point
+            for side in ("left", "right")
+            if _usable(point := hands.get(side) or hands.get(f"{side}:0"))
+        ]
+        anchor = roots[0] if roots else usable_hands[0]
+        hand_scales = []
+        for side in ("left", "right"):
+            wrist = hands.get(f"{side}:0")
+            middle_mcp = hands.get(f"{side}:9")
+            if _usable(wrist) and _usable(middle_mcp):
+                assert wrist is not None and middle_mcp is not None
+                hand_scales.append(
+                    math.hypot(wrist.x - middle_mcp.x, wrist.y - middle_mcp.y)
+                )
+        usable_scales = sorted(scale for scale in hand_scales if scale > EPSILON)
+        scale = (
+            usable_scales[len(usable_scales) // 2] if usable_scales else 1.0
+        )
+        return Landmark(anchor.x, anchor.y), scale
     return Landmark(0.0, 0.0), 1.0
 
 
@@ -260,11 +362,37 @@ def _normalise_point(point: Landmark | None, anchor: Landmark, scale: float) -> 
     return Landmark((point.x - anchor.x) / scale, (point.y - anchor.y) / scale, point.confidence)
 
 
-def normalize_sequence(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...]:
-    """Remove image translation/body scale without mirroring laterality."""
+def normalize_sequence(
+    samples: Sequence[FrameSample],
+    *,
+    use_pose_anchor: bool = True,
+    required_hand_sides: Iterable[str] | None = None,
+) -> tuple[FrameSample, ...]:
+    """Remove image translation/body scale without mirroring laterality.
+
+    Template construction and comparison pass the inferred capabilities so
+    both sides use the same coordinate system.  This matters when Pose was
+    observed during reference capture but was intentionally not required (and
+    therefore is not run during assessment).
+    """
     output: list[FrameSample] = []
+    hand_sides = (
+        None
+        if required_hand_sides is None
+        else frozenset(required_hand_sides)
+    )
     for frame in samples:
-        anchor, scale = _anchor_and_scale(frame)
+        semantic_hands = _semantic_hands(frame.hands)
+        selected_hands = {
+            key: point
+            for key, point in semantic_hands.items()
+            if hand_sides is None or _hand_side(key) in hand_sides
+        }
+        anchor, scale = _anchor_and_scale(
+            frame,
+            use_pose_anchor=use_pose_anchor,
+            hands=selected_hands,
+        )
         metadata = dict(frame.prop_metadata)
         for key in ("bbox_width", "bbox_height", "velocity_x", "velocity_y"):
             value = metadata.get(key)
@@ -273,7 +401,7 @@ def normalize_sequence(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...
         output.append(FrameSample(
             timestamp_ms=frame.timestamp_ms,
             pose={k: p for k, v in frame.pose.items() if (p := _normalise_point(v, anchor, scale))},
-            hands={k: p for k, v in frame.hands.items() if (p := _normalise_point(v, anchor, scale))},
+            hands={k: p for k, v in selected_hands.items() if (p := _normalise_point(v, anchor, scale))},
             prop=_normalise_point(frame.prop, anchor, scale),
             prop_metadata=metadata,
         ))
@@ -281,8 +409,14 @@ def normalize_sequence(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...
 
 
 def _interpolate(a: Landmark | None, b: Landmark | None, amount: float) -> Landmark | None:
+    if amount <= EPSILON:
+        return a if _usable(a) else None
+    if amount >= 1.0 - EPSILON:
+        return b if _usable(b) else None
     if not _usable(a) or not _usable(b):
-        return a if amount < 0.5 else b
+        # Missing observations stay unknown.  Do not stretch one endpoint
+        # across a detector gap while resampling or temporal alignment.
+        return None
     assert a is not None and b is not None
     return Landmark(a.x + (b.x - a.x) * amount, a.y + (b.y - a.y) * amount, min(a.confidence, b.confidence))
 
@@ -308,9 +442,11 @@ def _resample(samples: Sequence[FrameSample], count: int = CANONICAL_FRAMES) -> 
     return tuple(result)
 
 
-def _mean_points(points: Sequence[Landmark | None]) -> Landmark | None:
+def _mean_points(
+    points: Sequence[Landmark | None], *, min_count: int = 1
+) -> Landmark | None:
     valid = [p for p in points if _usable(p)]
-    if not valid:
+    if len(valid) < min_count:
         return None
     return Landmark(sum(p.x for p in valid) / len(valid), sum(p.y for p in valid) / len(valid), min(p.confidence for p in valid))
 
@@ -381,42 +517,223 @@ def detect_prop_events(samples: Sequence[FrameSample]) -> tuple[PropEvent, ...]:
     return tuple(events)
 
 
-def build_template(references: Sequence[Sequence[FrameSample]], required_modalities: Iterable[str]) -> MovementTemplate:
+def _pose_motion(sequence: Sequence[FrameSample]) -> float:
+    normalised = normalize_sequence(sequence)
+    largest = 0.0
+    keys = set().union(*(frame.pose.keys() for frame in normalised))
+    keys.intersection_update(MEANINGFUL_POSE_KEYS)
+    for key in keys:
+        points = [frame.pose.get(key) for frame in normalised]
+        usable = [point for point in points if _usable(point)]
+        for point_index, first in enumerate(usable):
+            for second in usable[point_index + 1 :]:
+                assert first is not None and second is not None
+                largest = max(
+                    largest, math.hypot(second.x - first.x, second.y - first.y)
+                )
+    return largest
+
+
+def _infer_requirements(
+    references: Sequence[Sequence[FrameSample]],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    hand_sides = tuple(
+        side
+        for side in ("left", "right")
+        if all(
+            (coverage := _coverage(reference, "hands", hand_side=side))[0]
+            >= MIN_COVERAGE
+            and coverage[1] <= MAX_TRACK_GAP
+            for reference in references
+        )
+    )
+    pose_reliable = all(
+        (coverage := _coverage(reference, "pose"))[0] >= MIN_COVERAGE
+        and coverage[1] <= MAX_TRACK_GAP
+        for reference in references
+    )
+    meaningful_pose_count = sum(
+        _pose_motion(reference) >= POSE_MOTION_THRESHOLD for reference in references
+    )
+    required = ["prop_translation"]
+    if hand_sides:
+        required.append("hands")
+    if pose_reliable and meaningful_pose_count >= 2:
+        required.append("pose")
+    return tuple(sorted(required)), hand_sides
+
+
+def _sequence_distance(
+    reference: Sequence[FrameSample],
+    candidate: Sequence[FrameSample],
+    modalities: Sequence[str],
+) -> float:
+    path = _dtw(reference, candidate, modalities)
+    errors: list[float] = []
+    for left, right in path:
+        observed = [
+            value
+            for modality in modalities
+            if (value := _modality_error(reference[left], candidate[right], modality))
+            is not None
+        ]
+        errors.append(sum(observed) / len(observed) if observed else 1.0)
+    return sum(errors) / len(errors) if errors else float("inf")
+
+
+def _aggregate_frames(
+    frames: Sequence[FrameSample],
+    *,
+    timestamp_ms: int,
+    minimum_presence: int,
+) -> FrameSample:
+    pose_keys = set().union(*(frame.pose.keys() for frame in frames))
+    semantic_hands = [_semantic_hands(frame.hands) for frame in frames]
+    hand_keys = set().union(*(hands.keys() for hands in semantic_hands))
+    return FrameSample(
+        timestamp_ms=timestamp_ms,
+        pose={
+            key: point
+            for key in sorted(pose_keys)
+            if (
+                point := _mean_points(
+                    [frame.pose.get(key) for frame in frames],
+                    min_count=minimum_presence,
+                )
+            )
+        },
+        hands={
+            key: point
+            for key in sorted(hand_keys)
+            if (
+                point := _mean_points(
+                    [hands.get(key) for hands in semantic_hands],
+                    min_count=minimum_presence,
+                )
+            )
+        },
+        prop=_mean_points(
+            [frame.prop for frame in frames], min_count=minimum_presence
+        ),
+        prop_metadata=_canonical_prop_metadata(frames),
+    )
+
+
+def build_template(
+    references: Sequence[Sequence[FrameSample]],
+    required_modalities: Iterable[str] | None = None,
+) -> MovementTemplate:
     """Build a stable canonical template from at least three valid captures."""
     if len(references) < 3:
         raise ValueError(FailureCode.INVALID_REFERENCE_COUNT.value)
-    required = tuple(sorted(set(required_modalities)))
+    # ``required_modalities`` remains accepted for source compatibility with
+    # version-1 callers, but capabilities are now inferred from the three
+    # actual demonstrations rather than imposed by the client.
+    if required_modalities is not None and not set(required_modalities).issubset(
+        SUPPORTED_MODALITIES
+    ):
+        raise ValueError(FailureCode.INVALID_SCHEMA.value)
+    required, hand_sides = _infer_requirements(references)
     normalised: list[tuple[FrameSample, ...]] = []
     durations: list[int] = []
     for reference in references:
-        check = validate_sequence(reference, required)
+        check = validate_sequence(
+            reference, required, required_hand_sides=hand_sides
+        )
         if not check.valid:
             raise ValueError(",".join(code.value for code in check.codes))
-        normalised.append(normalize_sequence(reference))
+        normalised.append(
+            normalize_sequence(
+                reference,
+                use_pose_anchor="pose" in required,
+                required_hand_sides=hand_sides,
+            )
+        )
         durations.append(reference[-1].timestamp_ms - reference[0].timestamp_ms)
     resampled = [_resample(seq) for seq in normalised]
+    medoid_index = min(
+        range(len(resampled)),
+        key=lambda index: (
+            sum(
+                _sequence_distance(resampled[index], other, required)
+                for other_index, other in enumerate(resampled)
+                if other_index != index
+            ),
+            index,
+        ),
+    )
+    medoid = resampled[medoid_index]
+    aligned_by_reference: list[list[list[FrameSample]]] = []
+    for sequence_index, sequence in enumerate(resampled):
+        groups: list[list[FrameSample]] = [[] for _ in range(CANONICAL_FRAMES)]
+        if sequence_index == medoid_index:
+            for index, frame in enumerate(sequence):
+                groups[index].append(frame)
+        else:
+            for medoid_frame, sequence_frame in _dtw(medoid, sequence, required):
+                groups[medoid_frame].append(sequence[sequence_frame])
+        aligned_by_reference.append(groups)
+
     canonical: list[FrameSample] = []
+    canonical_duration = round(sum(durations) / len(durations))
     for index in range(CANONICAL_FRAMES):
-        frames = [sequence[index] for sequence in resampled]
-        pose_keys = set().union(*(frame.pose.keys() for frame in frames))
-        hand_keys = set().union(*(frame.hands.keys() for frame in frames))
-        canonical.append(FrameSample(
-            timestamp_ms=round(sum(durations) / len(durations) * index / (CANONICAL_FRAMES - 1)),
-            pose={key: point for key in sorted(pose_keys) if (point := _mean_points([frame.pose.get(key) for frame in frames]))},
-            hands={key: point for key in sorted(hand_keys) if (point := _mean_points([frame.hands.get(key) for frame in frames]))},
-            prop=_mean_points([frame.prop for frame in frames]),
-            prop_metadata=_canonical_prop_metadata(frames),
-        ))
+        reference_frames = [
+            _aggregate_frames(
+                groups[index], timestamp_ms=index, minimum_presence=1
+            )
+            for groups in aligned_by_reference
+            if groups[index]
+        ]
+        canonical.append(
+            _aggregate_frames(
+                reference_frames,
+                timestamp_ms=round(
+                    canonical_duration * index / (CANONICAL_FRAMES - 1)
+                ),
+                minimum_presence=max(1, math.ceil(len(references) / 2)),
+            )
+        )
     prop_coverage = sum(frame.prop is not None for frame in canonical) / CANONICAL_FRAMES
+    canonical_validation = validate_sequence(
+        canonical, required, required_hand_sides=hand_sides
+    )
+    if not canonical_validation.valid:
+        raise ValueError(
+            ",".join(code.value for code in canonical_validation.codes)
+        )
     prop_events = detect_prop_events(canonical)
     event_kinds = {event.kind for event in prop_events}
     has_release_catch = {"release", "catch"}.issubset(event_kinds)
     return MovementTemplate(
         schema_version=SCHEMA_VERSION, capture_version=CAPTURE_VERSION,
-        duration_ms=round(sum(durations) / len(durations)), reference_count=len(references),
+        duration_ms=canonical_duration, reference_count=len(references),
         required_modalities=required,
-        normalization_metadata={"anchor": "shoulder_midpoint", "scale": "shoulder_width", "mirrored": False},
-        feature_capabilities={"pose": "pose" in required, "hands": "hands" in required, "prop_translation": prop_coverage >= MIN_COVERAGE, "release_catch": has_release_catch, "prop_rotation": False},
+        normalization_metadata={
+            "anchor": (
+                "shoulder_midpoint"
+                if "pose" in required
+                else "required_hand"
+                if hand_sides
+                else "image_origin"
+            ),
+            "scale": (
+                "shoulder_width"
+                if "pose" in required
+                else "hand_size"
+                if hand_sides
+                else "image_fraction"
+            ),
+            "mirrored": False,
+        },
+        feature_capabilities={
+            "pose": "pose" in required,
+            "hands": "hands" in required,
+            "prop_translation": prop_coverage >= MIN_COVERAGE,
+            "release_catch": has_release_catch,
+            "prop_rotation": False,
+            "left_hand": "left" in hand_sides,
+            "right_hand": "right" in hand_sides,
+        },
         canonical_sequence=tuple(canonical),
         variability_metadata={"duration_std_ms": _std(durations), "reference_count": float(len(references))},
         prop_events=prop_events,
@@ -438,8 +755,8 @@ def _point_distance(a: Landmark | None, b: Landmark | None) -> float | None:
 def _modality_error(a: FrameSample, b: FrameSample, modality: str) -> float | None:
     if modality == "prop_translation":
         return _point_distance(a.prop, b.prop)
-    left = a.pose if modality == "pose" else a.hands
-    right = b.pose if modality == "pose" else b.hands
+    left = a.pose if modality == "pose" else _semantic_hands(a.hands)
+    right = b.pose if modality == "pose" else _semantic_hands(b.hands)
     distances = [_point_distance(left.get(key), right.get(key)) for key in set(left) & set(right)]
     usable = [item for item in distances if item is not None]
     return sum(usable) / len(usable) if usable else None
@@ -537,13 +854,21 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
     ``total`` is a bounded 0..12 projection of five 0..3 components, allowing
     existing rubric consumers to display it without mixing it with legacy %.
     """
-    validation = validate_sequence(samples, template.required_modalities)
+    validation = validate_sequence(
+        samples,
+        template.required_modalities,
+        required_hand_sides=template.required_hand_sides,
+    )
     names = ("Body technique", "Hand technique", "Prop path", "Timing", "Control/stability")
     scores: dict[str, int | None] = {name: None for name in names}
     confidence = {name: 0.0 for name in names}
     if not validation.valid:
         return SequenceComparison(scores, confidence, 0, _level(0), validation)
-    candidate = normalize_sequence(samples)
+    candidate = normalize_sequence(
+        samples,
+        use_pose_anchor="pose" in template.required_modalities,
+        required_hand_sides=template.required_hand_sides,
+    )
     path_modalities = [m for m, capable in (("pose", template.feature_capabilities.get("pose")), ("hands", template.feature_capabilities.get("hands")), ("prop_translation", template.feature_capabilities.get("prop_translation"))) if capable]
     path = _dtw(template.canonical_sequence, candidate, path_modalities)
     component_for = {"Body technique": "pose", "Hand technique": "hands", "Prop path": "prop_translation"}
@@ -552,7 +877,13 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
             continue
         errors = [_modality_error(template.canonical_sequence[i], candidate[j], modality) for i, j in path]
         usable = [value for value in errors if value is not None]
-        coverage, _ = _coverage(samples, modality)
+        if modality == "hands" and template.required_hand_sides:
+            coverage = min(
+                _coverage(samples, modality, hand_side=side)[0]
+                for side in template.required_hand_sides
+            )
+        else:
+            coverage, _ = _coverage(samples, modality)
         if usable:
             confidence[name] = coverage
             scores[name] = _quality(sum(usable) / len(usable), coverage)

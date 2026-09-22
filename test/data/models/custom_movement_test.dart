@@ -57,6 +57,38 @@ void main() {
 
       expect(MovementTemplate.tryFrom(missing), isNull);
     });
+
+    test('derives one-hand and pose-optional readiness from capabilities', () {
+      final oneHand = templateMap();
+      oneHand['required_modalities'] = ['hands', 'prop_translation'];
+      oneHand['feature_capabilities'] = {
+        'pose': false,
+        'hands': true,
+        'prop_translation': true,
+        'release_catch': false,
+        'prop_rotation': false,
+        'left_hand': true,
+        'right_hand': false,
+      };
+
+      final template = MovementTemplate.tryFrom(oneHand);
+
+      expect(template, isNotNull);
+      expect(template!.requiredHandSides, ['left']);
+      expect(template.readinessSpec.hands.wireValue, 'one_hand');
+      expect(template.readinessSpec.body.wireValue, 'none');
+      expect(template.readinessGuidance, contains('left hand'));
+      expect(template.readinessGuidance, isNot(contains('upper body')));
+    });
+
+    test('legacy version-one hands capability keeps two-hand readiness', () {
+      final template = MovementTemplate.tryFrom(templateMap());
+
+      expect(template, isNotNull);
+      expect(template!.requiredHandSides, ['left', 'right']);
+      expect(template.readinessSpec.hands.wireValue, 'two_hands');
+      expect(template.readinessSpec.body.wireValue, 'upper_body');
+    });
   });
 
   group('CustomMovement', () {

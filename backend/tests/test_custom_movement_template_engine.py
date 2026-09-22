@@ -133,3 +133,205 @@ def test_fast_pass_near_hand_is_not_a_stable_catch():
     frames = [FrameSample(i * 10, hands={"left": Landmark(0, 0)}, prop=Landmark(.2 - i * .08, 0)) for i in range(6)]
     kinds = [event.kind for event in detect_prop_events(frames)]
     assert "catch" not in kinds and "stable_contact" not in kinds
+
+
+def _sided_sequence(*, sides=("left",), include_pose=True, moving_pose=False):
+    frames = []
+    for index in range(12):
+        pose_x = 0.35 + (0.02 * index if moving_pose else 0.0)
+        pose = (
+            {
+                "11": Landmark(0.3, 0.3),
+                "12": Landmark(0.7, 0.3),
+                "15": Landmark(pose_x, 0.5),
+            }
+            if include_pose
+            else {}
+        )
+        hands = {
+            side: Landmark(0.25 if side == "left" else 0.75, 0.45)
+            for side in sides
+        }
+        frames.append(
+            FrameSample(
+                index * 100,
+                pose=pose,
+                hands=hands,
+                prop=Landmark(0.2 + 0.03 * index, 0.4),
+            )
+        )
+    return tuple(frames)
+
+
+def test_one_hand_template_does_not_require_unused_hand_or_static_pose():
+    references = [_sided_sequence() for _ in range(3)]
+
+    template = build_template(references)
+
+    assert template.required_modalities == ("hands", "prop_translation")
+    assert template.feature_capabilities["left_hand"] is True
+    assert template.feature_capabilities["right_hand"] is False
+    assert template.feature_capabilities["pose"] is False
+    comparison = compare_sequence(template, _sided_sequence(include_pose=False))
+    assert comparison.validation.valid
+    assert comparison.component_scores["Hand technique"] == 3
+    assert comparison.component_scores["Prop path"] == 3
+
+
+def test_non_required_hand_is_filtered_from_canonical_and_scoring():
+    def with_transient_right(reference_index, *, candidate=False):
+        frames = []
+        for index, frame in enumerate(_sided_sequence(include_pose=False)):
+            hands = dict(frame.hands)
+            if candidate or (reference_index < 2 and index < 6):
+                hands["right"] = Landmark(
+                    (0.9 - index * 0.1) if candidate else 0.75,
+                    0.2,
+                )
+            frames.append(
+                FrameSample(
+                    frame.timestamp_ms,
+                    pose=frame.pose,
+                    hands=hands,
+                    prop=frame.prop,
+                )
+            )
+        return tuple(frames)
+
+    template = build_template([with_transient_right(index) for index in range(3)])
+
+    assert template.required_hand_sides == ("left",)
+    assert all(
+        _hand_key.split(":", 1)[0] != "right"
+        for frame in template.canonical_sequence
+        for _hand_key in frame.hands
+    )
+    comparison = compare_sequence(template, with_transient_right(0, candidate=True))
+    assert comparison.component_scores["Hand technique"] == 3
+
+
+def test_pose_optional_hand_normalization_handles_camera_offset_and_scale():
+    def camera_view(*, shift, scale):
+        return tuple(
+            FrameSample(
+                index * 100,
+                hands={
+                    "left:0:0": Landmark(shift + 0.2 * scale, 0.4 * scale),
+                    "left:0:9": Landmark(shift + 0.2 * scale, 0.5 * scale),
+                },
+                prop=Landmark(
+                    shift + (0.25 + index * 0.02) * scale,
+                    0.35 * scale,
+                ),
+            )
+            for index in range(12)
+        )
+
+    template = build_template(
+        [
+            camera_view(shift=0.0, scale=1.0),
+            camera_view(shift=0.1, scale=0.8),
+            camera_view(shift=-0.1, scale=1.2),
+        ]
+    )
+    comparison = compare_sequence(
+        template,
+        camera_view(shift=0.2, scale=0.7),
+    )
+    baseline = compare_sequence(template, camera_view(shift=0.0, scale=1.0))
+
+    assert template.feature_capabilities["pose"] is False
+    assert template.normalization_metadata["scale"] == "hand_size"
+    assert comparison.component_scores["Prop path"] == baseline.component_scores[
+        "Prop path"
+    ]
+    assert comparison.component_scores["Prop path"] >= 2
+
+
+def test_two_hand_template_requires_both_observed_sides():
+    references = [_sided_sequence(sides=("left", "right")) for _ in range(3)]
+    template = build_template(references)
+
+    assert template.required_hand_sides == ("left", "right")
+    missing_right = compare_sequence(template, _sided_sequence(sides=("left",)))
+
+    assert not missing_right.validation.valid
+    assert FailureCode.MISSING_MODALITY in missing_right.validation.codes
+
+
+def test_meaningful_pose_is_inferred_but_pose_optional_sequence_remains_valid():
+    pose_template = build_template(
+        [_sided_sequence(moving_pose=True) for _ in range(3)]
+    )
+    pose_optional = build_template([_sided_sequence() for _ in range(3)])
+
+    assert pose_template.feature_capabilities["pose"] is True
+    assert pose_optional.feature_capabilities["pose"] is False
+    assert compare_sequence(
+        pose_optional, _sided_sequence(include_pose=False)
+    ).validation.valid
+
+
+def _phase_shifted_sequence(peak_index: int):
+    values = [0.0] * 12
+    for offset, value in ((-2, 0.2), (-1, 0.6), (0, 1.0), (1, 0.6), (2, 0.2)):
+        index = peak_index + offset
+        if 0 <= index < len(values):
+            values[index] = value
+    return tuple(
+        FrameSample(
+            index * 100,
+            hands={"left": Landmark(0.0, 0.0)},
+            prop=Landmark(value, 0.4),
+        )
+        for index, value in enumerate(values)
+    )
+
+
+def test_dtw_aligned_references_preserve_phase_peak_and_are_deterministic():
+    references = [
+        _phase_shifted_sequence(4),
+        _phase_shifted_sequence(6),
+        _phase_shifted_sequence(8),
+    ]
+
+    first = build_template(references)
+    second = build_template(references)
+    peak = max(frame.prop.x for frame in first.canonical_sequence if frame.prop)
+
+    assert peak > 0.9
+    assert first.to_dict() == second.to_dict()
+
+
+def test_legacy_version_one_template_without_hand_sides_remains_readable():
+    current = _template().to_dict()
+    current["feature_capabilities"].pop("left_hand")
+    current["feature_capabilities"].pop("right_hand")
+
+    loaded = MovementTemplate.from_dict(current)
+
+    assert loaded.required_hand_sides == ("left", "right")
+
+
+def test_production_hand_index_reordering_does_not_lose_laterality():
+    def reference(left_index, right_index):
+        return tuple(
+            FrameSample(
+                frame * 100,
+                hands={
+                    f"left:{left_index}:0": Landmark(0.2 + frame * 0.01, 0.4),
+                    f"right:{right_index}:0": Landmark(0.8 - frame * 0.01, 0.4),
+                },
+                prop=Landmark(0.2 + frame * 0.03, 0.35),
+            )
+            for frame in range(10)
+        )
+
+    template = build_template(
+        [reference(0, 1), reference(1, 0), reference(0, 1)]
+    )
+    candidate = reference(1, 0)
+
+    assert template.required_hand_sides == ("left", "right")
+    assert compare_sequence(template, candidate).validation.valid
+    assert compare_sequence(template, candidate).component_scores["Hand technique"] == 3

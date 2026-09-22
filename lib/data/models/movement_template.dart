@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'teacher_activity_assessment.dart';
+
 /// Versioned, data-only representation of a recorded custom movement.
 ///
 /// The backend remains authoritative for feature extraction and matching. The
@@ -39,6 +41,47 @@ class MovementTemplate {
 
   bool get claimsUnsupportedRotation =>
       featureCapabilities['prop_rotation'] == true;
+
+  List<String> get requiredHandSides {
+    if (featureCapabilities['hands'] != true) return const [];
+    final hasSideContract =
+        featureCapabilities.containsKey('left_hand') &&
+        featureCapabilities.containsKey('right_hand');
+    if (!hasSideContract) {
+      // Legacy schema-v1 templates always used two-hand readiness.
+      return const ['left', 'right'];
+    }
+    return [
+      if (featureCapabilities['left_hand'] == true) 'left',
+      if (featureCapabilities['right_hand'] == true) 'right',
+    ];
+  }
+
+  TeacherActivityReadinessSpec get readinessSpec =>
+      TeacherActivityReadinessSpec(
+        hands: requiredHandSides.length >= 2
+            ? ActivityHandRequirement.twoHands
+            : requiredHandSides.isNotEmpty
+            ? ActivityHandRequirement.oneHand
+            : ActivityHandRequirement.none,
+        body: featureCapabilities['pose'] == true
+            ? ActivityBodyRequirement.upperBody
+            : ActivityBodyRequirement.none,
+      );
+
+  String get readinessGuidance {
+    final parts = <String>['the selected prop'];
+    if (requiredHandSides.length >= 2) {
+      parts.add('both hands');
+    } else if (requiredHandSides.isNotEmpty) {
+      parts.add('the ${requiredHandSides.single} hand');
+    }
+    if (featureCapabilities['pose'] == true) parts.add('your upper body');
+    final subject = parts.length == 1
+        ? parts.single
+        : '${parts.take(parts.length - 1).join(', ')} and ${parts.last}';
+    return 'Keep $subject visible.';
+  }
 
   int get encodedBytes => utf8.encode(jsonEncode(toMap())).length;
 
@@ -120,6 +163,8 @@ class MovementTemplate {
           'prop_translation',
           'release_catch',
           'prop_rotation',
+          'left_hand',
+          'right_hand',
         }).isNotEmpty ||
         !capabilities.keys.toSet().containsAll(const {
           'pose',
@@ -128,6 +173,15 @@ class MovementTemplate {
           'release_catch',
           'prop_rotation',
         }) ||
+        (capabilities.containsKey('left_hand') !=
+            capabilities.containsKey('right_hand')) ||
+        (capabilities['hands'] == true &&
+            capabilities.containsKey('left_hand') &&
+            capabilities['left_hand'] != true &&
+            capabilities['right_hand'] != true) ||
+        (capabilities['hands'] != true &&
+            (capabilities['left_hand'] == true ||
+                capabilities['right_hand'] == true)) ||
         capabilities['prop_rotation'] == true) {
       return null;
     }

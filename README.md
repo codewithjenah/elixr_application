@@ -725,25 +725,34 @@ Teachers and Trainees. They never register a custom name in the official rule
 registry:
 
 - `session_mode: "custom_capture"` prepares readiness for recording reference
-  sequences. After accepted readiness confirmation and activation,
+  sequences. Reference readiness requires the camera and selected prop; Hands
+  and Pose are observed during recording so the three demonstrations can infer
+  reliable one-hand, two-hand, and meaningful-pose capabilities. After
+  accepted readiness confirmation and activation,
   `start_custom_capture` begins one bounded monotonic sequence;
   `stop_custom_capture` returns `reference_count` and `reference_quality`.
   `discard_custom_reference` removes the most recent accepted sequence and
   `build_custom_template` returns `movement_template` after at least three
   valid references.
 - `session_mode: "custom_assessment"` requires a versioned
-  `custom_movement_template` on `prepare`. After readiness and activation, the
-  same `start_custom_capture` / `stop_custom_capture` pair records the
-  performance, and `finish_custom_assessment` returns `custom_assessment` with
-  five bounded component scores and a derived `0..12` total.
+  `custom_movement_template` on `prepare`. The backend derives readiness from
+  that template (legacy version-1 hand templates conservatively retain
+  two-hand readiness). After readiness and activation, the same
+  `start_custom_capture` / `stop_custom_capture` pair records the performance,
+  and `finish_custom_assessment` returns `custom_assessment` with five bounded
+  component scores and a derived `0..12` total.
 
 All custom actions require `protocol_version`, `request_id`, and `session_id`
 and receive correlated `command_ack` responses. Templates are inert data;
 there is no authored code, `eval`, or authored threshold support. Current
-capabilities include Pose, Hands, prop translation, and observable
-release/catch events. `prop_rotation` is always false because ordinary YOLO
-axis-aligned boxes do not provide reliable orientation or spin counts. Custom
-templates currently accept one Bottle or one Cocktail Shaker; the combined
+capabilities include data-driven Pose, left/right Hands, prop translation, and
+observable release/catch events. `prop_rotation` is always false because ordinary YOLO
+axis-aligned boxes do not provide reliable orientation, exact 180/360 rotation,
+or spin counts; those require a future orientation/keypoint model. The three
+references are normalized, matched to a deterministic DTW medoid, temporally
+aligned, and only then aggregated so execution-speed differences do not smear
+the canonical phases. Custom templates currently accept one Bottle or one
+Cocktail Shaker; the combined
 Bottle + Shaker option is rejected until the template format can preserve two
 synchronized prop tracks instead of silently dropping one.
 
@@ -754,6 +763,10 @@ classroom results use `assignment_attempts` with `assessment_mode:
 remain outside official `sessions`, processed-session markers, and leaderboard
 aggregation. Teacher assignments pin an exact revision/template snapshot;
 Trainee-created movements remain owner-private and are not assignable.
+
+Physical custom-movement verification is tracked in
+[`docs/custom-movement-camera-validation.md`](docs/custom-movement-camera-validation.md).
+Automated tests do not mark any row in that checklist as physically passed.
 
 Accepted `prepare` acknowledgments also include optional camera metadata: `selected_camera_fallback_used` (retained for compatibility and false under the explicit-device-only contract), `active_camera_device_id`, and `active_camera_display_name`. These fields describe the camera opened for that session; they never update the saved camera preference and do not advance client lifecycle state independently of the correlated accepted acknowledgment.
 

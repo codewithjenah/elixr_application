@@ -9,7 +9,6 @@ import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/custom_movement.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/practice_feedback.dart';
-import '../../data/models/teacher_activity_assessment.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
@@ -95,10 +94,7 @@ class _CustomMovementPracticeScreenState
           sessionId: sessionId,
           sessionMode: 'custom_assessment',
           customMovementTemplate: widget.revision.template.toMap(),
-          readinessSpec: const TeacherActivityReadinessSpec(
-            hands: ActivityHandRequirement.twoHands,
-            body: ActivityBodyRequirement.upperBody,
-          ),
+          readinessSpec: widget.revision.template.readinessSpec,
         ),
       );
       _requireAccepted(await _socket.sendBeginReadiness(sessionId: sessionId));
@@ -311,7 +307,7 @@ class _CustomMovementPracticeScreenState
                         ? 'Perform the full movement, then finish.'
                         : _ready
                         ? 'Ready to begin.'
-                        : 'Keep your upper body, hands, and prop visible.',
+                        : widget.revision.template.readinessGuidance,
                   ),
                   const SizedBox(height: 12),
                   FilledButton(

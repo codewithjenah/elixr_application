@@ -1,4 +1,4 @@
-"""Greedy IoU identity tracker for a single prop class.
+"""Deterministic IoU-first identity tracker for a single prop class.
 
 Simplified SORT without a Kalman filter: each current detection is matched to
 the previous box with the highest IoU above ``PROP_TRACK_MIN_IOU``. Unmatched
@@ -13,11 +13,15 @@ still-alive unmatched tracks coasted by last-known velocity.
 
 Each track also keeps the last two YOLO-confirmed ``(timestamp, bbox)``
 observations so skipped frames can coast the box by last-known velocity
-instead of freezing it in place.
+instead of freezing it in place.  When a fast confirmed detection no longer
+overlaps the last box, a second conservative pass may associate it with the
+predicted centre.  That pass requires velocity history and is spatially gated;
+it never creates detections or keeps an otherwise retired ghost track alive.
 """
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, replace
 
@@ -28,6 +32,10 @@ from config import (
     YOLO_FRAME_SKIP,
 )
 from vision.types import PropDetection
+
+
+_PREDICTED_CENTER_GATE_DIAGONALS = 1.25
+_APEX_REVERSAL_GATE_DIAGONALS = 0.75
 
 
 def box_iou(a: PropDetection, b: PropDetection) -> float:
@@ -119,6 +127,54 @@ class PropTracker:
             used_detections.add(det_index)
             det_to_track_index[det_index] = track_index
 
+        # Fast props can move farther than one AABB between YOLO ticks.  Keep
+        # IoU authoritative, then consider only still-unmatched tracks that
+        # have two confirmed observations (a usable velocity estimate).
+        predicted_pairs: list[tuple[float, float, int, int]] = []
+        for track_index, track in enumerate(self._tracks):
+            if track_index in used_tracks or len(track.observations) < 2:
+                continue
+            predicted_center = self._predicted_center(track, now)
+            if predicted_center is None:
+                continue
+            last_center = track.observations[-1].detection.center
+            box = track.observations[-1].detection
+            diagonal = math.hypot(box.x2 - box.x1, box.y2 - box.y1)
+            if diagonal <= 0:
+                continue
+            for det_index, detection in enumerate(detections):
+                if det_index in used_detections:
+                    continue
+                center = detection.center
+                predicted_distance = math.hypot(
+                    center.x - predicted_center[0], center.y - predicted_center[1]
+                )
+                last_distance = math.hypot(
+                    center.x - last_center.x, center.y - last_center.y
+                )
+                if (
+                    predicted_distance
+                    > _PREDICTED_CENTER_GATE_DIAGONALS * diagonal
+                    and last_distance > _APEX_REVERSAL_GATE_DIAGONALS * diagonal
+                ):
+                    continue
+                predicted_pairs.append(
+                    (
+                        predicted_distance / diagonal,
+                        last_distance / diagonal,
+                        track_index,
+                        det_index,
+                    )
+                )
+
+        predicted_pairs.sort()
+        for _, _, track_index, det_index in predicted_pairs:
+            if track_index in used_tracks or det_index in used_detections:
+                continue
+            used_tracks.add(track_index)
+            used_detections.add(det_index)
+            det_to_track_index[det_index] = track_index
+
         next_tracks: list[_Track] = []
         tracked: list[PropDetection] = []
         for det_index, detection in enumerate(detections):
@@ -178,6 +234,23 @@ class PropTracker:
 
         self._tracks = next_tracks
         return tracked
+
+    @staticmethod
+    def _predicted_center(track: _Track, now: float) -> tuple[float, float] | None:
+        previous, latest = track.observations[-2], track.observations[-1]
+        sample_dt = latest.timestamp - previous.timestamp
+        if sample_dt <= 0:
+            return None
+        elapsed = max(0.0, now - latest.timestamp)
+        lead = min(elapsed, max_extrapolation_lead_s())
+        previous_center = previous.detection.center
+        latest_center = latest.detection.center
+        return (
+            latest_center.x
+            + (latest_center.x - previous_center.x) / sample_dt * lead,
+            latest_center.y
+            + (latest_center.y - previous_center.y) / sample_dt * lead,
+        )
 
     def live_detections(self, now: float) -> list[PropDetection]:
         """Return this-tick YOLO matches plus still-alive unmatched tracks.

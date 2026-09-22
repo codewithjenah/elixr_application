@@ -224,6 +224,71 @@ def test_spatial_jump_does_not_leave_unmatched_ghost():
     assert live[0].yolo_confirmed is True
 
 
+def test_velocity_supported_large_spatial_step_keeps_identity():
+    tracker = PropTracker()
+    first = tracker.update([_box(10)], timestamp=0.0)
+    second = tracker.update([_box(30)], timestamp=0.1)
+
+    jumped = tracker.update([_box(70)], timestamp=0.2)
+
+    assert second[0].track_id == first[0].track_id
+    assert jumped[0].track_id == first[0].track_id
+
+
+def test_unrelated_distant_detection_does_not_inherit_predicted_identity():
+    tracker = PropTracker()
+    first = tracker.update([_box(10)], timestamp=0.0)
+    tracker.update([_box(50)], timestamp=0.1)
+
+    unrelated = tracker.update([_box(400, y1=300)], timestamp=0.2)
+
+    assert unrelated[0].track_id != first[0].track_id
+
+
+def test_fast_track_reacquires_after_one_yolo_miss():
+    tracker = PropTracker()
+    first = tracker.update([_box(10)], timestamp=0.0)
+    tracker.update([_box(30)], timestamp=0.1)
+    assert tracker.update([], timestamp=0.2) == []
+
+    reacquired = tracker.update([_box(70)], timestamp=0.3)
+
+    assert reacquired[0].track_id == first[0].track_id
+
+
+def test_direction_reversal_near_toss_apex_keeps_identity():
+    tracker = PropTracker()
+    first = tracker.update([_box(10, y1=100)], timestamp=0.0)
+    tracker.update([_box(10, y1=60)], timestamp=0.1)
+
+    # Constant-velocity prediction is above the observed box, but the small
+    # reversal remains close enough to the last confirmed apex observation.
+    reversed_near_apex = tracker.update([_box(10, y1=70)], timestamp=0.2)
+
+    assert reversed_near_apex[0].track_id == first[0].track_id
+
+
+def test_predicted_matching_does_not_cross_assign_competing_detections():
+    tracker = PropTracker()
+    first = tracker.update(
+        [_box(10, y1=10), _box(210, y1=150)], timestamp=0.0
+    )
+    left_id = first[0].track_id
+    right_id = first[1].track_id
+    tracker.update([_box(30, y1=10), _box(190, y1=150)], timestamp=0.1)
+
+    # Reverse input order to prove assignment is based on the predicted paths,
+    # not current detection order.
+    fast = tracker.update(
+        [_box(150, y1=150), _box(70, y1=10)], timestamp=0.2
+    )
+
+    upper = next(item for item in fast if item.y1 == 10)
+    lower = next(item for item in fast if item.y1 == 150)
+    assert upper.track_id == left_id
+    assert lower.track_id == right_id
+
+
 def test_both_boxes_jumping_does_not_leave_ghosts():
     tracker = PropTracker()
     first = tracker.update(

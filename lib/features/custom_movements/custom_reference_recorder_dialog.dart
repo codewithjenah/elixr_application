@@ -86,10 +86,10 @@ class _CustomReferenceRecorderDialogState
           prop: widget.prop,
           sessionId: sessionId,
           sessionMode: 'custom_capture',
-          readinessSpec: const TeacherActivityReadinessSpec(
-            hands: ActivityHandRequirement.twoHands,
-            body: ActivityBodyRequirement.upperBody,
-          ),
+          // Capture observes Hands and Pose while recording, but readiness
+          // only requires the camera and selected prop. The three accepted
+          // demonstrations determine which landmark modalities are reliable.
+          readinessSpec: const TeacherActivityReadinessSpec(),
         ),
       );
       _requireAccepted(await _socket.sendBeginReadiness(sessionId: sessionId));
@@ -242,87 +242,91 @@ class _CustomReferenceRecorderDialogState
     return ContentDialog(
       constraints: const BoxConstraints(maxWidth: 760, maxHeight: 720),
       title: const Text('Record reference demonstrations'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Perform the complete movement three times. ELIXR uses body, hand, and prop motion—not the video itself—to build your reference.',
-          ),
-          const SizedBox(height: 12),
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Container(
-              color: Colors.black,
-              alignment: Alignment.center,
-              child: _preview == null
-                  ? const ProgressRing()
-                  : Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Image.memory(_preview!, fit: BoxFit.contain),
-                        if (_countdown != null)
-                          Center(
-                            child: Text(
-                              '$_countdown',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 72,
-                                fontWeight: FontWeight.bold,
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Perform the complete movement three times. Keep the selected prop visible; ELIXR will use reliably observed body, hand, and prop motion—not the video itself—to build your reference.',
+            ),
+            const SizedBox(height: 12),
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Container(
+                color: Colors.black,
+                alignment: Alignment.center,
+                child: _preview == null
+                    ? const ProgressRing()
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.memory(_preview!, fit: BoxFit.contain),
+                          if (_countdown != null)
+                            Center(
+                              child: Text(
+                                '$_countdown',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 72,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                          ),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: List.generate(MovementTemplate.minimumReferences, (
+                index,
+              ) {
+                final complete = index < _referenceCount;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: complete
+                          ? Colors.green.withValues(alpha: 0.12)
+                          : FluentTheme.of(
+                              context,
+                            ).resources.cardBackgroundFillColorDefault,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          complete
+                              ? FluentIcons.accept
+                              : FluentIcons.circle_ring,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 5),
+                        Text('Reference ${index + 1}${complete ? ' ✓' : ''}'),
                       ],
                     ),
+                  ),
+                );
+              }),
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: List.generate(MovementTemplate.minimumReferences, (
-              index,
-            ) {
-              final complete = index < _referenceCount;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: complete
-                        ? Colors.green.withValues(alpha: 0.12)
-                        : FluentTheme.of(
-                            context,
-                          ).resources.cardBackgroundFillColorDefault,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        complete ? FluentIcons.accept : FluentIcons.circle_ring,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 5),
-                      Text('Reference ${index + 1}${complete ? ' ✓' : ''}'),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 8),
-          Text(_quality),
-          if (_error != null) ...[
             const SizedBox(height: 8),
-            InfoBar(
-              title: const Text('Recording issue'),
-              content: Text(_error!),
-              severity: InfoBarSeverity.error,
-            ),
+            Text(_quality),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              InfoBar(
+                title: const Text('Recording issue'),
+                content: Text(_error!),
+                severity: InfoBarSeverity.error,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
       actions: [
         Button(onPressed: _busy ? null : _cancel, child: const Text('Cancel')),

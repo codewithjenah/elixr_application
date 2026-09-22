@@ -518,6 +518,33 @@ class VisionSession:
         self._is_custom_capture = session_mode == "custom_capture"
         self._is_custom_assessment = session_mode == "custom_assessment"
         self._is_custom = self._is_custom_capture or self._is_custom_assessment
+        self._custom_template = (
+            CustomMovementTemplate.from_dict(custom_movement_template)
+            if custom_movement_template is not None
+            else None
+        )
+        if self._is_custom_assessment and self._custom_template is None:
+            raise ValueError("missing_custom_movement_template")
+        if self._is_custom_capture:
+            # Reference capture observes both landmark detectors while active,
+            # but readiness only gates camera + the selected physical prop.
+            readiness_spec = {"hands": "none", "body": "none"}
+        elif self._is_custom_assessment and self._custom_template is not None:
+            required_sides = self._custom_template.required_hand_sides
+            readiness_spec = {
+                "hands": (
+                    "two_hands"
+                    if len(required_sides) >= 2
+                    else "one_hand"
+                    if required_sides
+                    else "none"
+                ),
+                "body": (
+                    "upper_body"
+                    if self._custom_template.feature_capabilities.get("pose", False)
+                    else "none"
+                ),
+            }
         if self._is_freestyle:
             prop_type = "bottle_and_shaker"
 
@@ -533,6 +560,7 @@ class VisionSession:
         self.bottle_detection_enabled = bottle_detection_enabled
         self.session_id = session_id
         self.readiness_spec = readiness_spec
+        self._yolo_frame_skip = 1 if self._is_custom else YOLO_FRAME_SKIP
         if self._is_freestyle:
             diagnostics_mode = "freestyle"
         elif self._is_custom:
@@ -590,19 +618,33 @@ class VisionSession:
                 or movement in HANDS_BARTENDER_ROI_MOVEMENTS
             )
         )
+        custom_hands_needed = self._is_custom_capture or (
+            self._is_custom_assessment
+            and self._custom_template is not None
+            and self._custom_template.feature_capabilities.get("hands", False)
+        )
+        custom_pose_needed = self._is_custom_capture or (
+            self._is_custom_assessment
+            and self._custom_template is not None
+            and self._custom_template.feature_capabilities.get("pose", False)
+        )
         self._hands_needed = (
             not self._prop_detection_only
             and (
-                self._is_freestyle or self._is_custom or movement_requires_hands(movement)
+                self._is_freestyle or custom_hands_needed or movement_requires_hands(movement)
             )
         )
         self._pose_needed = (
             not self._prop_detection_only
             and (
-                self._is_freestyle or self._is_custom or movement_requires_pose(movement)
+                self._is_freestyle or custom_pose_needed or movement_requires_pose(movement)
             )
         )
-        if readiness_spec is not None:
+        if self._is_custom_capture:
+            self._hands_max = 2
+        elif self._is_custom_assessment and self._custom_template is not None:
+            self._hands_max = len(self._custom_template.required_hand_sides)
+        elif readiness_spec is not None:
             # Teacher Activities deliberately use the internal Free Practice
             # movement so active recording stays unscored. Their explicit
             # readiness contract must still control MediaPipe construction;
@@ -674,13 +716,6 @@ class VisionSession:
         self._ai_lifecycle_skips = 0
         self._submission_recorder: SubmissionRecorder | None = None
         self._submission_recorder_lock = threading.Lock()
-        self._custom_template = (
-            CustomMovementTemplate.from_dict(custom_movement_template)
-            if custom_movement_template is not None
-            else None
-        )
-        if self._is_custom_assessment and self._custom_template is None:
-            raise ValueError("missing_custom_movement_template")
         self._custom_references: list[tuple[CustomFrameSample, ...]] = []
         self._custom_samples: list[CustomFrameSample] | None = None
         self._custom_capture_started_at: float | None = None
@@ -741,15 +776,39 @@ class VisionSession:
             self._custom_previous_prop = None
             if not samples:
                 return False, "custom_capture_not_recording", {}
+            required_modalities = (
+                self._custom_template.required_modalities
+                if self._is_custom_assessment and self._custom_template is not None
+                else ("prop_translation",)
+            )
+            required_hand_sides = (
+                self._custom_template.required_hand_sides
+                if self._is_custom_assessment and self._custom_template is not None
+                else ()
+            )
             validation = validate_custom_movement_sequence(
-                samples, ("pose", "hands", "prop_translation")
+                samples,
+                required_modalities,
+                required_hand_sides=required_hand_sides,
+            )
+            rejected_reason = (
+                validation.codes[0].value if validation.codes else None
             )
             quality = {
                 "valid": validation.valid,
                 "frame_count": len(samples),
                 "duration_ms": samples[-1].timestamp_ms,
                 "codes": [code.value for code in validation.codes],
+                **self._custom_capture_diagnostics(samples),
+                "accepted": validation.valid,
+                "rejected_reason": rejected_reason,
             }
+            logger.info(
+                "CUSTOM_CAPTURE_DIAGNOSTICS session_id=%s mode=%s diagnostics=%s",
+                self.session_id,
+                "assessment" if self._is_custom_assessment else "reference",
+                quality,
+            )
             if not validation.valid:
                 code = validation.codes[0].value if validation.codes else "invalid_reference"
                 return False, code, quality
@@ -782,7 +841,6 @@ class VisionSession:
                 raise ValueError("invalid_session_purpose")
             template = build_custom_movement_template(
                 tuple(self._custom_references),
-                ("pose", "hands", "prop_translation"),
             )
             return template.to_dict()
         finally:
@@ -808,6 +866,8 @@ class VisionSession:
                 for name, score in result.component_scores.items()
                 if score is not None
             ]
+            payload["sequence_duration_ms"] = samples[-1].timestamp_ms
+            payload["diagnostics"] = self._custom_capture_diagnostics(samples)
             self._custom_samples = None
             return payload
         finally:
@@ -821,6 +881,7 @@ class VisionSession:
         normalized: _NormalizedFrameDetections,
         hands,
         pose,
+        yolo_attempted: bool,
     ) -> None:
         samples = self._custom_samples
         started = self._custom_capture_started_at
@@ -857,7 +918,7 @@ class VisionSession:
         )
         detection = max(live, key=lambda item: item.confidence) if live else None
         prop_point = None
-        prop_metadata: dict[str, Any] = {}
+        prop_metadata: dict[str, Any] = {"yolo_attempted": yolo_attempted}
         if detection is not None:
             height, width = int(frame.shape[0]), int(frame.shape[1])
             center = detection.center_normalized(width, height)
@@ -872,6 +933,7 @@ class VisionSession:
                 velocity_y = (center.y - previous_y) / elapsed
             self._custom_previous_prop = (center.x, center.y, timestamp_ms)
             prop_metadata = {
+                "yolo_attempted": yolo_attempted,
                 "track_id": detection.track_id,
                 "class": self.prop_type,
                 "bbox_width": (detection.x2 - detection.x1) / max(width, 1),
@@ -896,6 +958,74 @@ class VisionSession:
             prop=prop_point,
             prop_metadata=prop_metadata,
         ))
+
+    @staticmethod
+    def _custom_capture_diagnostics(
+        samples: tuple[CustomFrameSample, ...],
+    ) -> dict[str, Any]:
+        frame_count = len(samples)
+        duration_ms = samples[-1].timestamp_ms if samples else 0
+        attempted = sum(
+            frame.prop_metadata.get("yolo_attempted") is True for frame in samples
+        )
+        confirmed = sum(
+            frame.prop_metadata.get("yolo_attempted") is True
+            and frame.prop_metadata.get("yolo_confirmed") is True
+            for frame in samples
+        )
+        observed_track_ids = [
+            frame.prop_metadata.get("track_id")
+            for frame in samples
+            if frame.prop is not None
+            and frame.prop_metadata.get("track_id") is not None
+        ]
+        track_changes = sum(
+            current != previous
+            for previous, current in zip(
+                observed_track_ids, observed_track_ids[1:]
+            )
+        )
+        longest_gap = current_gap = 0
+        for frame in samples:
+            current_gap = current_gap + 1 if frame.prop is None else 0
+            longest_gap = max(longest_gap, current_gap)
+
+        def coverage(predicate) -> float:
+            if not samples:
+                return 0.0
+            return round(sum(predicate(frame) for frame in samples) / frame_count, 3)
+
+        return {
+            "effective_processing_fps": round(
+                (frame_count - 1) * 1000 / duration_ms, 2
+            )
+            if frame_count > 1 and duration_ms > 0
+            else 0.0,
+            "yolo_confirmation_rate": round(confirmed / attempted, 3)
+            if attempted
+            else 0.0,
+            "yolo_attempts": attempted,
+            "prop_track_changes": track_changes,
+            "longest_prop_observation_gap_frames": longest_gap,
+            "pose_coverage": coverage(
+                lambda frame: any(point.usable() for point in frame.pose.values())
+            ),
+            "left_hand_coverage": coverage(
+                lambda frame: any(
+                    str(key).split(":", 1)[0].lower() == "left"
+                    and point.usable()
+                    for key, point in frame.hands.items()
+                )
+            ),
+            "right_hand_coverage": coverage(
+                lambda frame: any(
+                    str(key).split(":", 1)[0].lower() == "right"
+                    and point.usable()
+                    for key, point in frame.hands.items()
+                )
+            ),
+            "sequence_duration_ms": duration_ms,
+        }
 
     def _acquire_ai_state(self, *, blocking: bool) -> bool:
         """Exclusive access to AI/lifecycle mutation. Preview must not call this.
@@ -1555,7 +1685,7 @@ class VisionSession:
         self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
-        run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
+        run_yolo = (self._frame_index - 1) % self._yolo_frame_skip == 0
 
         if self.bottle_detection_enabled and run_yolo:
             t0 = time.perf_counter()
@@ -1714,7 +1844,7 @@ class VisionSession:
         self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
-        run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
+        run_yolo = (self._frame_index - 1) % self._yolo_frame_skip == 0
 
         if self.bottle_detection_enabled and run_yolo:
             t0 = time.perf_counter()
@@ -1822,7 +1952,7 @@ class VisionSession:
         self._frame_index += 1
 
         # Frame index starts at 1; subtract 1 so the very first frame runs YOLO.
-        run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
+        run_yolo = (self._frame_index - 1) % self._yolo_frame_skip == 0
 
         if self.bottle_detection_enabled and run_yolo:
             t0 = time.perf_counter()
@@ -1881,6 +2011,7 @@ class VisionSession:
                 normalized=normalized,
                 hands=hands,
                 pose=pose,
+                yolo_attempted=run_yolo,
             )
             feedback = (
                 "Recording movement reference…"
@@ -2553,7 +2684,7 @@ async def _cv_session_loop(
                     elapsed_s=elapsed,
                     overwrite_delta=overwrite_delta,
                     target_fps=TARGET_FPS,
-                    yolo_skip=YOLO_FRAME_SKIP,
+                    yolo_skip=session._yolo_frame_skip,
                     imgsz=YOLO_IMGSZ,
                     lifecycle=session.lifecycle,
                     processed=preview_count,
