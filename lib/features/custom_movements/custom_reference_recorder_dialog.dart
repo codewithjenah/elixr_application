@@ -58,6 +58,9 @@ class _CustomReferenceRecorderDialogState
   String? _cameraName;
   String _quality = 'Position yourself and the selected prop in view.';
 
+  bool get _canStartReference =>
+      !_initializing && !_busy && !_recording && (_ready || _active);
+
   @override
   void initState() {
     super.initState();
@@ -120,7 +123,7 @@ class _CustomReferenceRecorderDialogState
   }
 
   Future<void> _startRecording() async {
-    if (_busy || _recording || !_ready) return;
+    if (!_canStartReference) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -272,6 +275,7 @@ class _CustomReferenceRecorderDialogState
           final status = _RecorderStatusPanel(
             referenceCount: _referenceCount,
             ready: _ready,
+            active: _active,
             initializing: _initializing,
             recording: _recording,
             quality: _quality,
@@ -318,9 +322,13 @@ class _CustomReferenceRecorderDialogState
           ),
         FilledButton(
           key: const ValueKey('custom-reference-record'),
-          onPressed: _initializing || _busy || (!_ready && !_active)
-              ? null
-              : (_recording ? _stopRecording : _startRecording),
+          onPressed: _recording
+              ? _initializing || _busy
+                    ? null
+                    : _stopRecording
+              : _canStartReference
+              ? _startRecording
+              : null,
           child: Text(_recording ? 'Finish reference' : 'Record Reference'),
         ),
       ],
@@ -432,6 +440,7 @@ class _RecorderStatusPanel extends StatelessWidget {
   const _RecorderStatusPanel({
     required this.referenceCount,
     required this.ready,
+    required this.active,
     required this.initializing,
     required this.recording,
     required this.quality,
@@ -439,6 +448,7 @@ class _RecorderStatusPanel extends StatelessWidget {
   });
   final int referenceCount;
   final bool ready;
+  final bool active;
   final bool initializing;
   final bool recording;
   final String quality;
@@ -474,7 +484,7 @@ class _RecorderStatusPanel extends StatelessWidget {
               ? 'Preparing camera'
               : recording
               ? 'Recording reference ${referenceCount + 1} of 3'
-              : ready
+              : active || ready
               ? referenceCount == 0
                     ? 'Ready to record'
                     : 'Reference saved — record the next one'

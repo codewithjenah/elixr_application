@@ -70,6 +70,7 @@ class _CustomSocket extends WebSocketService {
   int acceptedReferences = 0;
   int discardCalls = 0;
   int buildCalls = 0;
+  int startCustomCaptureCalls = 0;
   bool rejectNextStop = false;
 
   @override
@@ -125,7 +126,10 @@ class _CustomSocket extends WebSocketService {
   Future<CommandAck> sendStartCustomCapture({
     String? sessionId,
     int durationSeconds = 15,
-  }) async => _ack('start_custom_capture');
+  }) async {
+    startCustomCaptureCalls += 1;
+    return _ack('start_custom_capture');
+  }
 
   @override
   Future<CommandAck> sendStopCustomCapture({String? sessionId}) async {
@@ -155,14 +159,18 @@ class _CustomSocket extends WebSocketService {
       _ack('stop');
 
   void emitReady() {
+    emitReadiness(true);
+  }
+
+  void emitReadiness(bool readinessStable) {
     _feedback.add(
-      const PracticeFeedback(
+      PracticeFeedback(
         bottleDetected: true,
         movement: 'Custom Movement',
-        feedback: 'Ready.',
+        feedback: readinessStable ? 'Ready.' : 'Getting into position.',
         feedbackType: 'positive',
         postureStatus: 'unknown',
-        readinessStable: true,
+        readinessStable: readinessStable,
       ),
     );
   }
@@ -426,6 +434,68 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     await socket.closeTestStreams();
   });
+
+  testWidgets(
+    'active recorder starts later references after readiness becomes unstable',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final socket = _CustomSocket();
+      await tester.pumpWidget(
+        _withSettings(
+          _TestSettings(),
+          CustomReferenceRecorderDialog(
+            difficulty: 'Medium',
+            prop: TrainingProp.bottle,
+            webSocket: socket,
+          ),
+        ),
+      );
+      await tester.pump();
+      socket.emitReady();
+      await tester.pump();
+
+      Future<void> startReference() async {
+        await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+        await tester.pump();
+        for (var second = 0; second < 3; second++) {
+          await tester.pump(const Duration(seconds: 1));
+        }
+        await tester.pump();
+      }
+
+      Future<void> finishReference() async {
+        await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+        await tester.pump();
+      }
+
+      await startReference();
+      await finishReference();
+      expect(socket.acceptedReferences, 1);
+
+      socket.emitReadiness(false);
+      await tester.pump();
+      expect(find.text('Reference saved — record the next one'), findsOne);
+      final recordButton = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('custom-reference-record')),
+      );
+      expect(recordButton.onPressed, isNotNull);
+
+      await startReference();
+      expect(socket.startCustomCaptureCalls, 2);
+      await finishReference();
+      expect(socket.acceptedReferences, 2);
+
+      await startReference();
+      expect(socket.startCustomCaptureCalls, 3);
+      await finishReference();
+      expect(socket.acceptedReferences, 3);
+      expect(socket.buildCalls, 1);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 200));
+      await socket.closeTestStreams();
+    },
+  );
 
   testWidgets('reference recorder fits a 1366 by 768 desktop surface', (
     tester,
