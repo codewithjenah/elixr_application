@@ -170,41 +170,61 @@ class _CustomMovementBuilderDialogState
             ),
             const SizedBox(height: 12),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: ComboBox<String>(
-                    value: _difficulty,
-                    isExpanded: true,
-                    items: CustomMovement.allowedDifficulties
-                        .map(
-                          (value) =>
-                              ComboBoxItem(value: value, child: Text(value)),
-                        )
-                        .toList(growable: false),
-                    onChanged: _busy
-                        ? null
-                        : (value) => setState(() => _difficulty = value!),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text('Difficulty'),
+                      const SizedBox(height: 6),
+                      ComboBox<String>(
+                        key: const ValueKey('custom-movement-difficulty'),
+                        value: _difficulty,
+                        isExpanded: true,
+                        items: CustomMovement.allowedDifficulties
+                            .map(
+                              (value) => ComboBoxItem(
+                                value: value,
+                                child: Text(value),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() => _difficulty = value!),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ComboBox<TrainingProp>(
-                    value: _prop,
-                    isExpanded: true,
-                    items: CustomMovement.supportedProps
-                        .map(
-                          (value) => ComboBoxItem(
-                            value: value,
-                            child: Text(value.displayLabel),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: _busy
-                        ? null
-                        : (value) => setState(() {
-                            _prop = value!;
-                            _template = null;
-                          }),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text('Prop'),
+                      const SizedBox(height: 6),
+                      ComboBox<TrainingProp>(
+                        key: const ValueKey('custom-movement-prop'),
+                        value: _prop,
+                        isExpanded: true,
+                        items: CustomMovement.supportedProps
+                            .map(
+                              (value) => ComboBoxItem(
+                                value: value,
+                                child: Text(value.displayLabel),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() {
+                                if (value == null || value == _prop) return;
+                                _prop = value;
+                                _template = null;
+                              }),
+                      ),
+                    ],
                   ),
                 ),
               ],

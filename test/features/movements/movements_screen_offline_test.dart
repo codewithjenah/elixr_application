@@ -35,6 +35,23 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(MovementDifficultySection), findsNWidgets(3));
+      expect(
+        tester
+            .widgetList<MovementDifficultySection>(
+              find.byType(MovementDifficultySection),
+            )
+            .map((section) => section.difficulty),
+        ['Easy', 'Medium', 'Hard'],
+      );
+      expect(
+        tester
+            .widget<ToggleButton>(
+              find.byKey(const ValueKey('movement-library-official')),
+            )
+            .checked,
+        isTrue,
+      );
+      expect(find.byKey(const ValueKey('my-movements-create')), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

@@ -3,16 +3,20 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import '../custom_movements/my_movements_screen.dart';
 import 'movements_presentation.dart';
 import 'widgets/movement_difficulty_section.dart';
 import 'widgets/movements_header.dart';
 
 const _kMovementsContentMaxWidth = 1280.0;
+
+enum _MovementLibraryView { official, mine }
 
 class MovementsScreen extends StatefulWidget {
   const MovementsScreen({super.key, this.sessionRepository, this.userId});
@@ -35,6 +39,7 @@ class _MovementsScreenState extends State<MovementsScreen> {
   Set<String> _practicedVariants = const {};
   SessionService? _sessionService;
   int _statsRequestGeneration = 0;
+  _MovementLibraryView _libraryView = _MovementLibraryView.official;
 
   @override
   void initState() {
@@ -124,25 +129,36 @@ class _MovementsScreenState extends State<MovementsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        MovementsHeader(summary: summary),
-                        const SizedBox(height: AppSpacing.xl),
-                        MovementDifficultySection(
-                          difficulty: 'Easy',
-                          practiceSteps: practiceStepsForDifficulty('Easy'),
-                          stats: _variantStats,
+                        if (_libraryView == _MovementLibraryView.official) ...[
+                          MovementsHeader(summary: summary),
+                          const SizedBox(height: AppSpacing.xl),
+                        ],
+                        _MovementLibrarySelector(
+                          selected: _libraryView,
+                          onSelected: (value) =>
+                              setState(() => _libraryView = value),
                         ),
                         const SizedBox(height: AppSpacing.xl),
-                        MovementDifficultySection(
-                          difficulty: 'Medium',
-                          practiceSteps: practiceStepsForDifficulty('Medium'),
-                          stats: _variantStats,
-                        ),
-                        const SizedBox(height: AppSpacing.xl),
-                        MovementDifficultySection(
-                          difficulty: 'Hard',
-                          practiceSteps: practiceStepsForDifficulty('Hard'),
-                          stats: _variantStats,
-                        ),
+                        if (_libraryView == _MovementLibraryView.official) ...[
+                          MovementDifficultySection(
+                            difficulty: 'Easy',
+                            practiceSteps: practiceStepsForDifficulty('Easy'),
+                            stats: _variantStats,
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
+                          MovementDifficultySection(
+                            difficulty: 'Medium',
+                            practiceSteps: practiceStepsForDifficulty('Medium'),
+                            stats: _variantStats,
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
+                          MovementDifficultySection(
+                            difficulty: 'Hard',
+                            practiceSteps: practiceStepsForDifficulty('Hard'),
+                            stats: _variantStats,
+                          ),
+                        ] else
+                          const MyMovementsLibrary(embedded: true),
                       ],
                     ),
                   ),
@@ -150,6 +166,45 @@ class _MovementsScreenState extends State<MovementsScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _MovementLibrarySelector extends StatelessWidget {
+  const _MovementLibrarySelector({
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final _MovementLibraryView selected;
+  final ValueChanged<_MovementLibraryView> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label: 'Movement library view',
+      child: ElixPanelCard(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        child: Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            ToggleButton(
+              key: const ValueKey('movement-library-official'),
+              checked: selected == _MovementLibraryView.official,
+              onChanged: (_) => onSelected(_MovementLibraryView.official),
+              child: const Text('Official ELIXR'),
+            ),
+            ToggleButton(
+              key: const ValueKey('movement-library-mine'),
+              checked: selected == _MovementLibraryView.mine,
+              onChanged: (_) => onSelected(_MovementLibraryView.mine),
+              child: const Text('My Movements'),
+            ),
+          ],
         ),
       ),
     );

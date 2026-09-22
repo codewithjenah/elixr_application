@@ -72,12 +72,6 @@ const elixSidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
-    label: 'My Movements',
-    icon: FluentIcons.edit_create,
-    route: AppRoutePaths.myMovements,
-    group: SidebarGroup.training,
-  ),
-  SidebarItem(
     label: 'Playground',
     icon: FluentIcons.video,
     route: AppRoutePaths.livePractice,
@@ -122,6 +116,11 @@ const elixSidebarItems = [
 @visibleForTesting
 bool isElixSidebarRouteActive(String currentPath, String? itemRoute) {
   if (itemRoute == null) return false;
+  if (itemRoute == AppRoutePaths.movements &&
+      (currentPath == AppRoutePaths.myMovements ||
+          currentPath.startsWith('${AppRoutePaths.myMovements}/'))) {
+    return true;
+  }
   return currentPath == itemRoute || currentPath.startsWith('$itemRoute/');
 }
 

@@ -21,6 +21,7 @@ void main() {
       expect(labels.contains('History'), isFalse);
       expect(labels.contains('Assigned Movements'), isFalse);
       expect(labels.contains('Movements'), isTrue);
+      expect(labels.contains('My Movements'), isFalse);
 
       final classroomIndex = labels.indexOf('Classroom');
       expect(classroomIndex, greaterThan(0));
@@ -60,6 +61,11 @@ void main() {
     );
     expect(
       isElixSidebarRouteActive('/teacher-access/group-1', '/teacher-access'),
+      isTrue,
+    );
+    expect(isElixSidebarRouteActive('/my-movements', '/movements'), isTrue);
+    expect(
+      isElixSidebarRouteActive('/my-movements/practice/custom-1', '/movements'),
       isTrue,
     );
   });

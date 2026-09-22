@@ -31,4 +31,16 @@ void main() {
       'prop': 'bottle&shaker',
     });
   });
+
+  test('legacy My Movements and nested practice paths remain stable', () {
+    expect(AppRoutePaths.myMovements, '/my-movements');
+    expect(
+      AppRoutePaths.myMovementPractice('movement / one'),
+      '/my-movements/practice/movement%20%2F%20one',
+    );
+    expect(
+      AppRoutePaths.traineeShellRoutes,
+      contains(AppRoutePaths.myMovements),
+    );
+  });
 }
