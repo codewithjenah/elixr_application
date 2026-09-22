@@ -40,6 +40,16 @@ abstract class CustomMovementRepository {
     required String ownerUid,
   });
 
+  /// Removes a custom movement from its owner's active library.
+  ///
+  /// This deliberately archives the root rather than deleting it: immutable
+  /// revisions and result records may still be needed by personal history or
+  /// assignment snapshots.
+  Future<void> deleteOwnedMovement({
+    required String movementId,
+    required String ownerUid,
+  });
+
   Future<void> savePersonalResult({
     required String ownerUid,
     required String movementId,

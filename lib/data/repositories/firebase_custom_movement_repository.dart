@@ -201,6 +201,35 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
   }
 
   @override
+  Future<void> deleteOwnedMovement({
+    required String movementId,
+    required String ownerUid,
+  }) async {
+    // The Firestore rules also require the authenticated owner. Checking the
+    // persisted record first keeps this repository safe for every caller and
+    // avoids treating an arbitrary ID as a deletable custom movement.
+    final snapshot = await _movements.doc(movementId).get();
+    if (!snapshot.exists) return;
+    final movement = CustomMovement.tryFromMap(
+      snapshot.data()!,
+      id: snapshot.id,
+    );
+    if (movement == null || !movement.isOwnedBy(ownerUid)) {
+      throw StateError('Movement changed or is not owned by this user.');
+    }
+    if (!movement.isActive) return;
+
+    // Revisions and results are immutable historical records. Archiving
+    // removes the definition from the active library while preserving those
+    // references, which is the only deletion-like transition permitted by
+    // the Firestore contract.
+    await _movements.doc(movementId).update({
+      'status': CustomMovementStatus.archived.name,
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
   Future<void> savePersonalResult({
     required String ownerUid,
     required String movementId,

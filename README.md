@@ -770,6 +770,9 @@ classroom results use `assignment_attempts` with `assessment_mode:
 remain outside official `sessions`, processed-session markers, and leaderboard
 aggregation. Teacher assignments pin an exact revision/template snapshot;
 Trainee-created movements remain owner-private and are not assignable.
+Removing a custom movement from My Movements archives its root instead of
+cascading deletion, so immutable revisions and historical results remain
+readable.
 
 Physical custom-movement verification is tracked in
 [`docs/custom-movement-camera-validation.md`](docs/custom-movement-camera-validation.md).

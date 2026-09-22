@@ -5,8 +5,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_back_button.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_toast.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/custom_movement.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../services/auth_service.dart';
@@ -202,7 +206,7 @@ Future<void> _createTraineeMovement(BuildContext context, User user) async {
   );
 }
 
-class _MovementCard extends StatelessWidget {
+class _MovementCard extends StatefulWidget {
   const _MovementCard({
     required this.movement,
     required this.ownerUid,
@@ -213,19 +217,38 @@ class _MovementCard extends StatelessWidget {
   final String ownerUid;
   final CustomMovementRepository repository;
 
+  @override
+  State<_MovementCard> createState() => _MovementCardState();
+}
+
+class _MovementCardState extends State<_MovementCard> {
   Future<void> _edit(BuildContext context) async {
-    final revision = await repository.getRevision(
-      movementId: movement.id,
-      revisionId: movement.activeRevisionId,
+    final revision = await widget.repository.getRevision(
+      movementId: widget.movement.id,
+      revisionId: widget.movement.activeRevisionId,
     );
     if (!context.mounted || revision == null) return;
     await CustomMovementBuilderDialog.show(
       context,
-      ownerUid: ownerUid,
-      ownerRole: movement.ownerRole,
-      repository: repository,
-      existing: movement,
+      ownerUid: widget.ownerUid,
+      ownerRole: widget.movement.ownerRole,
+      repository: widget.repository,
+      existing: widget.movement,
       existingRevision: revision,
+    );
+  }
+
+  Future<void> _delete() async {
+    final deleted = await _DeleteMovementDialog.show(
+      context,
+      movement: widget.movement,
+      ownerUid: widget.ownerUid,
+      repository: widget.repository,
+    );
+    if (!mounted || !deleted) return;
+    ElixToast.showSuccess(
+      context,
+      message: '${widget.movement.name} was deleted from My Movements.',
     );
   }
 
@@ -238,19 +261,21 @@ class _MovementCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              movement.name,
+              widget.movement.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: FluentTheme.of(context).typography.subtitle,
             ),
             const SizedBox(height: 6),
-            Text('${movement.difficulty} · ${movement.propType.displayLabel}'),
+            Text(
+              '${widget.movement.difficulty} · ${widget.movement.propType.displayLabel}',
+            ),
             const SizedBox(height: 8),
             Expanded(
               child: Text(
-                movement.description.isEmpty
+                widget.movement.description.isEmpty
                     ? 'Personal automatic movement'
-                    : movement.description,
+                    : widget.movement.description,
                 maxLines: 4,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -259,9 +284,11 @@ class _MovementCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: FilledButton(
-                    key: ValueKey('my-movement-practice-${movement.id}'),
+                    key: ValueKey('my-movement-practice-${widget.movement.id}'),
                     onPressed: () => context.go(
-                      AppRoutePaths.movementsMyMovementPractice(movement.id),
+                      AppRoutePaths.movementsMyMovementPractice(
+                        widget.movement.id,
+                      ),
                     ),
                     child: const Text('Practice'),
                   ),
@@ -269,21 +296,18 @@ class _MovementCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Button(
-                    key: ValueKey('my-movement-edit-${movement.id}'),
+                    key: ValueKey('my-movement-edit-${widget.movement.id}'),
                     onPressed: () => _edit(context),
                     child: const Text('Edit'),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Tooltip(
-                  message: 'Archive ${movement.name}',
+                  message: 'Delete movement',
                   child: IconButton(
-                    key: ValueKey('my-movement-archive-${movement.id}'),
-                    icon: const Icon(FluentIcons.archive),
-                    onPressed: () => repository.archiveMovement(
-                      movementId: movement.id,
-                      ownerUid: ownerUid,
-                    ),
+                    key: ValueKey('my-movement-delete-${widget.movement.id}'),
+                    icon: const Icon(FluentIcons.delete),
+                    onPressed: _delete,
                   ),
                 ),
               ],
@@ -291,6 +315,113 @@ class _MovementCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DeleteMovementDialog extends StatefulWidget {
+  const _DeleteMovementDialog({
+    required this.movement,
+    required this.ownerUid,
+    required this.repository,
+  });
+
+  final CustomMovement movement;
+  final String ownerUid;
+  final CustomMovementRepository repository;
+
+  static Future<bool> show(
+    BuildContext context, {
+    required CustomMovement movement,
+    required String ownerUid,
+    required CustomMovementRepository repository,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _DeleteMovementDialog(
+        movement: movement,
+        ownerUid: ownerUid,
+        repository: repository,
+      ),
+    );
+    return result == true;
+  }
+
+  @override
+  State<_DeleteMovementDialog> createState() => _DeleteMovementDialogState();
+}
+
+class _DeleteMovementDialogState extends State<_DeleteMovementDialog> {
+  bool _deleting = false;
+  String? _error;
+
+  Future<void> _delete() async {
+    if (_deleting) return;
+    setState(() {
+      _deleting = true;
+      _error = null;
+    });
+    try {
+      await widget.repository.deleteOwnedMovement(
+        movementId: widget.movement.id,
+        ownerUid: widget.ownerUid,
+      );
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _deleting = false;
+        _error = 'Could not delete this movement. Try again.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ElixDialog(
+      title: 'Delete movement?',
+      icon: FluentIcons.delete,
+      iconColor: context.elixColors.error,
+      headerAccentColor: context.elixColors.error,
+      showCloseButton: !_deleting,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Delete ${widget.movement.name}? This movement will be removed from My Movements. This action cannot be undone.',
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            InfoBar(
+              title: const Text('Could not delete movement'),
+              content: Text(_error!),
+              severity: InfoBarSeverity.error,
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        ElixPrimaryButton(
+          key: const ValueKey('my-movement-delete-cancel'),
+          label: 'Cancel',
+          expanded: false,
+          variant: ElixButtonVariant.secondary,
+          onPressed: _deleting
+              ? null
+              : () => Navigator.of(context, rootNavigator: true).pop(false),
+        ),
+        ElixPrimaryButton(
+          key: const ValueKey('my-movement-delete-confirm'),
+          label: _deleting ? 'Deleting…' : 'Delete',
+          expanded: false,
+          isLoading: _deleting,
+          variant: ElixButtonVariant.destructive,
+          onPressed: _deleting ? null : _delete,
+        ),
+      ],
     );
   }
 }

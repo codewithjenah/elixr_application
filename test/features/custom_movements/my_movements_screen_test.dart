@@ -34,6 +34,9 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
   String? watchedOwnerUid;
   String? requestedRevisionId;
   String? archivedMovementId;
+  int deleteCallCount = 0;
+  bool failDelete = false;
+  Completer<void>? deleteCompleter;
 
   void dispose() => _controller.close();
 
@@ -90,6 +93,20 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
     required String ownerUid,
   }) async {
     archivedMovementId = movementId;
+    movements.removeWhere(
+      (movement) => movement.id == movementId && movement.ownerUid == ownerUid,
+    );
+    _emit();
+  }
+
+  @override
+  Future<void> deleteOwnedMovement({
+    required String movementId,
+    required String ownerUid,
+  }) async {
+    deleteCallCount++;
+    await deleteCompleter?.future;
+    if (failDelete) throw StateError('delete failed');
     movements.removeWhere(
       (movement) => movement.id == movementId && movement.ownerUid == ownerUid,
     );
@@ -333,8 +350,20 @@ void main() {
       expect(find.byKey(const ValueKey('my-movements-back')), findsNothing);
       expect(find.text('Own Cascade'), findsOneWidget);
       expect(find.text('Medium · Cocktail Shaker'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('my-movement-delete-own')),
+        findsOneWidget,
+      );
       expect(find.text('Another trainee movement'), findsNothing);
       expect(find.text('Teacher assignment movement'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('my-movement-delete-other')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('my-movement-delete-assigned')),
+        findsNothing,
+      );
     },
   );
 
@@ -432,42 +461,118 @@ void main() {
     );
   });
 
-  testWidgets('Edit loads the active revision and Archive removes the card', (
-    tester,
-  ) async {
-    _useDesktopSurface(tester);
-    final auth = _auth();
-    addTearDown(auth.dispose);
-    final movement = _movement(id: 'actions', ownerUid: 'trainee-1');
-    final repository = _CustomRepository([movement])
-      ..revision = CustomMovementRevision(
-        id: movement.activeRevisionId,
-        movementId: movement.id,
-        ownerUid: movement.ownerUid,
-        ownerRole: movement.ownerRole,
-        template: _template(),
+  testWidgets(
+    'Edit loads the active revision and Delete confirms before removal',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final auth = _auth();
+      addTearDown(auth.dispose);
+      final movement = _movement(id: 'actions', ownerUid: 'trainee-1');
+      final repository = _CustomRepository([movement])
+        ..revision = CustomMovementRevision(
+          id: movement.activeRevisionId,
+          movementId: movement.id,
+          ownerUid: movement.ownerUid,
+          ownerRole: movement.ownerRole,
+          template: _template(),
+        );
+      addTearDown(repository.dispose);
+
+      await tester.pumpWidget(
+        _movementsHost(auth: auth, repository: repository),
       );
-    addTearDown(repository.dispose);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
+      await tester.pumpAndSettle();
 
-    await tester.pumpWidget(_movementsHost(auth: auth, repository: repository));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('my-movement-edit-actions')));
+      await tester.pumpAndSettle();
+      expect(repository.requestedRevisionId, movement.activeRevisionId);
+      expect(find.text('Edit Movement'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('my-movement-edit-actions')));
-    await tester.pumpAndSettle();
-    expect(repository.requestedRevisionId, movement.activeRevisionId);
-    expect(find.text('Edit Movement'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('my-movement-delete-actions')),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('my-movement-archive-actions')));
-    await tester.pumpAndSettle();
+      expect(find.text('Delete movement?'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Delete Own Cascade? This movement will be removed',
+        ),
+        findsOneWidget,
+      );
+      expect(repository.deleteCallCount, 0);
 
-    expect(repository.archivedMovementId, 'actions');
-    expect(find.text('Own Cascade'), findsNothing);
-    expect(find.text('Create your first movement'), findsOneWidget);
-  });
+      await tester.tap(find.byKey(const ValueKey('my-movement-delete-cancel')));
+      await tester.pumpAndSettle();
+
+      expect(repository.deleteCallCount, 0);
+      expect(find.text('Own Cascade'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('my-movement-delete-actions')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('my-movement-delete-confirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repository.deleteCallCount, 1);
+      expect(find.text('Own Cascade'), findsNothing);
+      expect(find.text('Create your first movement'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Delete is single-flight and failure keeps the movement visible',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final auth = _auth();
+      addTearDown(auth.dispose);
+      final movement = _movement(id: 'delete-state', ownerUid: 'trainee-1');
+      final deletion = Completer<void>();
+      final repository = _CustomRepository([movement])
+        ..deleteCompleter = deletion;
+      addTearDown(repository.dispose);
+
+      await tester.pumpWidget(
+        _movementsHost(auth: auth, repository: repository),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('my-movement-delete-delete-state')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('my-movement-delete-confirm')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('my-movement-delete-confirm')),
+      );
+      await tester.pump();
+
+      expect(repository.deleteCallCount, 1);
+      expect(find.text('Deleting…'), findsOneWidget);
+
+      repository
+        ..failDelete = true
+        ..deleteCompleter = null;
+      deletion.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not delete movement'), findsOneWidget);
+      expect(find.text('Own Cascade'), findsOneWidget);
+      expect(repository.deleteCallCount, 1);
+    },
+  );
 
   testWidgets(
     'canonical personal practice returns to Movements with My Movements selected',
