@@ -138,6 +138,15 @@ foreach ($runtimeName in $appRuntimeNames) {
     Copy-Item -LiteralPath $runtimeSource -Destination (Join-Path $stageRoot $runtimeName) -Force
 }
 
+$directMlDllCandidates = @(
+    (Join-Path $backendRuntimeRoot "onnxruntime\capi\DirectML.dll"),
+    (Join-Path $backendRuntimeRoot "DirectML.dll")
+)
+$directMlDll = $directMlDllCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $directMlDll) {
+    throw "Staged Windows backend is missing the DirectML provider library."
+}
+
 $requiredFiles = @(
     (Join-Path $stageRoot "elixr_application.exe"),
     (Join-Path $stageRoot "flutter_windows.dll"),
@@ -167,8 +176,13 @@ foreach ($modelName in @("best.onnx", "hand_landmarker.task", "pose_landmarker_l
     }
 }
 Write-Host "Verifying frozen backend resources..."
-& (Join-Path $stageBackend "elixr_backend.exe") --verify-resources
-if ($LASTEXITCODE -ne 0) {
+$verificationProcess = Start-Process `
+    -FilePath (Join-Path $stageBackend "elixr_backend.exe") `
+    -ArgumentList "--verify-resources" `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+if ($verificationProcess.ExitCode -ne 0) {
     throw "Frozen backend resource verification failed."
 }
 

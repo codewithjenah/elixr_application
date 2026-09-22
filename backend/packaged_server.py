@@ -43,6 +43,15 @@ def verify_resources() -> None:
             "Missing bundled model assets: " + ", ".join(sorted(missing))
         )
 
+    import onnxruntime as ort
+
+    providers = ort.get_available_providers()
+    if sys.platform == "win32" and "DmlExecutionProvider" not in providers:
+        raise RuntimeError(
+            "Frozen Windows backend is missing DmlExecutionProvider; "
+            f"available providers: {providers}"
+        )
+
     from mediapipe.tasks import python
     from mediapipe.tasks.python import vision
 

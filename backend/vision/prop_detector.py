@@ -225,6 +225,13 @@ class CombinedPropDetector:
             return 0
         return int(getattr(self._backend, "intra_op_threads", 0) or 0)
 
+    @property
+    def yolo_dml_device_id(self) -> int | None:
+        if self._backend is None or self._backend.runtime_name != "onnx_dml":
+            return None
+        device_id = getattr(self._backend, "dml_device_id", None)
+        return device_id if isinstance(device_id, int) else None
+
     def reset_tracks(self) -> None:
         """Drop live identities so the next frame starts a new track_id sequence."""
         self._bottle_tracker.reset()
@@ -255,15 +262,19 @@ class CombinedPropDetector:
             return self._backend
 
         backend = self._backend
-        try:
-            if backend is None:
-                backend = self._create_backend()
-            self._finish_backend_load(backend)
-            assert self._backend is not None
-            return self._backend
-        except Exception as exc:
-            fallback = self._pytorch_fallback_backend(failed=backend, error=exc)
-            if fallback is None:
+        while True:
+            try:
+                if backend is None:
+                    backend = self._create_backend()
+                self._finish_backend_load(backend)
+                assert self._backend is not None
+                return self._backend
+            except Exception as exc:
+                fallback = self._runtime_fallback_backend(failed=backend, error=exc)
+                if fallback is not None:
+                    backend = fallback
+                    continue
+
                 self._load_failed = True
                 if isinstance(exc, ModelLoadError):
                     logger.exception(
@@ -278,17 +289,6 @@ class CombinedPropDetector:
                 raise ModelLoadError(
                     "Failed to load the combined YOLO model"
                 ) from exc
-            try:
-                self._finish_backend_load(fallback)
-                assert self._backend is not None
-                return self._backend
-            except Exception:
-                self._load_failed = True
-                logger.exception(
-                    "Failed to load YOLO model: path=%s",
-                    self._model_path,
-                )
-                raise
 
     def _finish_backend_load(self, backend: PropInferenceBackend) -> None:
         backend.load()
@@ -312,10 +312,11 @@ class CombinedPropDetector:
             )
             logger.info(
                 "YOLO runtime selected: requested=%s runtime=%s provider=%s "
-                "threads=%s reason=%s%s model=%s imgsz=%s",
+                "dml_device_id=%s threads=%s reason=%s%s model=%s imgsz=%s",
                 self._requested_runtime,
                 backend.runtime_name,
                 backend.provider,
+                getattr(backend, "dml_device_id", None),
                 int(getattr(backend, "intra_op_threads", 0) or 0),
                 reason,
                 fallback_field,
@@ -334,7 +335,7 @@ class CombinedPropDetector:
             )
             self._runtime_logged = True
 
-    def _pytorch_fallback_backend(
+    def _runtime_fallback_backend(
         self,
         *,
         failed: PropInferenceBackend | None,
@@ -353,18 +354,29 @@ class CombinedPropDetector:
         )
         if failed_runtime not in {"onnx_cpu", "onnx_dml"}:
             return None
-        if not self._model_path.is_file():
-            return None
-        fallback_selection = RuntimeSelection(
-            runtime="pytorch",
-            provider="cpu",
-            reason="fallback_onnx_init_failed",
-            fallback_from=failed_runtime,
-        )
+        if failed_runtime == "onnx_dml" and self._onnx_model_path.is_file():
+            fallback_selection = RuntimeSelection(
+                runtime="onnx_cpu",
+                provider="CPUExecutionProvider",
+                reason="fallback_dml_init_failed",
+                fallback_from=failed_runtime,
+            )
+            message = "ONNX CPU"
+        else:
+            if not self._model_path.is_file():
+                return None
+            fallback_selection = RuntimeSelection(
+                runtime="pytorch",
+                provider="cpu",
+                reason="fallback_onnx_init_failed",
+                fallback_from=failed_runtime,
+            )
+            message = "PyTorch"
         self._runtime_selection = fallback_selection
         logger.warning(
-            "YOLO ONNX initialization failed; falling back to PyTorch "
+            "YOLO runtime initialization failed; falling back to %s "
             "fallback_from=%s reason=%s",
+            message,
             failed_runtime,
             error,
         )
@@ -533,6 +545,10 @@ class PropDetector:
     @property
     def yolo_threads(self) -> int:
         return self._combined.yolo_threads
+
+    @property
+    def yolo_dml_device_id(self) -> int | None:
+        return self._combined.yolo_dml_device_id
 
     def ensure_ready(self) -> None:
         """Load and validate the combined model now."""

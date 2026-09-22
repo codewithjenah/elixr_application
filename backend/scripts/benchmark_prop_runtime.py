@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import (
     MAX_BOTTLES,
     YOLO_BOTTLE_CONFIDENCE,
+    YOLO_DML_DEVICE_ID,
     YOLO_IMGSZ,
     YOLO_IOU,
     YOLO_MODEL_PATH,
@@ -125,7 +126,7 @@ def benchmark_backend(
     warmup: int,
     runs: int,
     load_s: float,
-) -> dict[str, float | str | int]:
+) -> dict[str, float | str | int | None]:
     kwargs = _inference_kwargs()
     warmup_start = time.perf_counter()
     for index in range(warmup):
@@ -147,13 +148,17 @@ def benchmark_backend(
         "warmup_ms": warmup_s * 1000.0,
         "runs": runs,
         "threads": YOLO_ONNX_INTRA_OP_THREADS,
+        "dml_device_id": getattr(backend, "dml_device_id", None),
         **stats,
     }
 
 
-def _print_result(row: dict[str, float | str | int]) -> None:
+def _print_result(row: dict[str, float | str | int | None]) -> None:
+    device = row.get("dml_device_id")
+    device_field = f" dml_device_id={device}" if isinstance(device, int) else ""
     print(
-        f"{row['runtime']:10} provider={row['provider']} model={row['model']} "
+        f"{row['runtime']:10} provider={row['provider']}{device_field} "
+        f"model={row['model']} "
         f"load={row['load_ms']:.1f}ms warmup={row['warmup_ms']:.1f}ms "
         f"mean={row['mean_ms']:.2f}ms median={row['median_ms']:.2f}ms "
         f"p95={row['p95_ms']:.2f}ms fps={row['fps']:.2f} runs={row['runs']}"
@@ -167,6 +172,15 @@ def main() -> None:
     parser.add_argument("--frames", type=int, default=8)
     parser.add_argument("--include-dml", action="store_true")
     parser.add_argument(
+        "--dml-device-id",
+        type=int,
+        default=YOLO_DML_DEVICE_ID,
+        help=(
+            "DirectML adapter index (default YOLO_DML_DEVICE_ID, currently "
+            f"{YOLO_DML_DEVICE_ID})."
+        ),
+    )
+    parser.add_argument(
         "--onnx",
         type=Path,
         default=None,
@@ -179,6 +193,8 @@ def main() -> None:
         help="Directory of real images instead of synthetic frames.",
     )
     args = parser.parse_args()
+    if args.dml_device_id < 0:
+        parser.error("--dml-device-id must be >= 0")
     if args.images is not None:
         from vision.prop_parity import discover_parity_images
         import cv2
@@ -197,7 +213,7 @@ def main() -> None:
         f"Benchmark frames={len(frames)} size={frames[0].shape} "
         f"imgsz={YOLO_IMGSZ} conf={min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE)} "
         f"iou={YOLO_IOU} intra_op={YOLO_ONNX_INTRA_OP_THREADS} "
-        f"onnx={Path(onnx_path).name}"
+        f"dml_device_id={args.dml_device_id} onnx={Path(onnx_path).name}"
     )
 
     started = time.perf_counter()
@@ -233,7 +249,13 @@ def main() -> None:
         started = time.perf_counter()
         onnx_dml = _load_onnx(
             "onnx_dml",
-            [("DmlExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"],
+            [
+                (
+                    "DmlExecutionProvider",
+                    {"device_id": args.dml_device_id},
+                ),
+                "CPUExecutionProvider",
+            ],
             onnx_path,
         )
         dml_row = benchmark_backend(

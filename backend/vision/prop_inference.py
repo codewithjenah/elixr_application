@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import sys
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
@@ -64,6 +65,7 @@ class PropInferenceBackend(ABC):
     provider: str = ""
     model_path: Path = Path()
     intra_op_threads: int = 0
+    dml_device_id: int | None = None
 
     @property
     @abstractmethod
@@ -111,8 +113,9 @@ def select_prop_runtime(
     onnx_path: Path,
     onnxruntime_available: bool,
     dml_available: bool,
+    is_windows: bool | None = None,
 ) -> RuntimeSelection:
-    """Deterministic runtime choice. DirectML is never selected by auto."""
+    """Choose DirectML on supported Windows hosts, then ONNX CPU, then PyTorch."""
     requested = (requested or "").strip().lower()
     if requested not in _VALID_RUNTIMES:
         raise ModelLoadError(
@@ -122,6 +125,7 @@ def select_prop_runtime(
 
     pytorch_ok = pytorch_path.is_file()
     onnx_ok = onnx_path.is_file()
+    windows_host = sys.platform == "win32" if is_windows is None else is_windows
 
     def require_pytorch(
         reason: str,
@@ -180,8 +184,15 @@ def select_prop_runtime(
             )
         return require_onnx_cpu("fallback_dml_unavailable", "onnx_dml")
 
-    # auto prefers validated ONNX CPU when the artifact and ORT exist.
-    # DirectML is never selected by auto. PyTorch remains the fallback.
+    if windows_host and dml_available and onnx_ok and onnxruntime_available:
+        return RuntimeSelection(
+            runtime="onnx_dml",
+            provider=_DML_PROVIDER,
+            reason="auto_onnx_dml",
+        )
+
+    # Non-Windows and Windows hosts without DirectML keep the validated ONNX
+    # CPU path. PyTorch remains the deterministic final fallback.
     return require_onnx_cpu("auto_onnx_cpu")
 
 
@@ -303,12 +314,34 @@ def yolo_runtime_threads(detector: object) -> int:
     return int(getattr(detector, "intra_op_threads", 0) or 0)
 
 
-def default_onnx_session_options(intra_op_threads: int):
+def yolo_runtime_device_id(detector: object) -> int | None:
+    """Read the selected DirectML device ID from a detector wrapper."""
+    device_id = getattr(detector, "yolo_dml_device_id", None)
+    if isinstance(device_id, int):
+        return device_id
+    combined = getattr(detector, "combined_detector", None)
+    if combined is not None and combined is not detector:
+        return yolo_runtime_device_id(combined)
+    inner = getattr(detector, "_combined", None)
+    if inner is not None and inner is not detector:
+        return yolo_runtime_device_id(inner)
+    backend_device_id = getattr(detector, "dml_device_id", None)
+    return backend_device_id if isinstance(backend_device_id, int) else None
+
+
+def default_onnx_session_options(
+    intra_op_threads: int,
+    *,
+    directml: bool = False,
+):
     import onnxruntime as ort
 
     options = ort.SessionOptions()
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    if directml:
+        # DirectML does not support ONNX Runtime memory-pattern optimization.
+        options.enable_mem_pattern = False
     options.inter_op_num_threads = 1
     if intra_op_threads > 0:
         options.intra_op_num_threads = intra_op_threads
@@ -455,9 +488,21 @@ class OnnxPropBackend(PropInferenceBackend):
         self._imgsz = imgsz
         self._intra_op_threads = intra_op_threads
         self.intra_op_threads = intra_op_threads
+        self.dml_device_id = None
+        if self.provider == _DML_PROVIDER:
+            first_provider = self._providers[0]
+            if isinstance(first_provider, tuple) and len(first_provider) > 1:
+                provider_options = first_provider[1]
+                if isinstance(provider_options, Mapping):
+                    device_id = provider_options.get("device_id")
+                    if isinstance(device_id, int):
+                        self.dml_device_id = device_id
         self._session_factory = session_factory or default_onnx_session_factory
         self._session_options_factory = session_options_factory or (
-            lambda: default_onnx_session_options(self._intra_op_threads)
+            lambda: default_onnx_session_options(
+                self._intra_op_threads,
+                directml=self.provider == _DML_PROVIDER,
+            )
         )
         self._inference_conf = inference_conf
         self._iou = iou

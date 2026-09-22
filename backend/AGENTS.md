@@ -117,9 +117,9 @@ Keep Flutter independent of these implementation details except for the document
   static `[1, 3, 480, 640]` matching `FRAME_HEIGHT` × `FRAME_WIDTH`. Class IDs are resolved from the
   model's declared names; class zero must not be assumed for every prop.
   `YOLO_RUNTIME` is `auto` | `pytorch` | `onnx_cpu` | `onnx_dml`. `auto`
-  prefers validated ONNX CPU when `best.onnx` and ONNX Runtime are
-  available, and falls back to PyTorch. DirectML is explicit-only
-  (`onnx_dml`) and must not be required by Linux CI.
+  prefers DirectML on Windows when `best.onnx` and the provider are available,
+  then validated ONNX CPU, then PyTorch. Non-Windows `auto` starts at ONNX CPU;
+  DirectML must not be required by Linux CI.
 - Keep model load failures distinguishable from ordinary “no bottle detected” results.
 - Do not download or replace model assets silently.
 - Avoid caching fast-changing hand landmarks; stale landmarks create ghost-hand artifacts.

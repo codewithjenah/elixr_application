@@ -106,6 +106,17 @@ def test_missing_milestones_stay_null_in_record():
     assert record["status"] == "partial"
 
 
+def test_startup_record_includes_selected_directml_device_id():
+    diag = StartupDiagnostics("session-dml", sink=MemorySink())
+    diag.set_yolo_runtime("onnx_dml", "DmlExecutionProvider", 1)
+
+    record = diag.to_record()
+
+    assert record["yolo_runtime"] == "onnx_dml"
+    assert record["yolo_provider"] == "DmlExecutionProvider"
+    assert record["yolo_dml_device_id"] == 1
+
+
 def test_failed_sample_does_not_invent_zero_durations():
     clock = FakeClock()
     diag = StartupDiagnostics("session-fail", clock=clock, sink=MemorySink())

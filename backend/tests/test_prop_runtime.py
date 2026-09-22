@@ -17,11 +17,14 @@ from vision.prop_inference import (
     RawDetection,
     RuntimeSelection,
     _postprocess_yolo_onnx,
+    create_prop_backend,
+    default_onnx_session_options,
     parse_onnx_class_names,
     parse_onnx_static_input_hw,
     select_prop_runtime,
     split_raw_detections,
     yolo_runtime_info,
+    yolo_runtime_device_id,
     yolo_runtime_threads,
 )
 from vision.types import PropDetection
@@ -37,18 +40,21 @@ def _onnx(path: Path) -> Path:
     return path
 
 
-def test_auto_prefers_onnx_cpu_when_artifact_and_ort_are_available(tmp_path: Path):
+def test_windows_auto_prefers_directml_when_artifact_and_provider_are_available(
+    tmp_path: Path,
+):
     choice = select_prop_runtime(
         "auto",
         pytorch_path=_pt(tmp_path / "best.pt"),
         onnx_path=_onnx(tmp_path / "best.onnx"),
         onnxruntime_available=True,
         dml_available=True,
+        is_windows=True,
     )
     assert choice == RuntimeSelection(
-        runtime="onnx_cpu",
-        provider="CPUExecutionProvider",
-        reason="auto_onnx_cpu",
+        runtime="onnx_dml",
+        provider="DmlExecutionProvider",
+        reason="auto_onnx_dml",
         fallback_from=None,
     )
 
@@ -66,17 +72,32 @@ def test_auto_uses_onnx_cpu_when_pytorch_weights_are_missing(tmp_path: Path):
     assert choice.fallback_from is None
 
 
-def test_auto_does_not_select_directml_even_when_available(tmp_path: Path):
+def test_non_windows_auto_keeps_onnx_cpu_when_directml_is_reported(tmp_path: Path):
     choice = select_prop_runtime(
         "auto",
         pytorch_path=_pt(tmp_path / "best.pt"),
         onnx_path=_onnx(tmp_path / "best.onnx"),
         onnxruntime_available=True,
         dml_available=True,
+        is_windows=False,
     )
     assert choice.runtime == "onnx_cpu"
     assert choice.provider == "CPUExecutionProvider"
     assert choice.runtime != "onnx_dml"
+
+
+def test_windows_auto_uses_onnx_cpu_when_directml_is_unavailable(tmp_path: Path):
+    choice = select_prop_runtime(
+        "auto",
+        pytorch_path=_pt(tmp_path / "best.pt"),
+        onnx_path=_onnx(tmp_path / "best.onnx"),
+        onnxruntime_available=True,
+        dml_available=False,
+        is_windows=True,
+    )
+    assert choice.runtime == "onnx_cpu"
+    assert choice.provider == "CPUExecutionProvider"
+    assert choice.reason == "auto_onnx_cpu"
 
 
 def test_auto_missing_onnx_falls_back_to_pytorch(tmp_path: Path):
@@ -508,6 +529,36 @@ def test_onnx_dml_session_uses_device_id(tmp_path: Path):
         [("DmlExecutionProvider", {"device_id": 1}), "CPUExecutionProvider"]
     ]
     assert backend.provider == "DmlExecutionProvider"
+    assert backend.dml_device_id == 1
+    assert yolo_runtime_device_id(backend) == 1
+
+
+def test_create_directml_backend_uses_configurable_device_id(tmp_path: Path):
+    backend = create_prop_backend(
+        RuntimeSelection(
+            runtime="onnx_dml",
+            provider="DmlExecutionProvider",
+            reason="explicit_onnx_dml",
+        ),
+        pytorch_path=tmp_path / "best.pt",
+        onnx_path=_onnx(tmp_path / "best.onnx"),
+        inference_conf=0.4,
+        iou=0.45,
+        max_det=4,
+        imgsz=640,
+        dml_device_id=1,
+    )
+    assert isinstance(backend, OnnxPropBackend)
+    assert backend.dml_device_id == 1
+
+
+def test_directml_session_options_disable_memory_patterns_only_for_dml():
+    cpu_options = default_onnx_session_options(4)
+    dml_options = default_onnx_session_options(4, directml=True)
+
+    assert cpu_options.enable_mem_pattern is True
+    assert dml_options.enable_mem_pattern is False
+    assert cpu_options.execution_mode == dml_options.execution_mode
 
 
 def test_gap_confidence_still_applies_after_backend_split(tmp_path: Path, monkeypatch):
@@ -539,6 +590,54 @@ class _FailingOnnxBackend(_StubBackend):
     def load(self) -> None:
         self.load_calls += 1
         raise ModelLoadError("provider creation failed")
+
+
+def test_directml_init_failure_cascades_through_onnx_cpu_to_pytorch(
+    tmp_path: Path,
+    monkeypatch,
+):
+    pytorch_path = _pt(tmp_path / "best.pt")
+    onnx_path = _onnx(tmp_path / "best.onnx")
+    failing_dml = _FailingOnnxBackend()
+    failing_dml.runtime_name = "onnx_dml"
+    failing_dml.provider = "DmlExecutionProvider"
+    failing_cpu = _FailingOnnxBackend()
+    pytorch_backend = _StubBackend([])
+    pytorch_backend.runtime_name = "pytorch"
+    pytorch_backend.provider = "cpu"
+    created: list[str] = []
+
+    def fake_select(*_args, **_kwargs):
+        return RuntimeSelection(
+            runtime="onnx_dml",
+            provider="DmlExecutionProvider",
+            reason="auto_onnx_dml",
+        )
+
+    def fake_create(selection, **_kwargs):
+        created.append(selection.runtime)
+        return {
+            "onnx_dml": failing_dml,
+            "onnx_cpu": failing_cpu,
+            "pytorch": pytorch_backend,
+        }[selection.runtime]
+
+    monkeypatch.setattr(prop_detector_mod, "select_prop_runtime", fake_select)
+    monkeypatch.setattr(prop_detector_mod, "create_prop_backend", fake_create)
+
+    detector = CombinedPropDetector(
+        model_path=pytorch_path,
+        onnx_model_path=onnx_path,
+        runtime="auto",
+    )
+    detector.ensure_ready()
+
+    assert created == ["onnx_dml", "onnx_cpu", "pytorch"]
+    assert failing_dml.load_calls == 1
+    assert failing_cpu.load_calls == 1
+    assert pytorch_backend.load_calls == 1
+    assert detector.yolo_runtime == "pytorch"
+    assert detector.load_failed is False
 
 
 def test_onnx_init_failure_falls_back_to_pytorch_once(tmp_path: Path, monkeypatch):

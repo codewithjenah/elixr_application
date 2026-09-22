@@ -79,7 +79,7 @@ YOLO_ONNX_MODEL_PATH = Path(
 
 
 def _load_yolo_runtime() -> str:
-    """Select the YOLO inference engine. Default auto prefers ONNX CPU."""
+    """Select the YOLO engine. Windows auto prefers available DirectML."""
     raw = os.getenv("YOLO_RUNTIME", "auto").strip().lower()
     allowed = {"auto", "pytorch", "onnx_cpu", "onnx_dml"}
     if raw not in allowed:
@@ -134,8 +134,8 @@ def _load_yolo_dml_device_id() -> int:
 
 
 # pytorch | onnx_cpu | onnx_dml | auto.
-# auto prefers validated ONNX CPU (best.onnx + onnxruntime) and falls back
-# to PyTorch. DirectML is explicit opt-in only (YOLO_RUNTIME=onnx_dml).
+# On Windows, auto prefers DirectML when the provider and best.onnx are
+# available, then ONNX CPU, then PyTorch. Non-Windows auto starts at ONNX CPU.
 YOLO_RUNTIME = _load_yolo_runtime()
 YOLO_ONNX_INTRA_OP_THREADS = _load_yolo_onnx_intra_op_threads()
 YOLO_DML_DEVICE_ID = _load_yolo_dml_device_id()

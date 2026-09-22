@@ -93,7 +93,11 @@ from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
 from vision.dual_prop_detector import DualPropDetector
 from vision.prop_detector import PropDetector
-from vision.prop_inference import yolo_runtime_info, yolo_runtime_threads
+from vision.prop_inference import (
+    yolo_runtime_device_id,
+    yolo_runtime_info,
+    yolo_runtime_threads,
+)
 from vision.camera import (
     CameraCapture,
     CapturedFrame,
@@ -1331,7 +1335,11 @@ class VisionSession:
                 self.pose_detector.detect(captured.frame)
 
         runtime, provider = yolo_runtime_info(self.prop_detector)
-        self.startup.set_yolo_runtime(runtime, provider)
+        self.startup.set_yolo_runtime(
+            runtime,
+            provider,
+            yolo_runtime_device_id(self.prop_detector),
+        )
         self._readiness_warmed = True
         self.startup.mark(MARK_WARMUP_END)
         return None

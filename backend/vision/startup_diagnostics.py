@@ -326,6 +326,7 @@ class StartupDiagnostics:
     _camera_identity: dict[str, Any] = field(default_factory=dict)
     _yolo_runtime: str | None = None
     _yolo_provider: str | None = None
+    _yolo_dml_device_id: int | None = None
     _recorded_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
@@ -396,12 +397,19 @@ class StartupDiagnostics:
             if not self._camera_identity:
                 self._camera_identity = dict(identity)
 
-    def set_yolo_runtime(self, runtime: str | None, provider: str | None) -> None:
+    def set_yolo_runtime(
+        self,
+        runtime: str | None,
+        provider: str | None,
+        dml_device_id: int | None = None,
+    ) -> None:
         with self._lock:
             if runtime and self._yolo_runtime is None:
                 self._yolo_runtime = runtime
             if provider and self._yolo_provider is None:
                 self._yolo_provider = provider
+            if dml_device_id is not None and self._yolo_dml_device_id is None:
+                self._yolo_dml_device_id = dml_device_id
 
     def ingest_camera_timings(
         self,
@@ -468,6 +476,7 @@ class StartupDiagnostics:
             camera_identity = dict(self._camera_identity)
             yolo_runtime = self._yolo_runtime
             yolo_provider = self._yolo_provider
+            yolo_dml_device_id = self._yolo_dml_device_id
             recorded_at = self._recorded_at
 
         start_class, camera_class, model_class = classify_start(
@@ -502,6 +511,7 @@ class StartupDiagnostics:
             "camera": camera_identity,
             "yolo_runtime": yolo_runtime,
             "yolo_provider": yolo_provider,
+            "yolo_dml_device_id": yolo_dml_device_id,
         }
         return record
 
@@ -637,6 +647,7 @@ def merge_backend_and_client(
             "camera",
             "yolo_runtime",
             "yolo_provider",
+            "yolo_dml_device_id",
         ):
             if merged.get(field_name) in (None, {}, "") and source.get(field_name) not in (
                 None,

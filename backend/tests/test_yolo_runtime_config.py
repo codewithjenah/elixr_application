@@ -20,6 +20,15 @@ def test_default_runtime_is_auto(monkeypatch):
     assert _load_yolo_runtime() == "auto"
 
 
+def test_onnx_runtime_dependencies_are_platform_exclusive():
+    requirements = (
+        Path(__file__).resolve().parents[1] / "requirements.txt"
+    ).read_text(encoding="utf-8")
+    assert 'onnxruntime-directml==1.23.0; sys_platform == "win32"' in requirements
+    assert 'onnxruntime==1.23.2; sys_platform != "win32"' in requirements
+    assert "\nonnxruntime==1.23.2\n" not in requirements
+
+
 @pytest.mark.parametrize("raw", ["pytorch", "onnx_cpu", "onnx_dml", "auto"])
 def test_runtime_accepts_supported_values(monkeypatch, raw: str):
     monkeypatch.setenv("YOLO_RUNTIME", raw)

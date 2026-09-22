@@ -41,9 +41,11 @@ hiddenimports.extend(
     )
 )
 
-# ONNX Runtime's hook supplies its provider DLLs. The application only imports
-# the runtime API, so collecting its quantization/conversion tools would add
-# development-only modules and the optional onnx package.
+# Collect the installed ORT variant's native libraries. On Windows this includes
+# the DirectML-enabled wheel's DirectML.dll; non-Windows builds keep CPU ORT.
+# The application only imports the runtime API, so collecting its
+# quantization/conversion tools would add development-only modules and the
+# optional onnx package.
 binaries.extend(collect_dynamic_libs("onnxruntime"))
 
 # cv2, ultralytics, and torch have maintained PyInstaller hooks that supply
