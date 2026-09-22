@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/custom_movement.dart';
 import '../../data/models/group_assignment.dart';
@@ -14,6 +17,12 @@ import '../../data/repositories/custom_movement_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../services/websocket_service.dart';
 import '../../services/settings_service.dart';
+import '../practice/widgets/training_action_area.dart';
+import '../practice/widgets/training_arena_layout.dart';
+import '../practice/widgets/training_camera_workspace.dart';
+import '../practice/widgets/training_session_header.dart';
+import '../practice/widgets/training_session_panel.dart';
+import '../practice/widgets/training_status_row.dart';
 
 class CustomMovementPracticeScreen extends StatefulWidget {
   const CustomMovementPracticeScreen({
@@ -53,6 +62,7 @@ class _CustomMovementPracticeScreenState
   bool _busy = false;
   int? _countdown;
   String? _error;
+  bool _isSetupError = false;
   Map<String, dynamic>? _result;
 
   @override
@@ -82,6 +92,7 @@ class _CustomMovementPracticeScreenState
         _ready = false;
         _active = false;
         _error = null;
+        _isSetupError = false;
       });
     }
     try {
@@ -113,6 +124,7 @@ class _CustomMovementPracticeScreenState
         setState(() {
           _preparing = false;
           _error = 'Could not prepare the camera and movement model.';
+          _isSetupError = true;
         });
       }
     }
@@ -123,6 +135,7 @@ class _CustomMovementPracticeScreenState
     setState(() {
       _busy = true;
       _error = null;
+      _isSetupError = false;
       _result = null;
     });
     try {
@@ -217,6 +230,7 @@ class _CustomMovementPracticeScreenState
           _ready = false;
           _error =
               'The performance could not be assessed. Reposition and retry.';
+          _isSetupError = false;
         });
       }
     } finally {
@@ -229,6 +243,7 @@ class _CustomMovementPracticeScreenState
     setState(() {
       _result = null;
       _error = null;
+      _isSetupError = false;
     });
     await _prepareSession();
   }
@@ -260,140 +275,341 @@ class _CustomMovementPracticeScreenState
   Widget build(BuildContext context) {
     final result = _result;
     final mirrored = context.watch<SettingsService>().cameraMirrored;
+    final instruction = widget.movement.description.trim().isEmpty
+        ? 'Perform the movement as demonstrated in your saved references.'
+        : widget.movement.description;
     return ElixScaffoldPage(
-      header: PageHeader(
-        title: Text(widget.movement.name),
-        leading: IconButton(
-          icon: const Icon(FluentIcons.back),
-          onPressed: _busy ? null : () => context.pop(),
-        ),
-      ),
-      content: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Container(
-                  color: Colors.black,
-                  alignment: Alignment.center,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      RepaintBoundary(
-                        child: ValueListenableBuilder<Uint8List?>(
-                          valueListenable: _preview,
-                          builder: (context, preview, _) => preview == null
-                              ? const Center(child: ProgressRing())
-                              : Transform.flip(
-                                  key: const ValueKey(
-                                    'custom-practice-camera-frame',
-                                  ),
-                                  flipX: mirrored,
-                                  child: Image.memory(
-                                    preview,
-                                    fit: BoxFit.contain,
-                                    gaplessPlayback: true,
-                                  ),
-                                ),
-                        ),
-                      ),
-                      if (_countdown != null)
-                        Center(
-                          child: Text(
-                            '$_countdown',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 72,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
+      padding: EdgeInsets.zero,
+      content: SizedBox.expand(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm + 2,
+              AppSpacing.lg,
+              AppSpacing.lg,
             ),
-            const SizedBox(width: AppSpacing.lg),
-            SizedBox(
-              width: 320,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(widget.movement.description),
-                  const SizedBox(height: 12),
-                  Text(
-                    _preparing
-                        ? 'Preparing camera…'
-                        : _active
-                        ? 'Perform the full movement, then finish.'
-                        : _ready
-                        ? 'Ready to begin.'
-                        : widget.revision.template.readinessGuidance,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentWidth = math.min(
+                  constraints.maxWidth,
+                  AppSpacing.practiceMaxContentWidth,
+                );
+                final desktop =
+                    contentWidth >= AppSpacing.practiceDesktopBreakpoint;
+                final compact =
+                    contentWidth >= AppSpacing.practiceCompactBreakpoint &&
+                    !desktop;
+                final header = TrainingSessionHeader(
+                  onBack: () {
+                    if (!_busy) context.pop();
+                  },
+                  title: widget.movement.name,
+                  statusPill: widget.movement.difficulty,
+                  statusPillColor: trainingDifficultyColor(
+                    widget.movement.difficulty,
                   ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    key: const ValueKey('custom-practice-primary'),
-                    onPressed: _busy || _preparing
-                        ? null
-                        : (_active
-                              ? _finish
-                              : (result != null || _error != null)
-                              ? _tryAgain
-                              : (_ready ? _start : null)),
-                    child: Text(
-                      _active
-                          ? 'Finish & Assess'
-                          : result != null
-                          ? 'Practice Again'
-                          : _error != null
-                          ? 'Retry Setup'
-                          : 'Start Practice',
-                    ),
-                  ),
-                  if (result != null) ...[
-                    const SizedBox(height: 16),
-                    InfoBar(
-                      title: Text(
-                        'Score ${(result['score_percent'] as num?)?.round() ?? 0}%',
+                  instruction: instruction,
+                  connectionState: _socket.connectionState,
+                  connecting: _preparing,
+                  wideLayout: desktop || compact,
+                );
+                final camera = TrainingCameraWorkspace(
+                  frameListenable: _preview,
+                  mirrored: mirrored,
+                  connectionState: _socket.connectionState,
+                  connecting: _preparing,
+                  isSessionActive: _active,
+                  isPreparingCamera: _preparing,
+                  accentBorder:
+                      _preparing ||
+                      (!_ready && result == null && _error == null),
+                  readyAura: _ready && !_active && _countdown == null,
+                  idleTitle: 'Movement Assessment',
+                  idleSubtitle:
+                      'Complete setup, then perform your recorded movement.',
+                  idleCaption:
+                      'Keep the required body, hands, and selected prop visible.',
+                  errorMessage: _socket.errorMessage,
+                  sessionError: _isSetupError ? _error : null,
+                  onRetry: _tryAgain,
+                  onCountdownComplete: () {},
+                  overlays: _countdown == null
+                      ? null
+                      : _CustomCountdownOverlay(value: _countdown!),
+                );
+                final panel = _buildSessionPanel(result);
+                final body = Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    header,
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, workspaceConstraints) {
+                          final workspace = TrainingArenaWorkspace(
+                            desktop: desktop,
+                            contentWidth: contentWidth,
+                            workspaceHeight: workspaceConstraints.maxHeight,
+                            camera: camera,
+                            panel: panel,
+                          );
+                          return desktop
+                              ? workspace
+                              : SingleChildScrollView(child: workspace);
+                        },
                       ),
-                      content: Text(
-                        'Rubric ${(result['total'] as num?)?.toInt() ?? 0}/12 · ${result['performance_level'] ?? ''}',
-                      ),
-                      severity: InfoBarSeverity.success,
-                    ),
-                    const SizedBox(height: 8),
-                    for (final line
-                        in (result['feedback'] as List? ?? const [])
-                            .whereType<String>())
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(line),
-                      ),
-                    const SizedBox(height: 8),
-                    Text(
-                      widget.assignment == null
-                          ? 'Personal result only · no global XP or leaderboard progress'
-                          : 'Classroom result saved · no global XP or leaderboard progress',
                     ),
                   ],
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    InfoBar(
-                      title: const Text('Practice issue'),
-                      content: Text(_error!),
-                      severity: InfoBarSeverity.error,
-                    ),
-                  ],
-                ],
-              ),
+                );
+                return constraints.maxWidth <=
+                        AppSpacing.practiceMaxContentWidth
+                    ? body
+                    : Align(
+                        alignment: Alignment.topCenter,
+                        child: SizedBox(
+                          width: AppSpacing.practiceMaxContentWidth,
+                          child: body,
+                        ),
+                      );
+              },
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+
+  TrainingSessionPanel _buildSessionPanel(Map<String, dynamic>? result) {
+    final phase = _panelPhase(result);
+    final setupText = _preparing
+        ? 'Checking setup…'
+        : _active
+        ? 'Perform the full movement, then finish when you are done.'
+        : _ready
+        ? 'Your setup is stable. Start when ready.'
+        : widget.revision.template.readinessGuidance;
+    return TrainingSessionPanel(
+      phase: phase,
+      expandVertically: true,
+      metrics: result == null
+          ? TrainingReadyBrief(
+              title: _preparing
+                  ? 'Preparing camera'
+                  : _active
+                  ? 'Assessment in progress'
+                  : _ready
+                  ? 'Ready to practice'
+                  : 'Setup check',
+              body: setupText,
+            )
+          : _CustomAssessmentResult(result: result),
+      statusContent: result != null
+          ? _CustomResultStatus(assignment: widget.assignment != null)
+          : TrainingStatusRow(
+              detection: resolveDetectionStatus(
+                sessionActive: _active,
+                bottleDetected: null,
+              ),
+              propLabel: widget.movement.propType.displayLabel,
+            ),
+      supportingContent: Column(
+        children: [
+          SessionSetupRow(
+            icon: FluentIcons.play_solid,
+            label: 'Movement',
+            value: widget.movement.name,
+          ),
+          SessionSetupRow(
+            icon: FluentIcons.speed_high,
+            label: 'Difficulty',
+            value: widget.movement.difficulty,
+          ),
+          SessionSetupRow(
+            icon: FluentIcons.diet_plan_notebook,
+            label: 'Prop',
+            value: widget.movement.propType.displayLabel,
+          ),
+          const SessionSetupRow(
+            icon: FluentIcons.completed_solid,
+            label: 'Assessment',
+            value: 'Reference matched',
+          ),
+          SessionSetupRow(
+            icon: FluentIcons.contact,
+            label: 'Session',
+            value: widget.assignment == null
+                ? 'Personal practice'
+                : 'Classroom assessment',
+          ),
+        ],
+      ),
+      compactStatusNote: _error == null
+          ? null
+          : Text(
+              _error!,
+              style: AppTheme.bodySecondary.copyWith(color: AppColors.error),
+            ),
+      actionArea: TrainingActionArea(
+        kind: _active ? TrainingActionKind.finish : TrainingActionKind.start,
+        startLabel: result != null
+            ? 'Practice Again'
+            : _error != null
+            ? (_isSetupError ? 'Retry Setup' : 'Practice Again')
+            : 'Start Practice',
+        isLoading: _busy || _preparing,
+        onPressed: _busy || _preparing
+            ? null
+            : _active
+            ? _finish
+            : (result != null || _error != null)
+            ? _tryAgain
+            : _ready
+            ? _start
+            : null,
+      ),
+    );
+  }
+
+  TrainingSessionPhase _panelPhase(Map<String, dynamic>? result) {
+    if (_error != null && _isSetupError) {
+      return TrainingSessionPhase.cameraError;
+    }
+    if (result != null) return TrainingSessionPhase.completed;
+    if (_active) return TrainingSessionPhase.inProgress;
+    if (_countdown != null) return TrainingSessionPhase.getReady;
+    if (_preparing) return TrainingSessionPhase.preparingCamera;
+    return _ready ? TrainingSessionPhase.ready : TrainingSessionPhase.readiness;
+  }
+}
+
+class _CustomCountdownOverlay extends StatelessWidget {
+  const _CustomCountdownOverlay({required this.value});
+  final int value;
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      gradient: RadialGradient(colors: [Color(0x1A7D4CFF), Color(0x9907060C)]),
+    ),
+    child: Center(
+      child: Text(
+        '$value',
+        style: TextStyle(
+          fontSize: 108,
+          fontWeight: FontWeight.w900,
+          color: AppColors.primary,
+          shadows: [
+            Shadow(
+              color: AppColors.primary.withValues(alpha: .7),
+              blurRadius: 28,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _CustomAssessmentResult extends StatelessWidget {
+  const _CustomAssessmentResult({required this.result});
+  final Map<String, dynamic> result;
+  @override
+  Widget build(BuildContext context) {
+    final components = result['component_scores'] as Map? ?? const {};
+    final feedback = (result['feedback'] as List? ?? const [])
+        .whereType<String>();
+    return Container(
+      key: const ValueKey('custom-assessment-result'),
+      padding: const EdgeInsets.all(AppSpacing.sm + 2),
+      decoration: AppTheme.practiceSectionSurface(
+        context,
+        accent: AppColors.success,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'AUTOMATIC ASSESSMENT',
+            style: AppTheme.caption.copyWith(
+              color: AppColors.success,
+              fontWeight: FontWeight.w800,
+              letterSpacing: .7,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${(result['score_percent'] as num?)?.round() ?? 0}%',
+            style: AppTheme.metric(context, color: AppColors.primary),
+          ),
+          Text(
+            'Rubric ${(result['total'] as num?)?.toInt() ?? 0} / 12 · ${result['performance_level'] ?? ''}',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final entry in components.entries)
+            _ResultLine(
+              label: _componentLabel(entry.key.toString()),
+              value: entry.value,
+            ),
+          for (final message in feedback)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                message,
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _componentLabel(String key) => switch (key) {
+    'body_technique' => 'Body technique',
+    'hand_technique' => 'Hand technique',
+    'prop_path' => 'Prop path',
+    'timing' => 'Timing',
+    'control_stability' => 'Control / stability',
+    _ => key,
+  };
+}
+
+class _ResultLine extends StatelessWidget {
+  const _ResultLine({required this.label, required this.value});
+  final String label;
+  final Object? value;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 1),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ),
+        Text(
+          '$value',
+          style: AppTheme.caption.copyWith(
+            fontWeight: FontWeight.w700,
+            color: context.elixTextPrimary,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CustomResultStatus extends StatelessWidget {
+  const _CustomResultStatus({required this.assignment});
+  final bool assignment;
+  @override
+  Widget build(BuildContext context) => Text(
+    assignment
+        ? 'Classroom result saved · No global XP'
+        : 'Personal result only · No global XP',
+    style: AppTheme.bodySecondary.copyWith(color: context.elixTextSecondary),
+  );
 }

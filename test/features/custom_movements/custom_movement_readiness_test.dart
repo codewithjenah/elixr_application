@@ -292,6 +292,18 @@ void main() {
       find.text('Keep the selected prop and the left hand visible.'),
       findsOne,
     );
+    expect(find.byKey(const ValueKey('practice-training-header')), findsOne);
+    expect(find.byKey(const ValueKey('practice-camera-workspace')), findsOne);
+    expect(find.byKey(const ValueKey('practice-session-panel')), findsOne);
+    expect(find.text('One-hand toss'), findsWidgets);
+    expect(find.text('Medium'), findsWidgets);
+    expect(find.text('Bottle'), findsOne);
+    expect(find.text('Reference matched'), findsOne);
+
+    socket.emitReady();
+    await tester.pump();
+    expect(find.text('Your setup is stable. Start when ready.'), findsOne);
+    expect(find.text('Start Practice'), findsOne);
 
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
