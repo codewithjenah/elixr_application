@@ -162,7 +162,7 @@ def test_fresh_overlay_is_readable(monkeypatch):
     session.close()
 
 
-def test_recently_published_old_capture_is_not_drawn_or_scored(monkeypatch):
+def test_recently_published_overlay_bridges_preview_ai_scheduling_gap(monkeypatch):
     _patch_vision(monkeypatch)
     monkeypatch.setattr(websocket_api, "OVERLAY_MAX_CAPTURE_AGE_S", 0.1)
     annotate_calls = {"n": 0}
@@ -210,7 +210,7 @@ def test_recently_published_old_capture_is_not_drawn_or_scored(monkeypatch):
     message = session.render_preview()
 
     assert message is not None
-    assert annotate_calls["n"] == 0
+    assert annotate_calls["n"] == 1
     assert evaluate_calls["n"] == 0
     summary = session.preview_timings.overlay_alignment_summary()
     assert summary["capture_age_max_ms"] == pytest.approx(200.0)
@@ -310,7 +310,7 @@ def test_overlay_from_previous_camera_generation_is_rejected(monkeypatch):
     session.close()
 
 
-def test_overlay_past_capture_age_limit_counts_stale_rejection(monkeypatch):
+def test_overlay_past_presentation_grace_counts_stale_rejection(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
@@ -331,7 +331,7 @@ def test_overlay_past_capture_age_limit_counts_stale_rejection(monkeypatch):
     )
     preview = CapturedFrame(
         frame=np.full((48, 64, 3), 120, dtype=np.uint8),
-        captured_at_monotonic=10.0 + websocket_api.OVERLAY_MAX_CAPTURE_AGE_S + 0.001,
+        captured_at_monotonic=10.0 + websocket_api.OVERLAY_PRESENTATION_CONTINUITY_S + 0.001,
         sequence=24,
         generation=2,
     )
@@ -342,6 +342,43 @@ def test_overlay_past_capture_age_limit_counts_stale_rejection(monkeypatch):
     assert summary["stale_age_rejections"] == 1
     assert summary["ahead_rejections"] == 0
     assert summary["generation_rejections"] == 0
+    session.close()
+
+
+def test_new_ai_absence_replaces_visual_hand_overlay_without_ghost(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.0,
+            capture_sequence=1,
+            boxes=[],
+            hands=HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)}, handedness="Right")]),
+            pose=None,
+            feedback="hand",
+            feedback_type="positive",
+            movement="Hand Stall",
+            prop_label="Bottle",
+        )
+    )
+    preview = CapturedFrame(np.zeros((8, 8, 3), dtype=np.uint8), 10.15, 2)
+    assert session._read_fresh_overlay(preview=preview) is not None
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.16,
+            capture_sequence=3,
+            boxes=[], hands=None, pose=None, feedback="missing",
+            feedback_type="warning", movement="Hand Stall", prop_label="Bottle",
+        )
+    )
+    absent = session._read_fresh_overlay(
+        preview=CapturedFrame(np.zeros((8, 8, 3), dtype=np.uint8), 10.17, 4)
+    )
+    assert absent is not None
+    assert absent.hands is None
     session.close()
 
 

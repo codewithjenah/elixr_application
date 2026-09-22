@@ -18,6 +18,11 @@ OVERLAY_MAX_AGE_S = 0.25
 # the preview frame it is drawn on. Two preview periods tolerate normal
 # inference completion jitter without pinning old landmarks to current video.
 OVERLAY_MAX_CAPTURE_AGE_S = 2.0 / TARGET_FPS
+# The strict capture-alignment limit above remains the truthfulness rule for a
+# newly paired AI result.  This second, rendering-only grace bridges preview
+# frames while the next AI tick is still in flight.  It never reaches
+# readiness, rules, custom samples, or scoring.
+OVERLAY_PRESENTATION_CONTINUITY_S = 0.25
 
 # A private, annotated snapshot is emitted only when a Guided Practice hold is
 # first confirmed.  Keep it small enough for the client-side Firebase upload

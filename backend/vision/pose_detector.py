@@ -8,12 +8,15 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from vision.model_assets import ensure_pose_model
+from vision.hands_timestamp import VideoTimestampClock
 from vision.types import Point2D, PoseLandmarks
 
 logger = logging.getLogger(__name__)
 
 
 class PoseDetector:
+    uses_capture_timestamps = True
+
     def __init__(self):
         model_path = ensure_pose_model()
         options = vision.PoseLandmarkerOptions(
@@ -25,13 +28,19 @@ class PoseDetector:
             min_tracking_confidence=0.5,
         )
         self._landmarker = vision.PoseLandmarker.create_from_options(options)
-        self._timestamp_ms = 0
+        self._timestamp_clock = VideoTimestampClock()
+        self._timestamp_clock.reset()
 
-    def detect(self, frame: np.ndarray) -> Optional[PoseLandmarks]:
+    def detect(
+        self,
+        frame: np.ndarray,
+        *,
+        captured_at_monotonic: float | None = None,
+    ) -> Optional[PoseLandmarks]:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        self._timestamp_ms += 33
-        result = self._landmarker.detect_for_video(mp_image, self._timestamp_ms)
+        timestamp_ms = self._timestamp_clock.next_ms(captured_at_monotonic)
+        result = self._landmarker.detect_for_video(mp_image, timestamp_ms)
         if not result.pose_landmarks:
             return None
 
@@ -46,3 +55,4 @@ class PoseDetector:
 
     def close(self) -> None:
         self._landmarker.close()
+        self._timestamp_clock.reset()

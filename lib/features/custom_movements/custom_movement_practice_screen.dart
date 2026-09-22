@@ -64,6 +64,7 @@ class _CustomMovementPracticeScreenState
   String? _error;
   bool _isSetupError = false;
   Map<String, dynamic>? _result;
+  PracticeFeedback? _latestFeedback;
 
   @override
   void initState() {
@@ -78,8 +79,22 @@ class _CustomMovementPracticeScreenState
       if (mounted && frame.hasJpeg) _preview.value = frame.jpegBytes;
     });
     _feedbackSubscription = _socket.feedbackStream.listen((feedback) {
-      if (!mounted || _active) return;
-      setState(() => _ready = feedback.readinessStable == true);
+      if (!mounted) return;
+
+      // Preview JPEGs are delivered through the separate ValueNotifier path.
+      // Rebuild this screen only when low-frequency status information changes.
+      final previous = _latestFeedback;
+      final readinessChanged =
+          !_active && _ready != (feedback.readinessStable == true);
+      final statusChanged =
+          previous?.bottleDetected != feedback.bottleDetected ||
+          previous?.postureStatus != feedback.postureStatus;
+      _latestFeedback = feedback;
+      if (readinessChanged || statusChanged) {
+        setState(() {
+          if (!_active) _ready = feedback.readinessStable == true;
+        });
+      }
     });
     await _prepareSession();
   }
@@ -93,6 +108,7 @@ class _CustomMovementPracticeScreenState
         _active = false;
         _error = null;
         _isSetupError = false;
+        _latestFeedback = null;
       });
     }
     try {
@@ -219,6 +235,7 @@ class _CustomMovementPracticeScreenState
         setState(() {
           _active = false;
           _ready = false;
+          _latestFeedback = null;
           _result = assessment;
         });
       }
@@ -228,6 +245,7 @@ class _CustomMovementPracticeScreenState
         setState(() {
           _active = false;
           _ready = false;
+          _latestFeedback = null;
           _error =
               'The performance could not be assessed. Reposition and retry.';
           _isSetupError = false;
@@ -381,12 +399,22 @@ class _CustomMovementPracticeScreenState
 
   TrainingSessionPanel _buildSessionPanel(Map<String, dynamic>? result) {
     final phase = _panelPhase(result);
+    final detectionObserving =
+        !_preparing && result == null && _error == null && !_isSetupError;
+    final detection = !detectionObserving
+        ? TrainingDetectionStatus.inactive
+        : _latestFeedback?.bottleDetected == true
+        ? TrainingDetectionStatus.detected
+        : TrainingDetectionStatus.searching;
+    final propLabel = widget.movement.propType.displayLabel;
     final setupText = _preparing
         ? 'Checking setup…'
         : _active
         ? 'Perform the full movement, then finish when you are done.'
         : _ready
         ? 'Your setup is stable. Start when ready.'
+        : _latestFeedback?.bottleDetected == true
+        ? '$propLabel detected. Waiting for the remaining setup requirements.'
         : widget.revision.template.readinessGuidance;
     return TrainingSessionPanel(
       phase: phase,
@@ -406,11 +434,9 @@ class _CustomMovementPracticeScreenState
       statusContent: result != null
           ? _CustomResultStatus(assignment: widget.assignment != null)
           : TrainingStatusRow(
-              detection: resolveDetectionStatus(
-                sessionActive: _active,
-                bottleDetected: null,
-              ),
-              propLabel: widget.movement.propType.displayLabel,
+              detection: detection,
+              propLabel: propLabel,
+              postureLabel: _postureLabel(_latestFeedback?.postureStatus),
             ),
       supportingContent: Column(
         children: [
@@ -479,6 +505,11 @@ class _CustomMovementPracticeScreenState
     if (_countdown != null) return TrainingSessionPhase.getReady;
     if (_preparing) return TrainingSessionPhase.preparingCamera;
     return _ready ? TrainingSessionPhase.ready : TrainingSessionPhase.readiness;
+  }
+
+  String? _postureLabel(String? postureStatus) {
+    if (postureStatus == null || postureStatus == 'unknown') return null;
+    return postureDisplayLabel(postureStatus);
   }
 }
 

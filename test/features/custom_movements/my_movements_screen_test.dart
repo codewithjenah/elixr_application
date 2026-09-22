@@ -231,6 +231,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const ValueKey('my-movements-back')), findsOneWidget);
+      expect(find.bySemanticsLabel('Back to Movements'), findsOneWidget);
+      expect(find.byKey(const ValueKey('my-movements-create')), findsOneWidget);
       expect(find.text('Create your first movement'), findsOneWidget);
       expect(find.textContaining('three references'), findsOneWidget);
 
@@ -248,6 +251,46 @@ void main() {
       expect(save.onPressed, isNull);
     },
   );
+
+  testWidgets('standalone My Movements back control opens Movements', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final auth = _auth();
+    addTearDown(auth.dispose);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    final router = GoRouter(
+      initialLocation: AppRoutePaths.myMovements,
+      routes: [
+        GoRoute(
+          path: AppRoutePaths.myMovements,
+          builder: (_, _) => const MyMovementsScreen(),
+        ),
+        GoRoute(
+          path: AppRoutePaths.movements,
+          builder: (_, _) => const Text('canonical Movements'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthService>.value(value: auth),
+          Provider<CustomMovementRepository>.value(value: repository),
+        ],
+        child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('my-movements-back')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('canonical Movements'), findsOneWidget);
+  });
 
   testWidgets(
     'main Movements personal view shows only authenticated trainee movements',
@@ -278,12 +321,16 @@ void main() {
 
       expect(find.text('Official ELIXR'), findsOneWidget);
       expect(find.text('My Movements'), findsOneWidget);
+      expect(find.byKey(const ValueKey('my-movements-back')), findsNothing);
       expect(find.text('Own Cascade'), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
       await tester.pumpAndSettle();
 
       expect(repository.watchedOwnerUid, 'trainee-1');
+      expect(find.text('TRAINING LIBRARY'), findsOneWidget);
+      expect(find.text('Movements'), findsOneWidget);
+      expect(find.byKey(const ValueKey('my-movements-back')), findsNothing);
       expect(find.text('Own Cascade'), findsOneWidget);
       expect(find.text('Medium · Cocktail Shaker'), findsOneWidget);
       expect(find.text('Another trainee movement'), findsNothing);

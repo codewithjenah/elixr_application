@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
+import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/custom_movement.dart';
 import '../../data/repositories/custom_movement_repository.dart';
@@ -19,6 +20,13 @@ class MyMovementsScreen extends StatelessWidget {
     final user = context.watch<AuthService>().currentUser;
     return ElixScaffoldPage(
       header: PageHeader(
+        leading: ElixBackButton(
+          key: const ValueKey('my-movements-back'),
+          label: 'Movements',
+          tooltip: 'Back to Movements',
+          semanticLabel: 'Back to Movements',
+          onPressed: () => context.go(AppRoutePaths.movements),
+        ),
         title: const Text('My Movements'),
         commandBar: FilledButton(
           key: const ValueKey('my-movements-create'),

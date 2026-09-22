@@ -61,6 +61,7 @@ from config import (
     JPEG_QUALITY,
     OVERLAY_MAX_CAPTURE_AGE_S,
     OVERLAY_MAX_AGE_S,
+    OVERLAY_PRESENTATION_CONTINUITY_S,
     READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
     TARGET_FPS,
@@ -924,12 +925,14 @@ class VisionSession:
                         float(point.x), float(point.y), 1.0
                     )
 
-        live = (
-            self._last_live_shakers
-            if self.prop_type == "shaker"
-            else self._last_live_bottles
+        # Custom templates are authoritative assessment input.  The tracker
+        # may coast a box for presentation, but a coasted prop must never
+        # become a recorded reference/assessment landmark.
+        detection = (
+            max(normalized.primary, key=lambda item: item.confidence)
+            if normalized.primary
+            else None
         )
-        detection = max(live, key=lambda item: item.confidence) if live else None
         prop_point = None
         prop_metadata: dict[str, Any] = {"yolo_attempted": yolo_attempted}
         if detection is not None:
@@ -1179,6 +1182,14 @@ class VisionSession:
         with self._overlay_lock:
             self._overlay_snapshot = None
 
+    def _presentation_boxes(self) -> list[PropDetection]:
+        """Live tracker boxes for drawing only; never normalize for scoring."""
+        if self._is_dual_prop:
+            return list(self._last_live_bottles) + list(self._last_live_shakers)
+        if self.prop_type == "shaker":
+            return list(self._last_live_shakers)
+        return list(self._last_live_bottles)
+
     def _read_fresh_overlay(
         self,
         *,
@@ -1211,17 +1222,21 @@ class VisionSession:
             capture_age_s=capture_age_s,
             sequence_gap=sequence_gap,
         )
-        if not snapshot.is_aligned_with_preview(
+        if snapshot.is_aligned_with_preview(
             preview_captured_at_monotonic=preview.captured_at_monotonic,
             preview_capture_sequence=preview.sequence,
             preview_capture_generation=preview.generation,
             max_capture_age_s=OVERLAY_MAX_CAPTURE_AGE_S,
         ):
-            self.preview_timings.add_overlay_alignment_rejection(
-                stale_capture_age=True
-            )
-            return None
-        return snapshot
+            return snapshot
+        self.preview_timings.add_overlay_alignment_rejection(stale_capture_age=True)
+        # The current snapshot can bridge the normal preview/AI scheduling
+        # gap, but only for the short rendering grace.  A newer AI result
+        # (including one with no hands/pose) always wins, so detector absence
+        # is not masked by a cached landmark graph.
+        if capture_age_s <= OVERLAY_PRESENTATION_CONTINUITY_S:
+            return snapshot
+        return None
 
     def _timed_detect_normalized_props(self, frame) -> _NormalizedFrameDetections:
         started = time.perf_counter()
@@ -1234,6 +1249,7 @@ class VisionSession:
         self,
         frame,
         *,
+        captured_at_monotonic: float,
         needs_hands: bool,
         needs_pose: bool,
         hand_reference: PropDetection | None,
@@ -1244,10 +1260,14 @@ class VisionSession:
             assert self.hands_detector is not None
             started = time.perf_counter()
             try:
-                hands = self.hands_detector.detect(
-                    frame,
-                    bottle=hand_reference,
-                )
+                if getattr(self.hands_detector, "uses_capture_timestamps", False):
+                    hands = self.hands_detector.detect(
+                        frame,
+                        bottle=hand_reference,
+                        captured_at_monotonic=captured_at_monotonic,
+                    )
+                else:  # Compatibility with deterministic test doubles only.
+                    hands = self.hands_detector.detect(frame, bottle=hand_reference)
             finally:
                 self.timings.add("hands", time.perf_counter() - started)
 
@@ -1256,7 +1276,13 @@ class VisionSession:
             assert self.pose_detector is not None
             started = time.perf_counter()
             try:
-                pose = self.pose_detector.detect(frame)
+                if getattr(self.pose_detector, "uses_capture_timestamps", False):
+                    pose = self.pose_detector.detect(
+                        frame,
+                        captured_at_monotonic=captured_at_monotonic,
+                    )
+                else:  # Compatibility with deterministic test doubles only.
+                    pose = self.pose_detector.detect(frame)
             finally:
                 self.timings.add("pose", time.perf_counter() - started)
         return hands, pose
@@ -1265,6 +1291,7 @@ class VisionSession:
         self,
         frame,
         *,
+        captured_at_monotonic: float,
         run_yolo: bool,
         needs_hands: bool,
         needs_pose: bool,
@@ -1301,6 +1328,7 @@ class VisionSession:
             landmark_future = self._inference_executor.submit(
                 self._detect_landmarks,
                 frame,
+                captured_at_monotonic=captured_at_monotonic,
                 needs_hands=needs_hands,
                 needs_pose=needs_pose,
                 hand_reference=None,
@@ -1334,6 +1362,7 @@ class VisionSession:
         )
         hands, pose = self._detect_landmarks(
             frame,
+            captured_at_monotonic=captured_at_monotonic,
             needs_hands=needs_hands,
             needs_pose=needs_pose,
             hand_reference=hand_reference,
@@ -1912,6 +1941,7 @@ class VisionSession:
         )
         normalized, hands, pose = self._run_frame_inference(
             frame,
+            captured_at_monotonic=captured.captured_at_monotonic,
             run_yolo=run_yolo,
             needs_hands=needs_h,
             needs_pose=needs_p,
@@ -1953,7 +1983,7 @@ class VisionSession:
         if readiness_stable:
             self.startup.mark(MARK_READINESS_STABLE)
 
-        boxes_to_draw = list(normalized.annotation)
+        boxes_to_draw = self._presentation_boxes()
         self._publish_overlay(
             freeze_overlay(
                 published_at_monotonic=time.monotonic(),
@@ -2087,7 +2117,7 @@ class VisionSession:
                 captured_at_monotonic=captured.captured_at_monotonic,
                 capture_sequence=captured.sequence,
                 capture_generation=captured.generation,
-                boxes=list(normalized.annotation),
+                boxes=self._presentation_boxes(),
                 hands=None,
                 pose=None,
                 feedback=feedback,
@@ -2187,6 +2217,7 @@ class VisionSession:
 
         normalized, hands, pose = self._run_frame_inference(
             frame,
+            captured_at_monotonic=captured.captured_at_monotonic,
             run_yolo=run_yolo,
             needs_hands=self._hands_needed,
             needs_pose=self._pose_needed,
@@ -2229,7 +2260,7 @@ class VisionSession:
                     captured_at_monotonic=captured.captured_at_monotonic,
                     capture_sequence=captured.sequence,
                     capture_generation=captured.generation,
-                    boxes=list(normalized.annotation),
+                    boxes=self._presentation_boxes(),
                     hands=hands,
                     pose=pose,
                     feedback=feedback,
@@ -2314,7 +2345,7 @@ class VisionSession:
 
         # Combine both detection lists only for drawing; movement evaluation
         # above kept bottles and shakers separate.
-        boxes_to_draw = list(normalized.annotation)
+        boxes_to_draw = self._presentation_boxes()
         self._publish_overlay(
             freeze_overlay(
                 published_at_monotonic=time.monotonic(),

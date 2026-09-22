@@ -11,9 +11,11 @@ performs the scenario on the target Windows hardware.
 - Record all three references in the same session and note the selected prop.
 - Keep the backend log. Capture the bounded `CUSTOM_CAPTURE_DIAGNOSTICS` entry
   for each accepted or rejected reference and assessment.
-- Record effective processing FPS, YOLO confirmation rate, prop track changes,
-  longest prop observation gap, Pose coverage, left/right Hand coverage,
-  rejection reason (if any), and assessment sequence duration.
+- Record effective processing FPS, preview FPS, YOLO confirmation rate, prop
+  track changes, longest prop observation gap, Pose coverage, left/right Hand
+  coverage, overlay capture-age mean/p95, overlay stale/generation rejection
+  counts, visible overlay flicker (yes/no), rejection reason (if any), and
+  assessment sequence duration.
 - Do not save raw frames for diagnostics.
 
 ## Camera matrix

@@ -162,12 +162,19 @@ class _CustomSocket extends WebSocketService {
     emitReadiness(true);
   }
 
-  void emitReadiness(bool readinessStable) {
+  void emitReadiness(bool readinessStable, {bool bottleDetected = true}) {
+    emitFeedback(
+      bottleDetected: bottleDetected,
+      readinessStable: readinessStable,
+    );
+  }
+
+  void emitFeedback({required bool bottleDetected, bool? readinessStable}) {
     _feedback.add(
       PracticeFeedback(
-        bottleDetected: true,
+        bottleDetected: bottleDetected,
         movement: 'Custom Movement',
-        feedback: readinessStable ? 'Ready.' : 'Getting into position.',
+        feedback: readinessStable == true ? 'Ready.' : 'Getting into position.',
         feedbackType: 'positive',
         postureStatus: 'unknown',
         readinessStable: readinessStable,
@@ -245,69 +252,164 @@ void main() {
     await socket.closeTestStreams();
   });
 
-  testWidgets('assessment readiness and guidance follow one-hand template', (
-    tester,
-  ) async {
-    _useDesktopSurface(tester);
-    final socket = _CustomSocket();
-    final template = MovementTemplate.tryFrom(_oneHandTemplateMap())!;
-    final movement = CustomMovement(
-      id: 'movement-1',
-      ownerUid: 'trainee-1',
-      ownerRole: CustomMovementOwnerRole.trainee,
-      name: 'One-hand toss',
-      description: 'Toss and catch with the left hand.',
-      difficulty: 'Medium',
-      propType: TrainingProp.bottle,
-      status: CustomMovementStatus.active,
-      activeRevisionId: 'revision-1',
-    );
-    final revision = CustomMovementRevision(
-      id: 'revision-1',
-      movementId: movement.id,
-      ownerUid: movement.ownerUid,
-      ownerRole: movement.ownerRole,
-      template: template,
-    );
+  testWidgets(
+    'custom assessment keeps prop detection live across readiness and capture',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final socket = _CustomSocket();
+      final template = MovementTemplate.tryFrom(_oneHandTemplateMap())!;
+      final movement = CustomMovement(
+        id: 'movement-1',
+        ownerUid: 'trainee-1',
+        ownerRole: CustomMovementOwnerRole.trainee,
+        name: 'One-hand toss',
+        description: 'Toss and catch with the left hand.',
+        difficulty: 'Medium',
+        propType: TrainingProp.bottle,
+        status: CustomMovementStatus.active,
+        activeRevisionId: 'revision-1',
+      );
+      final revision = CustomMovementRevision(
+        id: 'revision-1',
+        movementId: movement.id,
+        ownerUid: movement.ownerUid,
+        ownerRole: movement.ownerRole,
+        template: template,
+      );
 
-    await tester.pumpWidget(
-      _withSettings(
-        _TestSettings(deviceId: 'dshow:usb-camera'),
-        CustomMovementPracticeScreen(
-          movement: movement,
-          revision: revision,
-          repository: _UnusedRepository(),
-          webSocket: socket,
+      await tester.pumpWidget(
+        _withSettings(
+          _TestSettings(deviceId: 'dshow:usb-camera'),
+          CustomMovementPracticeScreen(
+            movement: movement,
+            revision: revision,
+            repository: _UnusedRepository(),
+            webSocket: socket,
+          ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    expect(socket.preparedMode, 'custom_assessment');
-    expect(socket.preparedReadiness!.hands, ActivityHandRequirement.oneHand);
-    expect(socket.preparedCameraDeviceId, 'dshow:usb-camera');
-    expect(socket.preparedLegacyCameraIndex, isNull);
-    expect(socket.preparedReadiness!.body, ActivityBodyRequirement.none);
-    expect(
-      find.text('Keep the selected prop and the left hand visible.'),
-      findsOne,
-    );
-    expect(find.byKey(const ValueKey('practice-training-header')), findsOne);
-    expect(find.byKey(const ValueKey('practice-camera-workspace')), findsOne);
-    expect(find.byKey(const ValueKey('practice-session-panel')), findsOne);
-    expect(find.text('One-hand toss'), findsWidgets);
-    expect(find.text('Medium'), findsWidgets);
-    expect(find.text('Bottle'), findsOne);
-    expect(find.text('Reference matched'), findsOne);
+      expect(socket.preparedMode, 'custom_assessment');
+      expect(socket.preparedReadiness!.hands, ActivityHandRequirement.oneHand);
+      expect(socket.preparedCameraDeviceId, 'dshow:usb-camera');
+      expect(socket.preparedLegacyCameraIndex, isNull);
+      expect(socket.preparedReadiness!.body, ActivityBodyRequirement.none);
+      expect(
+        find.text('Keep the selected prop and the left hand visible.'),
+        findsOne,
+      );
+      expect(find.byKey(const ValueKey('practice-training-header')), findsOne);
+      expect(find.byKey(const ValueKey('practice-camera-workspace')), findsOne);
+      expect(find.byKey(const ValueKey('practice-session-panel')), findsOne);
+      expect(find.text('One-hand toss'), findsWidgets);
+      expect(find.text('Medium'), findsWidgets);
+      expect(find.text('Bottle'), findsOne);
+      expect(find.text('Reference matched'), findsOne);
 
-    socket.emitReady();
-    await tester.pump();
-    expect(find.text('Your setup is stable. Start when ready.'), findsOne);
-    expect(find.text('Start Practice'), findsOne);
+      socket.emitFeedback(bottleDetected: false, readinessStable: false);
+      await tester.pump();
+      expect(find.text('Searching for bottle'), findsOne);
+      await tester.tap(find.text('Start Practice'));
+      await tester.pump();
+      expect(socket.startCustomCaptureCalls, 0);
 
-    await tester.pumpWidget(const SizedBox());
-    await socket.closeTestStreams();
-  });
+      socket.emitFeedback(bottleDetected: true, readinessStable: false);
+      await tester.pump();
+      expect(find.text('Bottle detected'), findsOne);
+      expect(socket.startCustomCaptureCalls, 0);
+
+      socket.emitReady();
+      await tester.pump();
+      expect(find.text('Your setup is stable. Start when ready.'), findsOne);
+      expect(find.text('Start Practice'), findsOne);
+
+      await tester.tap(find.text('Start Practice'));
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      expect(socket.startCustomCaptureCalls, 1);
+      expect(find.text('Finish Session'), findsOne);
+
+      socket.emitFeedback(bottleDetected: false);
+      await tester.pump();
+      expect(find.text('Searching for bottle'), findsOne);
+      expect(find.text('Finish Session'), findsOne);
+
+      socket.emitFeedback(bottleDetected: true);
+      await tester.pump();
+      expect(find.text('Bottle detected'), findsOne);
+
+      socket.rejectNextStop = true;
+      await tester.tap(find.text('Finish Session'));
+      await tester.pump();
+      expect(
+        find.text(
+          'The performance could not be assessed. Reposition and retry.',
+        ),
+        findsOne,
+      );
+      await tester.tap(find.text('Practice Again'));
+      await tester.pump();
+      expect(find.text('Searching for bottle'), findsOne);
+      expect(find.text('Bottle detected'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets(
+    'custom assessment uses the selected prop in live detection copy',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final socket = _CustomSocket();
+      final template = MovementTemplate.tryFrom(_oneHandTemplateMap())!;
+      final movement = CustomMovement(
+        id: 'movement-shaker',
+        ownerUid: 'trainee-1',
+        ownerRole: CustomMovementOwnerRole.trainee,
+        name: 'Shaker toss',
+        description: 'Toss and catch the shaker.',
+        difficulty: 'Medium',
+        propType: TrainingProp.shaker,
+        status: CustomMovementStatus.active,
+        activeRevisionId: 'revision-shaker',
+      );
+      final revision = CustomMovementRevision(
+        id: 'revision-shaker',
+        movementId: movement.id,
+        ownerUid: movement.ownerUid,
+        ownerRole: movement.ownerRole,
+        template: template,
+      );
+
+      await tester.pumpWidget(
+        _withSettings(
+          _TestSettings(),
+          CustomMovementPracticeScreen(
+            movement: movement,
+            revision: revision,
+            repository: _UnusedRepository(),
+            webSocket: socket,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      socket.emitFeedback(bottleDetected: false, readinessStable: false);
+      await tester.pump();
+      expect(find.text('Searching for cocktail shaker'), findsOne);
+      socket.emitFeedback(bottleDetected: true, readinessStable: false);
+      await tester.pump();
+      expect(find.text('Cocktail Shaker detected'), findsOne);
+      expect(find.text('Bottle detected'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
 
   testWidgets('three-reference flow supports rejection retry and discard', (
     tester,

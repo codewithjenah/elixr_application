@@ -146,7 +146,14 @@ def test_recorded_detection_preserves_yolo_attempt_for_diagnostics():
     session._record_custom_sample(
         captured=CapturedFrame(frame, started + 0.1, 1),
         frame=frame,
-        normalized=None,
+        normalized=websocket_api._NormalizedFrameDetections(
+            primary=tuple(session._last_live_bottles),
+            bottles=tuple(session._last_live_bottles),
+            shakers=(),
+            annotation=tuple(session._last_live_bottles),
+            selected_detected=True,
+            selected_count=1,
+        ),
         hands=None,
         pose=None,
         yolo_attempted=True,
@@ -157,3 +164,29 @@ def test_recorded_detection_preserves_yolo_attempt_for_diagnostics():
     assert session._custom_capture_diagnostics(tuple(session._custom_samples))[
         "yolo_confirmation_rate"
     ] == 1.0
+
+
+def test_coasted_prop_is_visual_only_not_a_custom_sample():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    started = time.monotonic()
+    session._custom_samples = []
+    session._custom_capture_started_at = started
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    session._last_live_bottles = [
+        PropDetection(10, 10, 30, 50, 0.9, track_id=4, yolo_confirmed=False)
+    ]
+
+    session._record_custom_sample(
+        captured=CapturedFrame(frame, started + 0.1, 1),
+        frame=frame,
+        normalized=websocket_api._NormalizedFrameDetections(
+            primary=(), bottles=(), shakers=(), annotation=(),
+            selected_detected=False, selected_count=0,
+        ),
+        hands=None, pose=None, yolo_attempted=True,
+    )
+
+    assert session._custom_samples is not None
+    assert session._custom_samples[0].prop is None
+    assert session._custom_samples[0].prop_metadata == {"yolo_attempted": True}
+    assert session._presentation_boxes()[0].yolo_confirmed is False

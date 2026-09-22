@@ -1,7 +1,6 @@
-"""MediaPipe VIDEO timestamp mapping for HandsDetector.
+"""MediaPipe VIDEO timestamp mapping for landmark detectors.
 
-Production HandsDetector still defaults to a fake ``+= 33`` clock. Capture
-timestamps come from ``CapturedFrame.captured_at_monotonic`` (monotonic
+Capture timestamps come from ``CapturedFrame.captured_at_monotonic`` (monotonic
 seconds). Integer milliseconds can collide when frames are closer than 1 ms
 or when the same captured frame is presented twice, so every strategy must
 return strictly increasing timestamps on one landmarker instance.
@@ -106,7 +105,14 @@ class VideoTimestampClock:
     origin_monotonic: float | None = None
     last_timestamp_ms: int | None = None
 
-    def next_ms(self, captured_at_monotonic: float) -> int:
+    def next_ms(self, captured_at_monotonic: float | None = None) -> int:
+        if (
+            captured_at_monotonic is None
+            or captured_at_monotonic != captured_at_monotonic
+        ):
+            candidate = 0 if self.last_timestamp_ms is None else self.last_timestamp_ms + 1
+            self.last_timestamp_ms = candidate
+            return candidate
         if self.origin_monotonic is None:
             self.origin_monotonic = captured_at_monotonic
         elapsed_ms = (captured_at_monotonic - self.origin_monotonic) * 1000.0
@@ -133,5 +139,5 @@ def default_timestamp_clock(
     timestamp_clock: Optional[HandsTimestampClock] = None,
 ) -> HandsTimestampClock:
     if timestamp_clock is None:
-        return Synthetic33TimestampClock()
+        return VideoTimestampClock()
     return timestamp_clock

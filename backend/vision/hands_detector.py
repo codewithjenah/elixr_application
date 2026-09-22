@@ -141,6 +141,8 @@ def _merge_hands(
 
 
 class HandsDetector:
+    uses_capture_timestamps = True
+
     def __init__(
         self,
         max_num_hands: int = 2,
@@ -152,7 +154,7 @@ class HandsDetector:
         self._max_num_hands = max_num_hands
         self._rotated_fallback = rotated_fallback
         self._bartender_roi_fallback = bartender_roi_fallback
-        # None keeps production VIDEO timestamps at previous + 33 ms.
+        # Production VIDEO timestamps follow the actual captured-frame clock.
         self.timestamp_clock = default_timestamp_clock(timestamp_clock)
         self.timestamp_clock.reset()
         self._landmarker = self._create_landmarker(

@@ -129,10 +129,8 @@ class _MovementsScreenState extends State<MovementsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (_libraryView == _MovementLibraryView.official) ...[
-                          MovementsHeader(summary: summary),
-                          const SizedBox(height: AppSpacing.xl),
-                        ],
+                        MovementsHeader(summary: summary),
+                        const SizedBox(height: AppSpacing.xl),
                         _MovementLibrarySelector(
                           selected: _libraryView,
                           onSelected: (value) =>

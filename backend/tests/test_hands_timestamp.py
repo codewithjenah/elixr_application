@@ -166,14 +166,14 @@ def _patch_detector_without_mediapipe(monkeypatch, timestamps: list[int]):
     return HandsDetector
 
 
-def test_hands_detector_default_uses_synthetic_plus_33(monkeypatch):
+def test_hands_detector_default_uses_captured_monotonic_time(monkeypatch):
     timestamps: list[int] = []
     HandsDetector = _patch_detector_without_mediapipe(monkeypatch, timestamps)
     detector = HandsDetector(max_num_hands=1)
     frame = np.zeros((8, 8, 3), dtype=np.uint8)
     detector.detect(frame, captured_at_monotonic=5.0)
     detector.detect(frame, captured_at_monotonic=5.1)
-    assert timestamps == [33, 66]
+    assert timestamps == [0, 100]
     detector.close()
 
 
