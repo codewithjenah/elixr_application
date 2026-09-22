@@ -148,7 +148,12 @@ The repository already contains:
   DirectML when the provider is available, then validated ONNX CPU, then
   PyTorch. Non-Windows `auto` starts with ONNX CPU. Use
   `YOLO_DML_DEVICE_ID` to select a DirectML adapter explicitly; do not infer
-  an adapter name from its index. Do not export a square 640×640 graph for
+  an adapter name from its index. For a machine-local persistent override on
+  Windows, set a user environment variable (for example,
+  `setx YOLO_DML_DEVICE_ID 1`) and start ELIXR from a new process. Adapter
+  indexes are machine-specific: benchmark the target PC before choosing a
+  value, and never treat device `1` as a universal NVIDIA/RTX adapter. Do not
+  export a square 640×640 graph for
   production.
 - `backend/models/hand_landmarker.task`.
 - `backend/models/pose_landmarker_lite.task`.
