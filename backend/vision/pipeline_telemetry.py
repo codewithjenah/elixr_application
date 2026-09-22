@@ -232,6 +232,10 @@ class PipelineTimings:
         self._frame_age_sum = 0.0
         self._frame_age_count = 0
         self._frame_age_max = 0.0
+        self._overlay_capture_age_samples: list[float] = []
+        self._overlay_sequence_gap_samples: list[int] = []
+        self._overlay_ahead_rejections = 0
+        self._overlay_generation_rejections = 0
 
     def add(self, stage: str, seconds: float) -> None:
         with self._lock:
@@ -255,6 +259,61 @@ class PipelineTimings:
             if seconds > self._frame_age_max:
                 self._frame_age_max = seconds
 
+    def add_overlay_alignment(
+        self,
+        *,
+        capture_age_s: float,
+        sequence_gap: int,
+    ) -> None:
+        """Record preview-to-overlay alignment without changing rendering."""
+        with self._lock:
+            self._overlay_capture_age_samples.append(capture_age_s)
+            self._overlay_sequence_gap_samples.append(sequence_gap)
+
+    def add_overlay_alignment_rejection(
+        self,
+        *,
+        ahead: bool = False,
+        generation_mismatch: bool = False,
+    ) -> None:
+        """Count incomparable overlays without polluting age/gap distributions."""
+        with self._lock:
+            if ahead:
+                self._overlay_ahead_rejections += 1
+            if generation_mismatch:
+                self._overlay_generation_rejections += 1
+
+    def overlay_alignment_summary(self) -> dict[str, float | int]:
+        with self._lock:
+            ages = list(self._overlay_capture_age_samples)
+            gaps = list(self._overlay_sequence_gap_samples)
+            ahead_rejections = self._overlay_ahead_rejections
+            generation_rejections = self._overlay_generation_rejections
+
+        def _percentile(values: list[float] | list[int], pct: float) -> float:
+            if not values:
+                return 0.0
+            ordered = sorted(values)
+            index = min(
+                len(ordered) - 1,
+                max(0, int(round((pct / 100.0) * (len(ordered) - 1)))),
+            )
+            return float(ordered[index])
+
+        return {
+            "count": len(ages),
+            "capture_age_mean_ms": (
+                (sum(ages) / len(ages)) * 1000.0 if ages else 0.0
+            ),
+            "capture_age_p95_ms": _percentile(ages, 95) * 1000.0,
+            "capture_age_max_ms": max(ages, default=0.0) * 1000.0,
+            "sequence_gap_mean": sum(gaps) / len(gaps) if gaps else 0.0,
+            "sequence_gap_p95": _percentile(gaps, 95),
+            "sequence_gap_max": max(gaps, default=0),
+            "ahead_rejections": ahead_rejections,
+            "generation_rejections": generation_rejections,
+        }
+
     def reset(self) -> None:
         with self._lock:
             for name in list(self._sums):
@@ -266,6 +325,10 @@ class PipelineTimings:
             self._frame_age_sum = 0.0
             self._frame_age_count = 0
             self._frame_age_max = 0.0
+            self._overlay_capture_age_samples.clear()
+            self._overlay_sequence_gap_samples.clear()
+            self._overlay_ahead_rejections = 0
+            self._overlay_generation_rejections = 0
 
     def count(self, stage: str) -> int:
         with self._lock:
@@ -501,6 +564,7 @@ def format_perf_line(
     if yolo_runtime and yolo_threads is not None:
         runtime_fields += f" yolo_threads={yolo_threads}"
     hands_fields = f" {hands_diag}" if hands_diag else ""
+    overlay = timings.overlay_alignment_summary()
     return (
         "CV PERF | "
         f"preview={preview:.1f}fps ai={ai_fps:.1f}fps capture={capture_fps:.1f}fps"
@@ -508,6 +572,14 @@ def format_perf_line(
         f"yolo={yolo_fps:.1f}fps"
         f" | ai_frame_age avg={inference.frame_age_avg_ms:.1f}ms "
         f"max={inference.frame_age_max_ms:.1f}ms"
+        f" | overlay_capture_age avg={overlay['capture_age_mean_ms']:.1f}ms "
+        f"p95={overlay['capture_age_p95_ms']:.1f}ms "
+        f"max={overlay['capture_age_max_ms']:.1f}ms n={overlay['count']}"
+        f" | overlay_sequence_gap avg={overlay['sequence_gap_mean']:.1f} "
+        f"p95={overlay['sequence_gap_p95']:.0f} "
+        f"max={overlay['sequence_gap_max']} "
+        f"ahead_reject={overlay['ahead_rejections']} "
+        f"generation_reject={overlay['generation_rejections']}"
         f" | {' '.join(stage_parts)}"
         f" | preview_e2e={preview_e2e_ms:.1f}ms ai_e2e={ai_e2e_ms:.1f}ms"
         f" | preview_over_budget={over_budget:.0f}%"

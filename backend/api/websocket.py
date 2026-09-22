@@ -58,6 +58,7 @@ from config import (
     EVIDENCE_MAX_HEIGHT,
     EVIDENCE_MAX_WIDTH,
     JPEG_QUALITY,
+    OVERLAY_MAX_CAPTURE_AGE_S,
     OVERLAY_MAX_AGE_S,
     READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
@@ -1147,12 +1148,14 @@ class VisionSession:
                 return None
             captured_at = getattr(self.camera, "last_captured_at_monotonic", None)
             sequence = getattr(self.camera, "last_capture_sequence", None)
+            generation = getattr(self.camera, "last_capture_generation", None)
             captured = CapturedFrame(
                 frame=frame,
                 captured_at_monotonic=(
                     captured_at if captured_at is not None else time.monotonic()
                 ),
                 sequence=int(sequence or 0),
+                generation=int(generation or 0),
             )
             if newer_than is not None and captured.sequence <= newer_than:
                 clock.add("camera", time.perf_counter() - t0)
@@ -1168,7 +1171,12 @@ class VisionSession:
         with self._overlay_lock:
             self._overlay_snapshot = None
 
-    def _read_fresh_overlay(self, *, now: float | None = None) -> OverlaySnapshot | None:
+    def _read_fresh_overlay(
+        self,
+        *,
+        preview: CapturedFrame | None = None,
+        now: float | None = None,
+    ) -> OverlaySnapshot | None:
         with self._overlay_lock:
             snapshot = self._overlay_snapshot
         if snapshot is None:
@@ -1176,6 +1184,31 @@ class VisionSession:
         if now is None:
             now = time.monotonic()
         if not snapshot.is_fresh(now, OVERLAY_MAX_AGE_S):
+            return None
+        if preview is None:
+            return snapshot
+        capture_age_s = (
+            preview.captured_at_monotonic - snapshot.captured_at_monotonic
+        )
+        sequence_gap = preview.sequence - snapshot.capture_sequence
+        if preview.generation != snapshot.capture_generation:
+            self.preview_timings.add_overlay_alignment_rejection(
+                generation_mismatch=True
+            )
+            return None
+        if capture_age_s < 0.0 or sequence_gap < 0:
+            self.preview_timings.add_overlay_alignment_rejection(ahead=True)
+            return None
+        self.preview_timings.add_overlay_alignment(
+            capture_age_s=capture_age_s,
+            sequence_gap=sequence_gap,
+        )
+        if not snapshot.is_aligned_with_preview(
+            preview_captured_at_monotonic=preview.captured_at_monotonic,
+            preview_capture_sequence=preview.sequence,
+            preview_capture_generation=preview.generation,
+            max_capture_age_s=OVERLAY_MAX_CAPTURE_AGE_S,
+        ):
             return None
         return snapshot
 
@@ -1598,7 +1631,7 @@ class VisionSession:
         self.preview_timings.add_frame_age(
             time.monotonic() - captured.captured_at_monotonic
         )
-        overlay = self._read_fresh_overlay()
+        overlay = self._read_fresh_overlay(preview=captured)
         annotated = captured.frame
         if overlay is not None:
             t0 = time.perf_counter()
@@ -1769,6 +1802,7 @@ class VisionSession:
                 published_at_monotonic=time.monotonic(),
                 captured_at_monotonic=captured.captured_at_monotonic,
                 capture_sequence=captured.sequence,
+                capture_generation=captured.generation,
                 boxes=boxes_to_draw,
                 hands=hands,
                 pose=pose,
@@ -1878,6 +1912,7 @@ class VisionSession:
                 published_at_monotonic=time.monotonic(),
                 captured_at_monotonic=captured.captured_at_monotonic,
                 capture_sequence=captured.sequence,
+                capture_generation=captured.generation,
                 boxes=list(normalized.annotation),
                 hands=None,
                 pose=None,
@@ -2031,6 +2066,7 @@ class VisionSession:
                     published_at_monotonic=time.monotonic(),
                     captured_at_monotonic=captured.captured_at_monotonic,
                     capture_sequence=captured.sequence,
+                    capture_generation=captured.generation,
                     boxes=list(normalized.annotation),
                     hands=hands,
                     pose=pose,
@@ -2122,6 +2158,7 @@ class VisionSession:
                 published_at_monotonic=time.monotonic(),
                 captured_at_monotonic=captured.captured_at_monotonic,
                 capture_sequence=captured.sequence,
+                capture_generation=captured.generation,
                 boxes=boxes_to_draw,
                 hands=hands,
                 pose=pose,
@@ -2269,6 +2306,7 @@ class VisionSession:
                 published_at_monotonic=time.monotonic(),
                 captured_at_monotonic=captured.captured_at_monotonic,
                 capture_sequence=captured.sequence,
+                capture_generation=captured.generation,
                 boxes=boxes_to_draw,
                 hands=hands,
                 pose=pose,

@@ -63,6 +63,42 @@ def test_overlay_expires_after_max_age_and_not_before():
     assert snapshot.is_fresh(12.0, 0.25) is False
 
 
+def test_overlay_alignment_uses_preview_capture_time_and_sequence():
+    snapshot = OverlaySnapshot(
+        published_at_monotonic=10.0,
+        captured_at_monotonic=9.9,
+        capture_sequence=7,
+        boxes=(),
+        hands=None,
+        pose=None,
+        feedback="",
+        feedback_type="positive",
+        movement="Hand Stall",
+        prop_label="Bottle",
+    )
+    assert snapshot.is_aligned_with_preview(
+        preview_captured_at_monotonic=10.0,
+        preview_capture_sequence=9,
+        max_capture_age_s=0.1,
+    ) is True
+    assert snapshot.is_aligned_with_preview(
+        preview_captured_at_monotonic=10.000001,
+        preview_capture_sequence=9,
+        max_capture_age_s=0.1,
+    ) is False
+    assert snapshot.is_aligned_with_preview(
+        preview_captured_at_monotonic=9.95,
+        preview_capture_sequence=6,
+        max_capture_age_s=0.1,
+    ) is False
+    assert snapshot.is_aligned_with_preview(
+        preview_captured_at_monotonic=10.0,
+        preview_capture_sequence=9,
+        max_capture_age_s=0.1,
+        preview_capture_generation=1,
+    ) is False
+
+
 def test_freeze_overlay_stores_copied_geometry():
     box = PropDetection(1, 2, 3, 4, 0.9)
     snapshot = freeze_overlay(

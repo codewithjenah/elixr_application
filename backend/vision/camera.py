@@ -101,6 +101,9 @@ _release_generation = 0
 _capture_producer: Optional["_CaptureProducer"] = None
 _latest_frame_slot: Optional["_LatestFrameSlot"] = None
 _producer_blank_streak = 0
+_capture_identity_lock = threading.Lock()
+_capture_sequence_counter = 0
+_capture_generation = 0
 _PRODUCER_JOIN_TIMEOUT_S = 2.0
 
 # Abandoned producers remain tracked until their thread exits (diagnostics/tests).
@@ -131,6 +134,21 @@ class CapturedFrame:
     frame: np.ndarray
     captured_at_monotonic: float
     sequence: int
+    generation: int = 0
+
+
+def _begin_capture_generation() -> int:
+    global _capture_generation
+    with _capture_identity_lock:
+        _capture_generation += 1
+        return _capture_generation
+
+
+def _next_capture_sequence() -> int:
+    global _capture_sequence_counter
+    with _capture_identity_lock:
+        _capture_sequence_counter += 1
+        return _capture_sequence_counter
 
 
 class _LatestFrameSlot:
@@ -219,6 +237,7 @@ class _CaptureProducer:
         width: int,
         height: int,
         slot: _LatestFrameSlot,
+        generation: int,
         backend_label: str = "",
         reported_fps: float = 0.0,
     ) -> None:
@@ -226,13 +245,13 @@ class _CaptureProducer:
         self._width = width
         self._height = height
         self._slot: _LatestFrameSlot | None = slot
+        self._generation = generation
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
             name="elixr-camera-capture",
             daemon=True,
         )
-        self._sequence = 0
         self.blank_streak = 0
         self._ownership = _CaptureOwnership.CALLER
         self._ownership_lock = threading.Lock()
@@ -362,7 +381,6 @@ class _CaptureProducer:
                 # Independent C-contiguous copy: ascontiguousarray is a no-op
                 # when the OpenCV buffer is already contiguous.
                 owned = frame.copy(order="C")
-                self._sequence += 1
                 published_at = time.perf_counter()
                 interval_s = None
                 if self._prev_publish_at is not None:
@@ -373,7 +391,8 @@ class _CaptureProducer:
                     CapturedFrame(
                         frame=owned,
                         captured_at_monotonic=time.monotonic(),
-                        sequence=self._sequence,
+                        sequence=_next_capture_sequence(),
+                        generation=self._generation,
                     )
                 )
                 self._prev_iter_end = time.perf_counter()
@@ -498,6 +517,7 @@ def _start_capture_producer(
         width=width,
         height=height,
         slot=slot,
+        generation=_begin_capture_generation(),
         backend_label=auto_label if backend_label is None else backend_label,
         reported_fps=auto_fps if reported_fps is None else reported_fps,
     )
@@ -1231,6 +1251,7 @@ class CameraCapture:
         self._active_display_name: str | None = None
         self._last_captured_at_monotonic: float | None = None
         self._last_capture_sequence: int | None = None
+        self._last_capture_generation: int | None = None
         self.startup_timings = CameraStartupTimings()
         self._lease_token = object()
 
@@ -1290,6 +1311,10 @@ class CameraCapture:
     @property
     def last_capture_sequence(self) -> int | None:
         return self._last_capture_sequence
+
+    @property
+    def last_capture_generation(self) -> int | None:
+        return self._last_capture_generation
 
     def _resolve_allowed_indices(self) -> list[int] | None:
         """Return candidate indices, or ``None`` when explicit device is missing."""
@@ -1671,6 +1696,7 @@ class CameraCapture:
             _producer_blank_streak = 0
             self._last_captured_at_monotonic = captured.captured_at_monotonic
             self._last_capture_sequence = captured.sequence
+            self._last_capture_generation = captured.generation
             self._last_read_status = CameraReadStatus.OK
             return captured.frame
 
@@ -1721,6 +1747,7 @@ class CameraCapture:
         self._blank_frame_streak = 0
         self._last_captured_at_monotonic = captured.captured_at_monotonic
         self._last_capture_sequence = captured.sequence
+        self._last_capture_generation = captured.generation
         self._last_read_status = CameraReadStatus.OK
         return captured.frame
 
@@ -1825,11 +1852,13 @@ class CameraCapture:
         self._blank_frame_streak = 0
         self._last_captured_at_monotonic = captured.captured_at_monotonic
         self._last_capture_sequence = captured.sequence
+        self._last_capture_generation = captured.generation
         self._last_read_status = CameraReadStatus.OK
         return CapturedFrame(
             frame=owned,
             captured_at_monotonic=captured.captured_at_monotonic,
             sequence=captured.sequence,
+            generation=captured.generation,
         )
 
     def read(self) -> Optional[np.ndarray]:
@@ -1847,9 +1876,8 @@ class CameraCapture:
                 if frame is not None:
                     self._last_read_status = CameraReadStatus.OK
                     self._last_captured_at_monotonic = time.monotonic()
-                    self._last_capture_sequence = (
-                        (self._last_capture_sequence or 0) + 1
-                    )
+                    self._last_capture_sequence = _next_capture_sequence()
+                    self._last_capture_generation = _capture_generation
                     return frame
 
                 if (

@@ -46,9 +46,9 @@ class OverlaySnapshot:
     """Rendering-only geometry tied to the analyzed camera frame.
 
     ``published_at_monotonic`` is when the snapshot became available for
-    preview. Freshness uses this timestamp so a slow inference run does not
-    make the overlay expire the instant it is published. Capture time remains
-    available for latency telemetry.
+    preview and remains useful as a lifecycle backstop. Visual alignment must
+    be checked against the preview frame's capture time and sequence because a
+    newly published inference result may already describe an old image.
     """
 
     published_at_monotonic: float
@@ -61,11 +61,33 @@ class OverlaySnapshot:
     feedback_type: str
     movement: str
     prop_label: str
+    capture_generation: int = 0
 
     def is_fresh(self, now: float, max_age_s: float) -> bool:
         if max_age_s < 0:
             return False
         return (now - self.published_at_monotonic) <= max_age_s
+
+    def is_aligned_with_preview(
+        self,
+        *,
+        preview_captured_at_monotonic: float,
+        preview_capture_sequence: int,
+        max_capture_age_s: float,
+        preview_capture_generation: int = 0,
+    ) -> bool:
+        """Whether this geometry is truthful enough for one preview frame."""
+        if max_capture_age_s < 0:
+            return False
+        capture_age_s = (
+            preview_captured_at_monotonic - self.captured_at_monotonic
+        )
+        sequence_gap = preview_capture_sequence - self.capture_sequence
+        return (
+            0.0 <= capture_age_s <= max_capture_age_s
+            and sequence_gap >= 0
+            and preview_capture_generation == self.capture_generation
+        )
 
 
 def freeze_overlay(
@@ -80,6 +102,7 @@ def freeze_overlay(
     feedback_type: str,
     movement: str,
     prop_label: str,
+    capture_generation: int = 0,
 ) -> OverlaySnapshot:
     """Build a snapshot with copied landmark graphs and boxed detections."""
     return OverlaySnapshot(
@@ -93,4 +116,5 @@ def freeze_overlay(
         feedback_type=feedback_type,
         movement=movement,
         prop_label=prop_label,
+        capture_generation=capture_generation,
     )

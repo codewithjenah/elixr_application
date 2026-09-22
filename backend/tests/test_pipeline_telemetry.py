@@ -48,6 +48,35 @@ def test_frame_age_tracks_average_and_max():
     assert timings.frame_age_max_ms == 40.0
 
 
+def test_overlay_alignment_tracks_interval_mean_p95_and_max():
+    timings = PipelineTimings()
+    timings.add_overlay_alignment(capture_age_s=0.020, sequence_gap=1)
+    timings.add_overlay_alignment(capture_age_s=0.050, sequence_gap=2)
+    timings.add_overlay_alignment(capture_age_s=0.110, sequence_gap=4)
+
+    summary = timings.overlay_alignment_summary()
+    assert summary["count"] == 3
+    assert abs(summary["capture_age_mean_ms"] - 60.0) < 0.01
+    assert summary["capture_age_p95_ms"] == 110.0
+    assert summary["capture_age_max_ms"] == 110.0
+    assert abs(summary["sequence_gap_mean"] - (7.0 / 3.0)) < 0.01
+    assert summary["sequence_gap_p95"] == 4.0
+    assert summary["sequence_gap_max"] == 4
+
+
+def test_incomparable_overlay_rejections_do_not_pollute_age_metrics():
+    timings = PipelineTimings()
+    timings.add_overlay_alignment_rejection(ahead=True)
+    timings.add_overlay_alignment_rejection(generation_mismatch=True)
+
+    summary = timings.overlay_alignment_summary()
+    assert summary["count"] == 0
+    assert summary["capture_age_mean_ms"] == 0.0
+    assert summary["sequence_gap_mean"] == 0.0
+    assert summary["ahead_rejections"] == 1
+    assert summary["generation_rejections"] == 1
+
+
 def test_over_budget_percentage_uses_end_to_end_samples():
     timings = PipelineTimings()
     timings.add("end_to_end", 0.030)
@@ -69,6 +98,7 @@ def test_reset_clears_interval_aggregates():
     assert timings.count("end_to_end") == 0
     assert timings.frame_age_avg_ms == 0.0
     assert timings.frame_age_max_ms == 0.0
+    assert timings.overlay_alignment_summary()["count"] == 0
     assert timings.over_budget_pct(budget_s=0.050) == 0.0
     assert timings.percentile_ms("yolo", 95) == 0.0
     assert timings.median_ms("yolo") == 0.0
@@ -295,6 +325,8 @@ def test_format_perf_line_is_one_aggregated_summary():
     assert "capture=29.8fps" in line
     assert "yolo=" in line and "fps" in line
     assert "ai_frame_age avg=" in line
+    assert "overlay_capture_age avg=" in line
+    assert "overlay_sequence_gap avg=" in line
     assert "max=" in line
     assert "yolo=58.0ms" in line
     assert "hands=14.0ms" in line

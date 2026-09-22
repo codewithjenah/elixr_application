@@ -20,7 +20,7 @@ from test_session_lifecycle import (
 )
 from vision.camera import CapturedFrame
 from vision.overlay_snapshot import freeze_overlay
-from vision.types import PropDetection
+from vision.types import HandLandmarks, HandsResult, Point2D, PropDetection
 
 
 def _decode(payload: str) -> dict:
@@ -159,6 +159,154 @@ def test_fresh_overlay_is_readable(monkeypatch):
     snapshot = session._read_fresh_overlay()
     assert snapshot is not None
     assert snapshot.capture_sequence == 2
+    session.close()
+
+
+def test_recently_published_old_capture_is_not_drawn_or_scored(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "OVERLAY_MAX_CAPTURE_AGE_S", 0.1)
+    annotate_calls = {"n": 0}
+    evaluate_calls = {"n": 0}
+
+    def tracking_annotate(current_frame, *args, **kwargs):
+        annotate_calls["n"] += 1
+        return current_frame
+
+    def tracking_evaluate(*args, **kwargs):
+        evaluate_calls["n"] += 1
+        raise AssertionError("preview overlay rejection must not evaluate")
+
+    monkeypatch.setattr(websocket_api, "annotate_frame", tracking_annotate)
+    monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.0,
+            capture_sequence=1,
+            boxes=[],
+            hands=HandsResult(
+                hands=[
+                    HandLandmarks(
+                        points={0: Point2D(0.2, 0.3)},
+                        handedness="Right",
+                    )
+                ]
+            ),
+            pose=None,
+            feedback="old hand",
+            feedback_type="positive",
+            movement="Hand Stall",
+            prop_label="Bottle",
+        )
+    )
+    session.camera.peek_latest = lambda **kwargs: CapturedFrame(
+        frame=np.full((48, 64, 3), 120, dtype=np.uint8),
+        captured_at_monotonic=10.2,
+        sequence=5,
+    )
+
+    message = session.render_preview()
+
+    assert message is not None
+    assert annotate_calls["n"] == 0
+    assert evaluate_calls["n"] == 0
+    summary = session.preview_timings.overlay_alignment_summary()
+    assert summary["capture_age_max_ms"] == pytest.approx(200.0)
+    assert summary["sequence_gap_max"] == 4
+    session.close()
+
+
+def test_recent_capture_overlay_is_drawn(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "OVERLAY_MAX_CAPTURE_AGE_S", 0.1)
+    annotate_calls = {"n": 0}
+
+    def tracking_annotate(current_frame, *args, **kwargs):
+        annotate_calls["n"] += 1
+        return current_frame
+
+    monkeypatch.setattr(websocket_api, "annotate_frame", tracking_annotate)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.0,
+            capture_sequence=3,
+            boxes=[],
+            hands=None,
+            pose=None,
+            feedback="current",
+            feedback_type="positive",
+            movement="Hand Stall",
+            prop_label="Bottle",
+        )
+    )
+    session.camera.peek_latest = lambda **kwargs: CapturedFrame(
+        frame=np.full((48, 64, 3), 120, dtype=np.uint8),
+        captured_at_monotonic=10.05,
+        sequence=4,
+    )
+
+    message = session.render_preview()
+
+    assert message is not None
+    assert annotate_calls["n"] == 1
+    session.close()
+
+
+def test_overlay_from_previous_camera_generation_is_rejected(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.0,
+            capture_sequence=20,
+            capture_generation=1,
+            boxes=[],
+            hands=None,
+            pose=None,
+            feedback="old camera",
+            feedback_type="positive",
+            movement="Hand Stall",
+            prop_label="Bottle",
+        )
+    )
+    preview = CapturedFrame(
+        frame=np.full((48, 64, 3), 120, dtype=np.uint8),
+        captured_at_monotonic=10.01,
+        sequence=21,
+        generation=2,
+    )
+
+    assert session._read_fresh_overlay(preview=preview) is None
+    summary = session.preview_timings.overlay_alignment_summary()
+    assert summary["count"] == 0
+    assert summary["generation_rejections"] == 1
+
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=10.02,
+            capture_sequence=22,
+            capture_generation=2,
+            boxes=[],
+            hands=None,
+            pose=None,
+            feedback="newer than preview",
+            feedback_type="positive",
+            movement="Hand Stall",
+            prop_label="Bottle",
+        )
+    )
+    assert session._read_fresh_overlay(preview=preview) is None
+    summary = session.preview_timings.overlay_alignment_summary()
+    assert summary["count"] == 0
+    assert summary["ahead_rejections"] == 1
     session.close()
 
 

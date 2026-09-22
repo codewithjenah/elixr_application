@@ -95,6 +95,8 @@ def _reset_shared() -> None:
     camera_mod._shared_profile = None
     camera_mod._release_timer = None
     camera_mod._release_generation = 0
+    camera_mod._capture_sequence_counter = 0
+    camera_mod._capture_generation = 0
     camera_mod._shared_lease_tokens.clear()
     camera_mod.reset_discovery_cache()
 
@@ -1428,6 +1430,28 @@ def test_capture_producer_keeps_only_newest_frame(monkeypatch):
     assert cap.released is True
     time.sleep(0.05)
     assert cap.reads_after_release == 0
+
+
+def test_capture_identity_advances_across_producer_restart():
+    _reset_shared()
+    first_cap = _SlowSequenceCap([_usable_frame()], read_delay_s=0.005)
+    assert camera_mod._start_capture_producer(first_cap, width=64, height=48)
+    first_slot = camera_mod._latest_frame_slot
+    assert first_slot is not None
+    first = first_slot.peek(timeout=0.5)
+    assert first is not None
+
+    camera_mod._stop_capture_producer()
+    second_cap = _SlowSequenceCap([_usable_frame()], read_delay_s=0.005)
+    assert camera_mod._start_capture_producer(second_cap, width=64, height=48)
+    second_slot = camera_mod._latest_frame_slot
+    assert second_slot is not None
+    second = second_slot.peek(timeout=0.5, newer_than=first.sequence)
+    assert second is not None
+    assert second.sequence > first.sequence
+    assert second.generation > first.generation
+
+    camera_mod._stop_capture_producer()
 
 
 def test_blocked_producer_release_does_not_race_with_read(monkeypatch):

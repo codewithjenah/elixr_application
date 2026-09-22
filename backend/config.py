@@ -12,11 +12,12 @@ FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 JPEG_QUALITY = 70
 
-# Preview may draw the latest AI overlay onto a newer camera frame. Expire
-# the whole overlay (hands, pose, boxes) rather than leaving ghost landmarks.
-# 250ms is five frames at 20 FPS: long enough for ~7-10 FPS inference, short
-# enough that stalled AI cannot pin stale hands on screen.
+# Publication age is a lifecycle backstop for overlays that stop updating.
 OVERLAY_MAX_AGE_S = 0.25
+# Geometry is only visually truthful for a much shorter interval relative to
+# the preview frame it is drawn on. Two preview periods tolerate normal
+# inference completion jitter without pinning old landmarks to current video.
+OVERLAY_MAX_CAPTURE_AGE_S = 2.0 / TARGET_FPS
 
 # A private, annotated snapshot is emitted only when a Guided Practice hold is
 # first confirmed.  Keep it small enough for the client-side Firebase upload
