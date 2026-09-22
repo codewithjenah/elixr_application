@@ -19,13 +19,21 @@ const _kMovementsContentMaxWidth = 1280.0;
 enum _MovementLibraryView { official, mine }
 
 class MovementsScreen extends StatefulWidget {
-  const MovementsScreen({super.key, this.sessionRepository, this.userId});
+  const MovementsScreen({
+    super.key,
+    this.sessionRepository,
+    this.userId,
+    this.initialMyMovements = false,
+  });
 
   final SessionRepository? sessionRepository;
 
   /// Test-only override for the authenticated Trainee's UID. Production reads
   /// the current account from [AuthService].
   final String? userId;
+
+  /// Whether the canonical route requested the personal movement library.
+  final bool initialMyMovements;
 
   @override
   State<MovementsScreen> createState() => _MovementsScreenState();
@@ -39,12 +47,25 @@ class _MovementsScreenState extends State<MovementsScreen> {
   Set<String> _practicedVariants = const {};
   SessionService? _sessionService;
   int _statsRequestGeneration = 0;
-  _MovementLibraryView _libraryView = _MovementLibraryView.official;
+  late _MovementLibraryView _libraryView;
 
   @override
   void initState() {
     super.initState();
+    _libraryView = widget.initialMyMovements
+        ? _MovementLibraryView.mine
+        : _MovementLibraryView.official;
     _loadStats();
+  }
+
+  @override
+  void didUpdateWidget(covariant MovementsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialMyMovements != widget.initialMyMovements) {
+      _libraryView = widget.initialMyMovements
+          ? _MovementLibraryView.mine
+          : _MovementLibraryView.official;
+    }
   }
 
   @override

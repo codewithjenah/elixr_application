@@ -402,6 +402,53 @@ void main() {
     },
   );
 
+  testWidgets('custom assessment uses its route-specific exit callback', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final socket = _CustomSocket();
+    final template = MovementTemplate.tryFrom(_oneHandTemplateMap())!;
+    final movement = CustomMovement(
+      id: 'movement-exit',
+      ownerUid: 'trainee-1',
+      ownerRole: CustomMovementOwnerRole.trainee,
+      name: 'Exit toss',
+      description: 'Toss and catch with the left hand.',
+      difficulty: 'Medium',
+      propType: TrainingProp.bottle,
+      status: CustomMovementStatus.active,
+      activeRevisionId: 'revision-exit',
+    );
+    final revision = CustomMovementRevision(
+      id: movement.activeRevisionId,
+      movementId: movement.id,
+      ownerUid: movement.ownerUid,
+      ownerRole: movement.ownerRole,
+      template: template,
+    );
+    var exited = false;
+
+    await tester.pumpWidget(
+      _withSettings(
+        _TestSettings(),
+        CustomMovementPracticeScreen(
+          movement: movement,
+          revision: revision,
+          repository: _UnusedRepository(),
+          webSocket: socket,
+          onExit: () => exited = true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('training-header-back')));
+
+    expect(exited, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
   testWidgets(
     'custom assessment uses the selected prop in live detection copy',
     (tester) async {

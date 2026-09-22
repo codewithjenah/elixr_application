@@ -43,4 +43,18 @@ void main() {
       contains(AppRoutePaths.myMovements),
     );
   });
+
+  test('canonical personal-movement paths preserve the selected library', () {
+    expect(AppRoutePaths.movementsMyMovements, '/movements?library=mine');
+    expect(
+      AppRoutePaths.opensMyMovementsLibrary(
+        Uri.parse(AppRoutePaths.movementsMyMovements),
+      ),
+      isTrue,
+    );
+    expect(
+      AppRoutePaths.movementsMyMovementPractice('movement / one'),
+      '/movements/practice/movement%20%2F%20one',
+    );
+  });
 }

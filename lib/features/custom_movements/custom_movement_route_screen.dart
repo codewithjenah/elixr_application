@@ -8,8 +8,16 @@ import '../../services/auth_service.dart';
 import 'custom_movement_practice_screen.dart';
 
 class CustomMovementRouteScreen extends StatefulWidget {
-  const CustomMovementRouteScreen({super.key, required this.movementId});
+  const CustomMovementRouteScreen({
+    super.key,
+    required this.movementId,
+    this.onExit,
+  });
   final String movementId;
+
+  /// Route-specific return behavior. Assignment and legacy routes retain the
+  /// practice screen's normal pop behavior when this is omitted.
+  final VoidCallback? onExit;
 
   @override
   State<CustomMovementRouteScreen> createState() =>
@@ -61,6 +69,7 @@ class _CustomMovementRouteScreenState extends State<CustomMovementRouteScreen> {
           movement: value.$1,
           revision: value.$2,
           repository: context.read<CustomMovementRepository>(),
+          onExit: widget.onExit,
         );
       },
     );

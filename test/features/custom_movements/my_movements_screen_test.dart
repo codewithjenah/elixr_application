@@ -469,55 +469,89 @@ void main() {
     expect(find.text('Create your first movement'), findsOneWidget);
   });
 
-  testWidgets('Practice keeps using the existing custom practice route', (
-    tester,
-  ) async {
-    _useDesktopSurface(tester);
-    final auth = _auth();
-    addTearDown(auth.dispose);
-    final repository = _CustomRepository([
-      _movement(id: 'practice-me', ownerUid: 'trainee-1'),
-    ]);
-    addTearDown(repository.dispose);
-    final router = GoRouter(
-      initialLocation: AppRoutePaths.movements,
-      routes: [
-        GoRoute(
-          path: AppRoutePaths.movements,
-          builder: (_, _) => MovementsScreen(
-            sessionRepository: _NoSessionsRepository(),
-            userId: _trainee.id,
+  testWidgets(
+    'canonical personal practice returns to Movements with My Movements selected',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final auth = _auth();
+      addTearDown(auth.dispose);
+      final repository = _CustomRepository([
+        _movement(id: 'practice-me', ownerUid: 'trainee-1'),
+      ]);
+      addTearDown(repository.dispose);
+      final router = GoRouter(
+        initialLocation: AppRoutePaths.movements,
+        routes: [
+          GoRoute(
+            path: AppRoutePaths.movements,
+            builder: (_, state) => MovementsScreen(
+              sessionRepository: _NoSessionsRepository(),
+              userId: _trainee.id,
+              initialMyMovements: AppRoutePaths.opensMyMovementsLibrary(
+                state.uri,
+              ),
+            ),
           ),
-        ),
-        GoRoute(
-          path: '${AppRoutePaths.myMovements}/practice/:movementId',
-          builder: (_, state) =>
-              Text('practice:${state.pathParameters['movementId']}'),
-        ),
-      ],
-    );
-    addTearDown(router.dispose);
-
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider<AuthService>.value(value: auth),
-          ChangeNotifierProvider<SessionService>(
-            create: (_) => SessionService(),
+          GoRoute(
+            path: '${AppRoutePaths.movements}/practice/:movementId',
+            builder: (context, state) => Column(
+              children: [
+                Text('practice:${state.pathParameters['movementId']}'),
+                Button(
+                  key: const ValueKey('training-header-back'),
+                  onPressed: () =>
+                      context.go(AppRoutePaths.movementsMyMovements),
+                  child: const Text('Back'),
+                ),
+              ],
+            ),
           ),
-          Provider<CustomMovementRepository>.value(value: repository),
         ],
-        child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('my-movement-practice-practice-me')),
-    );
-    await tester.pumpAndSettle();
+      );
+      addTearDown(router.dispose);
 
-    expect(find.text('practice:practice-me'), findsOneWidget);
-  });
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthService>.value(value: auth),
+            ChangeNotifierProvider<SessionService>(
+              create: (_) => SessionService(),
+            ),
+            Provider<CustomMovementRepository>.value(value: repository),
+          ],
+          child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('my-movement-practice-practice-me')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('practice:practice-me'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('training-header-back')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('practice:practice-me'), findsNothing);
+      expect(find.text('Own Cascade'), findsOneWidget);
+      expect(
+        tester
+            .widget<ToggleButton>(
+              find.byKey(const ValueKey('movement-library-mine')),
+            )
+            .checked,
+        isTrue,
+      );
+      expect(
+        tester
+            .widget<ToggleButton>(
+              find.byKey(const ValueKey('movement-library-official')),
+            )
+            .checked,
+        isFalse,
+      );
+    },
+  );
 }

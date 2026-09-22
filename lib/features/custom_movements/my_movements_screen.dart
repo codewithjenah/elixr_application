@@ -261,7 +261,7 @@ class _MovementCard extends StatelessWidget {
                   child: FilledButton(
                     key: ValueKey('my-movement-practice-${movement.id}'),
                     onPressed: () => context.go(
-                      AppRoutePaths.myMovementPractice(movement.id),
+                      AppRoutePaths.movementsMyMovementPractice(movement.id),
                     ),
                     child: const Text('Practice'),
                   ),

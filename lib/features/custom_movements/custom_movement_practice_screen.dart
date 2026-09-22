@@ -34,6 +34,7 @@ class CustomMovementPracticeScreen extends StatefulWidget {
     this.traineeUid,
     this.classroomRepository,
     this.webSocket,
+    this.onExit,
   });
 
   final CustomMovement movement;
@@ -43,6 +44,10 @@ class CustomMovementPracticeScreen extends StatefulWidget {
   final String? traineeUid;
   final ClassroomAssignmentRepository? classroomRepository;
   final WebSocketService? webSocket;
+
+  /// Allows routed personal practice to return to its canonical origin without
+  /// changing the pop behavior used by assignment and teacher flows.
+  final VoidCallback? onExit;
 
   @override
   State<CustomMovementPracticeScreen> createState() =>
@@ -321,7 +326,13 @@ class _CustomMovementPracticeScreenState
                     !desktop;
                 final header = TrainingSessionHeader(
                   onBack: () {
-                    if (!_busy) context.pop();
+                    if (_busy) return;
+                    final onExit = widget.onExit;
+                    if (onExit != null) {
+                      onExit();
+                    } else {
+                      context.pop();
+                    }
                   },
                   title: widget.movement.name,
                   statusPill: widget.movement.difficulty,

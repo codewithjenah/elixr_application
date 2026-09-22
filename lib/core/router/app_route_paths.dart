@@ -24,6 +24,8 @@ abstract final class AppRoutePaths {
   static const dashboard = '/dashboard';
   static const leaderboard = '/leaderboard';
   static const movements = '/movements';
+  static const movementsLibraryQuery = 'library';
+  static const myMovementsLibraryValue = 'mine';
   static const myMovements = '/my-movements';
   static const assignedMovements = '/assigned-movements';
   static const assignedPracticePrefix = '/assigned-practice';
@@ -108,6 +110,20 @@ abstract final class AppRoutePaths {
 
   static const traineePracticeRoutes = {practice, livePractice};
 
+  /// Canonical Movements destination with the personal library selected.
+  static String get movementsMyMovements =>
+      '$movements?$movementsLibraryQuery=$myMovementsLibraryValue';
+
+  static bool opensMyMovementsLibrary(Uri uri) =>
+      uri.queryParameters[movementsLibraryQuery] == myMovementsLibraryValue;
+
+  /// Personal practice opened from the canonical Movements > My Movements
+  /// library. The legacy [myMovementPractice] route remains available for
+  /// existing deep links.
+  static String movementsMyMovementPractice(String movementId) =>
+      '$movements/practice/${Uri.encodeComponent(movementId)}';
+
+  /// Legacy personal-practice deep link.
   static String myMovementPractice(String movementId) =>
       '$myMovements/practice/${Uri.encodeComponent(movementId)}';
 

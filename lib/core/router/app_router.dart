@@ -280,7 +280,21 @@ class AppRouter {
               path: AppRoutePaths.movements,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
-                child: const MovementsScreen(),
+                child: MovementsScreen(
+                  initialMyMovements: AppRoutePaths.opensMyMovementsLibrary(
+                    state.uri,
+                  ),
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '${AppRoutePaths.movements}/practice/:movementId',
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: CustomMovementRouteScreen(
+                  movementId: state.pathParameters['movementId'] ?? '',
+                  onExit: () => context.go(AppRoutePaths.movementsMyMovements),
+                ),
               ),
             ),
             GoRoute(
