@@ -1,14 +1,16 @@
 import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 
+import '../../core/constants/app_spacing.dart';
 import '../../data/models/movement_template.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/teacher_activity_assessment.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/websocket_service.dart';
+import '../../services/settings_service.dart';
 
 class CustomReferenceRecorderDialog extends StatefulWidget {
   const CustomReferenceRecorderDialog({
@@ -44,7 +46,7 @@ class _CustomReferenceRecorderDialogState
   late final bool _ownsSocket;
   StreamSubscription<PreviewFrame>? _previewSubscription;
   StreamSubscription<PracticeFeedback>? _feedbackSubscription;
-  Uint8List? _preview;
+  final ValueNotifier<Uint8List?> _preview = ValueNotifier<Uint8List?>(null);
   bool _initializing = true;
   bool _ready = false;
   bool _active = false;
@@ -53,6 +55,7 @@ class _CustomReferenceRecorderDialogState
   int _referenceCount = 0;
   int? _countdown;
   String? _error;
+  String? _cameraName;
   String _quality = 'Position yourself and the selected prop in view.';
 
   @override
@@ -66,7 +69,7 @@ class _CustomReferenceRecorderDialogState
   Future<void> _initialize() async {
     _previewSubscription = _socket.previewStream.listen((frame) {
       if (!mounted || !frame.hasJpeg) return;
-      setState(() => _preview = frame.jpegBytes);
+      _preview.value = frame.jpegBytes;
     });
     _feedbackSubscription = _socket.feedbackStream.listen((feedback) {
       if (!mounted) return;
@@ -76,9 +79,12 @@ class _CustomReferenceRecorderDialogState
       });
     });
     try {
+      final settings = context.read<SettingsService>();
       await _socket.connect();
       if (!_socket.isConnected) throw StateError('Backend unavailable');
       final sessionId = _socket.beginPracticeAttempt();
+      final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
+      if (!mounted) return;
       _requireAccepted(
         await _socket.sendPrepare(
           movement: 'Custom Movement',
@@ -86,6 +92,10 @@ class _CustomReferenceRecorderDialogState
           prop: widget.prop,
           sessionId: sessionId,
           sessionMode: 'custom_capture',
+          cameraDeviceId: cameraDeviceId,
+          legacyCameraIndex: cameraDeviceId == null
+              ? settings.pendingLegacyCameraIndex
+              : null,
           // Capture observes Hands and Pose while recording, but readiness
           // only requires the camera and selected prop. The three accepted
           // demonstrations determine which landmark modalities are reliable.
@@ -94,13 +104,17 @@ class _CustomReferenceRecorderDialogState
       );
       _requireAccepted(await _socket.sendBeginReadiness(sessionId: sessionId));
       if (!mounted) return;
-      setState(() => _initializing = false);
+      setState(() {
+        _initializing = false;
+        _cameraName = settings.selectedCameraDisplayName;
+      });
     } catch (_) {
       unawaited(_stopSessionBestEffort());
       if (!mounted) return;
       setState(() {
         _initializing = false;
-        _error = 'Camera preparation failed. Check the backend and camera.';
+        _error =
+            'ELIXR could not prepare the selected camera. Check Camera Settings and try again.';
       });
     }
   }
@@ -233,100 +247,67 @@ class _CustomReferenceRecorderDialogState
   void dispose() {
     unawaited(_previewSubscription?.cancel());
     unawaited(_feedbackSubscription?.cancel());
+    _preview.dispose();
     if (_ownsSocket) _socket.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final mirrored = context.watch<SettingsService>().cameraMirrored;
     return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 760, maxHeight: 720),
-      title: const Text('Record reference demonstrations'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Perform the complete movement three times. Keep the selected prop visible; ELIXR will use reliably observed body, hand, and prop motion—not the video itself—to build your reference.',
-            ),
-            const SizedBox(height: 12),
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Container(
-                color: Colors.black,
-                alignment: Alignment.center,
-                child: _preview == null
-                    ? const ProgressRing()
-                    : Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.memory(_preview!, fit: BoxFit.contain),
-                          if (_countdown != null)
-                            Center(
-                              child: Text(
-                                '$_countdown',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 72,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: List.generate(MovementTemplate.minimumReferences, (
-                index,
-              ) {
-                final complete = index < _referenceCount;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: complete
-                          ? Colors.green.withValues(alpha: 0.12)
-                          : FluentTheme.of(
-                              context,
-                            ).resources.cardBackgroundFillColorDefault,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          complete
-                              ? FluentIcons.accept
-                              : FluentIcons.circle_ring,
-                          size: 14,
+      constraints: const BoxConstraints(maxWidth: 1040, maxHeight: 660),
+      title: const Text('Record movement references'),
+      content: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 760;
+          final workspace = _CameraWorkspace(
+            frameListenable: _preview,
+            mirrored: mirrored,
+            countdown: _countdown,
+            recording: _recording,
+            cameraName: _cameraName,
+            prop: widget.prop,
+          );
+          final status = _RecorderStatusPanel(
+            referenceCount: _referenceCount,
+            ready: _ready,
+            initializing: _initializing,
+            recording: _recording,
+            quality: _quality,
+            error: _error,
+          );
+          return SizedBox(
+            height: compact ? 480 : 390,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Record the full movement 3 times. Keep your body, hands, and selected prop visible.',
+                ),
+                const SizedBox(height: AppSpacing.smPlus),
+                Expanded(
+                  child: compact
+                      ? Column(
+                          children: [
+                            Expanded(child: workspace),
+                            const SizedBox(height: AppSpacing.smPlus),
+                            status,
+                          ],
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(flex: 3, child: workspace),
+                            const SizedBox(width: AppSpacing.md),
+                            SizedBox(width: 300, child: status),
+                          ],
                         ),
-                        const SizedBox(width: 5),
-                        Text('Reference ${index + 1}${complete ? ' ✓' : ''}'),
-                      ],
-                    ),
-                  ),
-                );
-              }),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(_quality),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              InfoBar(
-                title: const Text('Recording issue'),
-                content: Text(_error!),
-                severity: InfoBarSeverity.error,
-              ),
-            ],
-          ],
-        ),
+          );
+        },
       ),
       actions: [
         Button(onPressed: _busy ? null : _cancel, child: const Text('Cancel')),
@@ -343,6 +324,220 @@ class _CustomReferenceRecorderDialogState
           child: Text(_recording ? 'Finish reference' : 'Record Reference'),
         ),
       ],
+    );
+  }
+}
+
+class _CameraWorkspace extends StatelessWidget {
+  const _CameraWorkspace({
+    required this.frameListenable,
+    required this.mirrored,
+    required this.countdown,
+    required this.recording,
+    required this.cameraName,
+    required this.prop,
+  });
+
+  final ValueListenable<Uint8List?> frameListenable;
+  final bool mirrored;
+  final int? countdown;
+  final bool recording;
+  final String? cameraName;
+  final TrainingProp prop;
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: Colors.black),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ValueListenableBuilder<Uint8List?>(
+              valueListenable: frameListenable,
+              builder: (context, frame, _) => frame == null
+                  ? const Center(child: ProgressRing())
+                  : Transform.flip(
+                      key: const ValueKey('custom-reference-camera-frame'),
+                      flipX: mirrored,
+                      child: Image.memory(
+                        frame,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      ),
+                    ),
+            ),
+            Positioned(
+              top: AppSpacing.sm,
+              left: AppSpacing.sm,
+              child: _CameraPill(
+                label: recording ? 'Recording' : 'Live',
+                color: recording ? Colors.red : Colors.green,
+              ),
+            ),
+            Positioned(
+              right: AppSpacing.sm,
+              bottom: AppSpacing.sm,
+              child: _CameraPill(label: prop.displayLabel),
+            ),
+            if (cameraName != null)
+              Positioned(
+                left: AppSpacing.sm,
+                right: AppSpacing.sm,
+                bottom: AppSpacing.sm,
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: _CameraPill(label: cameraName!),
+                ),
+              ),
+            if (countdown != null)
+              Center(
+                child: Text(
+                  '$countdown',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 72,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _CameraPill extends StatelessWidget {
+  const _CameraPill({required this.label, this.color});
+  final String label;
+  final Color? color;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: (color ?? Colors.white).withValues(alpha: 0.7)),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(color: color ?? Colors.white, fontSize: 12),
+    ),
+  );
+}
+
+class _RecorderStatusPanel extends StatelessWidget {
+  const _RecorderStatusPanel({
+    required this.referenceCount,
+    required this.ready,
+    required this.initializing,
+    required this.recording,
+    required this.quality,
+    required this.error,
+  });
+  final int referenceCount;
+  final bool ready;
+  final bool initializing;
+  final bool recording;
+  final String quality;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(AppSpacing.md),
+    decoration: BoxDecoration(
+      color: FluentTheme.of(context).resources.cardBackgroundFillColorDefault,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: FluentTheme.of(context).resources.cardStrokeColorDefault,
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '3 references',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        for (var index = 0; index < MovementTemplate.minimumReferences; index++)
+          _ReferenceStep(
+            index: index,
+            count: referenceCount,
+            recording: recording,
+          ),
+        const Spacer(),
+        Text(
+          initializing
+              ? 'Preparing camera'
+              : recording
+              ? 'Recording reference ${referenceCount + 1} of 3'
+              : ready
+              ? referenceCount == 0
+                    ? 'Ready to record'
+                    : 'Reference saved — record the next one'
+              : 'Getting into position',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(quality, maxLines: 3, overflow: TextOverflow.ellipsis),
+        if (error != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          InfoBar(
+            title: const Text('Recording issue'),
+            content: Text(error!),
+            severity: InfoBarSeverity.error,
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _ReferenceStep extends StatelessWidget {
+  const _ReferenceStep({
+    required this.index,
+    required this.count,
+    required this.recording,
+  });
+  final int index;
+  final int count;
+  final bool recording;
+  @override
+  Widget build(BuildContext context) {
+    final complete = index < count;
+    final current = !complete && index == count;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        children: [
+          Icon(
+            complete
+                ? FluentIcons.completed
+                : current
+                ? FluentIcons.circle_ring
+                : FluentIcons.circle_ring,
+            size: 16,
+            color: complete ? Colors.green : null,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              'Reference ${index + 1}${complete
+                  ? ' · Saved'
+                  : current && recording
+                  ? ' · Recording'
+                  : current
+                  ? ' · Next'
+                  : ''}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

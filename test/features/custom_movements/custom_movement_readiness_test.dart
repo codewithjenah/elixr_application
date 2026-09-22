@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:elixr_application/data/models/custom_movement.dart';
 import 'package:elixr_application/data/models/movement_template.dart';
@@ -10,8 +11,10 @@ import 'package:elixr_application/data/repositories/custom_movement_repository.d
 import 'package:elixr_application/features/custom_movements/custom_movement_practice_screen.dart';
 import 'package:elixr_application/features/custom_movements/custom_reference_recorder_dialog.dart';
 import 'package:elixr_application/services/websocket_service.dart';
+import 'package:elixr_application/services/settings_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 Map<String, dynamic> _oneHandTemplateMap() => {
   'schema_version': 1,
@@ -62,6 +65,8 @@ class _CustomSocket extends WebSocketService {
 
   TeacherActivityReadinessSpec? preparedReadiness;
   String? preparedMode;
+  String? preparedCameraDeviceId;
+  int? preparedLegacyCameraIndex;
   int acceptedReferences = 0;
   int discardCalls = 0;
   int buildCalls = 0;
@@ -99,6 +104,8 @@ class _CustomSocket extends WebSocketService {
   }) async {
     preparedReadiness = readinessSpec;
     preparedMode = sessionMode;
+    preparedCameraDeviceId = cameraDeviceId;
+    preparedLegacyCameraIndex = legacyCameraIndex;
     return _ack('prepare');
   }
 
@@ -168,6 +175,33 @@ class _CustomSocket extends WebSocketService {
 
 class _UnusedRepository extends Fake implements CustomMovementRepository {}
 
+class _TestSettings extends SettingsService {
+  _TestSettings({this.deviceId, this.legacyIndex, this.mirrored = true});
+
+  final String? deviceId;
+  final int? legacyIndex;
+  final bool mirrored;
+
+  @override
+  bool get cameraMirrored => mirrored;
+
+  @override
+  int? get pendingLegacyCameraIndex => legacyIndex;
+
+  @override
+  String? get selectedCameraDisplayName =>
+      deviceId == null ? null : 'Selected test camera';
+
+  @override
+  Future<String?> loadSelectedCameraDeviceId() async => deviceId;
+}
+
+Widget _withSettings(SettingsService settings, Widget child) =>
+    ChangeNotifierProvider<SettingsService>.value(
+      value: settings,
+      child: FluentApp(home: child),
+    );
+
 void _useDesktopSurface(WidgetTester tester) {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1;
@@ -182,8 +216,9 @@ void main() {
     _useDesktopSurface(tester);
     final socket = _CustomSocket();
     await tester.pumpWidget(
-      FluentApp(
-        home: CustomReferenceRecorderDialog(
+      _withSettings(
+        _TestSettings(),
+        CustomReferenceRecorderDialog(
           difficulty: 'Medium',
           prop: TrainingProp.bottle,
           webSocket: socket,
@@ -195,6 +230,8 @@ void main() {
     expect(socket.preparedMode, 'custom_capture');
     expect(socket.preparedReadiness, isNotNull);
     expect(socket.preparedReadiness!.isCameraOnly, isTrue);
+    expect(socket.preparedCameraDeviceId, isNull);
+    expect(socket.preparedLegacyCameraIndex, isNull);
 
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
@@ -226,8 +263,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      FluentApp(
-        home: CustomMovementPracticeScreen(
+      _withSettings(
+        _TestSettings(deviceId: 'dshow:usb-camera'),
+        CustomMovementPracticeScreen(
           movement: movement,
           revision: revision,
           repository: _UnusedRepository(),
@@ -239,6 +277,8 @@ void main() {
 
     expect(socket.preparedMode, 'custom_assessment');
     expect(socket.preparedReadiness!.hands, ActivityHandRequirement.oneHand);
+    expect(socket.preparedCameraDeviceId, 'dshow:usb-camera');
+    expect(socket.preparedLegacyCameraIndex, isNull);
     expect(socket.preparedReadiness!.body, ActivityBodyRequirement.none);
     expect(
       find.text('Keep the selected prop and the left hand visible.'),
@@ -255,8 +295,9 @@ void main() {
     _useDesktopSurface(tester);
     final socket = _CustomSocket()..rejectNextStop = true;
     await tester.pumpWidget(
-      FluentApp(
-        home: CustomReferenceRecorderDialog(
+      _withSettings(
+        _TestSettings(legacyIndex: 2, mirrored: false),
+        CustomReferenceRecorderDialog(
           difficulty: 'Medium',
           prop: TrainingProp.bottle,
           webSocket: socket,
@@ -264,6 +305,89 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(socket.preparedCameraDeviceId, isNull);
+    expect(socket.preparedLegacyCameraIndex, 2);
+    socket._previews.add(
+      PreviewFrame(
+        jpegBytes: Uint8List.fromList(const <int>[
+          137,
+          80,
+          78,
+          71,
+          13,
+          10,
+          26,
+          10,
+          0,
+          0,
+          0,
+          13,
+          73,
+          72,
+          68,
+          82,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          8,
+          6,
+          0,
+          0,
+          0,
+          31,
+          21,
+          196,
+          137,
+          0,
+          0,
+          0,
+          13,
+          73,
+          68,
+          65,
+          84,
+          8,
+          215,
+          99,
+          248,
+          207,
+          192,
+          240,
+          31,
+          0,
+          5,
+          0,
+          1,
+          255,
+          137,
+          153,
+          61,
+          29,
+          0,
+          0,
+          0,
+          0,
+          73,
+          69,
+          78,
+          68,
+          174,
+          66,
+          96,
+          130,
+        ]),
+      ),
+    );
+    await tester.pump();
+    final frame = tester.widget<Transform>(
+      find.byKey(const ValueKey('custom-reference-camera-frame')),
+    );
+    expect(frame.transform.storage[0], 1);
     socket.emitReady();
     await tester.pump();
 
@@ -300,6 +424,35 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 200));
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('reference recorder fits a 1366 by 768 desktop surface', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _CustomSocket();
+    await tester.pumpWidget(
+      _withSettings(
+        _TestSettings(),
+        CustomReferenceRecorderDialog(
+          difficulty: 'Medium',
+          prop: TrainingProp.bottle,
+          webSocket: socket,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Record movement references'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('custom-reference-record')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
   });
 }

@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -13,6 +13,7 @@ import '../../data/models/ws_protocol.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../services/websocket_service.dart';
+import '../../services/settings_service.dart';
 
 class CustomMovementPracticeScreen extends StatefulWidget {
   const CustomMovementPracticeScreen({
@@ -45,7 +46,7 @@ class _CustomMovementPracticeScreenState
   late final bool _ownsSocket;
   StreamSubscription<PreviewFrame>? _previewSubscription;
   StreamSubscription<PracticeFeedback>? _feedbackSubscription;
-  Uint8List? _preview;
+  final ValueNotifier<Uint8List?> _preview = ValueNotifier<Uint8List?>(null);
   bool _preparing = true;
   bool _ready = false;
   bool _active = false;
@@ -64,7 +65,7 @@ class _CustomMovementPracticeScreenState
 
   Future<void> _prepare() async {
     _previewSubscription = _socket.previewStream.listen((frame) {
-      if (mounted && frame.hasJpeg) setState(() => _preview = frame.jpegBytes);
+      if (mounted && frame.hasJpeg) _preview.value = frame.jpegBytes;
     });
     _feedbackSubscription = _socket.feedbackStream.listen((feedback) {
       if (!mounted || _active) return;
@@ -74,6 +75,7 @@ class _CustomMovementPracticeScreenState
   }
 
   Future<void> _prepareSession() async {
+    final settings = context.read<SettingsService>();
     if (mounted) {
       setState(() {
         _preparing = true;
@@ -86,6 +88,8 @@ class _CustomMovementPracticeScreenState
       await _socket.connect();
       if (!_socket.isConnected) throw StateError('backend unavailable');
       final sessionId = _socket.beginPracticeAttempt();
+      final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
+      if (!mounted) return;
       _requireAccepted(
         await _socket.sendPrepare(
           movement: 'Custom Movement',
@@ -93,6 +97,10 @@ class _CustomMovementPracticeScreenState
           prop: widget.movement.propType,
           sessionId: sessionId,
           sessionMode: 'custom_assessment',
+          cameraDeviceId: cameraDeviceId,
+          legacyCameraIndex: cameraDeviceId == null
+              ? settings.pendingLegacyCameraIndex
+              : null,
           customMovementTemplate: widget.revision.template.toMap(),
           readinessSpec: widget.revision.template.readinessSpec,
         ),
@@ -243,6 +251,7 @@ class _CustomMovementPracticeScreenState
   void dispose() {
     unawaited(_previewSubscription?.cancel());
     unawaited(_feedbackSubscription?.cancel());
+    _preview.dispose();
     if (_ownsSocket) _socket.dispose();
     super.dispose();
   }
@@ -250,6 +259,7 @@ class _CustomMovementPracticeScreenState
   @override
   Widget build(BuildContext context) {
     final result = _result;
+    final mirrored = context.watch<SettingsService>().cameraMirrored;
     return ElixScaffoldPage(
       header: PageHeader(
         title: Text(widget.movement.name),
@@ -270,25 +280,40 @@ class _CustomMovementPracticeScreenState
                 child: Container(
                   color: Colors.black,
                   alignment: Alignment.center,
-                  child: _preview == null
-                      ? const ProgressRing()
-                      : Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.memory(_preview!, fit: BoxFit.contain),
-                            if (_countdown != null)
-                              Center(
-                                child: Text(
-                                  '$_countdown',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 72,
-                                    fontWeight: FontWeight.bold,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      RepaintBoundary(
+                        child: ValueListenableBuilder<Uint8List?>(
+                          valueListenable: _preview,
+                          builder: (context, preview, _) => preview == null
+                              ? const Center(child: ProgressRing())
+                              : Transform.flip(
+                                  key: const ValueKey(
+                                    'custom-practice-camera-frame',
+                                  ),
+                                  flipX: mirrored,
+                                  child: Image.memory(
+                                    preview,
+                                    fit: BoxFit.contain,
+                                    gaplessPlayback: true,
                                   ),
                                 ),
-                              ),
-                          ],
                         ),
+                      ),
+                      if (_countdown != null)
+                        Center(
+                          child: Text(
+                            '$_countdown',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 72,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
