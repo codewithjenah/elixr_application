@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../core/constants/app_spacing.dart';
+
 import '../../data/models/custom_movement.dart';
 import '../../data/models/movement_template.dart';
 import '../../data/models/training_prop.dart';
@@ -166,108 +168,121 @@ class _CustomMovementBuilderDialogState
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final ready = _assessmentReady;
-    return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 680, maxHeight: 720),
-      title: Text(
-        widget.existing == null ? 'Create Movement' : 'Edit Movement',
+  Widget _surface(BuildContext context, Widget child) => Container(
+    padding: const EdgeInsets.all(AppSpacing.mdPlus),
+    decoration: BoxDecoration(
+      color: FluentTheme.of(context).resources.cardBackgroundFillColorDefault,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: FluentTheme.of(context).resources.cardStrokeColorDefault,
       ),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    ),
+    child: child,
+  );
+
+  Widget _details(BuildContext context) => _surface(
+    context,
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Movement details',
+          style: FluentTheme.of(context).typography.subtitle,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        const Text('Name and configure what ELIXR will assess.'),
+        const SizedBox(height: AppSpacing.md),
+        const Text('Movement name'),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: const ValueKey('custom-movement-name'),
+          controller: _name,
+          enabled: !_busy,
+          placeholder: 'Movement name',
+          maxLength: CustomMovement.nameMaxLength,
+        ),
+        const SizedBox(height: AppSpacing.smPlus),
+        const Text('Description'),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: const ValueKey('custom-movement-description'),
+          controller: _description,
+          enabled: !_busy,
+          placeholder: 'Describe the movement',
+          minLines: 2,
+          maxLines: 3,
+          maxLength: CustomMovement.descriptionMaxLength,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
           children: [
-            const Text('Movement details'),
-            const SizedBox(height: 8),
-            TextBox(
-              key: const ValueKey('custom-movement-name'),
-              controller: _name,
-              enabled: !_busy,
-              placeholder: 'Movement name',
-              maxLength: CustomMovement.nameMaxLength,
-            ),
-            const SizedBox(height: 8),
-            TextBox(
-              key: const ValueKey('custom-movement-description'),
-              controller: _description,
-              enabled: !_busy,
-              placeholder: 'Describe the movement',
-              minLines: 3,
-              maxLines: 5,
-              maxLength: CustomMovement.descriptionMaxLength,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text('Difficulty'),
-                      const SizedBox(height: 6),
-                      ComboBox<String>(
-                        key: const ValueKey('custom-movement-difficulty'),
-                        value: _difficulty,
-                        isExpanded: true,
-                        items: CustomMovement.allowedDifficulties
-                            .map(
-                              (value) => ComboBoxItem(
-                                value: value,
-                                child: Text(value),
-                              ),
-                            )
-                            .toList(growable: false),
-                        onChanged: _busy
-                            ? null
-                            : (value) => setState(() => _difficulty = value!),
-                      ),
-                    ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Difficulty'),
+                  const SizedBox(height: AppSpacing.xs),
+                  ComboBox<String>(
+                    key: const ValueKey('custom-movement-difficulty'),
+                    value: _difficulty,
+                    isExpanded: true,
+                    items: CustomMovement.allowedDifficulties
+                        .map(
+                          (value) =>
+                              ComboBoxItem(value: value, child: Text(value)),
+                        )
+                        .toList(growable: false),
+                    onChanged: _busy
+                        ? null
+                        : (value) => setState(() => _difficulty = value!),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text('Prop'),
-                      const SizedBox(height: 6),
-                      ComboBox<TrainingProp>(
-                        key: const ValueKey('custom-movement-prop'),
-                        value: _prop,
-                        isExpanded: true,
-                        items: CustomMovement.supportedProps
-                            .map(
-                              (value) => ComboBoxItem(
-                                value: value,
-                                child: Text(value.displayLabel),
-                              ),
-                            )
-                            .toList(growable: false),
-                        onChanged: _busy
-                            ? null
-                            : (value) => setState(() {
-                                if (value == null || value == _prop) return;
-                                _prop = value;
-                                _template = null;
-                                if (value != TrainingProp.bottle) {
-                                  _requireVisibleBottleRotation = false;
-                                }
-                                _error = null;
-                              }),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-            if (_prop == TrainingProp.bottle) ...[
-              const SizedBox(height: 14),
+            const SizedBox(width: AppSpacing.smPlus),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Prop'),
+                  const SizedBox(height: AppSpacing.xs),
+                  ComboBox<TrainingProp>(
+                    key: const ValueKey('custom-movement-prop'),
+                    value: _prop,
+                    isExpanded: true,
+                    items: CustomMovement.supportedProps
+                        .map(
+                          (value) => ComboBoxItem(
+                            value: value,
+                            child: Text(value.displayLabel),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: _busy
+                        ? null
+                        : (value) => setState(() {
+                            if (value == null || value == _prop) return;
+                            _prop = value;
+                            _template = null;
+                            if (value != TrainingProp.bottle) {
+                              _requireVisibleBottleRotation = false;
+                            }
+                            _error = null;
+                          }),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (_prop == TrainingProp.bottle) ...[
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
               ToggleSwitch(
                 key: const ValueKey('custom-movement-require-rotation'),
                 checked: _requireVisibleBottleRotation,
-                content: const Text('Require visible bottle rotation'),
                 onChanged: _busy
                     ? null
                     : (value) => setState(() {
@@ -275,98 +290,163 @@ class _CustomMovementBuilderDialogState
                         _error = null;
                       }),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'Enable when visible bottle rotation is essential to assessing this movement.',
-              ),
+              const SizedBox(width: AppSpacing.sm),
+              const Expanded(child: Text('Require visible bottle rotation')),
             ],
-            const SizedBox(height: 18),
-            Text(
-              'Reference demonstrations',
-              style: FluentTheme.of(context).typography.subtitle,
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Record three complete demonstrations. ELIXR will align them into one automatic assessment template.',
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: List.generate(MovementTemplate.minimumReferences, (
-                index,
-              ) {
-                final complete = ready;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: complete
-                          ? Colors.green.withValues(alpha: 0.12)
-                          : FluentTheme.of(
-                              context,
-                            ).resources.cardBackgroundFillColorDefault,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          complete
-                              ? FluentIcons.accept
-                              : FluentIcons.circle_ring,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 5),
-                        Text('${index + 1}${complete ? ' ✓' : ''}'),
-                      ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          const Text(
+            'Use when a visible turn is essential. Assessment requires a validated bottle orientation model.',
+          ),
+        ],
+      ],
+    ),
+  );
+
+  Widget _references(BuildContext context, bool ready) => _surface(
+    context,
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Reference demonstrations',
+          style: FluentTheme.of(context).typography.subtitle,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        const Text(
+          'Record three complete demonstrations to build the assessment template.',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: List.generate(
+            MovementTemplate.minimumReferences,
+            (index) => Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: index == 2 ? 0 : AppSpacing.sm),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.smPlus,
+                  ),
+                  decoration: BoxDecoration(
+                    color: ready
+                        ? Colors.green.withValues(alpha: 0.12)
+                        : FluentTheme.of(
+                            context,
+                          ).resources.cardBackgroundFillColorDefault,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: FluentTheme.of(
+                        context,
+                      ).resources.cardStrokeColorDefault,
                     ),
                   ),
-                );
-              }),
-            ),
-            const SizedBox(height: 10),
-            Button(
-              key: const ValueKey('custom-movement-record-references'),
-              onPressed: _busy ? null : _recordReferences,
-              child: Text(ready ? 'Re-record References' : 'Record Reference'),
-            ),
-            const SizedBox(height: 8),
-            InfoBar(
-              title: Text(
-                ready
-                    ? 'Automatic assessment ready'
-                    : _requireVisibleBottleRotation
-                    ? 'Visible bottle rotation needed'
-                    : 'Automatic assessment needs 3 references',
-              ),
-              content: Text(
-                _requireVisibleBottleRotation && !ready
-                    ? 'Visible bottle rotation must be learned from three references before saving. Keep the bottle visible through each turn. Assessment requires a validated bottle orientation model. Fully hidden behind-the-back depth cannot be confirmed by one camera.'
-                    : _template?.requiresRotation == true
-                    ? 'This template learned visible bottle rotation from top and base observations. Fast or hidden turns may remain uncertain.'
-                    : _prop == TrainingProp.shaker
-                    ? 'Prop path, body and hands can be assessed. Fully hidden behind-the-back depth cannot be confirmed by one camera.'
-                    : 'Bottle path, body and hands can be assessed. Rotation is learned only when a validated bottle keypoint model is installed and all three references show consistent visible turns. Fully hidden behind-the-back depth cannot be confirmed by one camera.',
-              ),
-              severity: ready ? InfoBarSeverity.success : InfoBarSeverity.info,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              InfoBar(
-                title: Text(
-                  _error == _rotationNotLearnedMessage
-                      ? 'Rotation not learned'
-                      : 'Could not save',
+                  child: Column(
+                    children: [
+                      Icon(
+                        ready ? FluentIcons.completed : FluentIcons.circle_ring,
+                        size: 18,
+                        color: ready ? Colors.green : null,
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Reference ${index + 1}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ],
+                  ),
                 ),
-                content: Text(_error!),
-                severity: InfoBarSeverity.error,
               ),
-            ],
-          ],
+            ),
+          ),
         ),
+        const SizedBox(height: AppSpacing.md),
+        FilledButton(
+          key: const ValueKey('custom-movement-record-references'),
+          onPressed: _busy ? null : _recordReferences,
+          child: Text(ready ? 'Re-record References' : 'Record References'),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          ready
+              ? 'Automatic assessment ready'
+              : _requireVisibleBottleRotation
+              ? 'Visible bottle rotation needed'
+              : 'Automatic assessment needs 3 references',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          ready
+              ? _template?.requiresRotation == true
+                    ? 'This template learned visible bottle rotation from top and base observations. Fast or hidden turns may remain uncertain.'
+                    : _prop == TrainingProp.bottle
+                    ? 'Bottle path, body and hands can be assessed. Rotation is learned only when a validated bottle keypoint model is installed and all three references show consistent visible turns.'
+                    : 'Prop path, body and hands can be assessed.'
+              : _requireVisibleBottleRotation
+              ? 'Keep the bottle visible throughout each turn in all three references.'
+              : 'Record all three valid references before saving.',
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          InfoBar(
+            title: Text(
+              _error == _rotationNotLearnedMessage
+                  ? 'Rotation not learned'
+                  : 'Could not save',
+            ),
+            content: Text(_error!),
+            severity: InfoBarSeverity.error,
+          ),
+        ],
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = _assessmentReady;
+    final size = MediaQuery.sizeOf(context);
+    final width = (size.width - 64).clamp(0.0, 1060.0);
+    final height = (size.height - 96).clamp(0.0, 720.0);
+    return ContentDialog(
+      constraints: BoxConstraints(maxWidth: width, maxHeight: height),
+      title: Text(
+        widget.existing == null ? 'Create Movement' : 'Edit Movement',
+      ),
+      content: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 760;
+          final children = <Widget>[
+            _details(context),
+            _references(context, ready),
+          ];
+          if (compact) {
+            return SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  children.first,
+                  const SizedBox(height: AppSpacing.md),
+                  children.last,
+                ],
+              ),
+            );
+          }
+          return SingleChildScrollView(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 6, child: children.first),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(flex: 5, child: children.last),
+              ],
+            ),
+          );
+        },
       ),
       actions: [
         Button(

@@ -349,8 +349,12 @@ class _CustomReferenceRecorderDialogState
   @override
   Widget build(BuildContext context) {
     final mirrored = context.watch<SettingsService>().cameraMirrored;
+    final size = MediaQuery.sizeOf(context);
     return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 1040, maxHeight: 660),
+      constraints: BoxConstraints(
+        maxWidth: (size.width - 48).clamp(0.0, 1320.0),
+        maxHeight: (size.height - 64).clamp(0.0, 820.0),
+      ),
       title: const Text('Record movement references'),
       content: LayoutBuilder(
         builder: (context, constraints) {
@@ -380,70 +384,79 @@ class _CustomReferenceRecorderDialogState
               presentation: presentation,
             ),
           );
-          final setup = <Widget>[
-            const Text(
-              'Record the full movement 3 times. Keep your body, hands, and selected prop visible.',
-            ),
-            if (widget.prop == TrainingProp.bottle) ...[
-              const SizedBox(height: AppSpacing.sm),
+          final canSelectCamera =
+              !_initializing &&
+              !_busy &&
+              _countdown == null &&
+              !_active &&
+              !_recording &&
+              _referenceCount == 0;
+          final setup = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
               const Text(
-                'Visible bottle turns can be learned only when a validated top/base keypoint model is installed. Keep both ends visible throughout each turn; hidden or very fast spins may be uncertain.',
+                'Record 3 complete demonstrations to build your assessment template.',
               ),
+              if (canSelectCamera) ...[
+                const SizedBox(height: AppSpacing.sm),
+                CameraSourcePreference(
+                  settings: context.watch<SettingsService>(),
+                  cameras: context.watch<CameraDeviceService>(),
+                  compact: true,
+                  enabled: !_busy,
+                  onSelectionBusyChanged: (busy) {
+                    if (mounted) setState(() => _cameraSelectionBusy = busy);
+                  },
+                  onSelectionSaved: _switchCamera,
+                ),
+              ],
+              if (widget.prop == TrainingProp.bottle) ...[
+                const SizedBox(height: AppSpacing.sm),
+                const Text(
+                  'For visible turns, keep both bottle ends in view. Rotation assessment requires a validated orientation model.',
+                ),
+              ],
             ],
-            const SizedBox(height: AppSpacing.smPlus),
-            if (!_initializing &&
-                !_busy &&
-                _countdown == null &&
-                !_active &&
-                !_recording &&
-                _referenceCount == 0) ...[
-              CameraSourcePreference(
-                settings: context.watch<SettingsService>(),
-                cameras: context.watch<CameraDeviceService>(),
-                compact: true,
-                enabled: !_busy,
-                onSelectionBusyChanged: (busy) {
-                  if (mounted) setState(() => _cameraSelectionBusy = busy);
-                },
-                onSelectionSaved: _switchCamera,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-            ],
-          ];
+          );
           if (compact) {
             return SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ...setup,
-                  SizedBox(height: 240, child: workspace),
-                  const SizedBox(height: AppSpacing.smPlus),
+                  setup,
+                  const SizedBox(height: AppSpacing.md),
+                  AspectRatio(aspectRatio: 16 / 9, child: workspace),
+                  const SizedBox(height: AppSpacing.md),
                   status,
                 ],
               ),
             );
           }
-          return SizedBox(
-            height: 420,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ...setup,
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(flex: 3, child: workspace),
-                      const SizedBox(width: AppSpacing.md),
-                      SizedBox(
-                        width: 300,
-                        child: SingleChildScrollView(child: status),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              setup,
+              const SizedBox(height: AppSpacing.md),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      flex: 7,
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: workspace,
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(flex: 3, child: status),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           );
         },
       ),
@@ -607,7 +620,7 @@ class _RecorderStatusPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(AppSpacing.md),
+    padding: const EdgeInsets.all(AppSpacing.smPlus),
     decoration: BoxDecoration(
       color: FluentTheme.of(context).resources.cardBackgroundFillColorDefault,
       borderRadius: BorderRadius.circular(12),
@@ -622,7 +635,7 @@ class _RecorderStatusPanel extends StatelessWidget {
           '3 references',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.xs),
         for (var index = 0; index < MovementTemplate.minimumReferences; index++)
           _ReferenceStep(
             index: index,
@@ -647,22 +660,27 @@ class _RecorderStatusPanel extends StatelessWidget {
             presentationState: presentation?.posePresentationState,
           ),
         ),
-        const SizedBox(height: AppSpacing.md),
-        Text(
-          initializing
-              ? 'Preparing camera'
-              : recording
-              ? 'Recording reference ${referenceCount + 1} of 3'
-              : (active || ready) && personReady
-              ? referenceCount == 0
-                    ? 'Ready to record'
-                    : 'Reference saved — record the next one'
-              : 'Getting into position',
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        Text(quality, maxLines: 3, overflow: TextOverflow.ellipsis),
-        if (multiplePeople || (recording && referenceContaminated)) ...[
+        if (error == null &&
+            !multiplePeople &&
+            !(recording && referenceContaminated)) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            initializing
+                ? 'Preparing camera'
+                : recording
+                ? 'Recording reference ${referenceCount + 1} of 3'
+                : (active || ready) && personReady
+                ? referenceCount == 0
+                      ? 'Ready to record'
+                      : 'Reference saved — record the next one'
+                : 'Getting into position',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(quality, maxLines: 2, overflow: TextOverflow.ellipsis),
+        ],
+        if (error == null &&
+            (multiplePeople || (recording && referenceContaminated))) ...[
           const SizedBox(height: AppSpacing.sm),
           InfoBar(
             title: const Text('Multiple people detected'),
@@ -736,7 +754,7 @@ class _ReferenceStep extends StatelessWidget {
     final complete = index < count;
     final current = !complete && index == count;
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: Row(
         children: [
           Icon(

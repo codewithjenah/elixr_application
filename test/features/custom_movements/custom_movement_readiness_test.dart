@@ -81,6 +81,7 @@ class _CustomSocket extends WebSocketService {
   bool rejectNextStop = false;
   String? rejectNextStopCode;
   bool rejectNextSessionStop = false;
+  bool rejectPrepare = false;
 
   @override
   bool get isConnected => true;
@@ -117,7 +118,7 @@ class _CustomSocket extends WebSocketService {
     preparedCameraDeviceId = cameraDeviceId;
     preparedCameraDeviceIds.add(cameraDeviceId);
     preparedLegacyCameraIndex = legacyCameraIndex;
-    return _ack('prepare');
+    return _ack('prepare', accepted: !rejectPrepare);
   }
 
   @override
@@ -1053,6 +1054,33 @@ void main() {
       find.byKey(const ValueKey('custom-reference-record')),
       findsOneWidget,
     );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('camera setup error fits without a desktop status scrollbar', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _CustomSocket()..rejectPrepare = true;
+    await tester.pumpWidget(
+      _withSettings(
+        _TestSettings(),
+        CustomReferenceRecorderDialog(
+          difficulty: 'Medium',
+          prop: TrainingProp.bottle,
+          webSocket: socket,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Recording issue'), findsOneWidget);
+    expect(find.byType(SingleChildScrollView), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
