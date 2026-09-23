@@ -166,7 +166,7 @@ def test_recorded_detection_preserves_yolo_attempt_for_diagnostics():
     ] == 1.0
 
 
-def test_coasted_prop_is_visual_only_not_a_custom_sample():
+def test_unconfirmed_prop_is_neither_presented_nor_a_custom_sample():
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     started = time.monotonic()
     session._custom_samples = []
@@ -189,4 +189,5 @@ def test_coasted_prop_is_visual_only_not_a_custom_sample():
     assert session._custom_samples is not None
     assert session._custom_samples[0].prop is None
     assert session._custom_samples[0].prop_metadata == {"yolo_attempted": True}
-    assert session._presentation_boxes()[0].yolo_confirmed is False
+    assert session._last_live_bottles[0].yolo_confirmed is False
+    assert session._presentation_boxes() == []

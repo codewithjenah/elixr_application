@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -19,6 +20,7 @@ from test_session_lifecycle import (
     _patch_vision,
 )
 from vision.camera import CapturedFrame
+from vision.dual_prop_detector import DualPropResult
 from vision.overlay_snapshot import freeze_overlay
 from vision.types import HandLandmarks, HandsResult, Point2D, PropDetection
 
@@ -263,6 +265,106 @@ def test_custom_preview_metadata_and_annotation_share_confirmed_prop(monkeypatch
     assert message.prop_presentation_state == "confirmed"
     assert message.overlay_capture_sequence == 1
     assert annotate_boxes == [[box]]
+    session.close()
+
+
+@pytest.mark.parametrize(
+    ("prop_type", "session_mode"),
+    [
+        ("bottle", None),
+        ("shaker", None),
+        ("bottle_and_shaker", None),
+        ("bottle", "custom_capture"),
+    ],
+)
+def test_yolo_miss_removes_presented_box_but_keeps_live_track(
+    monkeypatch, prop_type, session_mode
+):
+    _patch_vision(monkeypatch)
+    drawn: list[list[PropDetection]] = []
+
+    def tracking_annotate(current_frame, boxes, *args, **kwargs):
+        drawn.append(list(boxes))
+        return current_frame
+
+    monkeypatch.setattr(websocket_api, "annotate_frame", tracking_annotate)
+    session = websocket_api.VisionSession(
+        "Custom Movement" if session_mode else "Hand Stall",
+        prop_type=prop_type,
+        session_mode=session_mode,
+    )
+    session.start()
+    bottle = PropDetection(1, 2, 20, 40, 0.9, track_id=1, yolo_confirmed=True)
+    shaker = PropDetection(22, 2, 40, 40, 0.9, track_id=2, yolo_confirmed=True)
+    live = {
+        "bottles": [bottle] if prop_type != "shaker" else [],
+        "shakers": [shaker] if prop_type != "bottle" else [],
+    }
+
+    class Detector:
+        def detect(self, frame):
+            if prop_type == "bottle_and_shaker":
+                return DualPropResult(**live)
+            return live["shakers"] if prop_type == "shaker" else live["bottles"]
+
+        def extrapolate_detections(self, *, bottles, shakers, now):
+            return [replace(box, x1=box.x1 + 1) for box in bottles], [
+                replace(box, x1=box.x1 + 1) for box in shakers
+            ]
+
+    session.prop_detector = Detector()
+    frame = np.zeros((48, 64, 3), dtype=np.uint8)
+    confirmed = session._detect_normalized_props(frame)
+    expected = list(confirmed.annotation)
+    assert session._presentation_boxes() == expected
+
+    # A deliberately skipped YOLO tick keeps and extrapolates confirmed boxes.
+    skipped = session._cached_normalized_props()
+    assert len(skipped.annotation) == len(expected)
+    assert len(session._presentation_boxes()) == len(expected)
+    assert session._presentation_boxes()[0].x1 == expected[0].x1 + 1
+
+    # A YOLO miss leaves track identity available for reacquisition.
+    missing = shaker if prop_type == "shaker" else bottle
+    key = "shakers" if prop_type == "shaker" else "bottles"
+    live[key] = [replace(missing, yolo_confirmed=False)]
+    normalized = session._detect_normalized_props(frame)
+    assert live[key][0].track_id == missing.track_id
+    retained = (
+        session._last_live_shakers
+        if key == "shakers"
+        else session._last_live_bottles
+    )
+    assert retained[0].yolo_confirmed is False
+    assert normalized.annotation == (
+        (shaker,) if prop_type == "bottle_and_shaker" else ()
+    )
+    assert session._presentation_boxes() == list(normalized.annotation)
+
+    now = time.monotonic()
+    session._publish_overlay(
+        freeze_overlay(
+            published_at_monotonic=now,
+            captured_at_monotonic=now,
+            capture_sequence=1,
+            boxes=session._presentation_boxes(),
+            hands=None,
+            pose=None,
+            feedback="missing",
+            feedback_type="warning",
+            movement="Hand Stall",
+            prop_label="Bottle",
+        )
+    )
+    overlay = session._read_fresh_overlay()
+    assert overlay is not None
+    assert list(overlay.boxes) == list(normalized.annotation)
+    session.camera.peek_latest = lambda **kwargs: CapturedFrame(frame, now + 0.01, 2)
+    preview = session.render_preview()
+    assert preview is not None
+    if session_mode == "custom_capture":
+        assert preview.prop_presentation_state == "missing"
+    assert drawn == [list(normalized.annotation)]
     session.close()
 
 

@@ -1258,12 +1258,14 @@ class VisionSession:
         }
 
     def _presentation_boxes(self) -> list[PropDetection]:
-        """Live tracker boxes for drawing only; never normalize for scoring."""
+        """Draw confirmed tracks, including extrapolated skipped-frame boxes."""
         if self._is_dual_prop:
-            return list(self._last_live_bottles) + list(self._last_live_shakers)
-        if self.prop_type == "shaker":
-            return list(self._last_live_shakers)
-        return list(self._last_live_bottles)
+            live = self._last_live_bottles + self._last_live_shakers
+        elif self.prop_type == "shaker":
+            live = self._last_live_shakers
+        else:
+            live = self._last_live_bottles
+        return [detection for detection in live if detection.yolo_confirmed]
 
     def _read_fresh_overlay(
         self,
@@ -2570,7 +2572,7 @@ class VisionSession:
         detected = tick.detected_prop_type is not None
         overlay_feedback = tick.recognized_display or "Watching your technique."
         overlay_type = "positive" if tick.recognition_state == "confirmed" else "warning"
-        boxes_to_draw = list(self._last_live_bottles) + list(self._last_live_shakers)
+        boxes_to_draw = self._presentation_boxes()
         prop_label = {
             "shaker": "Cocktail Shaker",
             "bottle_and_shaker": "Bottle + Cocktail Shaker",
