@@ -1751,6 +1751,75 @@ void main() {
       },
     );
 
+    test('disconnect keeps transport open until correlated stop ACK', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+      final disconnectFuture = service.disconnect();
+      await Future<void>.delayed(Duration.zero);
+
+      final stops = sent
+          .where((payload) => payload['action'] == 'stop')
+          .toList();
+      expect(stops, hasLength(1));
+      expect(service.connectionState, WebSocketConnectionState.connected);
+      expect(service.hasPendingCommands, isTrue);
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': stops.single['request_id'],
+        'session_id': sessionId,
+        'action': 'stop',
+        'accepted': true,
+        'session_state': 'idle',
+      });
+      await disconnectFuture;
+      service.dispose();
+
+      expect(service.connectionState, WebSocketConnectionState.disconnected);
+      expect(
+        sent.where((payload) => payload['action'] == 'stop'),
+        hasLength(1),
+      );
+    });
+
+    test('abrupt dispose does not enqueue an untracked stop', () async {
+      service.beginPracticeAttempt();
+      service.dispose();
+      await Future<void>.delayed(Duration.zero);
+      expect(sent.where((payload) => payload['action'] == 'stop'), isEmpty);
+    });
+
+    test('disconnect waits for a stop already in flight', () async {
+      final sessionId = service.beginPracticeAttempt();
+      final stopFuture = service.stopPracticeSession();
+      await Future<void>.delayed(Duration.zero);
+      final stopPayload = sent.singleWhere(
+        (payload) => payload['action'] == 'stop',
+      );
+
+      final disconnectFuture = service.disconnect();
+      await Future<void>.delayed(Duration.zero);
+      expect(service.connectionState, WebSocketConnectionState.connected);
+      expect(
+        sent.where((payload) => payload['action'] == 'stop'),
+        hasLength(1),
+      );
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': stopPayload['request_id'],
+        'session_id': sessionId,
+        'action': 'stop',
+        'accepted': true,
+        'session_state': 'idle',
+      });
+      await stopFuture;
+      await disconnectFuture;
+      expect(service.connectionState, WebSocketConnectionState.disconnected);
+    });
+
     test(
       'controlled stop failures complete without unhandled async errors',
       () async {

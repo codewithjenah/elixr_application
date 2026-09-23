@@ -1431,6 +1431,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     await _stopWebSocketSession();
+    if (_ownsWebSocket) await _ws.disconnect();
     _run.cancelToIdle();
     unawaited(_music.stop());
     unawaited(_sfx.stop());

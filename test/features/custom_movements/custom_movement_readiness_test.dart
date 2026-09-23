@@ -479,7 +479,15 @@ void main() {
     await tester.pump();
     expect(
       find.byKey(const ValueKey('camera-source-preference')),
-      findsNothing,
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const ValueKey('camera-source-selector')),
+          )
+          .onChanged,
+      isNull,
     );
     for (var second = 0; second < 3; second++) {
       await tester.pump(const Duration(seconds: 1));
@@ -1055,6 +1063,64 @@ void main() {
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('reference recorder geometry stays fixed through capture', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final socket = _CustomSocket();
+    await tester.pumpWidget(
+      _withSettings(
+        _TestSettings(),
+        CustomReferenceRecorderDialog(
+          difficulty: 'Medium',
+          prop: TrainingProp.bottle,
+          webSocket: socket,
+        ),
+      ),
+    );
+    await tester.pump();
+    socket.emitReady();
+    await tester.pump();
+
+    final dialogBefore = tester.getRect(find.byType(ContentDialog));
+    final cameraBefore = tester.getRect(find.byType(AspectRatio).first);
+    await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+    await tester.pump();
+    expect(find.text('3'), findsOneWidget);
+    expect(tester.getRect(find.byType(ContentDialog)), dialogBefore);
+    expect(tester.getRect(find.byType(AspectRatio).first), cameraBefore);
+    expect(
+      find.byKey(const ValueKey('camera-source-preference')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const ValueKey('camera-source-selector')),
+          )
+          .onChanged,
+      isNull,
+    );
+
+    for (var second = 0; second < 3; second++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+    await tester.pump();
+    expect(socket.startCustomCaptureCalls, 1);
+    expect(tester.getRect(find.byType(ContentDialog)), dialogBefore);
+    expect(tester.getRect(find.byType(AspectRatio).first), cameraBefore);
+
+    await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+    await tester.pump();
+    expect(socket.acceptedReferences, 1);
+    expect(tester.getRect(find.byType(ContentDialog)), dialogBefore);
+    expect(tester.getRect(find.byType(AspectRatio).first), cameraBefore);
+
+    await tester.pump(const Duration(milliseconds: 150));
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
   });

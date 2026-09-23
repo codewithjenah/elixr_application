@@ -1399,7 +1399,10 @@ class PracticeScreenState extends State<PracticeScreen>
     unawaited(previewSub?.cancel() ?? Future<void>.value());
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
-    await _stopWebSocketSession();
+    if (_run.isCameraSessionLive || _ws.currentSessionId != null) {
+      await _stopWebSocketSession();
+    }
+    if (_ownsWebSocket) await _ws.disconnect();
     _run.cancelToIdle();
     unawaited(_music.stop());
     unawaited(_sfx.stop());
@@ -1446,7 +1449,7 @@ class PracticeScreenState extends State<PracticeScreen>
   Future<void> _onBack() async {
     if (_isShowingSummary || _leaving || _stopInFlight) return;
     if (!_shouldConfirmAbandon) {
-      _goPracticeExit(catalog: true);
+      await _abandonAndLeave();
       return;
     }
     await _confirmAbandonThen(_abandonAndLeave);

@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable
 import cv2
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
+from starlette.websockets import WebSocketState
 
 from assessment.calibration import CalibrationTracker
 from assessment.feedback_codes import category_for
@@ -3589,6 +3590,11 @@ async def _cv_session_loop(
     except asyncio.CancelledError:
         raise
 
+    except WebSocketDisconnect:
+        # The peer can leave while the frame writer is sending. Session
+        # cleanup still runs in finally; there is no pipeline error to send.
+        pass
+
     except Exception:
         logger.exception("CV session loop failed")
 
@@ -3651,11 +3657,15 @@ async def _cv_session_loop(
         for item in leftover:
             try:
                 await _send(item.payload)
+            except WebSocketDisconnect:
+                break
             except Exception:
                 logger.exception("Failed to flush leftover WebSocket payload")
         if outbound_error is not None:
             try:
                 await _send(outbound_error)
+            except WebSocketDisconnect:
+                pass
             except Exception:
                 logger.exception("Failed to send session pipeline error")
 
@@ -3768,6 +3778,7 @@ async def websocket_endpoint(websocket: WebSocket):
     movement = "Hand Stall"
     difficulty = "Easy"
     send_lock = asyncio.Lock()
+    connection_closed = False
     submission_recorder: SubmissionRecorder | None = None
     submission_cap_task: asyncio.Task | None = None
     submission_recording_allowed = False
@@ -3792,17 +3803,39 @@ async def websocket_endpoint(websocket: WebSocket):
         task = prepare_command_task
         prepare_command_task = None
         prepare_command_session_id = None
-        if task is None or task.done():
+        if task is None:
             return
-        task.cancel()
+        if not task.done():
+            task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
+        except WebSocketDisconnect:
+            # A completed prepare may have lost its ACK as the peer left.
+            pass
 
     async def safe_send(text: str) -> None:
+        nonlocal connection_closed
         async with send_lock:
-            await websocket.send_text(text)
+            if (
+                connection_closed
+                or getattr(websocket, "client_state", None) == WebSocketState.DISCONNECTED
+            ):
+                connection_closed = True
+                raise WebSocketDisconnect()
+            try:
+                await websocket.send_text(text)
+            except WebSocketDisconnect:
+                connection_closed = True
+                raise
+            except RuntimeError as exc:
+                # Starlette raises this exact error after its application-side
+                # close. Other state/programming errors must remain visible.
+                if str(exc) != 'Cannot call "send" once a close message has been sent.':
+                    raise
+                connection_closed = True
+                raise WebSocketDisconnect() from exc
 
     async def send_ack(
         *,
@@ -5061,6 +5094,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await handle_legacy(data)
 
     except WebSocketDisconnect:
+        connection_closed = True
         logger.info("Client disconnected")
 
     finally:

@@ -1325,8 +1325,13 @@ class WebSocketService extends ChangeNotifier {
 
   Future<void> disconnect() async {
     try {
-      if (_currentSessionId != null && isConnected) {
-        await stopPracticeSession().timeout(commandTimeout);
+      if (isConnected) {
+        final stop = _currentSessionId != null
+            ? stopPracticeSession()
+            : _queuedStops.isNotEmpty
+            ? _queuedStops.last.completer.future
+            : _inFlightStop;
+        if (stop != null) await stop.timeout(commandTimeout);
       }
     } on CommandTimeoutException {
       // Best-effort stop during disconnect.
@@ -1375,29 +1380,13 @@ class WebSocketService extends ChangeNotifier {
     _disposed = true;
     _disposing = true;
     _failAllPending(CommandDisconnectedException('', 'dispose'));
-    final sessionId = _currentSessionId;
     _sessionPrepared = false;
     _sessionActive = false;
     _sessionReadying = false;
     _currentSessionId = null;
     _startup.teardown(errorCode: 'dispose');
-    if (_outboundSink != null &&
-        _connectionState == WebSocketConnectionState.connected) {
-      try {
-        if (sessionId != null) {
-          _outboundSink!.add(
-            jsonEncode(
-              buildStopPayload(sessionId: sessionId, requestId: _nextId('req')),
-            ),
-          );
-        } else {
-          // Legacy best-effort stop if identity was already cleared.
-          _outboundSink!.add(jsonEncode({'action': 'stop'}));
-        }
-      } catch (_) {
-        // Ignore: socket may already be closing.
-      }
-    }
+    // Explicit exits await disconnect(). Abrupt disposal closes the transport;
+    // the backend's disconnect cleanup releases any remaining camera session.
     _subscription?.cancel();
     _subscription = null;
     _channel?.sink.close();

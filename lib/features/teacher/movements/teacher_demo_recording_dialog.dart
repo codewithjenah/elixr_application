@@ -71,6 +71,7 @@ class _TeacherDemoRecordingDialogState
   int _elapsedSeconds = 0;
   String? _error;
   String? _sessionToRelease;
+  Future<void>? _teardownFuture;
 
   @override
   void initState() {
@@ -282,8 +283,7 @@ class _TeacherDemoRecordingDialogState
         duration: Duration(milliseconds: clip.durationMs),
         source: TeacherActivityDemoSource.recorded,
       );
-      await _playback.release();
-      await _websocket.sendCancelSubmissionRecord();
+      await _tearDown();
       if (mounted) Navigator.pop(context, metadata);
     } catch (_) {
       if (mounted) {
@@ -299,22 +299,18 @@ class _TeacherDemoRecordingDialogState
 
   Future<void> _close() async {
     if (_busy) return;
-    if (_recording) {
-      _timer?.cancel();
-      _recording = false;
-    }
-    await _playback.release();
-    await _websocket.sendCancelSubmissionRecord();
+    await _tearDown();
     if (mounted) Navigator.pop(context);
   }
 
-  Future<void> _tearDown() async {
+  Future<void> _tearDown() => _teardownFuture ??= _performTearDown();
+
+  Future<void> _performTearDown() async {
     _timer?.cancel();
     await _previewSubscription?.cancel();
     await _playback.release();
     try {
       await _websocket.sendCancelSubmissionRecord();
-      await _websocket.sendStop();
     } catch (_) {}
     await _websocket.disconnect();
     if (_ownsWebSocket) _websocket.dispose();

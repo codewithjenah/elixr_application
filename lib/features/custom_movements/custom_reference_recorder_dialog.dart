@@ -271,6 +271,7 @@ class _CustomReferenceRecorderDialogState
           throw StateError('Template creation failed');
         }
         await _stopSessionBestEffort();
+        if (_ownsSocket) await _socket.disconnect();
         if (mounted) Navigator.of(context).pop(template);
       }
     } catch (_) {
@@ -312,6 +313,7 @@ class _CustomReferenceRecorderDialogState
     } catch (_) {
       // Best-effort teardown; disconnect below clears local lifecycle state.
     }
+    if (_ownsSocket) await _socket.disconnect();
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -384,9 +386,10 @@ class _CustomReferenceRecorderDialogState
               presentation: presentation,
             ),
           );
-          final canSelectCamera =
+          final canEditCameraSource =
               !_initializing &&
               !_busy &&
+              !_cameraSelectionBusy &&
               _countdown == null &&
               !_active &&
               !_recording &&
@@ -398,19 +401,17 @@ class _CustomReferenceRecorderDialogState
               const Text(
                 'Record 3 complete demonstrations to build your assessment template.',
               ),
-              if (canSelectCamera) ...[
-                const SizedBox(height: AppSpacing.sm),
-                CameraSourcePreference(
-                  settings: context.watch<SettingsService>(),
-                  cameras: context.watch<CameraDeviceService>(),
-                  compact: true,
-                  enabled: !_busy,
-                  onSelectionBusyChanged: (busy) {
-                    if (mounted) setState(() => _cameraSelectionBusy = busy);
-                  },
-                  onSelectionSaved: _switchCamera,
-                ),
-              ],
+              const SizedBox(height: AppSpacing.sm),
+              CameraSourcePreference(
+                settings: context.watch<SettingsService>(),
+                cameras: context.watch<CameraDeviceService>(),
+                compact: true,
+                enabled: canEditCameraSource,
+                onSelectionBusyChanged: (busy) {
+                  if (mounted) setState(() => _cameraSelectionBusy = busy);
+                },
+                onSelectionSaved: _switchCamera,
+              ),
               if (widget.prop == TrainingProp.bottle) ...[
                 const SizedBox(height: AppSpacing.sm),
                 const Text(

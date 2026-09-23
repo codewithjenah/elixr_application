@@ -870,6 +870,81 @@ def test_stale_stop_does_not_stop_newer_session(monkeypatch):
     asyncio.run(_run())
 
 
+@pytest.mark.parametrize("send_failure", ["closed_state", "transport_disconnect"])
+def test_disconnect_during_stop_ack_still_releases_session(monkeypatch, send_failure):
+    _patch_vision(monkeypatch)
+    release_calls = 0
+    original_release = StubCamera.release
+
+    def release_once(camera):
+        nonlocal release_calls
+        release_calls += 1
+        original_release(camera)
+
+    monkeypatch.setattr(StubCamera, "release", release_once)
+
+    class ClosingWebSocket(FakeWebSocket):
+        async def send_text(self, text):
+            payload = json.loads(text)
+            if (
+                payload.get("action") == "stop"
+                and payload.get("message_type") == "command_ack"
+            ):
+                if send_failure == "closed_state":
+                    raise RuntimeError(
+                        'Cannot call "send" once a close message has been sent.'
+                    )
+                raise websocket_api.WebSocketDisconnect(code=1006)
+            await super().send_text(text)
+
+    async def _run():
+        ws = ClosingWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(_prepare_payload())
+        assert (await _wait_for_ack(ws, "req-1")())["accepted"] is True
+
+        await ws.push(
+            {"protocol_version": 1, "request_id": "req-stop", "session_id": "session-1", "action": "stop"}
+        )
+        await asyncio.wait_for(task, timeout=2)
+
+        assert StubCamera.instances[0].released is True
+        assert release_calls == 1
+        assert not any(
+            message.get("request_id") == "req-stop" for message in _decode_sent(ws)
+        )
+
+    asyncio.run(_run())
+
+
+def test_unexpected_stop_ack_send_error_remains_visible(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class BrokenWebSocket(FakeWebSocket):
+        async def send_text(self, text):
+            payload = json.loads(text)
+            if (
+                payload.get("action") == "stop"
+                and payload.get("message_type") == "command_ack"
+            ):
+                raise RuntimeError("unexpected serializer failure")
+            await super().send_text(text)
+
+    async def _run():
+        ws = BrokenWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(_prepare_payload())
+        assert (await _wait_for_ack(ws, "req-1")())["accepted"] is True
+        await ws.push(
+            {"protocol_version": 1, "request_id": "req-stop", "session_id": "session-1", "action": "stop"}
+        )
+        with pytest.raises(RuntimeError, match="unexpected serializer failure"):
+            await asyncio.wait_for(task, timeout=2)
+        assert StubCamera.instances[0].released is True
+
+    asyncio.run(_run())
+
+
 def test_stop_then_prepare_successor_keeps_lifecycle_ordered(monkeypatch):
     _patch_vision(monkeypatch)
 

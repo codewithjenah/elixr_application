@@ -345,6 +345,20 @@ class _CustomMovementPracticeScreenState
     }
   }
 
+  Future<void> _leave() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await _stopSessionBestEffort();
+    if (_ownsSocket) await _socket.disconnect();
+    if (!mounted) return;
+    final onExit = widget.onExit;
+    if (onExit != null) {
+      onExit();
+    } else {
+      context.pop();
+    }
+  }
+
   @override
   void dispose() {
     unawaited(_previewSubscription?.cancel());
@@ -385,15 +399,7 @@ class _CustomMovementPracticeScreenState
                     contentWidth >= AppSpacing.practiceCompactBreakpoint &&
                     !desktop;
                 final header = TrainingSessionHeader(
-                  onBack: () {
-                    if (_busy) return;
-                    final onExit = widget.onExit;
-                    if (onExit != null) {
-                      onExit();
-                    } else {
-                      context.pop();
-                    }
-                  },
+                  onBack: _leave,
                   title: widget.movement.name,
                   statusPill: widget.movement.difficulty,
                   statusPillColor: trainingDifficultyColor(
