@@ -12,6 +12,7 @@ import 'package:elixr_application/features/custom_movements/custom_movement_prac
 import 'package:elixr_application/features/custom_movements/custom_reference_recorder_dialog.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
+import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -66,12 +67,15 @@ class _CustomSocket extends WebSocketService {
   TeacherActivityReadinessSpec? preparedReadiness;
   String? preparedMode;
   String? preparedCameraDeviceId;
+  final List<String?> preparedCameraDeviceIds = [];
+  int stopCalls = 0;
   int? preparedLegacyCameraIndex;
   int acceptedReferences = 0;
   int discardCalls = 0;
   int buildCalls = 0;
   int startCustomCaptureCalls = 0;
   bool rejectNextStop = false;
+  bool rejectNextSessionStop = false;
 
   @override
   bool get isConnected => true;
@@ -106,6 +110,7 @@ class _CustomSocket extends WebSocketService {
     preparedReadiness = readinessSpec;
     preparedMode = sessionMode;
     preparedCameraDeviceId = cameraDeviceId;
+    preparedCameraDeviceIds.add(cameraDeviceId);
     preparedLegacyCameraIndex = legacyCameraIndex;
     return _ack('prepare');
   }
@@ -155,8 +160,14 @@ class _CustomSocket extends WebSocketService {
   }
 
   @override
-  Future<CommandAck> stopPracticeSession({String? sessionId}) async =>
-      _ack('stop');
+  Future<CommandAck> stopPracticeSession({String? sessionId}) async {
+    stopCalls += 1;
+    if (rejectNextSessionStop) {
+      rejectNextSessionStop = false;
+      return _ack('stop', accepted: false);
+    }
+    return _ack('stop');
+  }
 
   void emitReady() {
     emitReadiness(true);
@@ -208,7 +219,7 @@ class _UnusedRepository extends Fake implements CustomMovementRepository {}
 class _TestSettings extends SettingsService {
   _TestSettings({this.deviceId, this.legacyIndex, this.mirrored = true});
 
-  final String? deviceId;
+  String? deviceId;
   final int? legacyIndex;
   final bool mirrored;
 
@@ -223,14 +234,38 @@ class _TestSettings extends SettingsService {
       deviceId == null ? null : 'Selected test camera';
 
   @override
+  String? get selectedCameraDeviceId => deviceId;
+
+  @override
+  Future<SettingsWriteOutcome> setSelectedCameraDevice(
+    String? nextDeviceId, {
+    String? displayName,
+  }) async {
+    deviceId = nextDeviceId;
+    notifyListeners();
+    return SettingsWriteOutcome.saved;
+  }
+
+  @override
+  Future<SettingsWriteOutcome> clearCameraSelectionForAutoSelect() =>
+      setSelectedCameraDevice(null);
+
+  @override
   Future<String?> loadSelectedCameraDeviceId() async => deviceId;
 }
 
-Widget _withSettings(SettingsService settings, Widget child) =>
-    ChangeNotifierProvider<SettingsService>.value(
-      value: settings,
-      child: FluentApp(home: child),
-    );
+Widget _withSettings(SettingsService settings, Widget child) => MultiProvider(
+  providers: [
+    ChangeNotifierProvider<SettingsService>.value(value: settings),
+    ChangeNotifierProvider<CameraDeviceService>(
+      create: (_) => CameraDeviceService(
+        httpGet: (_) async =>
+            '{"cameras":[{"device_id":"dev-a","display_name":"Camera A","runtime_index":0,"is_active":false,"identity_stable":true},{"device_id":"dev-b","display_name":"Camera B","runtime_index":1,"is_active":false,"identity_stable":true}],"preferred_index":null,"fallback_index":null,"active_index":null,"active_device_id":null}',
+      ),
+    ),
+  ],
+  child: FluentApp(home: child),
+);
 
 void _useDesktopSurface(WidgetTester tester) {
   tester.view.physicalSize = const Size(1400, 1000);
@@ -272,6 +307,176 @@ void main() {
     expect(find.text('Hand tracking'), findsOne);
     expect(find.text('Body tracking'), findsOne);
 
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('reference camera change stops before one new prepare', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final socket = _CustomSocket();
+    final settings = _TestSettings(deviceId: 'dev-a');
+    await tester.pumpWidget(
+      _withSettings(
+        settings,
+        CustomReferenceRecorderDialog(
+          difficulty: 'Easy',
+          prop: TrainingProp.bottle,
+          webSocket: socket,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(socket.preparedCameraDeviceIds, ['dev-a']);
+    expect(
+      find.byKey(const ValueKey('camera-source-preference')),
+      findsOneWidget,
+    );
+
+    final selector = tester.widget<ComboBox<String>>(
+      find.byKey(const ValueKey('camera-source-selector')),
+    );
+    socket.rejectNextSessionStop = true;
+    selector.onChanged!('dev-b');
+    await tester.pump();
+    await tester.pump();
+    expect(socket.stopCalls, 1);
+    expect(socket.preparedCameraDeviceIds, ['dev-a']);
+    expect(find.text('Retry camera setup'), findsOneWidget);
+
+    await tester.tap(find.text('Retry camera setup'));
+    await tester.pump();
+    expect(socket.stopCalls, 2);
+    expect(socket.preparedCameraDeviceIds, ['dev-a', 'dev-b']);
+
+    socket.emitReady();
+    await tester.pump();
+    await tester.tap(find.text('Record Reference'));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('camera-source-preference')),
+      findsNothing,
+    );
+    for (var second = 0; second < 3; second++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets(
+    'custom assessment camera change clears readiness and reprepares',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final socket = _CustomSocket();
+      final movement = CustomMovement(
+        id: 'movement-switch',
+        ownerUid: 'trainee-1',
+        ownerRole: CustomMovementOwnerRole.trainee,
+        name: 'Camera switch movement',
+        description: 'Follow the saved reference.',
+        difficulty: 'Easy',
+        propType: TrainingProp.bottle,
+        status: CustomMovementStatus.active,
+        activeRevisionId: 'revision-switch',
+      );
+      final revision = CustomMovementRevision(
+        id: 'revision-switch',
+        movementId: movement.id,
+        ownerUid: movement.ownerUid,
+        ownerRole: movement.ownerRole,
+        template: MovementTemplate.tryFrom(_oneHandTemplateMap())!,
+      );
+      await tester.pumpWidget(
+        _withSettings(
+          _TestSettings(deviceId: 'dev-a'),
+          CustomMovementPracticeScreen(
+            movement: movement,
+            revision: revision,
+            repository: _UnusedRepository(),
+            webSocket: socket,
+          ),
+        ),
+      );
+      await tester.pump();
+      socket.emitReady();
+      socket.emitPresentation(prop: 'confirmed', hands: 'tracking');
+      await tester.pump();
+      expect(find.text('Bottle detected'), findsOneWidget);
+
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const ValueKey('camera-source-selector')),
+          )
+          .onChanged!('dev-b');
+      await tester.pump();
+      await tester.pump();
+      expect(socket.stopCalls, 1);
+      expect(socket.preparedCameraDeviceIds, ['dev-a', 'dev-b']);
+      expect(find.text('Bottle detected'), findsNothing);
+      expect(find.text('Start Practice'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets('custom assessment retry waits for accepted camera release', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final socket = _CustomSocket();
+    final movement = CustomMovement(
+      id: 'movement-stop-retry',
+      ownerUid: 'trainee-1',
+      ownerRole: CustomMovementOwnerRole.trainee,
+      name: 'Stop retry movement',
+      description: 'Follow the reference.',
+      difficulty: 'Easy',
+      propType: TrainingProp.bottle,
+      status: CustomMovementStatus.active,
+      activeRevisionId: 'revision-stop-retry',
+    );
+    final revision = CustomMovementRevision(
+      id: 'revision-stop-retry',
+      movementId: movement.id,
+      ownerUid: movement.ownerUid,
+      ownerRole: movement.ownerRole,
+      template: MovementTemplate.tryFrom(_oneHandTemplateMap())!,
+    );
+    await tester.pumpWidget(
+      _withSettings(
+        _TestSettings(deviceId: 'dev-a'),
+        CustomMovementPracticeScreen(
+          movement: movement,
+          revision: revision,
+          repository: _UnusedRepository(),
+          webSocket: socket,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    socket.rejectNextSessionStop = true;
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const ValueKey('camera-source-selector')),
+        )
+        .onChanged!('dev-b');
+    await tester.pump();
+    await tester.pump();
+    expect(socket.preparedCameraDeviceIds, ['dev-a']);
+    expect(find.text('Retry Setup'), findsOneWidget);
+
+    socket.rejectNextSessionStop = true;
+    await tester.tap(find.text('Retry Setup'));
+    await tester.pump();
+    expect(socket.preparedCameraDeviceIds, ['dev-a']);
+
+    await tester.tap(find.text('Retry Setup'));
+    await tester.pump();
+    expect(socket.preparedCameraDeviceIds, ['dev-a', 'dev-b']);
+    expect(socket.stopCalls, 3);
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
   });

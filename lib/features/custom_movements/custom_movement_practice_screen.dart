@@ -17,6 +17,8 @@ import '../../data/repositories/custom_movement_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../services/websocket_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/camera_device_service.dart';
+import '../settings/widgets/camera_source_preference.dart';
 import '../practice/widgets/training_action_area.dart';
 import '../practice/widgets/training_arena_layout.dart';
 import '../practice/widgets/training_camera_workspace.dart';
@@ -67,10 +69,12 @@ class _CustomMovementPracticeScreenState
   bool _ready = false;
   bool _active = false;
   bool _busy = false;
+  bool _cameraSelectionBusy = false;
   int? _countdown;
   String? _error;
   bool _isSetupError = false;
   Map<String, dynamic>? _result;
+  String? _sessionToRelease;
 
   @override
   void initState() {
@@ -82,7 +86,7 @@ class _CustomMovementPracticeScreenState
 
   Future<void> _prepare() async {
     _previewSubscription = _socket.previewStream.listen((frame) {
-      if (!mounted) return;
+      if (!mounted || _preparing) return;
       _presentation.value = frame;
       if (!frame.hasJpeg) return;
       _preview.value = frame.jpegBytes;
@@ -94,7 +98,9 @@ class _CustomMovementPracticeScreenState
       // separate ValueNotifier path. Feedback remains authoritative only for
       // the readiness gate.
       final readinessChanged =
-          !_active && _ready != (feedback.readinessStable == true);
+          !_preparing &&
+          !_active &&
+          _ready != (feedback.readinessStable == true);
       if (readinessChanged) {
         setState(() {
           if (!_active) _ready = feedback.readinessStable == true;
@@ -113,6 +119,7 @@ class _CustomMovementPracticeScreenState
         _active = false;
         _error = null;
         _isSetupError = false;
+        _preview.value = null;
         _presentation.value = null;
       });
     }
@@ -120,6 +127,7 @@ class _CustomMovementPracticeScreenState
       await _socket.connect();
       if (!_socket.isConnected) throw StateError('backend unavailable');
       final sessionId = _socket.beginPracticeAttempt();
+      _sessionToRelease = sessionId;
       final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
       if (!mounted) return;
       _requireAccepted(
@@ -262,13 +270,65 @@ class _CustomMovementPracticeScreenState
   }
 
   Future<void> _tryAgain() async {
-    if (_busy || _preparing) return;
+    if (_busy || _preparing || _cameraSelectionBusy) return;
     setState(() {
+      _busy = true;
       _result = null;
       _error = null;
       _isSetupError = false;
     });
-    await _prepareSession();
+    try {
+      await _releaseCamera();
+      if (!mounted) return;
+      await _prepareSession();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'Could not release the current camera. Retry setup.';
+          _isSetupError = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _releaseCamera() async {
+    final sessionId = _sessionToRelease ?? _socket.currentSessionId;
+    if (sessionId == null) return;
+    _requireAccepted(await _socket.stopPracticeSession(sessionId: sessionId));
+    _sessionToRelease = null;
+  }
+
+  Future<void> _switchCamera(String? _) async {
+    if (_busy || _active || _countdown != null || _result != null) return;
+    setState(() {
+      _busy = true;
+      _preparing = true;
+      _ready = false;
+      _preview.value = null;
+      _presentation.value = null;
+    });
+    try {
+      await _releaseCamera();
+      if (!mounted) return;
+      await _prepareSession();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _preparing = false;
+          _error = 'Could not release the current camera. Retry setup.';
+          _isSetupError = true;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _cameraSelectionBusy = false;
+        });
+      }
+    }
   }
 
   void _requireAccepted(CommandAck ack) {
@@ -279,7 +339,7 @@ class _CustomMovementPracticeScreenState
 
   Future<void> _stopSessionBestEffort() async {
     try {
-      await _socket.stopPracticeSession();
+      await _releaseCamera();
     } catch (_) {
       // Disconnect/dispose remains the final local lifecycle cleanup.
     }
@@ -487,6 +547,25 @@ class _CustomMovementPracticeScreenState
                 ? 'Personal practice'
                 : 'Classroom assessment',
           ),
+          if (!_preparing &&
+              !_busy &&
+              !_active &&
+              _countdown == null &&
+              result == null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            const Divider(),
+            const SizedBox(height: AppSpacing.sm),
+            CameraSourcePreference(
+              settings: context.watch<SettingsService>(),
+              cameras: context.watch<CameraDeviceService>(),
+              compact: true,
+              enabled: !_busy,
+              onSelectionBusyChanged: (busy) {
+                if (mounted) setState(() => _cameraSelectionBusy = busy);
+              },
+              onSelectionSaved: _switchCamera,
+            ),
+          ],
         ],
       ),
       compactStatusNote: _error == null
@@ -502,8 +581,8 @@ class _CustomMovementPracticeScreenState
             : _error != null
             ? (_isSetupError ? 'Retry Setup' : 'Practice Again')
             : 'Start Practice',
-        isLoading: _busy || _preparing,
-        onPressed: _busy || _preparing
+        isLoading: _busy || _preparing || _cameraSelectionBusy,
+        onPressed: _busy || _preparing || _cameraSelectionBusy
             ? null
             : _active
             ? _finish

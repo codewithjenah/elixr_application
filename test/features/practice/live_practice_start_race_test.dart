@@ -21,6 +21,7 @@ import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/features/practice/submission_recording_controller.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/trainee_progression_service.dart';
 import 'package:elixr_application/services/tutorial_progress_service.dart';
@@ -157,6 +158,20 @@ class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
 
 class _GatedSettingsService extends SettingsService {
   Duration? cameraDelay;
+  String? chosenCameraDeviceId = 'win32:test-camera';
+
+  @override
+  String? get selectedCameraDeviceId => chosenCameraDeviceId;
+
+  @override
+  Future<SettingsWriteOutcome> setSelectedCameraDevice(
+    String? deviceId, {
+    String? displayName,
+  }) async {
+    chosenCameraDeviceId = deviceId;
+    notifyListeners();
+    return SettingsWriteOutcome.saved;
+  }
 
   @override
   Future<String?> loadSelectedCameraDeviceId() async {
@@ -164,7 +179,7 @@ class _GatedSettingsService extends SettingsService {
     if (delay != null) {
       await Future<void>.delayed(delay);
     }
-    return 'win32:test-camera';
+    return chosenCameraDeviceId;
   }
 }
 
@@ -175,6 +190,7 @@ class _RecordingWebSocketService extends WebSocketService {
   int activateCalls = 0;
   int startRecordingCalls = 0;
   int stopCalls = 0;
+  int disconnectCalls = 0;
   Object? confirmReadinessError;
   Completer<CommandAck>? confirmReadinessAck;
   Completer<void>? stopGate;
@@ -185,6 +201,8 @@ class _RecordingWebSocketService extends WebSocketService {
   final _previewFrames = StreamController<PreviewFrame>.broadcast();
   final _feedbackFrames = StreamController<PracticeFeedback>.broadcast();
 
+  void emitConnectionChanged() => notifyListeners();
+
   @override
   WebSocketConnectionState get connectionState =>
       WebSocketConnectionState.connected;
@@ -194,6 +212,13 @@ class _RecordingWebSocketService extends WebSocketService {
 
   @override
   Future<void> connect() async {}
+
+  @override
+  Future<void> disconnect() async {
+    // The real service clears its session identity on stop before disconnect.
+    // This fake only records stop, so avoid a second inherited stop here.
+    disconnectCalls += 1;
+  }
 
   @override
   Stream<PreviewFrame> get previewStream => _previewFrames.stream;
@@ -528,6 +553,12 @@ void main() {
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<CameraDeviceService>(
+            create: (_) => CameraDeviceService(
+              httpGet: (_) async =>
+                  '{"cameras":[{"device_id":"win32:test-camera","display_name":"Test Camera","runtime_index":0,"is_active":false,"identity_stable":true},{"device_id":"win32:external-camera","display_name":"External Camera","runtime_index":1,"is_active":false,"identity_stable":true}],"active_index":null}',
+            ),
+          ),
           ChangeNotifierProvider<TraineeProgressionService>(
             create: (_) => TraineeProgressionService.ready(totalXp: 20 * 250),
           ),
@@ -557,6 +588,110 @@ void main() {
     await tester.pump();
     await tester.pump();
   }
+
+  testWidgets('Freestyle uses the camera selected in its idle panel', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    settings.cameraDelay = null;
+    await pumpScreen(tester);
+    expect(
+      find.byKey(const ValueKey('camera-source-preference')),
+      findsOneWidget,
+    );
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const ValueKey('camera-source-selector')),
+        )
+        .onChanged!('win32:external-camera');
+    await tester.pump();
+    await tester.tap(find.text('Start Freestyle'));
+    await tester.pump();
+    expect(
+      ws.preparePayloads.single['camera_device_id'],
+      'win32:external-camera',
+    );
+    expect(
+      find.byKey(const ValueKey('camera-source-preference')),
+      findsNothing,
+    );
+    ws.acceptPrepare();
+    await tester.pump();
+  });
+
+  testWidgets(
+    'Activity auto-starts and can return to inline camera choice safely',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      settings.cameraDelay = null;
+      assignments.startDelay = null;
+      const reservedAttempt = AssignmentAttempt(
+        id: 'reserved-attempt',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'activity-bbb',
+        movementId: 'tm-bbb',
+        revisionId: 'tm-bbb_v1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+        status: AssignmentAttemptStatus.inProgress,
+        activityAssessmentSnapshot: _activityAssessment,
+      );
+      assignments.attemptSnapshot = const [reservedAttempt];
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _activityAssignment,
+          reservedActivityAttempt: reservedAttempt,
+        ),
+      );
+      ws.emitConnectionChanged();
+      await tester.pump();
+      expect(ws.preparePayloads, hasLength(1));
+      expect(find.text('Change camera'), findsOneWidget);
+
+      ws.stopGate = Completer<void>();
+      final chooseCamera = tester.widget<Button>(
+        find.widgetWithText(Button, 'Change camera'),
+      );
+      chooseCamera.onPressed!();
+      chooseCamera.onPressed!();
+      expect(ws.stopCalls, 1);
+      ws.stopGate!.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(ws.stopCalls, 1);
+      expect(ws.disconnectCalls, 1);
+      expect(assignments.abandonCalls, 0);
+      expect(ws.preparePayloads, hasLength(1));
+      expect(
+        find.byKey(const ValueKey('camera-source-preference')),
+        findsOneWidget,
+      );
+
+      tester
+          .widget<ComboBox<String>>(
+            find.byKey(const ValueKey('camera-source-selector')),
+          )
+          .onChanged!('win32:external-camera');
+      await tester.pump();
+      await tester.tap(find.text('Start assignment practice'));
+      await tester.pump();
+      await tester.pump();
+      expect(ws.preparePayloads, hasLength(2));
+      expect(
+        ws.preparePayloads.last['camera_device_id'],
+        'win32:external-camera',
+      );
+      ws.acceptPrepare();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    },
+  );
 
   testWidgets(
     'duplicate Start during Teacher-created attempt persist is ignored',

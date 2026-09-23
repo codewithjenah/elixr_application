@@ -7,7 +7,7 @@ import '../../../services/camera_device_service.dart';
 import '../../../services/settings_service.dart';
 import 'settings_components.dart';
 
-/// Shared camera-source preference used by trainee settings and Teacher Preview.
+/// Shared camera-source preference for settings and camera session screens.
 ///
 /// Physical identity always comes from camera discovery. A missing saved device
 /// remains visible and selected until the user explicitly chooses another
@@ -19,12 +19,18 @@ class CameraSourcePreference extends StatefulWidget {
     required this.cameras,
     this.enabled = true,
     this.compact = false,
+    this.onSelectionSaved,
+    this.onSelectionBusyChanged,
   });
 
   final SettingsService settings;
   final CameraDeviceService cameras;
   final bool enabled;
   final bool compact;
+
+  /// Called after a changed camera preference has been persisted.
+  final Future<void> Function(String? deviceId)? onSelectionSaved;
+  final ValueChanged<bool>? onSelectionBusyChanged;
 
   @override
   State<CameraSourcePreference> createState() => _CameraSourcePreferenceState();
@@ -70,6 +76,7 @@ class _CameraSourcePreferenceState extends State<CameraSourcePreference> {
       _writing = true;
       _writeError = null;
     });
+    widget.onSelectionBusyChanged?.call(true);
 
     final settings = widget.settings;
     final cameras = widget.cameras;
@@ -86,6 +93,7 @@ class _CameraSourcePreferenceState extends State<CameraSourcePreference> {
               'This camera does not expose a stable physical identity. '
               'Choose Auto-select.';
         });
+        widget.onSelectionBusyChanged?.call(false);
         return;
       }
       outcome = await settings.setSelectedCameraDevice(
@@ -95,12 +103,17 @@ class _CameraSourcePreferenceState extends State<CameraSourcePreference> {
     }
 
     if (!mounted) return;
+    if (outcome == SettingsWriteOutcome.saved) {
+      await widget.onSelectionSaved?.call(settings.selectedCameraDeviceId);
+    }
+    if (!mounted) return;
     setState(() {
       _writing = false;
       if (outcome == SettingsWriteOutcome.writeFailed) {
         _writeError = 'Could not save camera selection. Try again.';
       }
     });
+    widget.onSelectionBusyChanged?.call(false);
   }
 
   @override

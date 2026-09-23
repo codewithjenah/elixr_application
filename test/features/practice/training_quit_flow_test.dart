@@ -135,8 +135,31 @@ class _TestWebSocket extends WebSocketService {
 }
 
 class _GatedSettingsService extends SettingsService {
+  String? chosenCameraDeviceId = 'win32:test-camera';
+
   @override
-  Future<String?> loadSelectedCameraDeviceId() async => 'win32:test-camera';
+  String? get selectedCameraDeviceId => chosenCameraDeviceId;
+
+  @override
+  String? get selectedCameraDisplayName =>
+      chosenCameraDeviceId == null ? null : 'External Test Camera';
+
+  @override
+  Future<SettingsWriteOutcome> setSelectedCameraDevice(
+    String? deviceId, {
+    String? displayName,
+  }) async {
+    chosenCameraDeviceId = deviceId;
+    notifyListeners();
+    return SettingsWriteOutcome.saved;
+  }
+
+  @override
+  Future<SettingsWriteOutcome> clearCameraSelectionForAutoSelect() =>
+      setSelectedCameraDevice(null);
+
+  @override
+  Future<String?> loadSelectedCameraDeviceId() async => chosenCameraDeviceId;
 }
 
 class _TestSessionService extends SessionService {
@@ -314,6 +337,12 @@ void main() {
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<CameraDeviceService>(
+            create: (_) => CameraDeviceService(
+              httpGet: (_) async =>
+                  '{"cameras":[],"preferred_index":null,"fallback_index":null,"active_index":null,"active_device_id":null}',
+            ),
+          ),
           ChangeNotifierProvider<TraineeProgressionService>(
             create: (_) => TraineeProgressionService.ready(totalXp: 20 * 250),
           ),
@@ -432,6 +461,36 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets('trainee selects a camera in the idle panel for the next setup', (
+    tester,
+  ) async {
+    settings.chosenCameraDeviceId = null;
+    await pumpPractice(tester);
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('camera-source-preference')),
+      findsOneWidget,
+    );
+    final selector = tester.widget<ComboBox<String>>(
+      find.byKey(const ValueKey('camera-source-selector')),
+    );
+    selector.onChanged!('win32:test-camera');
+    await tester.pump();
+    await tester.pump();
+    expect(settings.chosenCameraDeviceId, 'win32:test-camera');
+
+    await tester.tap(find.text('Start Camera Setup'));
+    await tester.pump();
+    expect(ws.prepareCameraDeviceIds, ['win32:test-camera']);
+    expect(
+      find.byKey(const ValueKey('camera-source-preference')),
+      findsNothing,
+    );
+    ws.acceptPrepare();
+    await tester.pump();
+  });
 
   testWidgets(
     'timeout while quit dialog is open completes after Keep Training',

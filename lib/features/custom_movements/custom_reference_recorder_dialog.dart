@@ -11,7 +11,9 @@ import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/websocket_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/camera_device_service.dart';
 import '../practice/widgets/training_status_row.dart';
+import '../settings/widgets/camera_source_preference.dart';
 
 class CustomReferenceRecorderDialog extends StatefulWidget {
   const CustomReferenceRecorderDialog({
@@ -55,14 +57,20 @@ class _CustomReferenceRecorderDialogState
   bool _active = false;
   bool _recording = false;
   bool _busy = false;
+  bool _cameraSelectionBusy = false;
   int _referenceCount = 0;
+  String? _sessionToRelease;
   int? _countdown;
   String? _error;
   String? _cameraName;
   String _quality = 'Position yourself and the selected prop in view.';
 
   bool get _canStartReference =>
-      !_initializing && !_busy && !_recording && (_ready || _active);
+      !_initializing &&
+      !_busy &&
+      !_cameraSelectionBusy &&
+      !_recording &&
+      (_ready || _active);
 
   @override
   void initState() {
@@ -74,23 +82,38 @@ class _CustomReferenceRecorderDialogState
 
   Future<void> _initialize() async {
     _previewSubscription = _socket.previewStream.listen((frame) {
-      if (!mounted) return;
+      if (!mounted || _initializing) return;
       _presentation.value = frame;
       if (!frame.hasJpeg) return;
       _preview.value = frame.jpegBytes;
     });
     _feedbackSubscription = _socket.feedbackStream.listen((feedback) {
-      if (!mounted) return;
+      if (!mounted || _initializing) return;
       setState(() {
         _ready = feedback.readinessStable == true;
         if (!_ready) _quality = feedback.feedback;
       });
     });
+    await _prepareSession();
+  }
+
+  Future<void> _prepareSession() async {
+    setState(() {
+      _initializing = true;
+      _ready = false;
+      _error = null;
+      _cameraName = null;
+      _quality = 'Position yourself and the selected prop in view.';
+      _preview.value = null;
+      _presentation.value = null;
+    });
     try {
       final settings = context.read<SettingsService>();
       await _socket.connect();
       if (!_socket.isConnected) throw StateError('Backend unavailable');
+      if (!mounted) return;
       final sessionId = _socket.beginPracticeAttempt();
+      _sessionToRelease = sessionId;
       final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
       if (!mounted) return;
       _requireAccepted(
@@ -117,13 +140,44 @@ class _CustomReferenceRecorderDialogState
         _cameraName = settings.selectedCameraDisplayName;
       });
     } catch (_) {
-      unawaited(_stopSessionBestEffort());
+      await _stopSessionBestEffort();
       if (!mounted) return;
       setState(() {
         _initializing = false;
         _error =
-            'ELIXR could not prepare the selected camera. Check Camera Settings and try again.';
+            'ELIXR could not prepare the selected camera. Choose a camera here and try again.';
       });
+    }
+  }
+
+  Future<void> _switchCamera(String? _) async {
+    if (_initializing ||
+        _busy ||
+        _active ||
+        _recording ||
+        _referenceCount > 0) {
+      return;
+    }
+    setState(() {
+      _initializing = true;
+      _ready = false;
+      _quality = 'Position yourself and the selected prop in view.';
+      _preview.value = null;
+      _presentation.value = null;
+    });
+    try {
+      await _releaseCamera();
+      if (!mounted) return;
+      await _prepareSession();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _initializing = false;
+          _error = 'Could not release the current camera. Try again.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _cameraSelectionBusy = false);
     }
   }
 
@@ -230,7 +284,7 @@ class _CustomReferenceRecorderDialogState
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await _socket.stopPracticeSession();
+      await _releaseCamera();
     } catch (_) {
       // Best-effort teardown; disconnect below clears local lifecycle state.
     }
@@ -245,10 +299,17 @@ class _CustomReferenceRecorderDialogState
 
   Future<void> _stopSessionBestEffort() async {
     try {
-      await _socket.stopPracticeSession();
+      await _releaseCamera();
     } catch (_) {
       // Disconnect/dispose remains the final local lifecycle cleanup.
     }
+  }
+
+  Future<void> _releaseCamera() async {
+    final sessionId = _sessionToRelease ?? _socket.currentSessionId;
+    if (sessionId == null) return;
+    _requireAccepted(await _socket.stopPracticeSession(sessionId: sessionId));
+    _sessionToRelease = null;
   }
 
   @override
@@ -292,32 +353,61 @@ class _CustomReferenceRecorderDialogState
               presentation: presentation,
             ),
           );
+          final setup = <Widget>[
+            const Text(
+              'Record the full movement 3 times. Keep your body, hands, and selected prop visible.',
+            ),
+            const SizedBox(height: AppSpacing.smPlus),
+            if (!_initializing &&
+                !_busy &&
+                _countdown == null &&
+                !_active &&
+                !_recording &&
+                _referenceCount == 0) ...[
+              CameraSourcePreference(
+                settings: context.watch<SettingsService>(),
+                cameras: context.watch<CameraDeviceService>(),
+                compact: true,
+                enabled: !_busy,
+                onSelectionBusyChanged: (busy) {
+                  if (mounted) setState(() => _cameraSelectionBusy = busy);
+                },
+                onSelectionSaved: _switchCamera,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+          ];
+          if (compact) {
+            return SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ...setup,
+                  SizedBox(height: 240, child: workspace),
+                  const SizedBox(height: AppSpacing.smPlus),
+                  status,
+                ],
+              ),
+            );
+          }
           return SizedBox(
-            height: compact ? 480 : 390,
+            height: 420,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Record the full movement 3 times. Keep your body, hands, and selected prop visible.',
-                ),
-                const SizedBox(height: AppSpacing.smPlus),
+                ...setup,
                 Expanded(
-                  child: compact
-                      ? Column(
-                          children: [
-                            Expanded(child: workspace),
-                            const SizedBox(height: AppSpacing.smPlus),
-                            status,
-                          ],
-                        )
-                      : Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(flex: 3, child: workspace),
-                            const SizedBox(width: AppSpacing.md),
-                            SizedBox(width: 300, child: status),
-                          ],
-                        ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(flex: 3, child: workspace),
+                      const SizedBox(width: AppSpacing.md),
+                      SizedBox(
+                        width: 300,
+                        child: SingleChildScrollView(child: status),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -326,6 +416,13 @@ class _CustomReferenceRecorderDialogState
       ),
       actions: [
         Button(onPressed: _busy ? null : _cancel, child: const Text('Cancel')),
+        if (_error != null && !_recording && _referenceCount == 0)
+          Button(
+            onPressed: _initializing || _busy
+                ? null
+                : () => _switchCamera(null),
+            child: const Text('Retry camera setup'),
+          ),
         if (_referenceCount > 0 && !_recording)
           Button(
             onPressed: _busy ? null : _discardLast,
@@ -511,7 +608,7 @@ class _RecorderStatusPanel extends StatelessWidget {
             presentationState: presentation?.posePresentationState,
           ),
         ),
-        const Spacer(),
+        const SizedBox(height: AppSpacing.md),
         Text(
           initializing
               ? 'Preparing camera'

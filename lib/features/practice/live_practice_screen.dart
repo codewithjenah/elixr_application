@@ -25,6 +25,7 @@ import '../../data/models/group_assignment.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../services/auth_service.dart';
+import '../../services/camera_device_service.dart';
 import '../../services/app_background_music_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
@@ -33,8 +34,7 @@ import '../../services/startup_diagnostics.dart';
 import '../../services/trainee_progression_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
-import '../settings/settings_screen.dart';
-import '../settings/settings_section.dart';
+import '../settings/widgets/camera_source_preference.dart';
 import 'camera_recovery_presentation.dart';
 import 'freestyle/freestyle_models.dart';
 import 'freestyle/freestyle_session_controller.dart';
@@ -179,7 +179,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _quitDialogOpen = false;
   bool _stopInFlight = false;
   bool _startInFlight = false;
+  bool _choosingCamera = false;
+  int _startGeneration = 0;
   bool _activityAutoStartRequested = false;
+  bool _cameraSelectionBusy = false;
   bool _recordingAutoStartRequested = false;
   SubmissionRecordingController? _recording;
   Future<void>? _webSocketStopFuture;
@@ -684,6 +687,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _resetInterruptedAttempt() async {
+    _startGeneration++;
     _commandInFlight = false;
     _startInFlight = false;
     _freestyleActivationInFlight = false;
@@ -712,12 +716,56 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _chooseCamera() async {
-    await _resetInterruptedAttempt();
-    if (!mounted || _leaving) return;
-    await SettingsScreen.show(
-      context,
-      initialSection: SettingsSection.practice,
-    );
+    if (_choosingCamera || _leaving) return;
+    _choosingCamera = true;
+    if (mounted) setState(() {});
+    try {
+      // An Activity auto-starts on connection. Keep it stopped while the user
+      // makes a new choice, then resume only from the explicit Start action.
+      _activityAutoStartRequested = true;
+      if (_isTeacherActivityV2 &&
+          (_run.isPreparingCamera || _run.isReadiness)) {
+        _startGeneration++;
+        _commandInFlight = false;
+        _startInFlight = false;
+        _run.cancelToIdle();
+        try {
+          await _ws.stopPracticeSession();
+        } catch (_) {
+          // Closing the socket below still tears down the backend session.
+        }
+        if (!mounted || _leaving) return;
+        setState(() {
+          _clearFrame();
+          _latestFeedback = null;
+          _bottleDetected = false;
+          _sessionError = null;
+          _sessionErrorCode = null;
+        });
+      } else {
+        await _resetInterruptedAttempt();
+      }
+      if (!mounted || _leaving) return;
+      // Closing the owning socket also releases a backend session if its stop
+      // acknowledgment was lost while preparation was being cancelled.
+      await _ws.disconnect();
+      if (!mounted || _leaving) return;
+      await _connect();
+      if (!mounted || _leaving) return;
+      await context.read<CameraDeviceService>().refresh(forceRefresh: true);
+    } finally {
+      _choosingCamera = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _beginSelectedCameraSession() async {
+    if (_cameraSelectionBusy || _choosingCamera) return;
+    if (!_ws.isConnected) {
+      await _connect();
+      if (!mounted || !_ws.isConnected) return;
+    }
+    await _startSession();
   }
 
   Future<void> _startSession() async {
@@ -732,7 +780,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         _freestyleSummaryOpen) {
       return;
     }
-    if (_commandInFlight) return;
+    if (_commandInFlight || _cameraSelectionBusy || _choosingCamera) return;
     if (_run.phase != PracticeRunPhase.idle &&
         _run.phase != PracticeRunPhase.error) {
       return;
@@ -762,19 +810,23 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       }
     }
 
+    final startGeneration = ++_startGeneration;
     _startInFlight = true;
     if (mounted) setState(() {});
 
     try {
-      await _runStartSessionBody(assignment);
+      await _runStartSessionBody(assignment, startGeneration);
     } finally {
-      _startInFlight = false;
-      if (mounted) setState(() {});
+      if (startGeneration == _startGeneration) {
+        _startInFlight = false;
+        if (mounted) setState(() {});
+      }
     }
   }
 
   Future<void> _runStartSessionBody(
     TeacherCreatedAssignmentPractice? assignment,
+    int startGeneration,
   ) async {
     final settings = context.read<SettingsService>();
     if (assignment != null) {
@@ -805,6 +857,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         ? attempt
                         : latest,
                   );
+        if (!mounted || _leaving || startGeneration != _startGeneration) return;
         if (submission == null) {
           throw const ClassroomException(
             ClassroomError.invalidState,
@@ -836,7 +889,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
           );
         }
         debugPrintStack(stackTrace: stackTrace);
-        if (!mounted) return;
+        if (!mounted || startGeneration != _startGeneration) return;
         setState(() {
           _startError = livePracticeAssignmentStartFailureMessage(error);
           _assignmentStartBlocked = _isTerminalAssignmentStartFailure(error);
@@ -845,7 +898,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       }
     }
 
-    if (!mounted || _leaving) return;
+    if (!mounted || _leaving || startGeneration != _startGeneration) return;
     if (_run.phase != PracticeRunPhase.idle &&
         _run.phase != PracticeRunPhase.error) {
       return;
@@ -871,10 +924,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _ws.beginPracticeAttempt();
     _recordingAutoStartRequested = false;
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
+    final runGeneration = _run.lifecycleGeneration;
     setState(() {});
 
     final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
-    if (!mounted || _leaving) return;
+    if (!mounted || _leaving || runGeneration != _run.lifecycleGeneration) {
+      return;
+    }
     if (!_run.isPreparingCamera) return;
 
     _ws.startupDiagnostics.annotate(
@@ -902,7 +958,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         allowSubmissionRecording: true,
         readinessSpec: assignment.assignment.activityAssessment?.readiness,
       );
-      if (!mounted || _leaving) return;
+      if (!mounted || _leaving || runGeneration != _run.lifecycleGeneration) {
+        return;
+      }
       if (!_run.isPreparingCamera) return;
 
       if (!ack.accepted) {
@@ -923,7 +981,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         _showCameraFallbackWarning(ack);
       }
     } catch (error, stackTrace) {
-      if (!mounted) return;
+      if (!mounted || runGeneration != _run.lifecycleGeneration) return;
       if (!_run.isPreparingCamera) return;
       debugPrint(
         'LivePractice prepare failed: $error\n'
@@ -946,7 +1004,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         _clearFrame();
       });
     } finally {
-      _commandInFlight = false;
+      if (runGeneration == _run.lifecycleGeneration) _commandInFlight = false;
     }
   }
 
@@ -1024,7 +1082,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         _showCameraFallbackWarning(ack);
       }
     } catch (error) {
-      if (!mounted || generation != _freestyle.generation) return;
+      if (!mounted ||
+          generation != _freestyle.generation ||
+          runGeneration != _run.lifecycleGeneration) {
+        return;
+      }
       final message = livePracticePrepareFailureMessage(error);
       _run.onPreviewFeedback(
         hasJpegFrame: false,
@@ -1035,8 +1097,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       unawaited(_stopWebSocketSession());
       setState(() => _sessionError = message);
     } finally {
-      _commandInFlight = false;
-      if (mounted) setState(() {});
+      if (generation == _freestyle.generation &&
+          runGeneration == _run.lifecycleGeneration) {
+        _commandInFlight = false;
+        if (mounted) setState(() {});
+      }
     }
   }
 
@@ -1536,6 +1601,18 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 final idlePanel =
                     _run.phase == PracticeRunPhase.idle ||
                     _run.phase == PracticeRunPhase.completed;
+                final showCameraSelector =
+                    !_run.isCameraSessionLive &&
+                    !_startInFlight &&
+                    !_choosingCamera &&
+                    !_connecting &&
+                    !_stopInFlight &&
+                    _webSocketStopFuture == null;
+                final canChoosePreActiveCamera =
+                    _isTeacherActivityV2 &&
+                    (_run.isPreparingCamera || _run.isReadiness) &&
+                    !_choosingCamera &&
+                    !_stopInFlight;
                 final panel = TrainingSessionPanel(
                   phase: _panelPhase(),
                   expandVertically: isDesktop,
@@ -1595,12 +1672,38 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       color: context.elixTextSecondary,
                     ),
                   ),
-                  supportingContent: assignment != null && _recording != null
-                      ? SubmissionRecordingPanel(
-                          controller: _recording!,
-                          cameraReady: isTrainingActive,
-                        )
-                      : null,
+                  supportingContent:
+                      !showCameraSelector &&
+                          !canChoosePreActiveCamera &&
+                          (assignment == null || _recording == null)
+                      ? null
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (assignment != null && _recording != null)
+                              SubmissionRecordingPanel(
+                                controller: _recording!,
+                                cameraReady: isTrainingActive,
+                              ),
+                            if (showCameraSelector) ...[
+                              CameraSourcePreference(
+                                settings: context.watch<SettingsService>(),
+                                cameras: context.watch<CameraDeviceService>(),
+                                compact: true,
+                                onSelectionBusyChanged: (busy) {
+                                  if (mounted) {
+                                    setState(() => _cameraSelectionBusy = busy);
+                                  }
+                                },
+                              ),
+                            ],
+                            if (canChoosePreActiveCamera)
+                              Button(
+                                onPressed: _chooseCamera,
+                                child: const Text('Change camera'),
+                              ),
+                          ],
+                        ),
                   compactStatusNote:
                       (_startError ?? _sessionError ?? _run.errorMessage) !=
                           null
@@ -1625,23 +1728,27 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         ? 'Start Freestyle'
                         : (_assignmentStartBlocked
                               ? 'Attempt unavailable'
-                              : _isTeacherActivityV2
-                              ? 'Preparing attempt…'
                               : 'Start assignment practice'),
                     onPressed: switch (actionKind) {
                       TrainingActionKind.finish =>
                         _isPlayground ? _finishFreestyle : _stopSession,
                       TrainingActionKind.cancel => _onCancelPressed,
                       TrainingActionKind.retry || TrainingActionKind.start =>
-                        _assignmentStartBlocked
+                        _assignmentStartBlocked ||
+                                _cameraSelectionBusy ||
+                                _choosingCamera
                             ? null
-                            : (_ws.isConnected ? _startSession : _connect),
+                            : _beginSelectedCameraSession,
                     },
                     isLoading:
                         actionKind == TrainingActionKind.cancel ||
                             actionKind == TrainingActionKind.finish
                         ? false
-                        : (_connecting || _startInFlight || _commandInFlight),
+                        : (_connecting ||
+                              _startInFlight ||
+                              _choosingCamera ||
+                              _commandInFlight ||
+                              _cameraSelectionBusy),
                   ),
                 );
 

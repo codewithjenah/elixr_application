@@ -38,8 +38,6 @@ import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
 import '../learning/movement_lesson_content.dart';
 import '../learning/movement_tutorial_dialog.dart';
-import '../settings/settings_screen.dart';
-import '../settings/settings_section.dart';
 import '../settings/widgets/camera_source_preference.dart';
 import 'camera_recovery_presentation.dart';
 import 'practice_feedback_controller.dart';
@@ -216,6 +214,7 @@ class PracticeScreenState extends State<PracticeScreen>
   bool _isShowingSummary = false;
   bool _movementConfirmedShowing = false;
   bool _commandInFlight = false;
+  bool _cameraSelectionBusy = false;
   bool _leaving = false;
   bool _quitDialogOpen = false;
   bool _stopInFlight = false;
@@ -728,14 +727,7 @@ class PracticeScreenState extends State<PracticeScreen>
   Future<void> _chooseCamera() async {
     await _resetInterruptedAttempt();
     if (!mounted || _leaving) return;
-    if (_isTeacherPreview) {
-      await context.read<CameraDeviceService>().refresh(forceRefresh: true);
-      return;
-    }
-    await SettingsScreen.show(
-      context,
-      initialSection: SettingsSection.practice,
-    );
+    await context.read<CameraDeviceService>().refresh(forceRefresh: true);
   }
 
   Future<void> _startSession() async {
@@ -744,7 +736,7 @@ class PracticeScreenState extends State<PracticeScreen>
       _connect();
       return;
     }
-    if (_commandInFlight) return;
+    if (_commandInFlight || _cameraSelectionBusy) return;
     if (_run.phase != PracticeRunPhase.idle &&
         _run.phase != PracticeRunPhase.error) {
       return;
@@ -1752,7 +1744,7 @@ class PracticeScreenState extends State<PracticeScreen>
                   label: 'Best combo',
                   value: 'x${comboState.bestCombo}',
                 ),
-              if (_isTeacherPreview && !_run.isCameraSessionLive) ...[
+              if (!_run.isCameraSessionLive && !_stopInFlight) ...[
                 const SizedBox(height: AppSpacing.sm),
                 const Divider(),
                 const SizedBox(height: AppSpacing.sm),
@@ -1760,6 +1752,9 @@ class PracticeScreenState extends State<PracticeScreen>
                   settings: context.watch<SettingsService>(),
                   cameras: context.watch<CameraDeviceService>(),
                   compact: true,
+                  onSelectionBusyChanged: (busy) {
+                    if (mounted) setState(() => _cameraSelectionBusy = busy);
+                  },
                 ),
               ],
             ],
@@ -1790,13 +1785,15 @@ class PracticeScreenState extends State<PracticeScreen>
                 TrainingActionKind.finish => () => _stopSession(),
                 TrainingActionKind.cancel => _onCancelPressed,
                 TrainingActionKind.retry || TrainingActionKind.start =>
-                  _ws.isConnected ? _startSession : _connect,
+                  _cameraSelectionBusy
+                      ? null
+                      : (_ws.isConnected ? _startSession : _connect),
               },
               isLoading:
                   actionKind == TrainingActionKind.cancel ||
                       actionKind == TrainingActionKind.finish
                   ? false
-                  : (_connecting || _commandInFlight),
+                  : (_connecting || _commandInFlight || _cameraSelectionBusy),
             ),
     );
   }

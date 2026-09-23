@@ -64,10 +64,6 @@ class TrainingSessionHeader extends StatelessWidget {
               child: ElixEditorialHeader(
                 heading: title,
                 variant: ElixEditorialHeaderVariant.compact,
-                // The session header sits on the saturated practice
-                // backdrop in both theme modes, so theme-default dark text
-                // is not reliably legible in light mode.
-                headingColor: AppColors.textPrimary,
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
@@ -78,7 +74,7 @@ class TrainingSessionHeader extends StatelessWidget {
         Text(
           instruction,
           style: AppTheme.supporting(
-            color: AppColors.textSecondary,
+            color: context.elixTextSecondary,
           ).copyWith(height: 1.35),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
@@ -213,12 +209,7 @@ class _HeaderBackButtonState extends State<_HeaderBackButton> {
               child: Icon(
                 FluentIcons.chrome_back,
                 size: 16,
-                color: _hovering || _focused
-                    ? AppColors.primary
-                    // Match the header copy: this control is displayed
-                    // over the saturated practice backdrop even in light
-                    // mode, where the theme-default dark icon is lost.
-                    : AppColors.textPrimary,
+                color: context.elixTextPrimary,
               ),
             ),
           ),

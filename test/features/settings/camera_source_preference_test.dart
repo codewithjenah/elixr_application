@@ -12,6 +12,33 @@ const _cameraResponse =
 const _unstableCameraResponse =
     '{"cameras":[{"device_id":"opencv:2","display_name":"Camera 2","runtime_index":2,"is_active":false,"identity_stable":false}],"preferred_index":1,"fallback_index":0,"active_index":null,"active_device_id":null}';
 
+class _FailedCameraSettings extends SettingsService {
+  @override
+  Future<SettingsWriteOutcome> setSelectedCameraDevice(
+    String? deviceId, {
+    String? displayName,
+  }) async => SettingsWriteOutcome.writeFailed;
+}
+
+class _ImmediateCameraSettings extends SettingsService {
+  String? selected;
+  bool saved = false;
+
+  @override
+  String? get selectedCameraDeviceId => selected;
+
+  @override
+  Future<SettingsWriteOutcome> setSelectedCameraDevice(
+    String? deviceId, {
+    String? displayName,
+  }) async {
+    selected = deviceId;
+    saved = true;
+    notifyListeners();
+    return SettingsWriteOutcome.saved;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -116,6 +143,76 @@ void main() {
           )
           .onPressed,
       isNull,
+    );
+  });
+
+  testWidgets('saved selection callback runs after persistence', (
+    tester,
+  ) async {
+    await cameras.refresh(forceRefresh: true);
+    final immediate = _ImmediateCameraSettings();
+    addTearDown(immediate.dispose);
+    String? selected;
+    bool callbackObservedSaved = false;
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: CameraSourcePreference(
+            settings: immediate,
+            cameras: cameras,
+            onSelectionSaved: (deviceId) async {
+              selected = deviceId;
+              callbackObservedSaved = immediate.saved;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const ValueKey('camera-source-selector')),
+        )
+        .onChanged!('dev-external');
+    await tester.pump();
+    expect(selected, 'dev-external');
+    expect(callbackObservedSaved, isTrue);
+  });
+
+  testWidgets('failed selection write does not request reprepare', (
+    tester,
+  ) async {
+    await cameras.refresh(forceRefresh: true);
+    final failed = _FailedCameraSettings();
+    addTearDown(failed.dispose);
+    var callbackCount = 0;
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: CameraSourcePreference(
+            settings: failed,
+            cameras: cameras,
+            onSelectionSaved: (_) async {
+              callbackCount++;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    tester
+        .widget<ComboBox<String>>(
+          find.byKey(const ValueKey('camera-source-selector')),
+        )
+        .onChanged!('dev-external');
+    await tester.pump();
+    expect(callbackCount, 0);
+    expect(
+      find.text('Could not save camera selection. Try again.'),
+      findsOneWidget,
     );
   });
 

@@ -1,6 +1,6 @@
-import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -24,10 +24,16 @@ bool _searchingForTest = true;
 Widget _wrap(
   Widget child, {
   Brightness brightness = Brightness.dark,
+  bool highContrast = false,
   bool useShadTheme = false,
 }) {
   return FluentApp(
-    theme: brightness == Brightness.dark ? AppTheme.dark : AppTheme.light,
+    theme: highContrast
+        ? (brightness == Brightness.dark
+              ? AppTheme.highContrastDark
+              : AppTheme.highContrastLight)
+        : (brightness == Brightness.dark ? AppTheme.dark : AppTheme.light),
+    themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
     home: ScaffoldPage(
       content: useShadTheme ? ElixShadThemeBridge(child: child) : child,
     ),
@@ -382,10 +388,23 @@ void main() {
       }
     });
 
-    testWidgets('light and dark themes build without exceptions', (
+    testWidgets('training header uses semantic colors in all contrast modes', (
       tester,
     ) async {
-      for (final brightness in [Brightness.dark, Brightness.light]) {
+      for (final (brightness, highContrast) in [
+        (Brightness.dark, false),
+        (Brightness.light, false),
+        (Brightness.dark, true),
+        (Brightness.light, true),
+      ]) {
+        await tester.pumpWidget(const SizedBox());
+        final colors = highContrast
+            ? (brightness == Brightness.dark
+                  ? ElixSemanticColors.highContrastDark
+                  : ElixSemanticColors.highContrastLight)
+            : (brightness == Brightness.dark
+                  ? ElixSemanticColors.dark
+                  : ElixSemanticColors.light);
         await tester.pumpWidget(
           _wrap(
             Column(
@@ -405,6 +424,7 @@ void main() {
               ],
             ),
             brightness: brightness,
+            highContrast: highContrast,
           ),
         );
         await tester.pump();
@@ -412,13 +432,17 @@ void main() {
         expect(find.text('Backend Connected'), findsWidgets);
 
         final title = tester.widget<Text>(find.text('Hand Stall'));
+        expect(
+          FluentTheme.of(tester.element(find.text('Hand Stall'))).brightness,
+          brightness,
+        );
         final instruction = tester.widget<Text>(find.text('Hold steady.'));
         final backIcon = tester.widget<Icon>(
           find.byIcon(FluentIcons.chrome_back),
         );
-        expect(title.style?.color, AppColors.textPrimary);
-        expect(instruction.style?.color, AppColors.textSecondary);
-        expect(backIcon.color, AppColors.textPrimary);
+        expect(title.style?.color, colors.textPrimary);
+        expect(instruction.style?.color, colors.textSecondary);
+        expect(backIcon.color, colors.textPrimary);
       }
     });
 

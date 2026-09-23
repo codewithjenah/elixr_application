@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
@@ -15,7 +15,9 @@ import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/models/ws_protocol.dart';
 import '../../../services/settings_service.dart';
+import '../../../services/camera_device_service.dart';
 import '../../../services/websocket_service.dart';
+import '../../settings/widgets/camera_source_preference.dart';
 
 typedef TeacherDemoRecordUpload =
     Future<TeacherActivityVideoMetadata> Function({
@@ -27,6 +29,7 @@ typedef TeacherDemoRecordUpload =
 Future<TeacherActivityVideoMetadata?> showTeacherDemoRecordingDialog(
   BuildContext context, {
   required TeacherDemoRecordUpload upload,
+  @visibleForTesting WebSocketService? webSocket,
 }) => ElixDialog.show<TeacherActivityVideoMetadata>(
   context,
   title: 'Record demonstration with ELIXR',
@@ -36,13 +39,14 @@ Future<TeacherActivityVideoMetadata?> showTeacherDemoRecordingDialog(
   maxHeight: MediaQuery.sizeOf(context).height * .9,
   scrollableContent: true,
   barrierDismissible: false,
-  content: _TeacherDemoRecordingDialog(upload: upload),
+  content: _TeacherDemoRecordingDialog(upload: upload, webSocket: webSocket),
 );
 
 class _TeacherDemoRecordingDialog extends StatefulWidget {
-  const _TeacherDemoRecordingDialog({required this.upload});
+  const _TeacherDemoRecordingDialog({required this.upload, this.webSocket});
 
   final TeacherDemoRecordUpload upload;
+  final WebSocketService? webSocket;
 
   @override
   State<_TeacherDemoRecordingDialog> createState() =>
@@ -52,7 +56,8 @@ class _TeacherDemoRecordingDialog extends StatefulWidget {
 class _TeacherDemoRecordingDialogState
     extends State<_TeacherDemoRecordingDialog> {
   static const _maximumSeconds = 60;
-  final WebSocketService _websocket = WebSocketService();
+  late final WebSocketService _websocket;
+  late final bool _ownsWebSocket;
   final ElixrPlaybackSession _playback = ElixrPlaybackSession();
   StreamSubscription<PreviewFrame>? _previewSubscription;
   Timer? _timer;
@@ -60,29 +65,41 @@ class _TeacherDemoRecordingDialogState
   SubmissionRecordResult? _clip;
   bool _preparing = true;
   bool _recording = false;
+  bool _captureMayBeActive = false;
   bool _busy = false;
+  bool _cameraSelectionBusy = false;
   int _elapsedSeconds = 0;
   String? _error;
+  String? _sessionToRelease;
 
   @override
   void initState() {
     super.initState();
+    _ownsWebSocket = widget.webSocket == null;
+    _websocket = widget.webSocket ?? WebSocketService();
+    _previewSubscription = _websocket.previewStream.listen((preview) {
+      if (!mounted || _preparing || !preview.hasJpeg) return;
+      _frame.value = preview.jpegBytes;
+    });
     unawaited(_prepare());
   }
 
   Future<void> _prepare() async {
+    setState(() {
+      _preparing = true;
+      _error = null;
+      _frame.value = null;
+    });
     final settings = context.read<SettingsService>();
     try {
       await _websocket.connect();
       if (!_websocket.isConnected) {
         throw StateError(_websocket.errorMessage ?? 'Backend unavailable.');
       }
-      _previewSubscription = _websocket.previewStream.listen((preview) {
-        if (!mounted || !preview.hasJpeg) return;
-        _frame.value = preview.jpegBytes;
-      });
-      _websocket.beginPracticeAttempt();
+      if (!mounted) return;
+      _sessionToRelease = _websocket.beginPracticeAttempt();
       final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
+      if (!mounted) return;
       final ack = await _websocket.sendPrepare(
         movement: 'Free Practice',
         difficulty: 'Easy',
@@ -97,8 +114,14 @@ class _TeacherDemoRecordingDialogState
       if (!ack.accepted) {
         throw StateError(ack.message ?? ack.errorCode ?? 'Camera unavailable.');
       }
+      if (!mounted) return;
       if (mounted) setState(() => _preparing = false);
     } catch (_) {
+      try {
+        await _releaseCamera();
+      } catch (_) {
+        // Disconnect during teardown still releases the local connection.
+      }
       if (mounted) {
         setState(() {
           _preparing = false;
@@ -109,17 +132,66 @@ class _TeacherDemoRecordingDialogState
     }
   }
 
+  Future<void> _switchCamera(String? _) async {
+    if (_preparing ||
+        _busy ||
+        _recording ||
+        _captureMayBeActive ||
+        _clip != null) {
+      return;
+    }
+    setState(() {
+      _preparing = true;
+      _frame.value = null;
+    });
+    try {
+      await _releaseCamera();
+      if (!mounted) return;
+      await _prepare();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _preparing = false;
+          _error = 'Could not release the current camera. Try again.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _cameraSelectionBusy = false);
+    }
+  }
+
+  Future<void> _releaseCamera() async {
+    final sessionId = _sessionToRelease ?? _websocket.currentSessionId;
+    if (sessionId == null) return;
+    final stopped = await _websocket.stopPracticeSession(sessionId: sessionId);
+    if (!stopped.accepted) {
+      throw StateError(stopped.message ?? stopped.errorCode ?? 'Stop rejected');
+    }
+    _sessionToRelease = null;
+  }
+
   Future<void> _startRecording() async {
-    if (_preparing || _busy || _recording || _clip != null) return;
+    if (_preparing ||
+        _busy ||
+        _cameraSelectionBusy ||
+        _recording ||
+        _captureMayBeActive ||
+        _clip != null) {
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
+      // A timed-out start may still have reached the backend. Keep camera
+      // switching locked until a stop is acknowledged or the dialog closes.
+      _captureMayBeActive = true;
       final ack = await _websocket.sendStartSubmissionRecord(
         durationSeconds: _maximumSeconds,
       );
       if (!ack.accepted) {
+        _captureMayBeActive = false;
         throw StateError(ack.message ?? ack.errorCode ?? 'Recording failed.');
       }
       if (!mounted) return;
@@ -153,6 +225,7 @@ class _TeacherDemoRecordingDialogState
       if (!ack.accepted) {
         throw StateError(ack.message ?? ack.errorCode ?? 'Recording failed.');
       }
+      _captureMayBeActive = false;
       final clip = SubmissionRecordResult.fromAck(ack);
       if (clip.contentType != 'video/mp4' ||
           clip.durationMs < 1 ||
@@ -244,7 +317,7 @@ class _TeacherDemoRecordingDialogState
       await _websocket.sendStop();
     } catch (_) {}
     await _websocket.disconnect();
-    _websocket.dispose();
+    if (_ownsWebSocket) _websocket.dispose();
   }
 
   @override
@@ -268,6 +341,22 @@ class _TeacherDemoRecordingDialogState
             style: AppTheme.bodySecondary,
           ),
           const SizedBox(height: AppSpacing.md),
+          if (!_preparing &&
+              !_recording &&
+              !_captureMayBeActive &&
+              clip == null) ...[
+            CameraSourcePreference(
+              settings: context.watch<SettingsService>(),
+              cameras: context.watch<CameraDeviceService>(),
+              compact: true,
+              enabled: !_busy,
+              onSelectionBusyChanged: (busy) {
+                if (mounted) setState(() => _cameraSelectionBusy = busy);
+              },
+              onSelectionSaved: _switchCamera,
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           AspectRatio(
             aspectRatio: 4 / 3,
             child: DecoratedBox(
@@ -325,6 +414,16 @@ class _TeacherDemoRecordingDialogState
                 onPressed: _busy ? null : _close,
                 child: const Text('Cancel'),
               ),
+              if (_error != null &&
+                  clip == null &&
+                  !_recording &&
+                  !_captureMayBeActive)
+                shad.ShadButton.outline(
+                  onPressed: _preparing || _busy
+                      ? null
+                      : () => _switchCamera(null),
+                  child: const Text('Retry camera setup'),
+                ),
               if (clip != null)
                 shad.ShadButton.outline(
                   onPressed: _busy ? null : _retake,
@@ -335,7 +434,12 @@ class _TeacherDemoRecordingDialogState
                   label: 'Start recording',
                   expanded: false,
                   dense: true,
-                  onPressed: _preparing || _busy || _error != null
+                  onPressed:
+                      _preparing ||
+                          _busy ||
+                          _cameraSelectionBusy ||
+                          _captureMayBeActive ||
+                          _error != null
                       ? null
                       : _startRecording,
                 ),
