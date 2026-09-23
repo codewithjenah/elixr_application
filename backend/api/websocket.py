@@ -6,7 +6,7 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable
 
 import cv2
@@ -53,6 +53,7 @@ from assessment.custom_movement import (
     validate_sequence as validate_custom_movement_sequence,
 )
 from config import (
+    DETECTION_PRESENTATION_GRACE_S,
     FPS_LOG_INTERVAL,
     EVIDENCE_JPEG_QUALITY,
     EVIDENCE_MAX_BYTES,
@@ -141,9 +142,9 @@ from vision.pipeline_telemetry import (
     monotonic_counter_delta,
 )
 from vision.hands_detector import HandsDetector
-from vision.overlay_snapshot import OverlaySnapshot, freeze_overlay
+from vision.overlay_snapshot import OverlaySnapshot, freeze_hands, freeze_overlay, freeze_pose
 from vision.pose_detector import PoseDetector
-from vision.types import Point2D, PropDetection
+from vision.types import HandsResult, Point2D, PoseLandmarks, PropDetection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -730,8 +731,8 @@ class VisionSession:
         self._recognition_event_seq = 0
         self._freestyle_display: str | None = None
 
-        # Do not cache hands landmarks.
-        # Hands move fast, and caching causes ghost/stuck finger dots.
+        # Assessment always uses current-frame landmarks. Only the short-lived
+        # render cache below may bridge one detector miss.
         self._prev_hip_center: Point2D | None = None
         self._movement_state: dict | None = None
         self._model_checked = False
@@ -754,6 +755,10 @@ class VisionSession:
         self._preview_started_at: float | None = None
         self._overlay_lock = threading.Lock()
         self._overlay_snapshot: OverlaySnapshot | None = None
+        self._presentation_generation: int | None = None
+        self._prop_confirmed_at: dict[tuple[str, int], float] = {}
+        self._presented_hands: tuple[HandsResult, float, int, int] | None = None
+        self._presented_pose: tuple[PoseLandmarks, float, int, int] | None = None
         self._last_overlay_published_at: float | None = None
         self._overlay_publish_period_s: float | None = None
         self._preview_run_lock = threading.Lock()
@@ -765,6 +770,7 @@ class VisionSession:
         self._ai_tick_lock = threading.Lock()
         self._last_preview_sequence: int | None = None
         self._last_ai_sequence: int | None = None
+        self._last_ai_generation: int | None = None
         self._ai_camera_overwrites = 0
         self._ai_inflight_max = 0
         self._ai_inflight = 0
@@ -1382,6 +1388,10 @@ class VisionSession:
             self._overlay_snapshot = None
             self._last_overlay_published_at = None
             self._overlay_publish_period_s = None
+        self._presentation_generation = None
+        self._prop_confirmed_at.clear()
+        self._presented_hands = None
+        self._presented_pose = None
 
     def _presentation_continuity_s(self) -> float:
         with self._overlay_lock:
@@ -1412,15 +1422,15 @@ class VisionSession:
             }
         boxes = overlay.boxes
         prop_state = (
-            "confirmed"
-            if any(box.yolo_confirmed for box in boxes)
-            else "coasted" if boxes else "missing"
+            "coasted" if any(not box.yolo_confirmed for box in boxes)
+            else "confirmed" if boxes else "missing"
         )
         return {
             "vision_overlay_present": True,
             "prop_presentation_state": prop_state,
             "hands_presentation_state": (
-                "tracking" if overlay.hands is not None and overlay.hands.hands else "missing"
+                "tracking" if overlay.hands is not None
+                and any(hand.points for hand in overlay.hands.hands) else "missing"
             ) if self._hands_needed else None,
             "pose_presentation_state": (
                 "tracking" if overlay.pose is not None and overlay.pose.points else "missing"
@@ -1428,15 +1438,127 @@ class VisionSession:
             "overlay_capture_sequence": overlay.capture_sequence,
         }
 
-    def _presentation_boxes(self) -> list[PropDetection]:
-        """Draw confirmed tracks, including extrapolated skipped-frame boxes."""
+    def _presentation_boxes(
+        self, *, captured_at: float, generation: int, run_yolo: bool
+    ) -> tuple[list[PropDetection], tuple[float | None, ...]]:
+        """Draw live tracks with an independent, brief coast deadline."""
+        self._ensure_presentation_generation(generation)
         if self._is_dual_prop:
-            live = self._last_live_bottles + self._last_live_shakers
+            live = [("bottle", box) for box in self._last_live_bottles] + [
+                ("shaker", box) for box in self._last_live_shakers
+            ]
         elif self.prop_type == "shaker":
-            live = self._last_live_shakers
+            live = [("shaker", box) for box in self._last_live_shakers]
         else:
-            live = self._last_live_bottles
-        return [detection for detection in live if detection.yolo_confirmed]
+            live = [("bottle", box) for box in self._last_live_bottles]
+        boxes: list[PropDetection] = []
+        expiries: list[float | None] = []
+        live_keys: set[tuple[str, int]] = set()
+        for kind, detection in live:
+            key = (kind, detection.track_id) if detection.track_id is not None else None
+            if key is not None:
+                live_keys.add(key)
+            if detection.yolo_confirmed:
+                if key is not None and (run_yolo or key not in self._prop_confirmed_at):
+                    self._prop_confirmed_at[key] = captured_at
+                boxes.append(detection)
+                expiries.append(None)
+            elif key is not None:
+                last_confirmed = self._prop_confirmed_at.get(key)
+                if last_confirmed is not None:
+                    expires = last_confirmed + DETECTION_PRESENTATION_GRACE_S
+                    if captured_at <= expires:
+                        boxes.append(detection)
+                        expiries.append(expires)
+        if run_yolo:
+            self._prop_confirmed_at = {
+                key: stamp for key, stamp in self._prop_confirmed_at.items()
+                if key in live_keys
+            }
+        return boxes, tuple(expiries)
+
+    def _ensure_presentation_generation(self, generation: int) -> None:
+        if self._presentation_generation != generation:
+            self._prop_confirmed_at.clear()
+            self._presented_hands = None
+            self._presented_pose = None
+            self._presentation_generation = generation
+
+    def _presentation_landmarks(
+        self, *, hands: HandsResult | None, pose: PoseLandmarks | None,
+        captured_at: float, generation: int,
+    ) -> tuple[HandsResult | None, PoseLandmarks | None, float | None, float | None]:
+        """Bridge one missed AI observation for drawing only."""
+        self._ensure_presentation_generation(generation)
+        if hands is not None and any(hand.points for hand in hands.hands):
+            self._presented_hands = (freeze_hands(hands), captured_at, generation, 0)
+            drawn_hands, hands_expiry = hands, None
+        elif self._presented_hands is not None:
+            cached, observed_at, cached_generation, misses = self._presented_hands
+            if (cached_generation == generation and misses == 0
+                    and captured_at <= observed_at + DETECTION_PRESENTATION_GRACE_S):
+                self._presented_hands = (cached, observed_at, generation, 1)
+                drawn_hands, hands_expiry = cached, observed_at + DETECTION_PRESENTATION_GRACE_S
+            else:
+                self._presented_hands = None
+                drawn_hands, hands_expiry = None, None
+        else:
+            drawn_hands, hands_expiry = None, None
+
+        multiple_people = getattr(self.pose_detector, "last_person_count", 0) >= 2
+        if multiple_people:
+            self._presented_pose = None
+            drawn_pose, pose_expiry = None, None
+        elif pose is not None and pose.points:
+            self._presented_pose = (freeze_pose(pose), captured_at, generation, 0)
+            drawn_pose, pose_expiry = pose, None
+        elif self._presented_pose is not None:
+            cached, observed_at, cached_generation, misses = self._presented_pose
+            if (cached_generation == generation and misses == 0
+                    and captured_at <= observed_at + DETECTION_PRESENTATION_GRACE_S):
+                self._presented_pose = (cached, observed_at, generation, 1)
+                drawn_pose, pose_expiry = cached, observed_at + DETECTION_PRESENTATION_GRACE_S
+            else:
+                self._presented_pose = None
+                drawn_pose, pose_expiry = None, None
+        else:
+            self._presented_pose = None
+            drawn_pose, pose_expiry = None, None
+        return drawn_hands, drawn_pose, hands_expiry, pose_expiry
+
+    def _publish_presentation(
+        self, *, captured: CapturedFrame, run_yolo: bool,
+        hands: HandsResult | None, pose: PoseLandmarks | None,
+        feedback: str, feedback_type: str, prop_label: str,
+    ) -> OverlaySnapshot:
+        boxes, box_expiries = self._presentation_boxes(
+            captured_at=captured.captured_at_monotonic,
+            generation=captured.generation,
+            run_yolo=run_yolo,
+        )
+        drawn_hands, drawn_pose, hands_expiry, pose_expiry = self._presentation_landmarks(
+            hands=hands, pose=pose,
+            captured_at=captured.captured_at_monotonic,
+            generation=captured.generation,
+        )
+        snapshot = freeze_overlay(
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=captured.captured_at_monotonic,
+            capture_sequence=captured.sequence,
+            capture_generation=captured.generation,
+            boxes=boxes,
+            box_expires_at=box_expiries,
+            hands=drawn_hands,
+            hands_expires_at=hands_expiry,
+            pose=drawn_pose,
+            pose_expires_at=pose_expiry,
+            feedback=feedback,
+            feedback_type=feedback_type,
+            movement=self.display_movement,
+            prop_label=prop_label,
+        )
+        self._publish_overlay(snapshot)
+        return snapshot
 
     def _read_fresh_overlay(
         self,
@@ -1481,15 +1603,34 @@ class VisionSession:
             preview_capture_generation=preview.generation,
             max_capture_age_s=OVERLAY_MAX_CAPTURE_AGE_S,
         ):
-            return snapshot
+            return self._expire_presentation_geometry(snapshot, preview.captured_at_monotonic)
         self.preview_timings.add_overlay_alignment_rejection(stale_capture_age=True)
         # The current snapshot can bridge the normal preview/AI scheduling
-        # gap, but only for the short rendering grace.  A newer AI result
-        # (including one with no hands/pose) always wins, so detector absence
-        # is not masked by a cached landmark graph.
+        # gap, but only for the short rendering grace. Modality deadlines
+        # above still apply to a snapshot containing coasted geometry.
         if capture_age_s <= self._presentation_continuity_s():
-            return snapshot
+            return self._expire_presentation_geometry(snapshot, preview.captured_at_monotonic)
         return None
+
+    @staticmethod
+    def _expire_presentation_geometry(
+        snapshot: OverlaySnapshot, captured_at: float
+    ) -> OverlaySnapshot:
+        """Keep each JPEG's geometry and metadata within original observation ages."""
+        boxes_and_expiries = zip(snapshot.boxes, snapshot.box_expires_at)
+        boxes = tuple(
+            box for box, expires in boxes_and_expiries
+            if expires is None or captured_at <= expires
+        ) if snapshot.box_expires_at else snapshot.boxes
+        hands = (
+            None if snapshot.hands_expires_at is not None
+            and captured_at > snapshot.hands_expires_at else snapshot.hands
+        )
+        pose = (
+            None if snapshot.pose_expires_at is not None
+            and captured_at > snapshot.pose_expires_at else snapshot.pose
+        )
+        return replace(snapshot, boxes=boxes, hands=hands, pose=pose)
 
     def _timed_detect_normalized_props(self, frame) -> _NormalizedFrameDetections:
         started = time.perf_counter()
@@ -1647,12 +1788,29 @@ class VisionSession:
         self._last_live_shakers = []
         self._frame_index = 0
         self._last_ai_sequence = None
+        self._last_ai_generation = None
         reset_prop_cache = getattr(self.prop_detector, "reset_cache", None)
         if callable(reset_prop_cache):
             reset_prop_cache()
         self._custom_previous_prop = None
         self._clear_overlay()
         return True
+
+    def _accept_capture_generation(self, captured: CapturedFrame) -> None:
+        """Never carry tracker or render geometry into a replacement camera."""
+        if self._last_ai_generation == captured.generation:
+            return
+        if self._last_ai_generation is not None:
+            self._last_bottles = []
+            self._last_shakers = []
+            self._last_live_bottles = []
+            self._last_live_shakers = []
+            self._frame_index = 0
+            reset_prop_cache = getattr(self.prop_detector, "reset_cache", None)
+            if callable(reset_prop_cache):
+                reset_prop_cache()
+            self._clear_overlay()
+        self._last_ai_generation = captured.generation
 
     def _wire_session_state(self) -> str:
         if self._lifecycle == SESSION_ACTIVE:
@@ -2217,6 +2375,7 @@ class VisionSession:
             return None
         frame = captured.frame
         self.timings.add_frame_age(time.monotonic() - captured.captured_at_monotonic)
+        self._accept_capture_generation(captured)
         self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
@@ -2274,21 +2433,10 @@ class VisionSession:
         if readiness_stable:
             self.startup.mark(MARK_READINESS_STABLE)
 
-        boxes_to_draw = self._presentation_boxes()
-        self._publish_overlay(
-            freeze_overlay(
-                published_at_monotonic=time.monotonic(),
-                captured_at_monotonic=captured.captured_at_monotonic,
-                capture_sequence=captured.sequence,
-                capture_generation=captured.generation,
-                boxes=boxes_to_draw,
-                hands=hands,
-                pose=pose,
-                feedback="Checking readiness\u2026",
-                feedback_type="positive",
-                movement=self.display_movement,
-                prop_label=self.prop_display_name,
-            )
+        self._publish_presentation(
+            captured=captured, run_yolo=run_yolo, hands=hands, pose=pose,
+            feedback="Checking readiness\u2026", feedback_type="positive",
+            prop_label=self.prop_display_name,
         )
 
         frame_b64 = None
@@ -2296,7 +2444,7 @@ class VisionSession:
             t0 = time.perf_counter()
             annotated = annotate_frame(
                 frame,
-                boxes_to_draw,
+                list(normalized.annotation),
                 hands,
                 "Checking readiness\u2026",
                 "positive",
@@ -2380,6 +2528,7 @@ class VisionSession:
             return None
         frame = captured.frame
         self.timings.add_frame_age(time.monotonic() - captured.captured_at_monotonic)
+        self._accept_capture_generation(captured)
         self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
@@ -2407,20 +2556,10 @@ class VisionSession:
             feedback = f"Searching for {self.prop_display_name.lower()}"
             feedback_type = "warning"
 
-        self._publish_overlay(
-            freeze_overlay(
-                published_at_monotonic=time.monotonic(),
-                captured_at_monotonic=captured.captured_at_monotonic,
-                capture_sequence=captured.sequence,
-                capture_generation=captured.generation,
-                boxes=self._presentation_boxes(),
-                hands=None,
-                pose=None,
-                feedback=feedback,
-                feedback_type=feedback_type,
-                movement=self.display_movement,
-                prop_label=self.prop_display_name,
-            )
+        self._publish_presentation(
+            captured=captured, run_yolo=run_yolo, hands=None, pose=None,
+            feedback=feedback, feedback_type=feedback_type,
+            prop_label=self.prop_display_name,
         )
 
         frame_b64 = None
@@ -2504,6 +2643,7 @@ class VisionSession:
             return None
         frame = captured.frame
         self.timings.add_frame_age(time.monotonic() - captured.captured_at_monotonic)
+        self._accept_capture_generation(captured)
         self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
@@ -2590,20 +2730,11 @@ class VisionSession:
                     if self._custom_samples is not None
                     else "Multiple people detected. Only one person can be in frame while recording a reference."
                 )
-            self._publish_overlay(
-                freeze_overlay(
-                    published_at_monotonic=time.monotonic(),
-                    captured_at_monotonic=captured.captured_at_monotonic,
-                    capture_sequence=captured.sequence,
-                    capture_generation=captured.generation,
-                    boxes=self._presentation_boxes(),
-                    hands=hands,
-                    pose=pose,
-                    feedback=feedback,
-                    feedback_type="warning" if multiple_people_warning else "positive",
-                    movement=self.display_movement,
-                    prop_label=self.prop_display_name,
-                )
+            self._publish_presentation(
+                captured=captured, run_yolo=run_yolo, hands=hands, pose=pose,
+                feedback=feedback,
+                feedback_type="warning" if multiple_people_warning else "positive",
+                prop_label=self.prop_display_name,
             )
             message = self._stamp(
                 FeedbackMessage(
@@ -2631,6 +2762,7 @@ class VisionSession:
                 normalized=normalized,
                 hands=hands,
                 pose=pose,
+                run_yolo=run_yolo,
                 emit_preview_jpeg=emit_preview_jpeg,
                 total_start=total_start,
             )
@@ -2681,23 +2813,12 @@ class VisionSession:
         )
         assessment = _assessment_payload(self.rubric.snapshot(hold))
 
-        # Combine both detection lists only for drawing; movement evaluation
-        # above kept bottles and shakers separate.
-        boxes_to_draw = self._presentation_boxes()
-        self._publish_overlay(
-            freeze_overlay(
-                published_at_monotonic=time.monotonic(),
-                captured_at_monotonic=captured.captured_at_monotonic,
-                capture_sequence=captured.sequence,
-                capture_generation=captured.generation,
-                boxes=boxes_to_draw,
-                hands=hands,
-                pose=pose,
-                feedback=rule_result.feedback,
-                feedback_type=rule_result.feedback_type,
-                movement=self.display_movement,
-                prop_label=self.prop_display_name,
-            )
+        # Publish only render geometry here; movement evaluation above used
+        # current observations with bottles and shakers kept separate.
+        self._publish_presentation(
+            captured=captured, run_yolo=run_yolo, hands=hands, pose=pose,
+            feedback=rule_result.feedback, feedback_type=rule_result.feedback_type,
+            prop_label=self.prop_display_name,
         )
 
         need_annotated = emit_preview_jpeg or (
@@ -2708,7 +2829,7 @@ class VisionSession:
             t0 = time.perf_counter()
             annotated = annotate_frame(
                 frame,
-                boxes_to_draw,
+                list(normalized.annotation),
                 hands,
                 rule_result.feedback,
                 rule_result.feedback_type,
@@ -2780,6 +2901,7 @@ class VisionSession:
         normalized: _NormalizedFrameDetections,
         hands,
         pose,
+        run_yolo: bool,
         emit_preview_jpeg: bool,
         total_start: float,
     ) -> FeedbackMessage:
@@ -2827,25 +2949,14 @@ class VisionSession:
         detected = tick.detected_prop_type is not None
         overlay_feedback = tick.recognized_display or "Watching your technique."
         overlay_type = "positive" if tick.recognition_state == "confirmed" else "warning"
-        boxes_to_draw = self._presentation_boxes()
         prop_label = {
             "shaker": "Cocktail Shaker",
             "bottle_and_shaker": "Bottle + Cocktail Shaker",
         }.get(tick.detected_prop_type or "", "Bottle")
-        self._publish_overlay(
-            freeze_overlay(
-                published_at_monotonic=time.monotonic(),
-                captured_at_monotonic=captured.captured_at_monotonic,
-                capture_sequence=captured.sequence,
-                capture_generation=captured.generation,
-                boxes=boxes_to_draw,
-                hands=hands,
-                pose=pose,
-                feedback=overlay_feedback,
-                feedback_type=overlay_type,
-                movement=self.display_movement,
-                prop_label=prop_label,
-            )
+        self._publish_presentation(
+            captured=captured, run_yolo=run_yolo, hands=hands, pose=pose,
+            feedback=overlay_feedback, feedback_type=overlay_type,
+            prop_label=prop_label,
         )
 
         annotated = None
@@ -2854,7 +2965,7 @@ class VisionSession:
             t0 = time.perf_counter()
             annotated = annotate_frame(
                 frame,
-                boxes_to_draw,
+                list(normalized.annotation),
                 hands,
                 overlay_feedback,
                 overlay_type,
@@ -2877,7 +2988,7 @@ class VisionSession:
         message = self._stamp(
             FeedbackMessage(
                 bottle_detected=detected,
-                bottle_count=len(boxes_to_draw),
+                bottle_count=normalized.selected_count,
                 prop_type=self.prop_type,
                 movement=FREESTYLE_MOVEMENT_LABEL,
                 feedback=overlay_feedback,

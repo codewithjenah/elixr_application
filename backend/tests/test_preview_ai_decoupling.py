@@ -24,7 +24,7 @@ from test_session_lifecycle import (
 from vision.camera import CapturedFrame
 from vision.dual_prop_detector import DualPropResult
 from vision.overlay_snapshot import freeze_overlay
-from vision.types import HandLandmarks, HandsResult, Point2D, PropDetection
+from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
 
 
 def _decode(payload: str) -> dict:
@@ -279,7 +279,7 @@ def test_custom_preview_metadata_and_annotation_share_confirmed_prop(monkeypatch
         ("bottle", "custom_capture"),
     ],
 )
-def test_yolo_miss_removes_presented_box_but_keeps_live_track(
+def test_yolo_miss_coasts_briefly_without_entering_normalized_observations(
     monkeypatch, prop_type, session_mode
 ):
     _patch_vision(monkeypatch)
@@ -316,15 +316,22 @@ def test_yolo_miss_removes_presented_box_but_keeps_live_track(
 
     session.prop_detector = Detector()
     frame = np.zeros((48, 64, 3), dtype=np.uint8)
+    captured_at = time.monotonic()
     confirmed = session._detect_normalized_props(frame)
     expected = list(confirmed.annotation)
-    assert session._presentation_boxes() == expected
+    boxes, _ = session._presentation_boxes(
+        captured_at=captured_at, generation=1, run_yolo=True
+    )
+    assert boxes == expected
 
     # A deliberately skipped YOLO tick keeps and extrapolates confirmed boxes.
     skipped = session._cached_normalized_props()
     assert len(skipped.annotation) == len(expected)
-    assert len(session._presentation_boxes()) == len(expected)
-    assert session._presentation_boxes()[0].x1 == expected[0].x1 + 1
+    boxes, _ = session._presentation_boxes(
+        captured_at=captured_at + .05, generation=1, run_yolo=False
+    )
+    assert len(boxes) == len(expected)
+    assert boxes[0].x1 == expected[0].x1 + 1
 
     # A YOLO miss leaves track identity available for reacquisition.
     missing = shaker if prop_type == "shaker" else bottle
@@ -341,15 +348,22 @@ def test_yolo_miss_removes_presented_box_but_keeps_live_track(
     assert normalized.annotation == (
         (shaker,) if prop_type == "bottle_and_shaker" else ()
     )
-    assert session._presentation_boxes() == list(normalized.annotation)
+    boxes, expires = session._presentation_boxes(
+        captured_at=captured_at + .1, generation=1, run_yolo=True
+    )
+    assert len(boxes) == len(expected)
+    assert any(not box.yolo_confirmed for box in boxes)
+    assert any(expiry == captured_at + websocket_api.DETECTION_PRESENTATION_GRACE_S
+               for expiry in expires)
 
-    now = time.monotonic()
     session._publish_overlay(
         freeze_overlay(
-            published_at_monotonic=now,
-            captured_at_monotonic=now,
+            published_at_monotonic=time.monotonic(),
+            captured_at_monotonic=captured_at + .1,
             capture_sequence=1,
-            boxes=session._presentation_boxes(),
+            capture_generation=1,
+            boxes=boxes,
+            box_expires_at=expires,
             hands=None,
             pose=None,
             feedback="missing",
@@ -360,62 +374,196 @@ def test_yolo_miss_removes_presented_box_but_keeps_live_track(
     )
     overlay = session._read_fresh_overlay()
     assert overlay is not None
-    assert list(overlay.boxes) == list(normalized.annotation)
-    session.camera.peek_latest = lambda **kwargs: CapturedFrame(frame, now + 0.01, 2)
+    assert list(overlay.boxes) == boxes
+    session.camera.peek_latest = lambda **kwargs: CapturedFrame(frame, captured_at + .11, 2, 1)
     preview = session.render_preview()
     assert preview is not None
     if session_mode == "custom_capture":
-        assert preview.prop_presentation_state == "missing"
-    assert drawn == [list(normalized.annotation)]
+        assert preview.prop_presentation_state == "coasted"
+    assert drawn == [boxes]
+    expired_boxes, _ = session._presentation_boxes(
+        captured_at=captured_at + websocket_api.DETECTION_PRESENTATION_GRACE_S + .01,
+        generation=1, run_yolo=True,
+    )
+    assert expired_boxes == list(normalized.annotation)
+    # A still-published snapshot also drops coasted geometry on a later JPEG.
+    expired_overlay = session._read_fresh_overlay(
+        preview=CapturedFrame(frame, captured_at + .3, 3, 1)
+    )
+    assert expired_overlay is not None
+    assert list(expired_overlay.boxes) == list(normalized.annotation)
+    recovered = replace(missing, yolo_confirmed=True)
+    live[key] = [recovered]
+    session._detect_normalized_props(frame)
+    recovered_boxes, _ = session._presentation_boxes(
+        captured_at=captured_at + .31, generation=1, run_yolo=True
+    )
+    assert recovered in recovered_boxes
     session.close()
 
 
-def test_new_custom_ai_absence_clears_preview_metadata(monkeypatch):
+def test_one_landmark_miss_coasts_then_expires_on_the_rendered_jpeg(monkeypatch):
     _patch_vision(monkeypatch)
+    drawn = []
+
+    def tracking_annotate(frame, boxes, hands, *args, pose=None, **kwargs):
+        drawn.append((list(boxes), hands, pose))
+        return frame
+
+    monkeypatch.setattr(websocket_api, "annotate_frame", tracking_annotate)
     session = websocket_api.VisionSession(
         "Custom Movement", session_mode="custom_capture"
     )
     session.start()
-    session._publish_overlay(
-        freeze_overlay(
-            published_at_monotonic=time.monotonic(),
-            captured_at_monotonic=10.0,
-            capture_sequence=1,
-            boxes=[PropDetection(1, 2, 20, 40, 0.9, yolo_confirmed=True)],
-            hands=HandsResult(
-                hands=[HandLandmarks(points={0: Point2D(.2, .3)}, handedness="Right")]
-            ),
-            pose=None,
-            feedback="present",
-            feedback_type="positive",
-            movement="Custom Movement",
-            prop_label="Bottle",
-        )
+    base = time.monotonic()
+    frame = np.zeros((48, 64, 3), dtype=np.uint8)
+    hands = HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)}, handedness="Right")])
+    pose = PoseLandmarks(points={0: Point2D(.4, .5)}, visibility={0: 1.0})
+    session._publish_presentation(
+        captured=CapturedFrame(frame, base, 1, 1), run_yolo=True,
+        hands=hands, pose=pose, feedback="present", feedback_type="positive",
+        prop_label="Bottle",
     )
-    session._publish_overlay(
-        freeze_overlay(
-            published_at_monotonic=time.monotonic(),
-            captured_at_monotonic=10.01,
-            capture_sequence=2,
-            boxes=[],
-            hands=None,
-            pose=None,
-            feedback="missing",
-            feedback_type="warning",
-            movement="Custom Movement",
-            prop_label="Bottle",
-        )
+    # A genuine observation is frozen; a later mutation cannot alter its cache.
+    hands.hands[0].points[0] = Point2D(.9, .9)
+    pose.points[0] = Point2D(.9, .9)
+    session._publish_presentation(
+        captured=CapturedFrame(frame, base + .10, 2, 1), run_yolo=True,
+        hands=None, pose=None, feedback="missing", feedback_type="warning",
+        prop_label="Bottle",
     )
+    preview_frame = [CapturedFrame(frame, base + .11, 3, 1)]
+    session.camera.peek_latest = lambda **kwargs: preview_frame[0]
+    first = session.render_preview()
+    assert first is not None
+    assert first.hands_presentation_state == "tracking"
+    assert first.pose_presentation_state == "tracking"
+    assert drawn[-1][1].hands[0].points[0] == Point2D(.2, .3)
+    assert drawn[-1][2].points[0] == Point2D(.4, .5)
 
-    metadata = session._preview_presentation_metadata(
-        session._read_fresh_overlay(
-            preview=CapturedFrame(np.zeros((8, 8, 3), dtype=np.uint8), 10.02, 3)
-        )
-    )
+    # Expiry is checked per JPEG, even if AI has not published another snapshot.
+    preview_frame[0] = CapturedFrame(frame, base + .26, 4, 1)
+    expired = session.render_preview()
+    assert expired is not None
+    assert expired.hands_presentation_state == "missing"
+    assert expired.pose_presentation_state == "missing"
+    assert drawn[-1][1:] == (None, None)
 
-    assert metadata["prop_presentation_state"] == "missing"
-    assert metadata["hands_presentation_state"] == "missing"
-    assert metadata["pose_presentation_state"] == "missing"
+    # One more missing AI result cannot renew the original observation age.
+    session._publish_presentation(
+        captured=CapturedFrame(frame, base + .27, 5, 1), run_yolo=True,
+        hands=None, pose=None, feedback="missing", feedback_type="warning",
+        prop_label="Bottle",
+    )
+    assert session._read_fresh_overlay().hands is None
+    assert session._read_fresh_overlay().pose is None
+    session.close()
+
+
+def test_repeated_landmark_miss_clears_before_grace_age(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session.start()
+    base = time.monotonic()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    hands = HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})])
+    pose = PoseLandmarks(points={0: Point2D(.4, .5)})
+    def publish(sequence, dt, current_hands, current_pose):
+        return session._publish_presentation(
+            captured=CapturedFrame(frame, base + dt, sequence, 1),
+            run_yolo=True, hands=current_hands, pose=current_pose,
+            feedback="test", feedback_type="positive", prop_label="Bottle",
+        )
+
+    publish(1, 0, hands, pose)
+    first_miss = publish(2, .05, None, None)
+    assert first_miss.hands is not None and first_miss.pose is not None
+    second_miss = publish(3, .10, None, None)
+    assert second_miss.hands is None and second_miss.pose is None
+    recovered = publish(4, .15, hands, pose)
+    assert recovered.hands is not None and recovered.pose is not None
+    session.close()
+
+
+def test_presentation_cache_clears_on_generation_activation_and_close(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session.start()
+    base = time.monotonic()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    hands = HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})])
+    pose = PoseLandmarks(points={0: Point2D(.4, .5)})
+    def publish(sequence, generation, current_hands, current_pose):
+        return session._publish_presentation(
+            captured=CapturedFrame(frame, base + sequence * .01, sequence, generation),
+            run_yolo=True, hands=current_hands, pose=current_pose,
+            feedback="test", feedback_type="positive", prop_label="Bottle",
+        )
+
+    publish(1, 1, hands, pose)
+    switched = publish(2, 2, None, None)
+    assert switched.hands is None and switched.pose is None
+    publish(3, 2, hands, pose)
+    assert session.activate() == (True, None)
+    after_activation = publish(4, 2, None, None)
+    assert after_activation.hands is None and after_activation.pose is None
+    publish(5, 2, hands, pose)
+    session.close()
+    assert session._read_fresh_overlay() is None
+    assert session._presented_hands is None and session._presented_pose is None
+
+
+def test_new_camera_generation_resets_prop_skip_cache_before_next_ai_tick(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    box = PropDetection(1, 2, 5, 6, .9, track_id=1)
+    session._last_ai_generation = 1
+    session._frame_index = 1
+    session._last_live_bottles = [box]
+    session._presentation_boxes(
+        captured_at=time.monotonic(), generation=1, run_yolo=True
+    )
+    session.prop_detector = MagicMock()
+    session._accept_capture_generation(CapturedFrame(frame, time.monotonic(), 2, 2))
+    assert session._frame_index == 0
+    assert session._last_live_bottles == []
+    assert session._prop_confirmed_at == {}
+    session.prop_detector.reset_cache.assert_called_once()
+    session.close()
+
+
+def test_multiple_people_never_reuses_old_pose_for_presentation(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session.start()
+    base = time.monotonic()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    pose = PoseLandmarks(points={0: Point2D(.4, .5)})
+    session._publish_presentation(
+        captured=CapturedFrame(frame, base, 1, 1), run_yolo=True,
+        hands=None, pose=pose, feedback="test", feedback_type="positive",
+        prop_label="Bottle",
+    )
+    session.pose_detector = MagicMock(last_person_count=2)
+    session._custom_samples = []
+    session._observe_custom_people(None)
+    session._observe_custom_people(None)
+    snapshot = session._publish_presentation(
+        captured=CapturedFrame(frame, base + .05, 2, 1), run_yolo=True,
+        hands=None, pose=None, feedback="test", feedback_type="warning",
+        prop_label="Bottle",
+    )
+    assert snapshot.pose is None
+    assert session._custom_person_count == 2
+    assert session._custom_multiple_invalid is True
+    with_current_pose = session._publish_presentation(
+        captured=CapturedFrame(frame, base + .10, 3, 1), run_yolo=True,
+        hands=None, pose=pose, feedback="multiple", feedback_type="warning",
+        prop_label="Bottle",
+    )
+    assert with_current_pose.pose is None
     session.close()
 
 
@@ -574,40 +722,25 @@ def test_overlay_past_presentation_grace_counts_stale_rejection(monkeypatch):
     session.close()
 
 
-def test_new_ai_absence_replaces_visual_hand_overlay_without_ghost(monkeypatch):
+def test_new_ai_absence_keeps_only_one_short_lived_hand_overlay(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
-    session._publish_overlay(
-        freeze_overlay(
-            published_at_monotonic=time.monotonic(),
-            captured_at_monotonic=10.0,
-            capture_sequence=1,
-            boxes=[],
-            hands=HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)}, handedness="Right")]),
-            pose=None,
-            feedback="hand",
-            feedback_type="positive",
-            movement="Hand Stall",
+    base = time.monotonic()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    def publish(sequence, dt, hands):
+        return session._publish_presentation(
+            captured=CapturedFrame(frame, base + dt, sequence), run_yolo=True,
+            hands=hands, pose=None, feedback="hand", feedback_type="positive",
             prop_label="Bottle",
         )
-    )
-    preview = CapturedFrame(np.zeros((8, 8, 3), dtype=np.uint8), 10.15, 2)
-    assert session._read_fresh_overlay(preview=preview) is not None
-    session._publish_overlay(
-        freeze_overlay(
-            published_at_monotonic=time.monotonic(),
-            captured_at_monotonic=10.16,
-            capture_sequence=3,
-            boxes=[], hands=None, pose=None, feedback="missing",
-            feedback_type="warning", movement="Hand Stall", prop_label="Bottle",
-        )
-    )
-    absent = session._read_fresh_overlay(
-        preview=CapturedFrame(np.zeros((8, 8, 3), dtype=np.uint8), 10.17, 4)
-    )
-    assert absent is not None
-    assert absent.hands is None
+
+    publish(1, 0, HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})]))
+    assert publish(2, .05, None).hands is not None
+    assert publish(3, .10, None).hands is None
+    assert session._read_fresh_overlay(
+        preview=CapturedFrame(frame, base + .11, 4)
+    ).hands is None
     session.close()
 
 

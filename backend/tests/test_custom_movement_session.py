@@ -7,7 +7,7 @@ from assessment.custom_movement import FrameSample, Landmark, build_template
 from api import websocket as websocket_api
 from config import YOLO_FRAME_SKIP
 from vision.camera import CapturedFrame
-from vision.types import PropDetection
+from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
 
 
 def _reference(*, sides=("left",), moving_pose=False):
@@ -309,7 +309,7 @@ def test_recorded_detection_preserves_yolo_attempt_for_diagnostics():
     ] == 1.0
 
 
-def test_unconfirmed_prop_is_neither_presented_nor_a_custom_sample():
+def test_unconfirmed_prop_without_prior_confirmation_is_not_sampled_or_drawn():
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     started = time.monotonic()
     session._custom_samples = []
@@ -333,4 +333,39 @@ def test_unconfirmed_prop_is_neither_presented_nor_a_custom_sample():
     assert session._custom_samples[0].prop is None
     assert session._custom_samples[0].prop_metadata == {"yolo_attempted": True}
     assert session._last_live_bottles[0].yolo_confirmed is False
-    assert session._presentation_boxes() == []
+    boxes, _ = session._presentation_boxes(
+        captured_at=started + 0.1, generation=0, run_yolo=True
+    )
+    assert boxes == []
+
+
+def test_render_only_landmark_cache_never_enters_custom_reference_sample():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    started = time.monotonic()
+    session._custom_samples = []
+    session._custom_capture_started_at = started
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    hands = HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})])
+    pose = PoseLandmarks(points={11: Point2D(.3, .3)})
+    session._publish_presentation(
+        captured=CapturedFrame(frame, started, 1), run_yolo=True,
+        hands=hands, pose=pose, feedback="test", feedback_type="positive",
+        prop_label="Bottle",
+    )
+    coasted = session._publish_presentation(
+        captured=CapturedFrame(frame, started + .05, 2), run_yolo=True,
+        hands=None, pose=None, feedback="test", feedback_type="warning",
+        prop_label="Bottle",
+    )
+    assert coasted.hands is not None and coasted.pose is not None
+    session._record_custom_sample(
+        captured=CapturedFrame(frame, started + .05, 2), frame=frame,
+        normalized=websocket_api._NormalizedFrameDetections(
+            primary=(), bottles=(), shakers=(), annotation=(),
+            selected_detected=False, selected_count=0,
+        ),
+        hands=None, pose=None, yolo_attempted=True,
+    )
+    assert session._custom_samples[0].hands == {}
+    assert session._custom_samples[0].pose == {}
+    session.close()

@@ -29,6 +29,9 @@ OVERLAY_PRESENTATION_MAX_GRACE_S = 0.75
 # A separate watchdog drops a snapshot whose producer has stopped entirely.
 # This is deliberately not the rendering grace and never reaches assessment.
 OVERLAY_DEAD_WORKER_TIMEOUT_S = 0.90
+# Render-only tolerance for one detector miss at the current 20 FPS cadence.
+# Never use this geometry as an assessment observation.
+DETECTION_PRESENTATION_GRACE_S = 0.25
 
 # A private, annotated snapshot is emitted only when a Guided Practice hold is
 # first confirmed.  Keep it small enough for the client-side Firebase upload

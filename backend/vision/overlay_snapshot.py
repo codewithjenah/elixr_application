@@ -62,6 +62,9 @@ class OverlaySnapshot:
     movement: str
     prop_label: str
     capture_generation: int = 0
+    box_expires_at: tuple[float | None, ...] = ()
+    hands_expires_at: float | None = None
+    pose_expires_at: float | None = None
 
     def is_fresh(self, now: float, max_age_s: float) -> bool:
         if max_age_s < 0:
@@ -103,6 +106,9 @@ def freeze_overlay(
     movement: str,
     prop_label: str,
     capture_generation: int = 0,
+    box_expires_at: tuple[float | None, ...] = (),
+    hands_expires_at: float | None = None,
+    pose_expires_at: float | None = None,
 ) -> OverlaySnapshot:
     """Build a snapshot with copied landmark graphs and boxed detections."""
     return OverlaySnapshot(
@@ -117,4 +123,7 @@ def freeze_overlay(
         movement=movement,
         prop_label=prop_label,
         capture_generation=capture_generation,
+        box_expires_at=box_expires_at,
+        hands_expires_at=hands_expires_at,
+        pose_expires_at=pose_expires_at,
     )
