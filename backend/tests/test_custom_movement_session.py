@@ -87,7 +87,7 @@ def test_custom_capture_requests_two_poses_only_for_reference_session(monkeypatc
 def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     session._lifecycle = websocket_api.SESSION_ACTIVE
-    detector = SimpleNamespace(last_person_count=2)
+    detector = SimpleNamespace(last_distinct_person_count=2)
     session.pose_detector = detector
     session._observe_custom_people(None)
     session._observe_custom_people(None)
@@ -95,17 +95,17 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
         False, "single_performer_required"
     )
 
-    detector.last_person_count = 1
+    detector.last_distinct_person_count = 1
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15)[0] is False
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     session._custom_samples = list(_reference())
 
-    detector.last_person_count = 2
+    detector.last_distinct_person_count = 2
     session._observe_custom_people(None)
     assert session._custom_multiple_invalid is False
-    detector.last_person_count = 1
+    detector.last_distinct_person_count = 1
     session._observe_custom_people(_performer_pose())
     assert session._custom_multiple_invalid is False
     session._observe_custom_people(_performer_pose())
@@ -114,9 +114,12 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     assert session.custom_reference_count == 1
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     session._custom_samples = list(_reference())
-    detector.last_person_count = 2
-    session._observe_custom_people(None)
-    session._observe_custom_people(None)
+    detector.last_distinct_person_count = 2
+    observed_at = time.monotonic()
+    session._observe_custom_people(None, captured_at_monotonic=observed_at)
+    session._observe_custom_people(None, captured_at_monotonic=observed_at + .05)
+    assert session._custom_multiple_invalid is False
+    session._observe_custom_people(None, captured_at_monotonic=observed_at + .11)
     assert session._custom_multiple_invalid is True
     accepted, code, _ = session.stop_custom_capture()
     assert (accepted, code) == (False, "multiple_people_detected")
@@ -124,7 +127,7 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     assert session._custom_samples is None
     assert len(session._custom_references) == 1
 
-    detector.last_person_count = 1
+    detector.last_distinct_person_count = 1
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
@@ -137,16 +140,16 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
 def test_transient_second_pose_cannot_switch_reference_performer():
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     session._lifecycle = websocket_api.SESSION_ACTIVE
-    detector = SimpleNamespace(last_person_count=1)
+    detector = SimpleNamespace(last_distinct_person_count=1)
     session.pose_detector = detector
     session._observe_custom_people(_performer_pose(0.3))
     session._observe_custom_people(_performer_pose(0.3))
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     session._custom_samples = list(_reference())
-    detector.last_person_count = 2
+    detector.last_distinct_person_count = 2
     session._observe_custom_people(_performer_pose(0.3))
     assert session._custom_multiple_invalid is False
-    detector.last_person_count = 1
+    detector.last_distinct_person_count = 1
     session._observe_custom_people(_performer_pose(0.7))
     assert session._custom_multiple_invalid is True
     accepted, code, _ = session.stop_custom_capture()
@@ -154,18 +157,36 @@ def test_transient_second_pose_cannot_switch_reference_performer():
     assert session.custom_reference_count == 0
 
 
-def test_transient_extra_pose_waits_for_comparable_anchor_without_false_switch():
+def test_repeated_duplicate_candidates_do_not_contaminate_reference():
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     session._lifecycle = websocket_api.SESSION_ACTIVE
-    detector = SimpleNamespace(last_person_count=1)
+    detector = SimpleNamespace(last_person_count=1, last_distinct_person_count=1)
     session.pose_detector = detector
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     session._custom_samples = list(_reference())
-    detector.last_person_count = 2
+
+    detector.last_person_count = 2  # MediaPipe's duplicate raw candidate.
+    for _ in range(5):
+        session._observe_custom_people(_performer_pose())
+    assert session._custom_person_count == 1
+    assert session._custom_multiple_invalid is False
+    assert session.stop_custom_capture()[:2] == (True, None)
+
+
+def test_transient_extra_pose_waits_for_comparable_anchor_without_false_switch():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    detector = SimpleNamespace(last_distinct_person_count=1)
+    session.pose_detector = detector
+    session._observe_custom_people(_performer_pose())
+    session._observe_custom_people(_performer_pose())
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    session._custom_samples = list(_reference())
+    detector.last_distinct_person_count = 2
     session._observe_custom_people(None)
-    detector.last_person_count = 1
+    detector.last_distinct_person_count = 1
     session._observe_custom_people(_performer_pose(hips_only=True))
     assert session._custom_awaiting_identity is True
     assert session._custom_multiple_invalid is False
@@ -180,11 +201,11 @@ def test_custom_readiness_confirmation_requires_one_live_performer():
     session._lifecycle = websocket_api.SESSION_READYING
     session._latest_readiness_snapshot = SimpleNamespace(readiness_stable=True)
     session._latest_readiness_observed_at = time.monotonic()
-    session.pose_detector = SimpleNamespace(last_person_count=2)
+    session.pose_detector = SimpleNamespace(last_distinct_person_count=2)
     session._observe_custom_people(None)
     session._observe_custom_people(None)
     assert session.confirm_readiness() == (False, "single_performer_required")
-    session.pose_detector.last_person_count = 1
+    session.pose_detector.last_distinct_person_count = 1
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
     assert session.confirm_readiness() == (True, None)

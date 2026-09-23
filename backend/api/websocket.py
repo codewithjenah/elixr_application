@@ -732,7 +732,7 @@ class VisionSession:
         self._freestyle_display: str | None = None
 
         # Assessment always uses current-frame landmarks. Only the short-lived
-        # render cache below may bridge one detector miss.
+        # render cache below may bridge detector misses within its age limit.
         self._prev_hip_center: Point2D | None = None
         self._movement_state: dict | None = None
         self._model_checked = False
@@ -754,11 +754,14 @@ class VisionSession:
         self._pipeline_started_at: float | None = None
         self._preview_started_at: float | None = None
         self._overlay_lock = threading.Lock()
+        # Presentation state is built by AI and may be expired by preview.
+        # Always acquire this before _overlay_lock when both are needed.
+        self._presentation_lock = threading.RLock()
         self._overlay_snapshot: OverlaySnapshot | None = None
         self._presentation_generation: int | None = None
         self._prop_confirmed_at: dict[tuple[str, int], float] = {}
-        self._presented_hands: tuple[HandsResult, float, int, int] | None = None
-        self._presented_pose: tuple[PoseLandmarks, float, int, int] | None = None
+        self._presented_hands: tuple[HandsResult, float, int] | None = None
+        self._presented_pose: tuple[PoseLandmarks, float, int] | None = None
         self._last_overlay_published_at: float | None = None
         self._overlay_publish_period_s: float | None = None
         self._preview_run_lock = threading.Lock()
@@ -789,10 +792,12 @@ class VisionSession:
         self._custom_capture_started_at: float | None = None
         self._custom_capture_deadline: float | None = None
         self._custom_previous_prop: tuple[float, float, int] | None = None
-        # Two consecutive evaluated Pose frames confirm either one performer
-        # or multiple people. A single noisy extra pose pauses sampling only.
+        # Single-person readiness needs two observations. Distinct people need
+        # three current-frame observations spanning a short real-time interval.
         self._custom_single_streak = 0
         self._custom_multiple_streak = 0
+        self._custom_multiple_first_at: float | None = None
+        self._custom_distinct_people_in_frame = False
         self._custom_person_count = 0
         self._custom_person_observed_at: float | None = None
         self._custom_multiple_invalid = False
@@ -829,17 +834,26 @@ class VisionSession:
     def custom_reference_count(self) -> int:
         return len(self._custom_references)
 
-    def _observe_custom_people(self, pose: Any) -> None:
+    def _observe_custom_people(
+        self, pose: Any, *, captured_at_monotonic: float | None = None
+    ) -> None:
         if not self._is_custom_capture:
             return
-        # The primary pose alone cannot prove that only one person is visible.
-        # Fail closed when a detector does not expose the result count.
-        count = min(2, getattr(self.pose_detector, "last_person_count", 0))
+        # MediaPipe may return two candidates for one body. The detector
+        # validates spatially distinct current-frame torso anchors first.
+        # A detector without this evidence cannot certify one performer.
+        count = min(2, getattr(self.pose_detector, "last_distinct_person_count", 0))
         if count == 1 and pose is None:
             count = 0
-        self._custom_person_observed_at = time.monotonic()
+        self._custom_person_observed_at = (
+            time.monotonic() if captured_at_monotonic is None
+            else captured_at_monotonic
+        )
+        self._custom_distinct_people_in_frame = count >= 2
         if count == 1:
-            anchors = self._custom_pose_anchors(pose)
+            anchors = self._custom_pose_anchors(
+                pose, observed_at=self._custom_person_observed_at
+            )
             if self._custom_awaiting_identity:
                 comparable = set(anchors) & set(self._custom_ambiguous_anchors)
                 if comparable:
@@ -866,6 +880,7 @@ class VisionSession:
             self._custom_primary_anchors.update(anchors)
             self._custom_single_streak += 1
             self._custom_multiple_streak = 0
+            self._custom_multiple_first_at = None
             self._custom_person_count = 1 if self._custom_single_streak >= 2 else 0
         elif count >= 2:
             if self._custom_samples is not None and not self._custom_awaiting_identity:
@@ -875,18 +890,28 @@ class VisionSession:
                     if self._custom_person_observed_at - anchor[3] <= 0.5
                 }
                 self._custom_awaiting_identity = True
+            if self._custom_multiple_streak == 0:
+                self._custom_multiple_first_at = self._custom_person_observed_at
             self._custom_multiple_streak += 1
             self._custom_single_streak = 0
-            self._custom_person_count = 2 if self._custom_multiple_streak >= 2 else 0
+            self._custom_person_count = 2 if (
+                self._custom_multiple_streak >= 3
+                and self._custom_multiple_first_at is not None
+                and self._custom_person_observed_at - self._custom_multiple_first_at
+                >= 2.0 / TARGET_FPS
+            ) else 0
             if self._custom_person_count == 2 and self._custom_samples is not None:
                 self._custom_multiple_invalid = True
         else:
             self._custom_single_streak = 0
             self._custom_multiple_streak = 0
+            self._custom_multiple_first_at = None
             self._custom_person_count = 0
 
     @staticmethod
-    def _custom_pose_anchors(pose: Any) -> dict[str, tuple[float, float, float, float]]:
+    def _custom_pose_anchors(
+        pose: Any, *, observed_at: float
+    ) -> dict[str, tuple[float, float, float, float]]:
         if pose is None:
             return {}
         anchors = {}
@@ -903,7 +928,7 @@ class VisionSession:
                     (first.x + second.x) / 2,
                     (first.y + second.y) / 2,
                     abs(first.x - second.x),
-                    time.monotonic(),
+                    observed_at,
                 )
         return anchors
 
@@ -1374,6 +1399,7 @@ class VisionSession:
             if previous is not None:
                 period = snapshot.published_at_monotonic - previous
                 if period > 0.0:
+                    self.preview_timings.add("overlay_publish_interval", period)
                     # A small EMA resists one scheduling outlier while staying
                     # responsive to a sustained slower custom pipeline.
                     old = self._overlay_publish_period_s
@@ -1384,14 +1410,15 @@ class VisionSession:
             self._overlay_snapshot = snapshot
 
     def _clear_overlay(self) -> None:
-        with self._overlay_lock:
-            self._overlay_snapshot = None
-            self._last_overlay_published_at = None
-            self._overlay_publish_period_s = None
-        self._presentation_generation = None
-        self._prop_confirmed_at.clear()
-        self._presented_hands = None
-        self._presented_pose = None
+        with self._presentation_lock:
+            with self._overlay_lock:
+                self._overlay_snapshot = None
+                self._last_overlay_published_at = None
+                self._overlay_publish_period_s = None
+            self._presentation_generation = None
+            self._prop_confirmed_at.clear()
+            self._presented_hands = None
+            self._presented_pose = None
 
     def _presentation_continuity_s(self) -> float:
         with self._overlay_lock:
@@ -1458,8 +1485,8 @@ class VisionSession:
             key = (kind, detection.track_id) if detection.track_id is not None else None
             if key is not None:
                 live_keys.add(key)
-            if detection.yolo_confirmed:
-                if key is not None and (run_yolo or key not in self._prop_confirmed_at):
+            if detection.yolo_confirmed and run_yolo:
+                if key is not None:
                     self._prop_confirmed_at[key] = captured_at
                 boxes.append(detection)
                 expiries.append(None)
@@ -1468,7 +1495,9 @@ class VisionSession:
                 if last_confirmed is not None:
                     expires = last_confirmed + DETECTION_PRESENTATION_GRACE_S
                     if captured_at <= expires:
-                        boxes.append(detection)
+                        # A skipped YOLO tick can extrapolate a prior confirmed
+                        # box, but that is tracking geometry, not new evidence.
+                        boxes.append(replace(detection, yolo_confirmed=False))
                         expiries.append(expires)
         if run_yolo:
             self._prop_confirmed_at = {
@@ -1488,16 +1517,15 @@ class VisionSession:
         self, *, hands: HandsResult | None, pose: PoseLandmarks | None,
         captured_at: float, generation: int,
     ) -> tuple[HandsResult | None, PoseLandmarks | None, float | None, float | None]:
-        """Bridge one missed AI observation for drawing only."""
+        """Bridge detector misses by original observation age for drawing only."""
         self._ensure_presentation_generation(generation)
         if hands is not None and any(hand.points for hand in hands.hands):
-            self._presented_hands = (freeze_hands(hands), captured_at, generation, 0)
+            self._presented_hands = (freeze_hands(hands), captured_at, generation)
             drawn_hands, hands_expiry = hands, None
         elif self._presented_hands is not None:
-            cached, observed_at, cached_generation, misses = self._presented_hands
-            if (cached_generation == generation and misses == 0
+            cached, observed_at, cached_generation = self._presented_hands
+            if (cached_generation == generation
                     and captured_at <= observed_at + DETECTION_PRESENTATION_GRACE_S):
-                self._presented_hands = (cached, observed_at, generation, 1)
                 drawn_hands, hands_expiry = cached, observed_at + DETECTION_PRESENTATION_GRACE_S
             else:
                 self._presented_hands = None
@@ -1505,18 +1533,17 @@ class VisionSession:
         else:
             drawn_hands, hands_expiry = None, None
 
-        multiple_people = getattr(self.pose_detector, "last_person_count", 0) >= 2
+        multiple_people = self._is_custom_capture and self._custom_distinct_people_in_frame
         if multiple_people:
             self._presented_pose = None
             drawn_pose, pose_expiry = None, None
         elif pose is not None and pose.points:
-            self._presented_pose = (freeze_pose(pose), captured_at, generation, 0)
+            self._presented_pose = (freeze_pose(pose), captured_at, generation)
             drawn_pose, pose_expiry = pose, None
         elif self._presented_pose is not None:
-            cached, observed_at, cached_generation, misses = self._presented_pose
-            if (cached_generation == generation and misses == 0
+            cached, observed_at, cached_generation = self._presented_pose
+            if (cached_generation == generation
                     and captured_at <= observed_at + DETECTION_PRESENTATION_GRACE_S):
-                self._presented_pose = (cached, observed_at, generation, 1)
                 drawn_pose, pose_expiry = cached, observed_at + DETECTION_PRESENTATION_GRACE_S
             else:
                 self._presented_pose = None
@@ -1531,34 +1558,35 @@ class VisionSession:
         hands: HandsResult | None, pose: PoseLandmarks | None,
         feedback: str, feedback_type: str, prop_label: str,
     ) -> OverlaySnapshot:
-        boxes, box_expiries = self._presentation_boxes(
-            captured_at=captured.captured_at_monotonic,
-            generation=captured.generation,
-            run_yolo=run_yolo,
-        )
-        drawn_hands, drawn_pose, hands_expiry, pose_expiry = self._presentation_landmarks(
-            hands=hands, pose=pose,
-            captured_at=captured.captured_at_monotonic,
-            generation=captured.generation,
-        )
-        snapshot = freeze_overlay(
-            published_at_monotonic=time.monotonic(),
-            captured_at_monotonic=captured.captured_at_monotonic,
-            capture_sequence=captured.sequence,
-            capture_generation=captured.generation,
-            boxes=boxes,
-            box_expires_at=box_expiries,
-            hands=drawn_hands,
-            hands_expires_at=hands_expiry,
-            pose=drawn_pose,
-            pose_expires_at=pose_expiry,
-            feedback=feedback,
-            feedback_type=feedback_type,
-            movement=self.display_movement,
-            prop_label=prop_label,
-        )
-        self._publish_overlay(snapshot)
-        return snapshot
+        with self._presentation_lock:
+            boxes, box_expiries = self._presentation_boxes(
+                captured_at=captured.captured_at_monotonic,
+                generation=captured.generation,
+                run_yolo=run_yolo,
+            )
+            drawn_hands, drawn_pose, hands_expiry, pose_expiry = self._presentation_landmarks(
+                hands=hands, pose=pose,
+                captured_at=captured.captured_at_monotonic,
+                generation=captured.generation,
+            )
+            snapshot = freeze_overlay(
+                published_at_monotonic=time.monotonic(),
+                captured_at_monotonic=captured.captured_at_monotonic,
+                capture_sequence=captured.sequence,
+                capture_generation=captured.generation,
+                boxes=boxes,
+                box_expires_at=box_expiries,
+                hands=drawn_hands,
+                hands_expires_at=hands_expiry,
+                pose=drawn_pose,
+                pose_expires_at=pose_expiry,
+                feedback=feedback,
+                feedback_type=feedback_type,
+                movement=self.display_movement,
+                prop_label=prop_label,
+            )
+            self._publish_overlay(snapshot)
+            return snapshot
 
     def _read_fresh_overlay(
         self,
@@ -1575,9 +1603,14 @@ class VisionSession:
         if not snapshot.is_fresh(now, OVERLAY_DEAD_WORKER_TIMEOUT_S):
             # A dead AI worker must not leave a positive presentation snapshot
             # around for a later camera frame.
-            with self._overlay_lock:
-                if self._overlay_snapshot is snapshot:
-                    self._overlay_snapshot = None
+            with self._presentation_lock:
+                with self._overlay_lock:
+                    if self._overlay_snapshot is snapshot:
+                        self._overlay_snapshot = None
+                        self._presented_hands = None
+                        self._presented_pose = None
+                        self._prop_confirmed_at.clear()
+                        self.preview_timings.add_presentation_expiry(dead_worker=True)
             return None
         if preview is None:
             return snapshot
@@ -1612,9 +1645,8 @@ class VisionSession:
             return self._expire_presentation_geometry(snapshot, preview.captured_at_monotonic)
         return None
 
-    @staticmethod
     def _expire_presentation_geometry(
-        snapshot: OverlaySnapshot, captured_at: float
+        self, snapshot: OverlaySnapshot, captured_at: float
     ) -> OverlaySnapshot:
         """Keep each JPEG's geometry and metadata within original observation ages."""
         boxes_and_expiries = zip(snapshot.boxes, snapshot.box_expires_at)
@@ -1630,6 +1662,10 @@ class VisionSession:
             None if snapshot.pose_expires_at is not None
             and captured_at > snapshot.pose_expires_at else snapshot.pose
         )
+        if (len(boxes) != len(snapshot.boxes)
+                or (snapshot.hands is not None and hands is None)
+                or (snapshot.pose is not None and pose is None)):
+            self.preview_timings.add_presentation_expiry()
         return replace(snapshot, boxes=boxes, hands=hands, pose=pose)
 
     def _timed_detect_normalized_props(self, frame) -> _NormalizedFrameDetections:
@@ -2397,7 +2433,9 @@ class VisionSession:
         if self._reject_replaced_capture(captured):
             return None
         if self._is_custom_capture:
-            self._observe_custom_people(pose)
+            self._observe_custom_people(
+                pose, captured_at_monotonic=captured.captured_at_monotonic
+            )
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)
 
@@ -2661,7 +2699,9 @@ class VisionSession:
         if self._reject_replaced_capture(captured):
             return None
         if self._is_custom_capture:
-            self._observe_custom_people(pose)
+            self._observe_custom_people(
+                pose, captured_at_monotonic=captured.captured_at_monotonic
+            )
 
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)

@@ -332,6 +332,7 @@ def test_yolo_miss_coasts_briefly_without_entering_normalized_observations(
     )
     assert len(boxes) == len(expected)
     assert boxes[0].x1 == expected[0].x1 + 1
+    assert all(not box.yolo_confirmed for box in boxes)
 
     # A YOLO miss leaves track identity available for reacquisition.
     missing = shaker if prop_type == "shaker" else bottle
@@ -460,7 +461,7 @@ def test_one_landmark_miss_coasts_then_expires_on_the_rendered_jpeg(monkeypatch)
     session.close()
 
 
-def test_repeated_landmark_miss_clears_before_grace_age(monkeypatch):
+def test_repeated_landmark_misses_expire_by_observation_age(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     session.start()
@@ -479,8 +480,12 @@ def test_repeated_landmark_miss_clears_before_grace_age(monkeypatch):
     first_miss = publish(2, .05, None, None)
     assert first_miss.hands is not None and first_miss.pose is not None
     second_miss = publish(3, .10, None, None)
-    assert second_miss.hands is None and second_miss.pose is None
-    recovered = publish(4, .15, hands, pose)
+    assert second_miss.hands is not None and second_miss.pose is not None
+    assert session._presented_hands[1] == base
+    assert session._presented_pose[1] == base
+    expired = publish(4, .26, None, None)
+    assert expired.hands is None and expired.pose is None
+    recovered = publish(5, .30, hands, pose)
     assert recovered.hands is not None and recovered.pose is not None
     session.close()
 
@@ -546,10 +551,11 @@ def test_multiple_people_never_reuses_old_pose_for_presentation(monkeypatch):
         hands=None, pose=pose, feedback="test", feedback_type="positive",
         prop_label="Bottle",
     )
-    session.pose_detector = MagicMock(last_person_count=2)
+    session.pose_detector = MagicMock(last_distinct_person_count=2)
     session._custom_samples = []
-    session._observe_custom_people(None)
-    session._observe_custom_people(None)
+    session._observe_custom_people(None, captured_at_monotonic=base)
+    session._observe_custom_people(None, captured_at_monotonic=base + .05)
+    session._observe_custom_people(None, captured_at_monotonic=base + .11)
     snapshot = session._publish_presentation(
         captured=CapturedFrame(frame, base + .05, 2, 1), run_yolo=True,
         hands=None, pose=None, feedback="test", feedback_type="warning",
@@ -567,12 +573,39 @@ def test_multiple_people_never_reuses_old_pose_for_presentation(monkeypatch):
     session.close()
 
 
+def test_duplicate_raw_pose_candidate_keeps_current_body_overlay(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session.start()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    pose = PoseLandmarks(points={11: Point2D(.4, .3), 12: Point2D(.6, .3)})
+    session.pose_detector = MagicMock(last_person_count=2, last_distinct_person_count=1)
+    session._observe_custom_people(pose)
+    snapshot = session._publish_presentation(
+        captured=CapturedFrame(frame, time.monotonic(), 1, 1), run_yolo=True,
+        hands=None, pose=pose, feedback="ready", feedback_type="positive",
+        prop_label="Bottle",
+    )
+    assert snapshot.pose is not None
+    assert session._preview_presentation_metadata(snapshot)["pose_presentation_state"] == "tracking"
+    assert session._custom_multiple_invalid is False
+    session.close()
+
+
 def test_dead_ai_watchdog_clears_custom_presentation(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession(
         "Custom Movement", session_mode="custom_capture"
     )
     session.start()
+    session._presented_hands = (
+        HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})]),
+        10.0, 0,
+    )
+    session._presented_pose = (
+        PoseLandmarks(points={0: Point2D(.4, .5)}), 10.0, 0,
+    )
+    session._prop_confirmed_at[("bottle", 1)] = 10.0
     session._publish_overlay(
         freeze_overlay(
             published_at_monotonic=10.0,
@@ -592,6 +625,8 @@ def test_dead_ai_watchdog_clears_custom_presentation(monkeypatch):
 
     assert overlay is None
     assert session._preview_presentation_metadata(overlay)["prop_presentation_state"] == "missing"
+    assert session._presented_hands is None and session._presented_pose is None
+    assert session._prop_confirmed_at == {}
     session.close()
 
 
@@ -722,7 +757,34 @@ def test_overlay_past_presentation_grace_counts_stale_rejection(monkeypatch):
     session.close()
 
 
-def test_new_ai_absence_keeps_only_one_short_lived_hand_overlay(monkeypatch):
+def test_expired_whole_overlay_makes_all_custom_preview_states_missing(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session.start()
+    now = time.monotonic()
+    frame = np.zeros((48, 64, 3), dtype=np.uint8)
+    session._publish_overlay(freeze_overlay(
+        published_at_monotonic=now,
+        captured_at_monotonic=now - .4,
+        capture_sequence=1,
+        capture_generation=1,
+        boxes=[PropDetection(1, 2, 20, 40, .9)],
+        hands=HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})]),
+        pose=PoseLandmarks(points={0: Point2D(.4, .5)}),
+        feedback="present", feedback_type="positive", movement="Custom Movement",
+        prop_label="Bottle",
+    ))
+    session.camera.peek_latest = lambda **kwargs: CapturedFrame(frame, now, 2, 1)
+    preview = session.render_preview()
+    assert preview is not None
+    assert preview.vision_overlay_present is False
+    assert preview.prop_presentation_state == "missing"
+    assert preview.hands_presentation_state == "missing"
+    assert preview.pose_presentation_state == "missing"
+    session.close()
+
+
+def test_new_ai_absence_keeps_hand_overlay_only_within_real_age(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
@@ -737,10 +799,11 @@ def test_new_ai_absence_keeps_only_one_short_lived_hand_overlay(monkeypatch):
 
     publish(1, 0, HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})]))
     assert publish(2, .05, None).hands is not None
-    assert publish(3, .10, None).hands is None
+    assert publish(3, .10, None).hands is not None
     assert session._read_fresh_overlay(
         preview=CapturedFrame(frame, base + .11, 4)
-    ).hands is None
+    ).hands is not None
+    assert publish(4, .26, None).hands is None
     session.close()
 
 

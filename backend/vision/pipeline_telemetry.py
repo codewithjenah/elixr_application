@@ -237,6 +237,8 @@ class PipelineTimings:
         self._overlay_ahead_rejections = 0
         self._overlay_generation_rejections = 0
         self._overlay_stale_age_rejections = 0
+        self._overlay_dead_worker_expirations = 0
+        self._presentation_expired_frames = 0
         self._parallel_inference_frames = 0
         self._sequential_inference_frames = 0
 
@@ -289,6 +291,13 @@ class PipelineTimings:
             if stale_capture_age:
                 self._overlay_stale_age_rejections += 1
 
+    def add_presentation_expiry(self, *, dead_worker: bool = False) -> None:
+        with self._lock:
+            if dead_worker:
+                self._overlay_dead_worker_expirations += 1
+            else:
+                self._presentation_expired_frames += 1
+
     def record_inference_frame(self, *, parallel: bool) -> None:
         """Count whether one analyzed frame overlapped YOLO and landmarks."""
         with self._lock:
@@ -311,6 +320,8 @@ class PipelineTimings:
             ahead_rejections = self._overlay_ahead_rejections
             generation_rejections = self._overlay_generation_rejections
             stale_age_rejections = self._overlay_stale_age_rejections
+            dead_worker_expirations = self._overlay_dead_worker_expirations
+            presentation_expired_frames = self._presentation_expired_frames
 
         def _percentile(values: list[float] | list[int], pct: float) -> float:
             if not values:
@@ -335,6 +346,8 @@ class PipelineTimings:
             "ahead_rejections": ahead_rejections,
             "generation_rejections": generation_rejections,
             "stale_age_rejections": stale_age_rejections,
+            "dead_worker_expirations": dead_worker_expirations,
+            "presentation_expired_frames": presentation_expired_frames,
         }
 
     def reset(self) -> None:
@@ -353,6 +366,8 @@ class PipelineTimings:
             self._overlay_ahead_rejections = 0
             self._overlay_generation_rejections = 0
             self._overlay_stale_age_rejections = 0
+            self._overlay_dead_worker_expirations = 0
+            self._presentation_expired_frames = 0
             self._parallel_inference_frames = 0
             self._sequential_inference_frames = 0
 
@@ -591,6 +606,13 @@ def format_perf_line(
         runtime_fields += f" yolo_threads={yolo_threads}"
     hands_fields = f" {hands_diag}" if hands_diag else ""
     overlay = timings.overlay_alignment_summary()
+    publish_count = timings.count("overlay_publish_interval")
+    ai_percentiles = " ".join(
+        f"{stage}_p50={inference.percentile_ms(stage, 50):.1f}ms "
+        f"{stage}_p95={inference.percentile_ms(stage, 95):.1f}ms"
+        for stage in ("yolo", "hands", "pose", "orientation", "processing_total")
+        if inference.count(stage) > 0
+    )
     inference_concurrency = inference.inference_concurrency_summary()
     join_mean_ms = inference.average_ms("inference_join")
     join_p95_ms = inference.percentile_ms("inference_join", 95)
@@ -610,11 +632,18 @@ def format_perf_line(
         f"ahead_reject={overlay['ahead_rejections']} "
         f"generation_reject={overlay['generation_rejections']} "
         f"stale_age_reject={overlay['stale_age_rejections']}"
+        f" dead_worker_expire={overlay['dead_worker_expirations']}"
+        f" geometry_expired_frames={overlay['presentation_expired_frames']}"
+        f" | ai_publish_interval mean={timings.average_ms('overlay_publish_interval'):.1f}ms "
+        f"p50={timings.percentile_ms('overlay_publish_interval', 50):.1f}ms "
+        f"p95={timings.percentile_ms('overlay_publish_interval', 95):.1f}ms "
+        f"max={timings.max_ms('overlay_publish_interval'):.1f}ms n={publish_count}"
         f" | ai_parallel_frames={inference_concurrency['parallel_frames']} "
         f"ai_sequential_frames={inference_concurrency['sequential_frames']} "
         f"inference_join={join_mean_ms:.1f}ms "
         f"inference_join_p95={join_p95_ms:.1f}ms"
         f" | {' '.join(stage_parts)}"
+        f" | {ai_percentiles}"
         f" | preview_e2e={preview_e2e_ms:.1f}ms ai_e2e={ai_e2e_ms:.1f}ms"
         f" | preview_over_budget={over_budget:.0f}%"
         f" | preview_drops={preview_replaced} ai_overwrites={ai_overwrites} "
