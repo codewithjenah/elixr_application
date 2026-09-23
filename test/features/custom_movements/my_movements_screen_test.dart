@@ -184,6 +184,70 @@ MovementTemplate _template() => MovementTemplate.tryFrom({
   'prop_events': <Map<String, dynamic>>[],
 })!;
 
+MovementTemplate _rotationTemplate() {
+  final map = _template().toMap();
+  map['schema_version'] = 2;
+  map['canonical_sequence'] = List.generate(
+    32,
+    (index) => {
+      'timestamp_ms': index * 30,
+      'pose': <String, dynamic>{},
+      'hands': <String, dynamic>{},
+      'prop': {'x': 0.5, 'y': 0.5, 'confidence': 0.9},
+      'prop_metadata': <String, dynamic>{},
+    },
+  );
+  map['feature_capabilities'] = {
+    ...Map<String, bool>.from(map['feature_capabilities'] as Map),
+    'prop_rotation': true,
+  };
+  map['rotation_trace'] = {
+    'angles_rad': List.generate(32, (index) => index * 0.2),
+    'total_signed_rad': 6.2,
+    'coverage': 0.95,
+    'pair_coverage': 0.9,
+  };
+  return MovementTemplate.tryFrom(map)!;
+}
+
+Widget _builderHost(
+  CustomMovementRepository repository, {
+  TrainingProp prop = TrainingProp.bottle,
+  MovementTemplate? existingTemplate,
+  CustomReferenceRecorder? recorder,
+}) {
+  final existing = existingTemplate == null
+      ? null
+      : _movement(id: 'editable', ownerUid: 'trainee-1', prop: prop);
+  return FluentApp(
+    theme: AppTheme.dark,
+    home: CustomMovementBuilderDialog(
+      ownerUid: 'trainee-1',
+      ownerRole: CustomMovementOwnerRole.trainee,
+      repository: repository,
+      existing: existing,
+      existingRevision: existing == null
+          ? null
+          : CustomMovementRevision(
+              id: existing.activeRevisionId,
+              movementId: existing.id,
+              ownerUid: existing.ownerUid,
+              ownerRole: existing.ownerRole,
+              template: existingTemplate!,
+            ),
+      referenceRecorder: recorder,
+    ),
+  );
+}
+
+bool _saveEnabled(WidgetTester tester) =>
+    tester
+        .widget<FilledButton>(
+          find.byKey(const ValueKey('custom-movement-save')),
+        )
+        .onPressed !=
+    null;
+
 AuthService _auth() => AuthService(
   repository: _UnusedAuthRepository(),
   awaitInitialAuthState: () async {},
@@ -220,6 +284,198 @@ void _useDesktopSurface(WidgetTester tester) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('new Bottle defaults rotation requirement off', (tester) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(_builderHost(repository));
+    expect(
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const ValueKey('custom-movement-require-rotation')),
+          )
+          .checked,
+      isFalse,
+    );
+    expect(_saveEnabled(tester), isFalse);
+  });
+
+  testWidgets('Shaker hides Bottle rotation requirement', (tester) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(_builderHost(repository));
+    await tester.tap(find.byKey(const ValueKey('custom-movement-prop')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cocktail Shaker').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('custom-movement-require-rotation')),
+      findsNothing,
+    );
+    expect(find.textContaining('Bottle path'), findsNothing);
+    expect(find.textContaining('Rotation is learned'), findsNothing);
+  });
+
+  testWidgets('schema-v1 reference is accepted with requirement off', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(
+      _builderHost(repository, recorder: (_, _, _) async => _template()),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-record-references')),
+    );
+    await tester.pumpAndSettle();
+    expect(_saveEnabled(tester), isTrue);
+    expect(find.text('Automatic assessment ready'), findsOneWidget);
+  });
+
+  testWidgets('schema-v1 reference fails required rotation truthfully', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(
+      _builderHost(repository, recorder: (_, _, _) async => _template()),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-require-rotation')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-record-references')),
+    );
+    await tester.pumpAndSettle();
+    expect(_saveEnabled(tester), isFalse);
+    expect(find.text('Automatic assessment ready'), findsNothing);
+    expect(find.text('Visible bottle rotation needed'), findsOneWidget);
+    expect(find.text('Rotation not learned'), findsOneWidget);
+    expect(
+      find.textContaining('Visible bottle rotation was not learned'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('also requires a validated'), findsOneWidget);
+  });
+
+  testWidgets('schema-v2 rotation reference satisfies requirement', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(
+      _builderHost(
+        repository,
+        recorder: (_, _, _) async => _rotationTemplate(),
+      ),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-require-rotation')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-record-references')),
+    );
+    await tester.pumpAndSettle();
+    expect(_saveEnabled(tester), isTrue);
+    expect(find.text('Automatic assessment ready'), findsOneWidget);
+  });
+
+  testWidgets('editing schema-v2 initializes rotation requirement on', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(
+      _builderHost(repository, existingTemplate: _rotationTemplate()),
+    );
+    expect(
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const ValueKey('custom-movement-require-rotation')),
+          )
+          .checked,
+      isTrue,
+    );
+    expect(_saveEnabled(tester), isTrue);
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-require-rotation')),
+    );
+    await tester.pumpAndSettle();
+    expect(_saveEnabled(tester), isTrue);
+    expect(
+      find.textContaining('This template learned visible bottle rotation'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Bottle to Shaker clears required rotation and its template', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(
+      _builderHost(repository, existingTemplate: _rotationTemplate()),
+    );
+    expect(_saveEnabled(tester), isTrue);
+    await tester.tap(find.byKey(const ValueKey('custom-movement-prop')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cocktail Shaker').last);
+    await tester.pumpAndSettle();
+    expect(_saveEnabled(tester), isFalse);
+    expect(
+      find.byKey(const ValueKey('custom-movement-require-rotation')),
+      findsNothing,
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-prop')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bottle').last);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const ValueKey('custom-movement-require-rotation')),
+          )
+          .checked,
+      isFalse,
+    );
+    expect(_saveEnabled(tester), isFalse);
+  });
+
+  testWidgets('editing schema-v1 initializes off then requires new evidence', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final repository = _CustomRepository(const []);
+    addTearDown(repository.dispose);
+    await tester.pumpWidget(
+      _builderHost(repository, existingTemplate: _template()),
+    );
+    expect(
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const ValueKey('custom-movement-require-rotation')),
+          )
+          .checked,
+      isFalse,
+    );
+    expect(_saveEnabled(tester), isTrue);
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-require-rotation')),
+    );
+    await tester.pumpAndSettle();
+    expect(_saveEnabled(tester), isFalse);
+    expect(find.text('Automatic assessment ready'), findsNothing);
+    expect(find.text('Visible bottle rotation needed'), findsOneWidget);
+  });
 
   testWidgets(
     'trainee empty state opens the shared builder with save disabled',

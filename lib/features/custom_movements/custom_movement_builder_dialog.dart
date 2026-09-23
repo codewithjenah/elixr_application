@@ -6,6 +6,16 @@ import '../../data/models/training_prop.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import 'custom_reference_recorder_dialog.dart';
 
+typedef CustomReferenceRecorder =
+    Future<MovementTemplate?> Function(
+      BuildContext context,
+      String difficulty,
+      TrainingProp prop,
+    );
+
+const _rotationNotLearnedMessage =
+    'Visible bottle rotation was not learned from these references. Re-record with the bottle fully visible through the turn. Rotation assessment also requires a validated bottle orientation model.';
+
 class CustomMovementBuilderDialog extends StatefulWidget {
   const CustomMovementBuilderDialog({
     super.key,
@@ -14,6 +24,7 @@ class CustomMovementBuilderDialog extends StatefulWidget {
     required this.repository,
     this.existing,
     this.existingRevision,
+    this.referenceRecorder,
   });
 
   final String ownerUid;
@@ -21,6 +32,7 @@ class CustomMovementBuilderDialog extends StatefulWidget {
   final CustomMovementRepository repository;
   final CustomMovement? existing;
   final CustomMovementRevision? existingRevision;
+  final CustomReferenceRecorder? referenceRecorder;
 
   static Future<CustomMovement?> show(
     BuildContext context, {
@@ -53,6 +65,7 @@ class _CustomMovementBuilderDialogState
   late String _difficulty;
   late TrainingProp _prop;
   MovementTemplate? _template;
+  bool _requireVisibleBottleRotation = false;
   bool _busy = false;
   String? _error;
 
@@ -67,6 +80,8 @@ class _CustomMovementBuilderDialogState
         ? existing!.propType
         : TrainingProp.bottle;
     _template = widget.existingRevision?.template;
+    _requireVisibleBottleRotation =
+        _prop == TrainingProp.bottle && _template?.requiresRotation == true;
   }
 
   @override
@@ -77,18 +92,29 @@ class _CustomMovementBuilderDialogState
   }
 
   Future<void> _recordReferences() async {
-    final template = await CustomReferenceRecorderDialog.show(
-      context,
-      difficulty: _difficulty,
-      prop: _prop,
-    );
+    final template = await (widget.referenceRecorder == null
+        ? CustomReferenceRecorderDialog.show(
+            context,
+            difficulty: _difficulty,
+            prop: _prop,
+          )
+        : widget.referenceRecorder!(context, _difficulty, _prop));
     if (template != null && mounted) {
       setState(() {
-        _template = template;
-        _error = null;
+        if (_requireVisibleBottleRotation && !template.requiresRotation) {
+          _template = null;
+          _error = _rotationNotLearnedMessage;
+        } else {
+          _template = template;
+          _error = null;
+        }
       });
     }
   }
+
+  bool get _assessmentReady =>
+      _template?.isReady == true &&
+      (!_requireVisibleBottleRotation || _template?.requiresRotation == true);
 
   Future<void> _save() async {
     final template = _template;
@@ -97,10 +123,13 @@ class _CustomMovementBuilderDialogState
       description: _description.text,
       difficulty: _difficulty,
     );
-    if (metadataError != null || template == null || !template.isReady) {
+    if (metadataError != null || template == null || !_assessmentReady) {
       setState(() {
         _error =
-            metadataError ?? 'Record three valid references before saving.';
+            metadataError ??
+            (_requireVisibleBottleRotation && template?.requiresRotation != true
+                ? _rotationNotLearnedMessage
+                : 'Record three valid references before saving.');
       });
       return;
     }
@@ -139,7 +168,7 @@ class _CustomMovementBuilderDialogState
 
   @override
   Widget build(BuildContext context) {
-    final ready = _template?.isReady == true;
+    final ready = _assessmentReady;
     return ContentDialog(
       constraints: const BoxConstraints(maxWidth: 680, maxHeight: 720),
       title: Text(
@@ -222,6 +251,10 @@ class _CustomMovementBuilderDialogState
                                 if (value == null || value == _prop) return;
                                 _prop = value;
                                 _template = null;
+                                if (value != TrainingProp.bottle) {
+                                  _requireVisibleBottleRotation = false;
+                                }
+                                _error = null;
                               }),
                       ),
                     ],
@@ -229,6 +262,24 @@ class _CustomMovementBuilderDialogState
                 ),
               ],
             ),
+            if (_prop == TrainingProp.bottle) ...[
+              const SizedBox(height: 14),
+              ToggleSwitch(
+                key: const ValueKey('custom-movement-require-rotation'),
+                checked: _requireVisibleBottleRotation,
+                content: const Text('Require visible bottle rotation'),
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() {
+                        _requireVisibleBottleRotation = value;
+                        _error = null;
+                      }),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Enable when visible bottle rotation is essential to assessing this movement.',
+              ),
+            ],
             const SizedBox(height: 18),
             Text(
               'Reference demonstrations',
@@ -287,11 +338,17 @@ class _CustomMovementBuilderDialogState
               title: Text(
                 ready
                     ? 'Automatic assessment ready'
+                    : _requireVisibleBottleRotation
+                    ? 'Visible bottle rotation needed'
                     : 'Automatic assessment needs 3 references',
               ),
               content: Text(
-                _template?.requiresRotation == true
+                _requireVisibleBottleRotation && !ready
+                    ? 'Visible bottle rotation must be learned from three references before saving. Keep the bottle visible through each turn. Assessment requires a validated bottle orientation model. Fully hidden behind-the-back depth cannot be confirmed by one camera.'
+                    : _template?.requiresRotation == true
                     ? 'This template learned visible bottle rotation from top and base observations. Fast or hidden turns may remain uncertain.'
+                    : _prop == TrainingProp.shaker
+                    ? 'Prop path, body and hands can be assessed. Fully hidden behind-the-back depth cannot be confirmed by one camera.'
                     : 'Bottle path, body and hands can be assessed. Rotation is learned only when a validated bottle keypoint model is installed and all three references show consistent visible turns. Fully hidden behind-the-back depth cannot be confirmed by one camera.',
               ),
               severity: ready ? InfoBarSeverity.success : InfoBarSeverity.info,
@@ -299,7 +356,11 @@ class _CustomMovementBuilderDialogState
             if (_error != null) ...[
               const SizedBox(height: 8),
               InfoBar(
-                title: const Text('Could not save'),
+                title: Text(
+                  _error == _rotationNotLearnedMessage
+                      ? 'Rotation not learned'
+                      : 'Could not save',
+                ),
                 content: Text(_error!),
                 severity: InfoBarSeverity.error,
               ),
