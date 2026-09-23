@@ -8,7 +8,7 @@ import 'teacher_activity_assessment.dart';
 /// Flutter client validates the envelope before persisting or sending it and
 /// never interprets user-authored values as executable rules or thresholds.
 class MovementTemplate {
-  static const currentSchemaVersion = 1;
+  static const currentSchemaVersion = 2;
   static const currentCaptureVersion = 1;
   static const minimumReferences = 3;
   static const maximumEncodedBytes = 700 * 1024;
@@ -24,6 +24,7 @@ class MovementTemplate {
     required this.canonicalSequence,
     required this.variabilityMetadata,
     this.propEvents = const [],
+    this.rotationTrace,
   });
 
   final int schemaVersion;
@@ -36,11 +37,11 @@ class MovementTemplate {
   final List<Map<String, dynamic>> canonicalSequence;
   final Map<String, dynamic> variabilityMetadata;
   final List<Map<String, dynamic>> propEvents;
+  final Map<String, dynamic>? rotationTrace;
 
   bool get isReady => referenceCount >= minimumReferences;
 
-  bool get claimsUnsupportedRotation =>
-      featureCapabilities['prop_rotation'] == true;
+  bool get requiresRotation => featureCapabilities['prop_rotation'] == true;
 
   List<String> get requiredHandSides {
     if (featureCapabilities['hands'] != true) return const [];
@@ -100,6 +101,7 @@ class MovementTemplate {
     'prop_events': propEvents
         .map((event) => Map<String, dynamic>.from(event))
         .toList(growable: false),
+    if (schemaVersion >= 2) 'rotation_trace': rotationTrace,
   };
 
   static MovementTemplate? tryFrom(Object? raw) {
@@ -121,6 +123,7 @@ class MovementTemplate {
       'canonical_sequence',
       'variability_metadata',
       'prop_events',
+      'rotation_trace',
     };
     if (map.keys.any((key) => !allowed.contains(key))) return null;
     final schemaVersion = _int(map['schema_version']);
@@ -133,9 +136,11 @@ class MovementTemplate {
     final sequence = _maps(map['canonical_sequence']);
     final variability = _map(map['variability_metadata']);
     final propEvents = _maps(map['prop_events'] ?? const []);
-    if (schemaVersion != currentSchemaVersion ||
-        captureVersion == null ||
-        captureVersion < 1 ||
+    final trace = _map(map['rotation_trace']);
+    if ((schemaVersion != 1 && schemaVersion != currentSchemaVersion) ||
+        (schemaVersion == 1 && map.containsKey('rotation_trace')) ||
+        (schemaVersion == 2 && !map.containsKey('rotation_trace')) ||
+        captureVersion != currentCaptureVersion ||
         durationMs == null ||
         durationMs <= 0 ||
         durationMs > 120000 ||
@@ -154,6 +159,7 @@ class MovementTemplate {
         sequence == null ||
         sequence.length < 2 ||
         sequence.length > 600 ||
+        (schemaVersion == 2 && sequence.length != 32) ||
         variability == null ||
         propEvents == null ||
         propEvents.length > 64 ||
@@ -182,12 +188,17 @@ class MovementTemplate {
         (capabilities['hands'] != true &&
             (capabilities['left_hand'] == true ||
                 capabilities['right_hand'] == true)) ||
-        capabilities['prop_rotation'] == true) {
+        (capabilities['prop_rotation'] == true &&
+            (schemaVersion != 2 || !_validRotationTrace(trace))) ||
+        (schemaVersion == 2 && capabilities['prop_rotation'] != true) ||
+        (capabilities['prop_rotation'] != true && trace != null) ||
+        (capabilities['prop_rotation'] == true &&
+            !modalities.contains('prop_translation'))) {
       return null;
     }
     final template = MovementTemplate(
       schemaVersion: schemaVersion!,
-      captureVersion: captureVersion,
+      captureVersion: captureVersion!,
       durationMs: durationMs,
       referenceCount: referenceCount,
       requiredModalities: List.unmodifiable(modalities),
@@ -196,6 +207,7 @@ class MovementTemplate {
       canonicalSequence: List.unmodifiable(sequence),
       variabilityMetadata: Map.unmodifiable(variability),
       propEvents: List.unmodifiable(propEvents),
+      rotationTrace: trace == null ? null : Map.unmodifiable(trace),
     );
     return template.encodedBytes <= maximumEncodedBytes ? template : null;
   }
@@ -234,5 +246,32 @@ class MovementTemplate {
     } catch (_) {
       return null;
     }
+  }
+
+  static bool _validRotationTrace(Map<String, dynamic>? trace) {
+    if (trace == null ||
+        trace.keys.toSet().difference(const {
+          'angles_rad',
+          'total_signed_rad',
+          'coverage',
+          'pair_coverage',
+        }).isNotEmpty ||
+        trace.length != 4) {
+      return false;
+    }
+    final angles = trace['angles_rad'];
+    if (angles is! List || angles.length != 32) return false;
+    bool finiteBounded(Object? value, double bound) =>
+        value is num && value.isFinite && value.abs() <= bound;
+    return angles.every(
+          (value) => value == null || finiteBounded(value, 126),
+        ) &&
+        angles.where((value) => value != null).length >= 16 &&
+        finiteBounded(trace['total_signed_rad'], 126) &&
+        (trace['total_signed_rad'] as num).abs() >= 4.084 &&
+        finiteBounded(trace['coverage'], 1) &&
+        finiteBounded(trace['pair_coverage'], 1) &&
+        (trace['coverage'] as num) >= 0.8 &&
+        (trace['pair_coverage'] as num) >= 0.7;
   }
 }

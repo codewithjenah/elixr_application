@@ -1,7 +1,7 @@
 """Deterministic custom-movement sequence capture and comparison.
 
-Only detector measurements are accepted: no images, user code, rotation
-estimates, or movement-name-specific rules are stored here.  Coordinates are
+Only detector measurements are accepted: no images, user code, or
+movement-name-specific rules are stored here. Coordinates are
 normalised around the body and shoulder scale while retaining left/right keys.
 """
 
@@ -12,8 +12,10 @@ from enum import Enum
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from vision.bottle_orientation import BottleOrientation, wrapped_delta
 
-SCHEMA_VERSION = 1
+
+SCHEMA_VERSION = 2
 CAPTURE_VERSION = 1
 CANONICAL_FRAMES = 32
 MIN_FRAMES = 8
@@ -33,6 +35,12 @@ MEANINGFUL_POSE_KEYS = frozenset(
     }
 )
 EPSILON = 1e-6
+MAX_ORIENTATION_INTERVAL_MS = 180
+MAX_ANGULAR_STEP_RAD = math.pi * 0.85
+MIN_ROTATION_COVERAGE = 0.80
+MIN_ROTATION_PAIR_COVERAGE = 0.70
+MIN_ROTATION_AMOUNT_RAD = math.pi * 1.3
+MAX_REFERENCE_ROTATION_SPREAD_RAD = math.pi * 0.8
 SUPPORTED_MODALITIES = frozenset({"pose", "hands", "prop_translation"})
 BASE_CAPABILITIES = frozenset(
     {"pose", "hands", "prop_translation", "release_catch", "prop_rotation"}
@@ -47,6 +55,7 @@ class FailureCode(str, Enum):
     TRACK_LOSS = "track_loss"
     INVALID_REFERENCE_COUNT = "invalid_reference_count"
     INVALID_TIMESTAMPS = "invalid_timestamps"
+    INSUFFICIENT_ORIENTATION = "insufficient_orientation"
 
 
 @dataclass(frozen=True)
@@ -81,15 +90,19 @@ class FrameSample:
     hands: Mapping[str, Landmark] = field(default_factory=dict)
     prop: Landmark | None = None
     prop_metadata: Mapping[str, Any] = field(default_factory=dict)
+    orientation: BottleOrientation | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "timestamp_ms": self.timestamp_ms,
             "pose": {str(k): v.to_dict() for k, v in self.pose.items()},
             "hands": {str(k): v.to_dict() for k, v in self.hands.items()},
             "prop": self.prop.to_dict() if self.prop else None,
             "prop_metadata": dict(self.prop_metadata),
         }
+        if self.orientation is not None:
+            result["orientation"] = self.orientation.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "FrameSample":
@@ -100,6 +113,11 @@ class FrameSample:
             hands={str(k): Landmark.from_dict(v) for k, v in raw.get("hands", {}).items()},
             prop=Landmark.from_dict(prop) if isinstance(prop, Mapping) else None,
             prop_metadata=dict(raw.get("prop_metadata", {})),
+            orientation=(
+                BottleOrientation.from_dict(raw["orientation"])
+                if isinstance(raw.get("orientation"), Mapping)
+                else None
+            ),
         )
 
 
@@ -126,6 +144,51 @@ class ValidationResult:
 
 
 @dataclass(frozen=True)
+class RotationTrace:
+    """Observed cumulative image-plane angle; null frames are unknown.
+
+    This is a sampled 2D projection, not a claim about hidden 3D axial spins.
+    A jump larger than 0.85*pi between samples is deliberately rejected because
+    a faster spin could alias to an arbitrary number of turns.
+    """
+
+    angles_rad: tuple[float | None, ...]
+    total_signed_rad: float
+    coverage: float
+    pair_coverage: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "angles_rad": list(self.angles_rad),
+            "total_signed_rad": self.total_signed_rad,
+            "coverage": self.coverage,
+            "pair_coverage": self.pair_coverage,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "RotationTrace":
+        if set(raw) != {"angles_rad", "total_signed_rad", "coverage", "pair_coverage"}:
+            raise ValueError("invalid rotation trace")
+        values = raw["angles_rad"]
+        if not isinstance(values, list) or len(values) != CANONICAL_FRAMES:
+            raise ValueError("invalid rotation trace")
+        angles = tuple(None if value is None else float(value) for value in values)
+        total = float(raw["total_signed_rad"])
+        coverage = float(raw["coverage"])
+        pair_coverage = float(raw["pair_coverage"])
+        if (
+            any(value is not None and (not math.isfinite(value) or abs(value) > 40 * math.pi) for value in angles)
+            or not math.isfinite(total) or abs(total) > 40 * math.pi
+            or coverage < MIN_ROTATION_COVERAGE or coverage > 1
+            or pair_coverage < MIN_ROTATION_PAIR_COVERAGE or pair_coverage > 1
+            or abs(total) < MIN_ROTATION_AMOUNT_RAD
+            or sum(value is not None for value in angles) < CANONICAL_FRAMES // 2
+        ):
+            raise ValueError("invalid rotation trace")
+        return cls(angles, total, coverage, pair_coverage)
+
+
+@dataclass(frozen=True)
 class MovementTemplate:
     schema_version: int
     capture_version: int
@@ -137,6 +200,7 @@ class MovementTemplate:
     canonical_sequence: tuple[FrameSample, ...]
     variability_metadata: Mapping[str, float]
     prop_events: tuple[PropEvent, ...] = ()
+    rotation_trace: RotationTrace | None = None
 
     @property
     def required_hand_sides(self) -> tuple[str, ...]:
@@ -153,7 +217,7 @@ class MovementTemplate:
         return ("left", "right")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "schema_version": self.schema_version,
             "capture_version": self.capture_version,
             "duration_ms": self.duration_ms,
@@ -165,18 +229,25 @@ class MovementTemplate:
             "variability_metadata": dict(self.variability_metadata),
             "prop_events": [event.to_dict() for event in self.prop_events],
         }
+        if self.schema_version >= 2:
+            result["rotation_trace"] = self.rotation_trace.to_dict() if self.rotation_trace else None
+        return result
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "MovementTemplate":
         try:
-            if set(raw) != {
+            version = int(raw["schema_version"])
+            expected = {
                 "schema_version", "capture_version", "duration_ms",
                 "reference_count", "required_modalities",
                 "normalization_metadata", "feature_capabilities",
                 "canonical_sequence", "variability_metadata", "prop_events",
-            }:
+            }
+            if version == 2:
+                expected.add("rotation_trace")
+            if set(raw) != expected:
                 raise ValueError("unexpected custom movement template fields")
-            if int(raw["schema_version"]) != SCHEMA_VERSION or int(raw["capture_version"]) != CAPTURE_VERSION:
+            if version not in {1, SCHEMA_VERSION} or int(raw["capture_version"]) != CAPTURE_VERSION:
                 raise ValueError("unsupported custom movement template schema")
             raw_capabilities = raw["feature_capabilities"]
             capability_keys = set(raw_capabilities)
@@ -188,11 +259,13 @@ class MovementTemplate:
             ):
                 raise ValueError("invalid feature capabilities")
             capabilities = dict(raw_capabilities)
-            # Prop rotation must never be inferred from an axis-aligned detector box.
-            if capabilities.get("prop_rotation", False):
-                raise ValueError("prop rotation is not supported")
+            rotating = capabilities.get("prop_rotation", False)
+            if (version == 2 and not rotating) or rotating != (
+                version == 2 and isinstance(raw.get("rotation_trace"), Mapping)
+            ):
+                raise ValueError("rotation capability/trace mismatch")
             template = cls(
-                schema_version=int(raw["schema_version"]), capture_version=int(raw["capture_version"]),
+                schema_version=version, capture_version=int(raw["capture_version"]),
                 duration_ms=int(raw["duration_ms"]), reference_count=int(raw["reference_count"]),
                 required_modalities=tuple(str(v) for v in raw["required_modalities"]),
                 normalization_metadata=dict(raw["normalization_metadata"]),
@@ -200,6 +273,7 @@ class MovementTemplate:
                 canonical_sequence=tuple(FrameSample.from_dict(v) for v in raw["canonical_sequence"]),
                 variability_metadata={str(k): float(v) for k, v in raw["variability_metadata"].items()},
                 prop_events=tuple(PropEvent.from_dict(v) for v in raw.get("prop_events", [])),
+                rotation_trace=(RotationTrace.from_dict(raw["rotation_trace"]) if rotating else None),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(FailureCode.INVALID_SCHEMA.value) from exc
@@ -208,6 +282,7 @@ class MovementTemplate:
             or len(template.canonical_sequence) != CANONICAL_FRAMES
             or not set(template.required_modalities).issubset(SUPPORTED_MODALITIES)
             or not template.required_modalities
+            or (template.rotation_trace is not None and "prop_translation" not in template.required_modalities)
             or (
                 template.feature_capabilities.get("hands", False)
                 and not template.required_hand_sides
@@ -291,6 +366,7 @@ def validate_sequence(
     required_modalities: Iterable[str],
     *,
     required_hand_sides: Iterable[str] = (),
+    require_rotation: bool = False,
 ) -> ValidationResult:
     required = tuple(sorted(set(required_modalities)))
     codes: list[FailureCode] = []
@@ -313,6 +389,12 @@ def validate_sequence(
                 codes.append(FailureCode.MISSING_MODALITY)
             if gap > MAX_TRACK_GAP:
                 codes.append(FailureCode.TRACK_LOSS)
+    if require_rotation and samples:
+        trace = _rotation_trace(samples)
+        if trace.coverage < MIN_ROTATION_COVERAGE or trace.pair_coverage < MIN_ROTATION_PAIR_COVERAGE:
+            codes.append(FailureCode.INSUFFICIENT_ORIENTATION)
+        if not _rotation_track_stable(samples):
+            codes.append(FailureCode.TRACK_LOSS)
     return ValidationResult(not codes, tuple(dict.fromkeys(codes)))
 
 
@@ -704,8 +786,29 @@ def build_template(
     prop_events = detect_prop_events(canonical)
     event_kinds = {event.kind for event in prop_events}
     has_release_catch = {"release", "catch"}.issubset(event_kinds)
+    reference_rotation = [_rotation_trace(reference) for reference in references]
+    reliable_rotation = all(
+        trace.coverage >= MIN_ROTATION_COVERAGE
+        and trace.pair_coverage >= MIN_ROTATION_PAIR_COVERAGE
+        and abs(trace.total_signed_rad) >= MIN_ROTATION_AMOUNT_RAD
+        and _rotation_track_stable(reference)
+        for reference, trace in zip(references, reference_rotation)
+    )
+    rotation_trace = None
+    if reliable_rotation:
+        totals = [trace.total_signed_rad for trace in reference_rotation]
+        if max(totals) - min(totals) <= MAX_REFERENCE_ROTATION_SPREAD_RAD:
+            canonical_angles = _aggregate_rotation_angles(reference_rotation)
+            if canonical_angles is not None:
+                rotation_trace = RotationTrace(
+                    canonical_angles,
+                    sum(totals) / len(totals),
+                    min(trace.coverage for trace in reference_rotation),
+                    min(trace.pair_coverage for trace in reference_rotation),
+                )
     return MovementTemplate(
-        schema_version=SCHEMA_VERSION, capture_version=CAPTURE_VERSION,
+        schema_version=SCHEMA_VERSION if rotation_trace else 1,
+        capture_version=CAPTURE_VERSION,
         duration_ms=canonical_duration, reference_count=len(references),
         required_modalities=required,
         normalization_metadata={
@@ -730,19 +833,108 @@ def build_template(
             "hands": "hands" in required,
             "prop_translation": prop_coverage >= MIN_COVERAGE,
             "release_catch": has_release_catch,
-            "prop_rotation": False,
+            "prop_rotation": rotation_trace is not None,
             "left_hand": "left" in hand_sides,
             "right_hand": "right" in hand_sides,
         },
         canonical_sequence=tuple(canonical),
         variability_metadata={"duration_std_ms": _std(durations), "reference_count": float(len(references))},
         prop_events=prop_events,
+        rotation_trace=rotation_trace,
     )
 
 
 def _std(values: Sequence[float]) -> float:
     mean = sum(values) / len(values)
     return math.sqrt(sum((value - mean) ** 2 for value in values) / len(values))
+
+
+def _observed_rotation(samples: Sequence[FrameSample]) -> tuple[list[float | None], float, float, float]:
+    angles: list[float | None] = []
+    prior: FrameSample | None = None
+    cumulative = 0.0
+    good_pairs = 0
+    observed = 0
+    for frame in samples:
+        current = frame.orientation
+        if current is None or frame.prop is None:
+            angles.append(None)
+            prior = None
+            continue
+        observed += 1
+        if prior is None:
+            angles.append(0.0 if not any(v is not None for v in angles) else None)
+            prior = frame
+            continue
+        prior_id = prior.prop_metadata.get("track_id")
+        current_id = frame.prop_metadata.get("track_id")
+        delta = wrapped_delta(current.angle_rad, prior.orientation.angle_rad)
+        adjacent = (
+            prior_id is not None
+            and prior_id == current_id
+            and 0 < frame.timestamp_ms - prior.timestamp_ms <= MAX_ORIENTATION_INTERVAL_MS
+            and abs(delta) < MAX_ANGULAR_STEP_RAD
+        )
+        if adjacent:
+            cumulative += delta
+            good_pairs += 1
+            angles.append(cumulative)
+        else:
+            # Start a new segment without assigning unobserved turns to it.
+            angles.append(None)
+        prior = frame
+    size = len(samples)
+    return angles, cumulative, observed / size if size else 0.0, good_pairs / max(size - 1, 1)
+
+
+def _rotation_track_stable(samples: Sequence[FrameSample]) -> bool:
+    """Different track IDs cannot establish one continuous rotating bottle."""
+    identities = {
+        frame.prop_metadata.get("track_id")
+        for frame in samples
+        if frame.orientation is not None and frame.prop is not None
+    }
+    return len(identities) == 1 and None not in identities
+
+
+def _resample_angles(samples: Sequence[FrameSample], angles: Sequence[float | None]) -> tuple[float | None, ...]:
+    if not samples:
+        return (None,) * CANONICAL_FRAMES
+    start, end = samples[0].timestamp_ms, samples[-1].timestamp_ms
+    output: list[float | None] = []
+    for index in range(CANONICAL_FRAMES):
+        target = start + (end - start) * index / (CANONICAL_FRAMES - 1)
+        upper = next((i for i, frame in enumerate(samples) if frame.timestamp_ms >= target), len(samples) - 1)
+        lower = max(0, upper - 1)
+        if lower == upper or samples[upper].timestamp_ms == target:
+            output.append(angles[upper])
+        elif angles[lower] is not None and angles[upper] is not None:
+            fraction = (target - samples[lower].timestamp_ms) / (samples[upper].timestamp_ms - samples[lower].timestamp_ms)
+            output.append(angles[lower] + fraction * (angles[upper] - angles[lower]))
+        else:
+            output.append(None)
+    return tuple(output)
+
+
+def _rotation_trace(samples: Sequence[FrameSample]) -> RotationTrace:
+    angles, total, coverage, pair_coverage = _observed_rotation(samples)
+    return RotationTrace(_resample_angles(samples, angles), total, coverage, pair_coverage)
+
+
+def _aggregate_rotation_angles(traces: Sequence[RotationTrace]) -> tuple[float | None, ...] | None:
+    output: list[float | None] = []
+    consistent = 0
+    for index in range(CANONICAL_FRAMES):
+        values = [trace.angles_rad[index] for trace in traces if trace.angles_rad[index] is not None]
+        if len(values) < math.ceil(len(traces) / 2):
+            output.append(None)
+            continue
+        if max(values) - min(values) > MAX_REFERENCE_ROTATION_SPREAD_RAD:
+            output.append(None)
+            continue
+        consistent += 1
+        output.append(sum(values) / len(values))
+    return tuple(output) if consistent >= CANONICAL_FRAMES * MIN_ROTATION_COVERAGE else None
 
 
 def _point_distance(a: Landmark | None, b: Landmark | None) -> float | None:
@@ -773,6 +965,36 @@ def _dtw(reference: Sequence[FrameSample], candidate: Sequence[FrameSample], mod
             observed = [v for v in values if v is not None]
             local = sum(observed) / len(observed) if observed else 1.0
             prior = min(((costs[i - 1][j], (i - 1, j)), (costs[i][j - 1], (i, j - 1)), (costs[i - 1][j - 1], (i - 1, j - 1))), key=lambda value: value[0])
+            costs[i][j] = local + prior[0]
+            parent[(i, j)] = prior[1]
+    path: list[tuple[int, int]] = []
+    current = (rows, cols)
+    while current != (0, 0):
+        path.append((current[0] - 1, current[1] - 1))
+        current = parent[current]
+    return list(reversed(path))
+
+
+def _dtw_angles(reference: Sequence[float | None], candidate: Sequence[float | None]) -> list[tuple[int, int]]:
+    """Align cumulative turns independently of bottle translation.
+
+    A flat prop center cannot dictate how rotational phases are paired.
+    Diagonal wins equal-cost ties so identical traces stay one-to-one.
+    """
+    rows, cols = len(reference), len(candidate)
+    costs = [[float("inf")] * (cols + 1) for _ in range(rows + 1)]
+    parent: dict[tuple[int, int], tuple[int, int]] = {}
+    costs[0][0] = 0.0
+    for i in range(1, rows + 1):
+        for j in range(1, cols + 1):
+            left, right = reference[i - 1], candidate[j - 1]
+            local = abs(left - right) if left is not None and right is not None else math.pi
+            prior = min(
+                ((costs[i - 1][j - 1], (i - 1, j - 1)),
+                 (costs[i - 1][j], (i - 1, j)),
+                 (costs[i][j - 1], (i, j - 1))),
+                key=lambda value: value[0],
+            )
             costs[i][j] = local + prior[0]
             parent[(i, j)] = prior[1]
     path: list[tuple[int, int]] = []
@@ -858,6 +1080,7 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
         samples,
         template.required_modalities,
         required_hand_sides=template.required_hand_sides,
+        require_rotation=template.rotation_trace is not None,
     )
     names = ("Body technique", "Hand technique", "Prop path", "Timing", "Control/stability")
     scores: dict[str, int | None] = {name: None for name in names}
@@ -916,6 +1139,29 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
             # Path error already captures jitter/velocity through the temporal trace.
             confidence["Control/stability"] = coverage
             scores["Control/stability"] = _quality(sum(usable) / len(usable), coverage)
+    if template.rotation_trace is not None:
+        rotation = _rotation_trace(samples)
+        rotation_path = _dtw_angles(template.rotation_trace.angles_rad, rotation.angles_rad)
+        aligned_errors = [
+            abs(expected - observed)
+            for i, j in rotation_path
+            if (expected := template.rotation_trace.angles_rad[i]) is not None
+            and (observed := rotation.angles_rad[j]) is not None
+        ]
+        alignment_coverage = len(aligned_errors) / max(len(rotation_path), 1)
+        evidence = min(rotation.coverage, rotation.pair_coverage, alignment_coverage)
+        if aligned_errors:
+            # Rotation changes both the prop-path and control components, but
+            # public component names and the 0..12 total remain unchanged.
+            # Total signed angle catches equal-start/end one-vs-two-turn cases;
+            # aligned progression catches opposite direction and timing.
+            total_error = abs(rotation.total_signed_rad - template.rotation_trace.total_signed_rad)
+            progression_error = sum(aligned_errors) / len(aligned_errors)
+            similarity = math.exp(-total_error / (0.65 * math.pi) - progression_error / (0.65 * math.pi))
+            rotation_score = min(3, round(3 * similarity * evidence))
+            for name in ("Prop path", "Control/stability"):
+                scores[name] = min(scores[name] if scores[name] is not None else 0, rotation_score)
+                confidence[name] = min(confidence[name], evidence)
     numeric = [score if score is not None else 0 for score in scores.values()]
     total = max(0, min(12, round(sum(numeric) * 12 / 15)))
     return SequenceComparison(scores, confidence, total, _level(total), validation)

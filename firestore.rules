@@ -2840,12 +2840,40 @@ service cloud.firestore {
     && value.keys().hasOnly(['schema_version', 'capture_version',
      'duration_ms', 'reference_count', 'required_modalities',
      'normalization_metadata', 'feature_capabilities',
+     'canonical_sequence', 'variability_metadata', 'prop_events',
+     'rotation_trace'])
+    && value.keys().hasAll(['schema_version', 'capture_version',
+     'duration_ms', 'reference_count', 'required_modalities',
+     'normalization_metadata', 'feature_capabilities',
      'canonical_sequence', 'variability_metadata', 'prop_events'])
-    && value.schema_version == 1
+    && value.schema_version in [1, 2]
     && value.reference_count is int && value.reference_count >= 3
     && value.reference_count <= 10
     && value.feature_capabilities is map
-    && value.feature_capabilities.prop_rotation == false
+    && ((value.schema_version == 1
+      && !value.keys().hasAny(['rotation_trace'])
+      && value.feature_capabilities.prop_rotation == false)
+     || (value.schema_version == 2
+      && value.keys().hasAll(['rotation_trace'])
+      && value.feature_capabilities.prop_rotation == true
+      && value.canonical_sequence is list
+      && value.canonical_sequence.size() == 32
+      && value.rotation_trace is map
+      && value.rotation_trace.keys().hasOnly(['angles_rad',
+       'total_signed_rad', 'coverage', 'pair_coverage'])
+      && value.rotation_trace.keys().hasAll(['angles_rad',
+       'total_signed_rad', 'coverage', 'pair_coverage'])
+      && value.rotation_trace.angles_rad is list
+      && value.rotation_trace.angles_rad.size() == 32
+      && value.rotation_trace.total_signed_rad is number
+      && (value.rotation_trace.total_signed_rad >= 4.084
+       || value.rotation_trace.total_signed_rad <= -4.084)
+      && value.rotation_trace.coverage is number
+      && value.rotation_trace.coverage >= 0.8
+      && value.rotation_trace.coverage <= 1
+      && value.rotation_trace.pair_coverage is number
+      && value.rotation_trace.pair_coverage >= 0.7
+      && value.rotation_trace.pair_coverage <= 1))
     && value.canonical_sequence is list
     && value.canonical_sequence.size() >= 2
     && value.canonical_sequence.size() <= 600;

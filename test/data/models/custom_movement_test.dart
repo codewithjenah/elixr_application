@@ -36,11 +36,11 @@ void main() {
 
       expect(template, isNotNull);
       expect(template!.isReady, isTrue);
-      expect(template.claimsUnsupportedRotation, isFalse);
+      expect(template.requiresRotation, isFalse);
       expect(template.toMap(), templateMap());
     });
 
-    test('rejects executable/unknown fields and unsupported rotation', () {
+    test('rejects executable/unknown fields and v1 rotation', () {
       final executable = templateMap()..['python_rule'] = 'eval(user_input)';
       final rotating = templateMap();
       (rotating['feature_capabilities']
@@ -49,6 +49,45 @@ void main() {
 
       expect(MovementTemplate.tryFrom(executable), isNull);
       expect(MovementTemplate.tryFrom(rotating), isNull);
+    });
+
+    test('accepts v2 rotation trace and rejects invalid combinations', () {
+      final rotating = templateMap()
+        ..['schema_version'] = 2
+        ..['canonical_sequence'] = List.generate(
+          32,
+          (index) => {
+            'timestamp_ms': index * 200,
+            'pose': <String, dynamic>{},
+            'hands': <String, dynamic>{},
+            'prop': {'x': 0.5, 'y': 0.5, 'confidence': 0.9},
+            'prop_metadata': <String, dynamic>{},
+          },
+        )
+        ..['rotation_trace'] = {
+          'angles_rad': List<double>.generate(32, (i) => i * 0.2),
+          'total_signed_rad': 6.2,
+          'coverage': 0.95,
+          'pair_coverage': 0.9,
+        };
+      (rotating['feature_capabilities']
+              as Map<String, dynamic>)['prop_rotation'] =
+          true;
+      final parsed = MovementTemplate.tryFrom(rotating);
+      expect(parsed, isNotNull);
+      expect(parsed!.requiresRotation, isTrue);
+      expect(parsed.toMap(), rotating);
+      final shortSequence = Map<String, dynamic>.from(rotating)
+        ..['canonical_sequence'] = templateMap()['canonical_sequence'];
+      expect(MovementTemplate.tryFrom(shortSequence), isNull);
+
+      final missingTrace = templateMap()..['schema_version'] = 2;
+      (missingTrace['feature_capabilities']
+              as Map<String, dynamic>)['prop_rotation'] =
+          true;
+      expect(MovementTemplate.tryFrom(missingTrace), isNull);
+      final legacyWithTrace = templateMap()..['rotation_trace'] = null;
+      expect(MovementTemplate.tryFrom(legacyWithTrace), isNull);
     });
 
     test('requires the exact capability contract', () {

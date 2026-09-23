@@ -89,6 +89,11 @@ YOLO_ONNX_MODEL_PATH = Path(
     os.getenv("YOLO_ONNX_MODEL_PATH", str(_DEFAULT_YOLO_ONNX_MODEL_PATH))
 ).resolve()
 
+# Optional, separately validated two-keypoint bottle pose export. The
+# detection model above remains authoritative for prop class and tracking.
+BOTTLE_ORIENTATION_ONNX_PATH = Path(__file__).resolve().parent / "models" / "bottle_orientation.onnx"
+BOTTLE_ORIENTATION_MANIFEST_PATH = Path(__file__).resolve().parent / "models" / "bottle_orientation.validated.json"
+
 
 def _load_yolo_runtime() -> str:
     """Select the YOLO engine. Windows auto prefers available DirectML."""

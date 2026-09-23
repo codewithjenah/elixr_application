@@ -434,6 +434,12 @@ void main() {
 
     expect(find.text('Automatic assessment ready'), findsOneWidget);
     expect(
+      find.textContaining(
+        'Rotation is learned only when a validated bottle keypoint model',
+      ),
+      findsOneWidget,
+    );
+    expect(
       tester
           .widget<FilledButton>(
             find.byKey(const ValueKey('custom-movement-save')),
@@ -460,6 +466,66 @@ void main() {
       isNull,
     );
   });
+
+  testWidgets(
+    'builder describes rotation only for a rotation-capable template',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final repository = _CustomRepository(const []);
+      addTearDown(repository.dispose);
+      final movement = _movement(
+        id: 'rotation',
+        ownerUid: 'trainee-1',
+        prop: TrainingProp.bottle,
+      );
+      final map = _template().toMap();
+      map['schema_version'] = 2;
+      map['canonical_sequence'] = List.generate(
+        32,
+        (index) => {
+          'timestamp_ms': index * 30,
+          'pose': <String, dynamic>{},
+          'hands': <String, dynamic>{},
+          'prop': {'x': 0.5, 'y': 0.5, 'confidence': 0.9},
+          'prop_metadata': <String, dynamic>{},
+        },
+      );
+      map['feature_capabilities'] = {
+        ...Map<String, bool>.from(map['feature_capabilities'] as Map),
+        'prop_rotation': true,
+      };
+      map['rotation_trace'] = {
+        'angles_rad': List.generate(32, (index) => index * 0.2),
+        'total_signed_rad': 6.2,
+        'coverage': 0.95,
+        'pair_coverage': 0.9,
+      };
+      final template = MovementTemplate.tryFrom(map)!;
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: CustomMovementBuilderDialog(
+            ownerUid: 'trainee-1',
+            ownerRole: CustomMovementOwnerRole.trainee,
+            repository: repository,
+            existing: movement,
+            existingRevision: CustomMovementRevision(
+              id: movement.activeRevisionId,
+              movementId: movement.id,
+              ownerUid: movement.ownerUid,
+              ownerRole: movement.ownerRole,
+              template: template,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('This template learned visible bottle rotation'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets(
     'Edit loads the active revision and Delete confirms before removal',

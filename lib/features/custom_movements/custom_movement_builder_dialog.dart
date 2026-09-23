@@ -289,8 +289,10 @@ class _CustomMovementBuilderDialogState
                     ? 'Automatic assessment ready'
                     : 'Automatic assessment needs 3 references',
               ),
-              content: const Text(
-                'Bottle translation is supported. Exact spin or rotation counts are not inferred from standard bounding boxes.',
+              content: Text(
+                _template?.requiresRotation == true
+                    ? 'This template learned visible bottle rotation from top and base observations. Fast or hidden turns may remain uncertain.'
+                    : 'Bottle path, body and hands can be assessed. Rotation is learned only when a validated bottle keypoint model is installed and all three references show consistent visible turns. Fully hidden behind-the-back depth cannot be confirmed by one camera.',
               ),
               severity: ready ? InfoBarSeverity.success : InfoBarSeverity.info,
             ),

@@ -64,6 +64,7 @@ def test_custom_assessment_readiness_is_derived_from_one_hand_template():
     assert session._hands_needed is True
     assert session._pose_needed is False
     assert session._hands_max == 1
+    assert session._orientation_detector is None
 
 
 def test_custom_assessment_two_hand_and_pose_requirements_remain_enforced():
@@ -86,6 +87,7 @@ def test_official_session_keeps_global_yolo_cadence():
     session = websocket_api.VisionSession("Hand Stall")
 
     assert session._yolo_frame_skip == YOLO_FRAME_SKIP
+    assert session._orientation_detector is None
 
 
 def test_custom_capture_diagnostics_are_bounded_and_cause_oriented():
@@ -117,6 +119,8 @@ def test_custom_capture_diagnostics_are_bounded_and_cause_oriented():
     diagnostics = websocket_api.VisionSession._custom_capture_diagnostics(samples)
 
     assert diagnostics == {
+        "orientation_inference_ms_mean": None,
+        "orientation_provider": None,
         "effective_processing_fps": 10.0,
         "yolo_confirmation_rate": 0.667,
         "yolo_attempts": 3,

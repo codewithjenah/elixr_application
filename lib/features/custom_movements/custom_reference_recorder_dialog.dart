@@ -357,6 +357,12 @@ class _CustomReferenceRecorderDialogState
             const Text(
               'Record the full movement 3 times. Keep your body, hands, and selected prop visible.',
             ),
+            if (widget.prop == TrainingProp.bottle) ...[
+              const SizedBox(height: AppSpacing.sm),
+              const Text(
+                'Visible bottle turns can be learned only when a validated top/base keypoint model is installed. Keep both ends visible throughout each turn; hidden or very fast spins may be uncertain.',
+              ),
+            ],
             const SizedBox(height: AppSpacing.smPlus),
             if (!_initializing &&
                 !_busy &&

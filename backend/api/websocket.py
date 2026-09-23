@@ -96,6 +96,7 @@ from schemas.protocol import CommandAck, ProtocolError
 from schemas.recognition import RecognitionEventMessage
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
+from vision.bottle_orientation_detector import BottleOrientationDetector
 from vision.dual_prop_detector import DualPropDetector
 from vision.prop_detector import PropDetector
 from vision.prop_inference import (
@@ -483,6 +484,8 @@ def _human_error_message(error_code: str) -> str:
         "track_loss": "The selected prop was lost for too long. Reposition and retry.",
         "invalid_timestamps": "The recording timing was invalid. Please retry.",
         "invalid_schema": "The movement template format is not supported.",
+        "orientation_model_unavailable": "Bottle rotation assessment needs a validated orientation model on this device.",
+        "insufficient_orientation": "Bottle top and base were not visible often enough to assess rotation. Improve lighting and retry.",
     }.get(error_code, "The WebSocket command was rejected.")
 
 
@@ -531,6 +534,35 @@ class VisionSession:
         )
         if self._is_custom_assessment and self._custom_template is None:
             raise ValueError("missing_custom_movement_template")
+        if (
+            self._is_custom_assessment
+            and self._custom_template is not None
+            and self._custom_template.feature_capabilities.get("prop_rotation", False)
+            and prop_type != "bottle"
+        ):
+            raise ValueError("invalid_custom_movement")
+        self._orientation_detector = (
+            BottleOrientationDetector()
+            if prop_type == "bottle" and (
+                self._is_custom_capture
+                or (
+                    self._is_custom_assessment
+                    and self._custom_template is not None
+                    and self._custom_template.feature_capabilities.get("prop_rotation", False)
+                )
+            )
+            else None
+        )
+        self._orientation_enabled = (
+            self._orientation_detector is not None
+            and self._orientation_detector.available
+        )
+        if (
+            self._custom_template is not None
+            and self._custom_template.feature_capabilities.get("prop_rotation", False)
+            and not self._orientation_enabled
+        ):
+            raise ValueError("orientation_model_unavailable")
         if self._is_custom_capture:
             # Reference capture observes both landmark detectors while active,
             # but readiness only gates camera + the selected physical prop.
@@ -749,6 +781,8 @@ class VisionSession:
         self._custom_capture_started_at: float | None = None
         self._custom_capture_deadline: float | None = None
         self._custom_previous_prop: tuple[float, float, int] | None = None
+        self._orientation_inference_count = 0
+        self._orientation_inference_ms = 0.0
 
     def set_submission_recorder(self, recorder: SubmissionRecorder | None) -> None:
         with self._submission_recorder_lock:
@@ -790,6 +824,8 @@ class VisionSession:
                 self._custom_capture_started_at + duration_seconds
             )
             self._custom_previous_prop = None
+            self._orientation_inference_count = 0
+            self._orientation_inference_ms = 0.0
             return True, None
         finally:
             self._release_ai_state()
@@ -818,6 +854,10 @@ class VisionSession:
                 samples,
                 required_modalities,
                 required_hand_sides=required_hand_sides,
+                require_rotation=(
+                    self._custom_template is not None
+                    and self._custom_template.rotation_trace is not None
+                ),
             )
             rejected_reason = (
                 validation.codes[0].value if validation.codes else None
@@ -827,7 +867,12 @@ class VisionSession:
                 "frame_count": len(samples),
                 "duration_ms": samples[-1].timestamp_ms,
                 "codes": [code.value for code in validation.codes],
-                **self._custom_capture_diagnostics(samples),
+                **self._custom_capture_diagnostics(
+                    samples,
+                    orientation_ms=self._orientation_inference_ms,
+                    orientation_count=self._orientation_inference_count,
+                    orientation_provider=(self._orientation_detector.provider if self._orientation_detector else None),
+                ),
                 "accepted": validation.valid,
                 "rejected_reason": rejected_reason,
             }
@@ -895,7 +940,12 @@ class VisionSession:
                 if score is not None
             ]
             payload["sequence_duration_ms"] = samples[-1].timestamp_ms
-            payload["diagnostics"] = self._custom_capture_diagnostics(samples)
+            payload["diagnostics"] = self._custom_capture_diagnostics(
+                samples,
+                orientation_ms=self._orientation_inference_ms,
+                orientation_count=self._orientation_inference_count,
+                orientation_provider=(self._orientation_detector.provider if self._orientation_detector else None),
+            )
             self._custom_samples = None
             return payload
         finally:
@@ -910,6 +960,7 @@ class VisionSession:
         hands,
         pose,
         yolo_attempted: bool,
+        orientation=None,
     ) -> None:
         samples = self._custom_samples
         started = self._custom_capture_started_at
@@ -987,11 +1038,16 @@ class VisionSession:
             hands=hand_points,
             prop=prop_point,
             prop_metadata=prop_metadata,
+            orientation=orientation,
         ))
 
     @staticmethod
     def _custom_capture_diagnostics(
         samples: tuple[CustomFrameSample, ...],
+        *,
+        orientation_ms: float = 0.0,
+        orientation_count: int = 0,
+        orientation_provider: str | None = None,
     ) -> dict[str, Any]:
         frame_count = len(samples)
         duration_ms = samples[-1].timestamp_ms if samples else 0
@@ -1026,6 +1082,10 @@ class VisionSession:
             return round(sum(predicate(frame) for frame in samples) / frame_count, 3)
 
         return {
+            "orientation_inference_ms_mean": round(
+                orientation_ms / orientation_count, 2
+            ) if orientation_count else None,
+            "orientation_provider": orientation_provider,
             "effective_processing_fps": round(
                 (frame_count - 1) * 1000 / duration_ms, 2
             )
@@ -1830,7 +1890,36 @@ class VisionSession:
             )
             return self._model_error
 
+        if self._orientation_enabled:
+            assert self._orientation_detector is not None
+            try:
+                self._orientation_detector.ensure_ready()
+            except Exception:
+                logger.exception("Bottle orientation model failed to initialize")
+                if self._is_custom_capture:
+                    # Capture remains usable for body/hand/translation templates.
+                    self._orientation_enabled = False
+                else:
+                    return self._orientation_failure()
+
         return None
+
+    def _orientation_failure(self) -> FeedbackMessage:
+        self._model_error = self._stamp(
+            FeedbackMessage(
+                bottle_detected=False,
+                prop_type=self.prop_type,
+                movement=self.display_movement,
+                feedback=_human_error_message("orientation_model_unavailable"),
+                feedback_type="error",
+                posture_status="unknown",
+                frame_jpeg_base64=None,
+                error_code="orientation_model_unavailable",
+                camera_ready=False,
+                session_state="unavailable",
+            )
+        )
+        return self._model_error
 
     def process_preview_frame(self) -> FeedbackMessage | None:
         """Encode a JPEG preview without model load, evaluation, or scoring."""
@@ -2321,6 +2410,29 @@ class VisionSession:
         # never reuses a previous Hands/Pose result.
 
         if self._is_custom:
+            orientation = None
+            if (
+                self._custom_samples is not None
+                and self._orientation_enabled
+                and normalized.primary
+            ):
+                assert self._orientation_detector is not None
+                try:
+                    orientation = self._orientation_detector.observe(
+                        frame,
+                        max(normalized.primary, key=lambda item: item.confidence),
+                    )
+                    self._orientation_inference_count += 1
+                    self._orientation_inference_ms += self._orientation_detector.last_inference_ms
+                    self.timings.add("orientation", self._orientation_detector.last_inference_ms / 1000)
+                except Exception:
+                    logger.exception("Bottle orientation inference failed")
+                    if self._is_custom_capture:
+                        self._orientation_enabled = False
+                    else:
+                        return self._orientation_failure()
+            if self._reject_replaced_capture(captured):
+                return None
             self._record_custom_sample(
                 captured=captured,
                 frame=frame,
@@ -2328,6 +2440,7 @@ class VisionSession:
                 hands=hands,
                 pose=pose,
                 yolo_attempted=run_yolo,
+                orientation=orientation,
             )
             feedback = (
                 "Recording movement reference…"
@@ -2674,6 +2787,8 @@ class VisionSession:
                 )
                 self._inference_executor_shutdown = True
             self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
+            if self._orientation_detector is not None:
+                self._orientation_detector.close()
         finally:
             self._release_ai_state()
             self.startup.finalize()
@@ -2832,14 +2947,21 @@ async def _cv_session_loop(
             allowed_movements=allowed_movements,
             custom_movement_template=custom_movement_template,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to initialize vision session")
+
+        explicit_code = str(exc) if isinstance(exc, ValueError) else ""
+        error_code = (
+            explicit_code
+            if explicit_code in {"orientation_model_unavailable", "invalid_schema"}
+            else "pipeline_init_failed"
+        )
 
         error = FeedbackMessage(
             bottle_detected=False,
             prop_type=prop_type,
             movement=movement,
-            feedback=(
+            feedback=_human_error_message(error_code) if error_code != "pipeline_init_failed" else (
                 "Vision pipeline failed to start. From the backend folder run "
                 ".\\run.ps1 (or backend\\.venv\\Scripts\\python.exe -m uvicorn "
                 "main:app --host 127.0.0.1 --port 8000). Check backend logs for details."
@@ -2847,7 +2969,7 @@ async def _cv_session_loop(
             feedback_type="error",
             posture_status="unknown",
             frame_jpeg_base64=None,
-            error_code="pipeline_init_failed",
+            error_code=error_code,
             camera_ready=False,
             session_state="unavailable",
         ).with_session(session_id)
@@ -2855,7 +2977,7 @@ async def _cv_session_loop(
         _signal_prepare_gate(
             prepare_gate,
             ok=False,
-            error_code="pipeline_init_failed",
+            error_code=error_code,
             message=error.feedback,
         )
         await _send(error.model_dump_json())
@@ -3119,7 +3241,7 @@ async def _cv_session_loop(
                         )
                     )
                 ai_count += 1
-                if message.error_code == "model_load_failed":
+                if message.error_code in {"model_load_failed", "orientation_model_unavailable"}:
                     stop.set()
                     mailbox.wake()
                     return

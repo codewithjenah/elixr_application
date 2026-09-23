@@ -111,6 +111,27 @@ function template(overrides = {}) {
   };
 }
 
+function rotationTemplate() {
+  return template({
+    schema_version: 2,
+    canonical_sequence: Array.from({ length: 32 }, (_, index) => ({
+      timestamp_ms: index * 200, pose: {}, hands: {},
+      prop: { x: 0.5, y: 0.5, confidence: 0.9 },
+      prop_metadata: {},
+    })),
+    feature_capabilities: {
+      pose: true, hands: true, prop_translation: true,
+      release_catch: true, prop_rotation: true,
+    },
+    rotation_trace: {
+      angles_rad: Array.from({ length: 32 }, (_, index) => index * 0.2),
+      total_signed_rad: 6.2,
+      coverage: 0.95,
+      pair_coverage: 0.9,
+    },
+  });
+}
+
 async function createMovement({
   uid,
   ownerRole,
@@ -118,6 +139,7 @@ async function createMovement({
   revisionId,
   name,
   propType = 'bottle',
+  movementTemplate = template(),
 }) {
   const db = context(uid).firestore();
   const batch = writeBatch(db);
@@ -126,7 +148,7 @@ async function createMovement({
     owner_uid: uid,
     owner_role: ownerRole,
     schema_version: 1,
-    template: template(),
+    template: movementTemplate,
     created_at: serverTimestamp(),
   });
   batch.set(doc(db, 'custom_movements', movementId), {
@@ -145,7 +167,7 @@ async function createMovement({
   await batch.commit();
 }
 
-async function createTeacherAssignment() {
+async function createTeacherAssignment(movementTemplate = template()) {
   const db = context('teacher').firestore();
   await setDoc(doc(db, 'group_assignments', ASSIGNMENT_ID), {
     teacher_id: 'teacher',
@@ -163,13 +185,33 @@ async function createTeacherAssignment() {
     audience_type: 'entire_class',
     attempt_policy: { type: 'finite', maximum_attempts: 3 },
     max_score: 12,
-    movement_template: template(),
+    movement_template: movementTemplate,
     created_at: serverTimestamp(),
     updated_at: serverTimestamp(),
   });
 }
 
 describe('custom movement v1 ownership and revisions', () => {
+  test('validated version-two rotation trace is allowed without weakening ownership', async () => {
+    const rotating = rotationTemplate();
+    await assertSucceeds(createMovement({
+      uid: 'trainee', ownerRole: 'trainee', movementId: 'rotation-move',
+      revisionId: 'rotation-rev', name: 'Projected turn',
+      movementTemplate: rotating,
+    }));
+    await assertFails(getDoc(doc(
+      context('other-trainee', false).firestore(),
+      'custom_movements', 'rotation-move',
+    )));
+    await assertFails(createMovement({
+      uid: 'trainee', ownerRole: 'trainee', movementId: 'missing-trace',
+      revisionId: 'missing-rev', name: 'Invalid turn',
+      movementTemplate: template({
+        schema_version: 2,
+        feature_capabilities: rotating.feature_capabilities,
+      }),
+    }));
+  });
   test('trainee creates an atomic private movement and cannot mutate revision', async () => {
     await assertSucceeds(
       createMovement({
