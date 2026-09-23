@@ -56,7 +56,7 @@ class _TeacherDemoRecordingDialogState
   final ElixrPlaybackSession _playback = ElixrPlaybackSession();
   StreamSubscription<PreviewFrame>? _previewSubscription;
   Timer? _timer;
-  Uint8List? _frame;
+  final ValueNotifier<Uint8List?> _frame = ValueNotifier(null);
   SubmissionRecordResult? _clip;
   bool _preparing = true;
   bool _recording = false;
@@ -79,7 +79,7 @@ class _TeacherDemoRecordingDialogState
       }
       _previewSubscription = _websocket.previewStream.listen((preview) {
         if (!mounted || !preview.hasJpeg) return;
-        setState(() => _frame = preview.jpegBytes);
+        _frame.value = preview.jpegBytes;
       });
       _websocket.beginPracticeAttempt();
       final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
@@ -250,6 +250,7 @@ class _TeacherDemoRecordingDialogState
   @override
   void dispose() {
     unawaited(_tearDown());
+    _frame.dispose();
     super.dispose();
   }
 
@@ -280,13 +281,20 @@ class _TeacherDemoRecordingDialogState
                       mirrored: false,
                       session: _playback,
                     )
-                  : _frame == null
-                  ? Center(
-                      child: _preparing
-                          ? const ProgressRing()
-                          : const Icon(FluentIcons.video, size: 36),
-                    )
-                  : Image.memory(_frame!, fit: BoxFit.contain),
+                  : ValueListenableBuilder<Uint8List?>(
+                      valueListenable: _frame,
+                      builder: (context, frame, _) => frame == null
+                          ? Center(
+                              child: _preparing
+                                  ? const ProgressRing()
+                                  : const Icon(FluentIcons.video, size: 36),
+                            )
+                          : Image.memory(
+                              frame,
+                              fit: BoxFit.contain,
+                              gaplessPlayback: true,
+                            ),
+                    ),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),

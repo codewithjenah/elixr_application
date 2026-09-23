@@ -672,14 +672,16 @@ class _CameraFeedSurface extends StatelessWidget {
             if (bytes == null) {
               return placeholder;
             }
-            return Transform.flip(
-              key: const ValueKey('camera-frame-transform'),
-              flipX: mirrored,
-              child: Image.memory(
-                bytes,
-                fit: BoxFit.contain,
-                gaplessPlayback: true,
-                errorBuilder: (context, error, stackTrace) => placeholder,
+            return RepaintBoundary(
+              child: Transform.flip(
+                key: const ValueKey('camera-frame-transform'),
+                flipX: mirrored,
+                child: Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (context, error, stackTrace) => placeholder,
+                ),
               ),
             );
           },

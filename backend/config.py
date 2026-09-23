@@ -207,8 +207,6 @@ ELBOW_STALL_CONTACT_DISTANCE = 0.045
 ELBOW_STALL_MAX_SCALED_CONTACT_DISTANCE = 0.06
 ELBOW_STALL_MIN_ALONG_FRACTION = -0.10
 ELBOW_STALL_MAX_ALONG_FRACTION = 0.18
-# Unused dead config (kept for a later cleanup). Do not scale it in this task.
-POSE_STALL_PROXIMITY = 0.18
 # Max bottle drift (normalized) allowed while a stall is held.
 STALL_STABILITY_THRESHOLD = 0.06
 

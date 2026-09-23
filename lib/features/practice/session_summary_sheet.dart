@@ -205,59 +205,50 @@ class SessionSummarySheet extends StatelessWidget {
               );
             }
 
-            final reduceMotion = MediaQuery.disableAnimationsOf(context);
-            return Stack(
-              children: [
-                if (!timedOut &&
-                    celebrates(assessment.performanceLevel) &&
-                    !reduceMotion)
-                  const Positioned.fill(child: ConfettiOverlay()),
-                SafeArea(
-                  child: Center(
-                    child: Material(
-                      type: MaterialType.transparency,
-                      child: _AnimatedEntrance(
-                        child: SessionSummarySheet(
-                          movement: movement,
-                          durationSeconds: durationSeconds,
-                          assessment: assessment,
-                          saveState: saveState,
-                          saveError: saveError,
-                          nextMovementName: nextMovement == null
-                              ? null
-                              : nextPracticeLabel(
-                                  nextMovement,
-                                  nextProp ?? nextMovement.supportedProps.first,
-                                ),
-                          evidenceJpegBytes: evidenceJpegBytes,
-                          timedOut: timedOut,
-                          onDiscard: () {
-                            if (saveState != SessionSaveState.saved &&
-                                saveState != SessionSaveState.pendingSync) {
-                              return;
-                            }
-                            Navigator.of(
-                              ctx,
-                              rootNavigator: true,
-                            ).pop(SessionSummaryResult.discarded);
-                          },
-                          onTryAgain: () {
-                            if (saveState != SessionSaveState.saved &&
-                                saveState != SessionSaveState.pendingSync) {
-                              return;
-                            }
-                            Navigator.of(
-                              ctx,
-                              rootNavigator: true,
-                            ).pop(SessionSummaryResult.tryAgain);
-                          },
-                          onPrimaryAction: handlePrimaryAction,
-                        ),
-                      ),
+            return SafeArea(
+              child: Center(
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: _AnimatedEntrance(
+                    child: SessionSummarySheet(
+                      movement: movement,
+                      durationSeconds: durationSeconds,
+                      assessment: assessment,
+                      saveState: saveState,
+                      saveError: saveError,
+                      nextMovementName: nextMovement == null
+                          ? null
+                          : nextPracticeLabel(
+                              nextMovement,
+                              nextProp ?? nextMovement.supportedProps.first,
+                            ),
+                      evidenceJpegBytes: evidenceJpegBytes,
+                      timedOut: timedOut,
+                      onDiscard: () {
+                        if (saveState != SessionSaveState.saved &&
+                            saveState != SessionSaveState.pendingSync) {
+                          return;
+                        }
+                        Navigator.of(
+                          ctx,
+                          rootNavigator: true,
+                        ).pop(SessionSummaryResult.discarded);
+                      },
+                      onTryAgain: () {
+                        if (saveState != SessionSaveState.saved &&
+                            saveState != SessionSaveState.pendingSync) {
+                          return;
+                        }
+                        Navigator.of(
+                          ctx,
+                          rootNavigator: true,
+                        ).pop(SessionSummaryResult.tryAgain);
+                      },
+                      onPrimaryAction: handlePrimaryAction,
                     ),
                   ),
                 ),
-              ],
+              ),
             );
           },
         );
@@ -280,43 +271,34 @@ class SessionSummarySheet extends StatelessWidget {
       barrierColor: const Color(0xE6080812),
       useRootNavigator: true,
       builder: (ctx) {
-        final reduceMotion = MediaQuery.disableAnimationsOf(ctx);
-        return Stack(
-          children: [
-            if (!timedOut &&
-                celebrates(assessment.performanceLevel) &&
-                !reduceMotion)
-              const Positioned.fill(child: ConfettiOverlay()),
-            SafeArea(
-              child: Center(
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: _AnimatedEntrance(
-                    child: SessionSummarySheet(
-                      movement: movement,
-                      durationSeconds: durationSeconds,
-                      assessment: assessment,
-                      saveState: SessionSaveState.saved,
-                      timedOut: timedOut,
-                      isTeacherPreview: true,
-                      onPrimaryAction: () => Navigator.of(
-                        ctx,
-                        rootNavigator: true,
-                      ).pop(SessionSummaryResult.saved),
-                      onDiscard: () => Navigator.of(
-                        ctx,
-                        rootNavigator: true,
-                      ).pop(SessionSummaryResult.discarded),
-                      onTryAgain: () => Navigator.of(
-                        ctx,
-                        rootNavigator: true,
-                      ).pop(SessionSummaryResult.tryAgain),
-                    ),
-                  ),
+        return SafeArea(
+          child: Center(
+            child: Material(
+              type: MaterialType.transparency,
+              child: _AnimatedEntrance(
+                child: SessionSummarySheet(
+                  movement: movement,
+                  durationSeconds: durationSeconds,
+                  assessment: assessment,
+                  saveState: SessionSaveState.saved,
+                  timedOut: timedOut,
+                  isTeacherPreview: true,
+                  onPrimaryAction: () => Navigator.of(
+                    ctx,
+                    rootNavigator: true,
+                  ).pop(SessionSummaryResult.saved),
+                  onDiscard: () => Navigator.of(
+                    ctx,
+                    rootNavigator: true,
+                  ).pop(SessionSummaryResult.discarded),
+                  onTryAgain: () => Navigator.of(
+                    ctx,
+                    rootNavigator: true,
+                  ).pop(SessionSummaryResult.tryAgain),
                 ),
               ),
             ),
-          ],
+          ),
         );
       },
     );
