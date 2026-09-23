@@ -48,7 +48,7 @@ void main() {
               phase: TrainingSessionPhase.ready,
               expandVertically: false,
               metrics: SessionMetricTiles(
-                elapsedDisplay: '00:00',
+                remainingDisplay: '00:00',
                 rubricChild: const Text('—'),
                 performanceBar: const TrainingPerformanceBar(total: null),
                 rubricBreakdown: const RubricCriteriaTiles(assessment: null),
@@ -106,7 +106,7 @@ void main() {
               expandVertically: false,
               rankBadge: RankBadge(level: rubric.performanceLevel),
               metrics: SessionMetricTiles(
-                elapsedDisplay: '01:12',
+                remainingDisplay: '01:12',
                 rubricChild: const Text('10 / 12'),
                 performanceBar: const TrainingPerformanceBar(total: 10),
                 rubricBreakdown: const RubricCriteriaTiles(assessment: rubric),
@@ -154,7 +154,7 @@ void main() {
               child: TrainingSessionPanel(
                 phase: TrainingSessionPhase.ready,
                 metrics: SessionMetricTiles(
-                  elapsedDisplay: '00:00',
+                  remainingDisplay: '00:00',
                   rubricChild: const Text('—'),
                   performanceBar: const TrainingPerformanceBar(total: null),
                   rubricBreakdown: const RubricCriteriaTiles(assessment: null),
@@ -273,7 +273,7 @@ void main() {
               phase: TrainingSessionPhase.cameraError,
               expandVertically: false,
               metrics: SessionMetricTiles(
-                elapsedDisplay: '00:00',
+                remainingDisplay: '00:00',
                 rubricChild: const Text('—'),
                 performanceBar: const TrainingPerformanceBar(total: null),
               ),
@@ -433,7 +433,7 @@ void main() {
             child: TrainingSessionPanel(
               phase: TrainingSessionPhase.ready,
               metrics: SessionMetricTiles(
-                elapsedDisplay: '00:00',
+                remainingDisplay: '00:00',
                 rubricChild: const Text('—'),
               ),
               statusContent: const TrainingStatusRow(

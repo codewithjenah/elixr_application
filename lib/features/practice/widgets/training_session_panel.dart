@@ -461,18 +461,20 @@ class LivePracticeElapsedMetric extends StatelessWidget {
   }
 }
 
-/// Compact elapsed / rubric metric tiles for the session panel.
+/// Compact remaining-time / rubric metric tiles for the session panel.
 class SessionMetricTiles extends StatelessWidget {
   const SessionMetricTiles({
     super.key,
-    required this.elapsedDisplay,
+    required this.remainingDisplay,
     required this.rubricChild,
+    this.timeWarning = false,
     this.performanceBar,
     this.rubricBreakdown,
   });
 
-  final String elapsedDisplay;
+  final String remainingDisplay;
   final Widget rubricChild;
+  final bool timeWarning;
   final Widget? performanceBar;
 
   /// Per-criterion rubric breakdown shown below the performance bar.
@@ -487,15 +489,19 @@ class SessionMetricTiles extends StatelessWidget {
           children: [
             Expanded(
               child: _MetricTile(
-                key: const ValueKey('session-elapsed-metric'),
-                icon: FluentIcons.clock,
-                label: 'ELAPSED',
-                accent: context.elixTextSecondary,
+                key: const ValueKey('session-time-left-metric'),
+                icon: timeWarning ? FluentIcons.warning : FluentIcons.clock,
+                label: 'TIME LEFT',
+                accent: timeWarning
+                    ? context.elixColors.error
+                    : context.elixTextSecondary,
                 child: Text(
-                  elapsedDisplay,
+                  remainingDisplay,
                   style: AppTheme.sectionTitle(
                     context,
-                    color: context.elixTextPrimary,
+                    color: timeWarning
+                        ? context.elixColors.error
+                        : context.elixTextPrimary,
                   ).copyWith(letterSpacing: 0.8),
                 ),
               ),

@@ -1624,8 +1624,6 @@ class PracticeScreenState extends State<PracticeScreen>
       overlayFeedback: isTrainingActive ? null : _feedback.latestFeedback,
       overlays: isTrainingActive
           ? TrainingLiveHud(
-              remainingDisplay: formatPracticeClock(_run.remainingSeconds),
-              timeWarning: _run.remainingSeconds <= 10,
               assessmentListenable: _assessmentNotifier,
               holdListenable: _holdProgressNotifier,
               comboListenable: _comboNotifier,
@@ -1670,7 +1668,8 @@ class PracticeScreenState extends State<PracticeScreen>
             )
           : isTrainingActive
           ? SessionMetricTiles(
-              elapsedDisplay: formatPracticeClock(_run.elapsedSeconds),
+              remainingDisplay: formatPracticeClock(_run.remainingSeconds),
+              timeWarning: _run.remainingSeconds <= 10,
               rubricChild: ValueListenableBuilder<RubricAssessment?>(
                 valueListenable: _assessmentNotifier,
                 builder: (context, assessment, _) {

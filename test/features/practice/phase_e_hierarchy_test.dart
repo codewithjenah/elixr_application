@@ -88,34 +88,60 @@ void main() {
     );
   });
 
-  testWidgets('guided session elapsed metric uses compact section title', (
+  testWidgets('scored session time-left metric uses compact section title', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
     await tester.pumpWidget(
       _app(
         const SessionMetricTiles(
-          elapsedDisplay: '00:42',
+          remainingDisplay: '00:42',
           rubricChild: Text('—'),
         ),
       ),
     );
     await tester.pump();
 
-    expect(find.text('ELAPSED'), findsOneWidget);
+    expect(find.text('TIME LEFT'), findsOneWidget);
+    expect(find.text('ELAPSED'), findsNothing);
     final elapsed = tester.widget<Text>(find.text('00:42'));
     expect(elapsed.style!.fontSize, 18);
     expect(elapsed.style!.fontFamily, ElixTypography.fontFamily);
   });
 
-  testWidgets('guided session elapsed metric compact breakpoint uses 16px', (
+  testWidgets('final ten seconds emphasize the session time-left metric', (
+    tester,
+  ) async {
+    await _setSurface(tester, const Size(1100, 800));
+    late Color warningColor;
+    await tester.pumpWidget(
+      _app(
+        Builder(
+          builder: (context) {
+            warningColor = context.elixColors.error;
+            return const SessionMetricTiles(
+              remainingDisplay: '00:09',
+              timeWarning: true,
+              rubricChild: Text('—'),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final timer = tester.widget<Text>(find.text('00:09'));
+    expect(timer.style!.color, warningColor);
+    expect(find.byIcon(FluentIcons.warning), findsOneWidget);
+  });
+  testWidgets('scored session time-left metric compact breakpoint uses 16px', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 640));
     await tester.pumpWidget(
       _app(
         const SessionMetricTiles(
-          elapsedDisplay: '00:42',
+          remainingDisplay: '00:42',
           rubricChild: Text('—'),
         ),
         size: const Size(800, 640),
@@ -174,6 +200,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('ELAPSED'), findsOneWidget);
+    expect(find.text('TIME LEFT'), findsNothing);
     final elapsed = tester.widget<Text>(find.text('01:05'));
     expect(elapsed.style!.fontSize, 32);
     expect(elapsed.style!.fontFamily, ElixTypography.fontFamily);

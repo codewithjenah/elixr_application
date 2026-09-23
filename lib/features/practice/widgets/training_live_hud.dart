@@ -16,8 +16,6 @@ import 'training_performance.dart';
 class TrainingLiveHud extends StatelessWidget {
   const TrainingLiveHud({
     super.key,
-    required this.remainingDisplay,
-    required this.timeWarning,
     required this.assessmentListenable,
     required this.holdListenable,
     required this.comboListenable,
@@ -26,8 +24,6 @@ class TrainingLiveHud extends StatelessWidget {
     this.coaching,
   });
 
-  final String remainingDisplay;
-  final bool timeWarning;
   final ValueListenable<RubricAssessment?> assessmentListenable;
   final ValueListenable<double> holdListenable;
   final ValueListenable<ComboState> comboListenable;
@@ -41,19 +37,6 @@ class TrainingLiveHud extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Positioned(
-            top: AppSpacing.md,
-            left: AppSpacing.md,
-            child: _HudChip(
-              label: timeWarning ? 'TIME LEFT · HURRY' : 'TIME LEFT',
-              value: remainingDisplay,
-              accent: timeWarning
-                  ? context.elixColors.error
-                  : context.elixColors.textPrimary,
-              leadingIcon: timeWarning ? FluentIcons.warning : null,
-              warning: timeWarning,
-            ),
-          ),
           Positioned(
             top: AppSpacing.md,
             right: AppSpacing.md,
