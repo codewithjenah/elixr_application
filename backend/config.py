@@ -94,6 +94,44 @@ YOLO_ONNX_MODEL_PATH = Path(
 BOTTLE_ORIENTATION_ONNX_PATH = Path(__file__).resolve().parent / "models" / "bottle_orientation.onnx"
 BOTTLE_ORIENTATION_MANIFEST_PATH = Path(__file__).resolve().parent / "models" / "bottle_orientation.validated.json"
 
+# HSV (OpenCV hue 0..179) for orange neck and yellow base tape. Keep the
+# intervals disjoint: color alone must never identify both ends.
+def _marker_hue_range(name: str, default: str) -> tuple[int, int]:
+    raw = os.getenv(name, default)
+    try:
+        low, high = (int(part.strip()) for part in raw.split(","))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"{name} must be two comma-separated hue values") from exc
+    if not 0 <= low <= high <= 179:
+        raise ValueError(f"{name} must satisfy 0 <= low <= high <= 179")
+    return low, high
+
+
+MARKER_ORANGE_HUE = _marker_hue_range("MARKER_ORANGE_HUE", "5,18")
+MARKER_YELLOW_HUE = _marker_hue_range("MARKER_YELLOW_HUE", "23,38")
+if MARKER_ORANGE_HUE[1] >= MARKER_YELLOW_HUE[0]:
+    raise ValueError("Orange and yellow marker hue ranges must not overlap")
+MARKER_MIN_SATURATION = int(os.getenv("MARKER_MIN_SATURATION", "100"))
+MARKER_MIN_VALUE = int(os.getenv("MARKER_MIN_VALUE", "70"))
+if not (0 <= MARKER_MIN_SATURATION <= 255 and 0 <= MARKER_MIN_VALUE <= 255):
+    raise ValueError("Marker saturation and value thresholds must be within 0..255")
+def _marker_ratio(name: str, default: str) -> float:
+    raw = os.getenv(name, default)
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a ratio in (0, 1)") from exc
+    if not 0 < value < 1:
+        raise ValueError(f"{name} must be a ratio in (0, 1)")
+    return value
+
+
+MARKER_MIN_BLOB_AREA_RATIO = _marker_ratio("MARKER_MIN_BLOB_AREA_RATIO", "0.004")
+MARKER_MAX_BLOB_AREA_RATIO = _marker_ratio("MARKER_MAX_BLOB_AREA_RATIO", "0.25")
+MARKER_MIN_SEPARATION_RATIO = _marker_ratio("MARKER_MIN_SEPARATION_RATIO", "0.18")
+if MARKER_MIN_BLOB_AREA_RATIO >= MARKER_MAX_BLOB_AREA_RATIO:
+    raise ValueError("Marker minimum blob area must be below maximum")
+
 
 def _load_yolo_runtime() -> str:
     """Select the YOLO engine. Windows auto prefers available DirectML."""

@@ -96,7 +96,7 @@ from schemas.protocol import CommandAck, ProtocolError
 from schemas.recognition import RecognitionEventMessage
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
-from vision.bottle_orientation_detector import BottleOrientationDetector
+from vision.bottle_marker_detector import BottleMarkerDetector
 from vision.dual_prop_detector import DualPropDetector
 from vision.prop_detector import PropDetector
 from vision.prop_inference import (
@@ -486,7 +486,7 @@ def _human_error_message(error_code: str) -> str:
         "track_loss": "The selected prop was lost for too long. Reposition and retry.",
         "invalid_timestamps": "The recording timing was invalid. Please retry.",
         "invalid_schema": "The movement template format is not supported.",
-        "orientation_model_unavailable": "Bottle rotation assessment needs a validated orientation model on this device.",
+        "orientation_model_unavailable": "Bottle rotation assessment needs visible orange top and yellow base markers.",
         "insufficient_orientation": "Bottle top and base were not visible often enough to assess rotation. Improve lighting and retry.",
     }.get(error_code, "The WebSocket command was rejected.")
 
@@ -544,7 +544,7 @@ class VisionSession:
         ):
             raise ValueError("invalid_custom_movement")
         self._orientation_detector = (
-            BottleOrientationDetector()
+            BottleMarkerDetector()
             if prop_type == "bottle" and (
                 self._is_custom_capture
                 or (
@@ -2015,7 +2015,7 @@ class VisionSession:
             try:
                 self._orientation_detector.ensure_ready()
             except Exception:
-                logger.exception("Bottle orientation model failed to initialize")
+                logger.exception("Bottle marker detector failed to initialize")
                 if self._is_custom_capture:
                     # Capture remains usable for body/hand/translation templates.
                     self._orientation_enabled = False
@@ -2555,7 +2555,7 @@ class VisionSession:
                     self._orientation_inference_ms += self._orientation_detector.last_inference_ms
                     self.timings.add("orientation", self._orientation_detector.last_inference_ms / 1000)
                 except Exception:
-                    logger.exception("Bottle orientation inference failed")
+                    logger.exception("Bottle marker detection failed")
                     if self._is_custom_capture:
                         self._orientation_enabled = False
                     else:

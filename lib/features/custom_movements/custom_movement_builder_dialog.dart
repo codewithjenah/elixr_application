@@ -16,7 +16,7 @@ typedef CustomReferenceRecorder =
     );
 
 const _rotationNotLearnedMessage =
-    'Visible bottle rotation was not learned from these references. Re-record with the bottle fully visible through the turn. Rotation assessment also requires a validated bottle orientation model.';
+    'Visible bottle rotation was not learned from these references. Re-record with orange tape on the top and yellow tape on the base visible through the turn. Hidden or extremely fast turns may remain uncertain.';
 
 class CustomMovementBuilderDialog extends StatefulWidget {
   const CustomMovementBuilderDialog({
@@ -296,7 +296,7 @@ class _CustomMovementBuilderDialogState
           ),
           const SizedBox(height: AppSpacing.xs),
           const Text(
-            'Use when a visible turn is essential. Assessment requires a validated bottle orientation model.',
+            'Use when a visible turn is essential. Keep orange tape on the top and yellow tape on the base visible through the turn.',
           ),
         ],
       ],
@@ -382,12 +382,12 @@ class _CustomMovementBuilderDialogState
         Text(
           ready
               ? _template?.requiresRotation == true
-                    ? 'This template learned visible bottle rotation from top and base observations. Fast or hidden turns may remain uncertain.'
+                    ? 'This template learned visible bottle rotation from orange top and yellow base markers. Fast or hidden turns may remain uncertain.'
                     : _prop == TrainingProp.bottle
-                    ? 'Bottle path, body and hands can be assessed. Rotation is learned only when a validated bottle keypoint model is installed and all three references show consistent visible turns.'
+                    ? 'Bottle path, body and hands can be assessed. Rotation is learned when orange top and yellow base markers stay visible through consistent turns in all three references.'
                     : 'Prop path, body and hands can be assessed.'
               : _requireVisibleBottleRotation
-              ? 'Keep the bottle visible throughout each turn in all three references.'
+              ? 'Keep the orange top and yellow base markers visible throughout each turn in all three references.'
               : 'Record all three valid references before saving.',
         ),
         if (_error != null) ...[

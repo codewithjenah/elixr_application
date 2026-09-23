@@ -360,7 +360,10 @@ void main() {
       find.textContaining('Visible bottle rotation was not learned'),
       findsOneWidget,
     );
-    expect(find.textContaining('also requires a validated'), findsOneWidget);
+    expect(
+      find.textContaining('Re-record with orange tape on the top'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('schema-v2 rotation reference satisfies requirement', (
@@ -691,7 +694,7 @@ void main() {
     expect(find.text('Automatic assessment ready'), findsOneWidget);
     expect(
       find.textContaining(
-        'Rotation is learned only when a validated bottle keypoint model',
+        'Rotation is learned when orange top and yellow base markers',
       ),
       findsOneWidget,
     );

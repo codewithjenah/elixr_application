@@ -1,4 +1,4 @@
-"""Directed bottle-axis evidence from a separately trained two-keypoint model.
+"""Directed bottle-axis evidence from observed top and base points.
 
 The ordinary prop detector remains responsible for class and track identity.
 An orientation observation is usable only when *both* labelled ends are seen;

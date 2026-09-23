@@ -414,7 +414,7 @@ class _CustomReferenceRecorderDialogState
               if (widget.prop == TrainingProp.bottle) ...[
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
-                  'For visible turns, keep both bottle ends in view. Rotation assessment requires a validated orientation model.',
+                  'For visible turns, keep orange tape on the bottle top and yellow tape on the base in view. Hidden or extremely fast turns may remain uncertain.',
                 ),
               ],
             ],
