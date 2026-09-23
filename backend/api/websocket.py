@@ -147,7 +147,6 @@ from vision.types import Point2D, PropDetection
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-CAMERA_REOPEN_DELAY_S = 0.75
 _MAX_CAMERA_INDEX = 10
 _MAX_DEVICE_ID_LENGTH = 1024
 
@@ -349,8 +348,6 @@ async def _stop_session_task(session_task: asyncio.Task | None) -> None:
         await session_task
     except asyncio.CancelledError:
         pass
-
-    await asyncio.sleep(CAMERA_REOPEN_DELAY_S)
 
 
 def _extract_optional_id(raw: Any) -> str | None:
@@ -604,8 +601,8 @@ class VisionSession:
                 enabled=bottle_detection_enabled,
             )
         self.bottle_detector = self.prop_detector
-        # MediaPipe detectors are deferred until after the first preview is
-        # sent, keeping camera startup independent from readiness warm-up.
+        # MediaPipe detectors are deferred until camera preparation completes.
+        # The session loop warms them before exposing the first live preview.
         self.hands_detector: HandsDetector | None = None
         self.pose_detector: PoseDetector | None = None
         self._prop_detection_only = movement_is_prop_detection_only(movement)
@@ -2870,11 +2867,9 @@ async def _cv_session_loop(
     readiness_warm_worker: asyncio.Task | None = None
     preview_task: asyncio.Task | None = None
     ai_task: asyncio.Task | None = None
-    readiness_warm_task: asyncio.Task | None = None
     writer_task: asyncio.Task | None = None
     stop = asyncio.Event()
     writer_closing = asyncio.Event()
-    first_preview_sent = asyncio.Event()
     mailbox = _OutboundMailbox()
     outbound_error: str | None = None
 
@@ -2937,6 +2932,20 @@ async def _cv_session_loop(
             session.lifecycle,
             session_id,
         )
+
+        # Warm guided/readiness detectors before exposing live video. Model
+        # constructors and first inference can contend with capture/JPEG even
+        # when called from a worker thread. Once the first JPEG is visible,
+        # preview therefore runs without startup model initialization.
+        if not start_active and movement != "Free Practice":
+            readiness_warm_worker = asyncio.create_task(
+                asyncio.to_thread(session.warm_readiness)
+            )
+            model_error = await asyncio.shield(readiness_warm_worker)
+            readiness_warm_worker = None
+            if model_error is not None:
+                outbound_error = model_error.model_dump_json()
+                return
 
         interval = 1.0 / TARGET_FPS
         preview_count = 0
@@ -3129,7 +3138,6 @@ async def _cv_session_loop(
                         t_send = time.perf_counter()
                         await _send(item.payload)
                         if item.kind == "preview":
-                            first_preview_sent.set()
                             session.startup.mark(MARK_FIRST_JPEG_SEND)
                         send_s = time.perf_counter() - t_send
                         now = time.perf_counter()
@@ -3148,29 +3156,11 @@ async def _cv_session_loop(
                     finally:
                         mailbox.sends_in_flight -= 1
 
-        async def warm_readiness_after_preview() -> None:
-            nonlocal readiness_warm_worker, outbound_error
-            await first_preview_sent.wait()
-            if stop.is_set() or movement == "Free Practice":
-                return
-            readiness_warm_worker = asyncio.create_task(
-                asyncio.to_thread(session.warm_readiness)
-            )
-            message = await asyncio.shield(readiness_warm_worker)
-            readiness_warm_worker = None
-            if message is not None:
-                outbound_error = message.model_dump_json()
-                stop.set()
-                mailbox.wake()
-
         preview_task = asyncio.create_task(preview_loop(), name="elixr-preview")
         ai_task = asyncio.create_task(ai_loop(), name="elixr-ai")
         writer_task = asyncio.create_task(writer_loop(), name="elixr-ws-writer")
-        readiness_warm_task = asyncio.create_task(
-            warm_readiness_after_preview(), name="elixr-readiness-warm"
-        )
         _done, _pending = await asyncio.wait(
-            {preview_task, ai_task, readiness_warm_task},
+            {preview_task, ai_task},
             return_when=asyncio.FIRST_EXCEPTION,
         )
         for task in _done:
@@ -3213,10 +3203,10 @@ async def _cv_session_loop(
             readiness_warm_worker, "In-flight readiness warm-up"
         )
         await asyncio.sleep(0)
-        for task in (preview_task, ai_task, readiness_warm_task):
+        for task in (preview_task, ai_task):
             if task is not None and not task.done():
                 task.cancel()
-        for task in (preview_task, ai_task, readiness_warm_task):
+        for task in (preview_task, ai_task):
             if task is None:
                 continue
             try:

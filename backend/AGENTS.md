@@ -68,10 +68,9 @@ Keep Flutter independent of these implementation details except for the document
 - WebSocket lifecycle: version-1 `prepare` / `begin_readiness` / `confirm_readiness` /
   `activate` / `stop` require `protocol_version`, `request_id`, and `session_id`, and receive
   a correlated `command_ack` only after the backend completes the corresponding
-  work. `prepare` opens the camera and streams preview
-  (`session_state: preparing`) without detectors or scoring.
-  after the first preview is sent, readiness AI warms asynchronously on the
-  same session; `begin_readiness` (guided practice) waits for or reuses it,
+  work. `prepare` opens the camera and acknowledges preparation without scoring.
+  Guided readiness AI then warms on the same session before the first live
+  preview is sent; `begin_readiness` (guided practice) reuses it,
   streams `session_state: readying` with observability checklist fields, and
   must not call movement technique evaluation, `RubricTracker.record`, or
   `HoldValidator.update`. It is idempotent when already readying and rejected
@@ -89,7 +88,7 @@ Keep Flutter independent of these implementation details except for the document
   camera release. Stale `session_id` values must not stop or activate a newer
   session. Malformed JSON and invalid v1 commands return structured errors
   without closing a healthy connection.
-- Preview-only preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record rubric changes.
+- Free Practice preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record rubric changes. Guided preparation warms detectors after camera open but does not evaluate movement rules or record rubric changes.
 - Readiness lives in `assessment/readiness.py` and checks camera/prop/landmark
   observability only (not palm openness, grip orientation, proximity, or
   steadiness). Pose-required movements include `upper_body_visible` (both

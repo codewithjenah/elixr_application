@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from dataclasses import replace
 from unittest.mock import MagicMock
@@ -16,6 +17,7 @@ from assessment.rules.base import RuleResult
 from assessment.scoring import RubricTracker
 from schemas.feedback import PreviewFrameMessage
 from test_session_lifecycle import (
+    StubBottleDetector,
     StubCamera,
     _patch_vision,
 )
@@ -685,7 +687,6 @@ def test_analyze_tick_rejects_second_in_flight_call(monkeypatch):
 
 def test_ai_worker_single_in_flight_and_preview_continues(monkeypatch):
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
     monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
 
@@ -779,9 +780,130 @@ def test_ai_worker_single_in_flight_and_preview_continues(monkeypatch):
     asyncio.run(_run())
 
 
+def test_slow_readiness_warmup_finishes_before_live_preview(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "TARGET_FPS", 40)
+    monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
+
+    entered = threading.Event()
+    release = threading.Event()
+    original_warm = websocket_api.VisionSession.warm_readiness
+
+    def slow_warm(self):
+        entered.set()
+        assert release.wait(timeout=2)
+        return original_warm(self)
+
+    monkeypatch.setattr(websocket_api.VisionSession, "warm_readiness", slow_warm)
+
+    async def run():
+        previews: list[float] = []
+
+        async def fake_send(payload):
+            if _decode(payload).get("message_type") == "preview_frame":
+                previews.append(time.perf_counter())
+
+        task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                MagicMock(), "Hand Stall", send_text=fake_send
+            )
+        )
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            await asyncio.sleep(0.1)
+            assert previews == []
+            release.set()
+            deadline = time.monotonic() + 1
+            while len(previews) < 4 and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            assert len(previews) >= 4
+            assert max(b - a for a, b in zip(previews, previews[1:])) < 0.15
+        finally:
+            release.set()
+            await websocket_api._stop_session_task(task)
+
+    asyncio.run(run())
+
+
+def test_warmup_model_failure_is_delivered_without_preview(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class FailingDetector(StubBottleDetector):
+        def ensure_ready(self):
+            raise websocket_api.ModelLoadError("test failure")
+
+    monkeypatch.setattr(websocket_api, "BottleDetector", FailingDetector)
+
+    async def run():
+        sent: list[dict] = []
+
+        async def fake_send(payload):
+            sent.append(_decode(payload))
+
+        await asyncio.wait_for(
+            websocket_api._cv_session_loop(
+                MagicMock(), "Hand Stall", send_text=fake_send
+            ),
+            timeout=2,
+        )
+        assert [message["message_type"] for message in sent] == ["feedback"]
+        assert sent[0]["error_code"] == "model_load_failed"
+
+    asyncio.run(run())
+
+
+def test_stop_during_warmup_waits_for_worker_before_camera_release(monkeypatch):
+    _patch_vision(monkeypatch)
+    entered = threading.Event()
+    release = threading.Event()
+    camera_releases = []
+
+    class CountingCamera(StubCamera):
+        def release(self):
+            camera_releases.append(time.perf_counter())
+            super().release()
+
+    monkeypatch.setattr(websocket_api, "CameraCapture", CountingCamera)
+    original_warm = websocket_api.VisionSession.warm_readiness
+
+    def slow_warm(self):
+        entered.set()
+        assert release.wait(timeout=2)
+        return original_warm(self)
+
+    monkeypatch.setattr(websocket_api.VisionSession, "warm_readiness", slow_warm)
+
+    async def run():
+        sent = []
+
+        async def fake_send(payload):
+            sent.append(_decode(payload))
+
+        task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                MagicMock(), "Hand Stall", send_text=fake_send
+            )
+        )
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            stopping = asyncio.create_task(websocket_api._stop_session_task(task))
+            await asyncio.sleep(0.05)
+            assert not stopping.done()
+            assert camera_releases == []
+            release.set()
+            await asyncio.wait_for(stopping, timeout=1)
+            assert len(camera_releases) == 1
+            assert sent == []
+        finally:
+            release.set()
+            if not task.done():
+                await websocket_api._stop_session_task(task)
+
+    asyncio.run(run())
+
+
 def test_serialized_websocket_sends_never_overlap(monkeypatch):
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
     monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
 
@@ -830,7 +952,6 @@ def test_serialized_websocket_sends_never_overlap(monkeypatch):
 
 def test_stop_cancels_preview_and_ai_without_task_leak(monkeypatch):
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
 
     async def _run():

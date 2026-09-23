@@ -1,9 +1,9 @@
 # ELX-010 startup diagnostics
 
-Measurement-only instrumentation for the delay a trainee sees before the live
-preview becomes usable, plus the later machine-vs-human stages of startup.
-This does **not** change camera ownership, preview-before-model-warm-up,
-readiness, or activation.
+Startup diagnostics measure the delay before live preview and the later
+machine-vs-human stages. Camera ownership, readiness, and activation remain
+unchanged. Guided sessions warm required detectors before the first live
+preview is sent.
 
 No camera frames, JPEG bytes, Base64 preview data, evidence images, Firebase
 user identifiers, or trainee names are stored.
@@ -24,7 +24,7 @@ by `session_id` after each side has already computed its own durations.
 | `first_jpeg_encode` | Backend | camera open start | first preview JPEG encode | Live path is `render_preview`. The preview mailbox keeps only the latest unsent JPEG, so this frame may never be sent |
 | `first_jpeg_send` | Backend | camera open start | first `preview_frame` WebSocket send | First **sent** preview; `capture_sequence` may be later than the first encode |
 | `client_first_preview` | Client | Start action (`beginPracticeAttempt`) | first current-session JPEG received | Trainee-perceived preview delay. Includes decode. Prepare ack is **not** this event |
-| `detector_warmup` | Backend | readiness AI warm-up start | warm-up complete | YOLO + required MediaPipe load; after first preview |
+| `detector_warmup` | Backend | readiness AI warm-up start | warm-up complete | YOLO + required MediaPipe load; before first guided preview |
 | `readiness_stable` | Both | `begin_readiness` | first `readiness_stable` | **User-dependent** (position/visibility), not machine-only |
 | `activate_ack` | Both | `activate` send / receive | accepted matching ack | Does **not** include waiting for the trainee to press Start |
 
@@ -45,8 +45,9 @@ Inspected runtime (not assumed):
   YOLO weights load in `_warm_readiness_locked` / `ensure_ready`. That ONNX or
   PyTorch session is abandoned with the `VisionSession` object;
   `VisionSession.close` does not retain it. MediaPipe Hands and Pose are
-  constructed during warm-up and closed in `VisionSession.close`. ELIXR does
-  **not** keep initialized model objects across sessions.
+  constructed during warm-up before live preview and closed in
+  `VisionSession.close`. ELIXR does **not** keep initialized model objects
+  across sessions.
 
 Therefore:
 

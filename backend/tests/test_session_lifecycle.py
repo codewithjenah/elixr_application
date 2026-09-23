@@ -241,7 +241,7 @@ def test_session_start_does_not_enumerate_cameras_for_diagnostics(monkeypatch):
     assert camera["camera_diagnostic_id"] != r"\\?\usb#vid_1234"
 
 
-def test_detector_warmup_starts_after_first_preview_jpeg(monkeypatch):
+def test_detector_warmup_can_finish_before_first_preview_jpeg(monkeypatch):
     _patch_vision(monkeypatch)
     from vision.startup_diagnostics import (
         MARK_FIRST_JPEG_ENCODE,
@@ -251,14 +251,36 @@ def test_detector_warmup_starts_after_first_preview_jpeg(monkeypatch):
 
     session = websocket_api.VisionSession("Hand Stall", session_id="diag-warm")
     session.start()
-    preview = session.process_preview_frame()
-    assert preview is not None
-    assert session.startup.has_mark(MARK_FIRST_JPEG_ENCODE)
     assert session.startup.has_mark(MARK_WARMUP_START) is False
     assert session.warm_readiness() is None
     assert session.startup.has_mark(MARK_WARMUP_START)
     assert session.startup.has_mark(MARK_WARMUP_END)
+    assert session.startup.has_mark(MARK_FIRST_JPEG_ENCODE) is False
+    preview = session.process_preview_frame()
+    assert preview is not None
+    assert session.startup.has_mark(MARK_FIRST_JPEG_ENCODE)
     session.close()
+
+
+def test_stop_waits_for_cleanup_without_fixed_reopen_delay():
+    cleaned = False
+
+    async def running_session():
+        nonlocal cleaned
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            cleaned = True
+
+    async def run():
+        task = asyncio.create_task(running_session())
+        await asyncio.sleep(0)
+        await asyncio.wait_for(websocket_api._stop_session_task(task), timeout=0.3)
+        assert task.done()
+        assert cleaned
+
+    asyncio.run(run())
 
 
 def test_readiness_warmup_is_reused_by_begin_readiness(monkeypatch):
@@ -768,7 +790,6 @@ def test_activate_after_close_returns_false(monkeypatch):
 
 def test_stop_works_before_and_after_activation(monkeypatch):
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
 
     from assessment.rules.base import RuleResult
 
@@ -1114,7 +1135,6 @@ def test_free_practice_is_registered_but_internal():
 
 def test_cv_session_loop_keeps_one_processing_task_in_flight(monkeypatch):
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
     monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
 
@@ -1168,7 +1188,6 @@ def test_slow_session_start_does_not_block_event_loop(monkeypatch):
     import time
 
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
 
     def slow_open(self) -> bool:
         time.sleep(0.25)
@@ -1228,7 +1247,6 @@ def test_slow_session_close_does_not_block_event_loop(monkeypatch):
     import time
 
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
 
     def slow_release(self) -> None:
         time.sleep(0.25)
@@ -1281,7 +1299,6 @@ def test_cancel_waits_for_in_flight_frame_before_close(monkeypatch):
     import threading
 
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
 
     frame_started = threading.Event()
@@ -1346,7 +1363,6 @@ def test_cancel_reraises_after_cleanup(monkeypatch):
     import threading
 
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
 
     frame_started = threading.Event()
@@ -1398,7 +1414,6 @@ def test_cancel_releases_camera_exactly_once(monkeypatch):
     import threading
 
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
 
     frame_started = threading.Event()
@@ -1452,7 +1467,6 @@ def test_cancel_releases_camera_exactly_once(monkeypatch):
 def test_process_tick_exception_still_closes_camera(monkeypatch):
     """A frame-processing failure still releases the camera on loop exit."""
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
 
     def failing_tick(self):
@@ -1495,7 +1509,6 @@ def test_cancel_cleanup_does_not_start_second_frame(monkeypatch):
     import threading
 
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
 
     frame_started = threading.Event()
@@ -1544,7 +1557,6 @@ def test_cancel_cleanup_does_not_start_second_frame(monkeypatch):
 def test_startup_failure_clears_session_identity(monkeypatch):
     """Failed camera open rejects prepare and clears session_ref identity."""
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
 
     def failing_open(self) -> bool:
         StubCamera.open_calls += 1
@@ -2014,7 +2026,6 @@ def test_readiness_frame_session_state_is_readying_not_preparing(monkeypatch):
 def test_readiness_stop_cleans_up(monkeypatch):
     """Stopping from the READYING state must release the camera and clear state."""
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
 
     async def _run():
         async def fake_send(text):

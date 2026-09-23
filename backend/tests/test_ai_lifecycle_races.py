@@ -498,7 +498,6 @@ def test_active_analysis_is_not_reset_by_idempotent_activate(monkeypatch):
 
 def test_stop_during_slow_inference_waits_and_does_not_leak(monkeypatch):
     _patch_gated_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
     monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
 
@@ -864,7 +863,6 @@ def test_lifecycle_state_lock_skip_does_not_deadlock_with_preview(monkeypatch):
 def test_ai_loop_survives_activate_holding_state_lock(monkeypatch):
     """Production READYING→ACTIVE race: ai_loop tick during activate must not die."""
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
     monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
 

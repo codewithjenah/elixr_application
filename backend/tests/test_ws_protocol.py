@@ -182,7 +182,6 @@ def _patch_vision(monkeypatch):
         "annotate_frame",
         lambda current_frame, *a, **k: current_frame,
     )
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
 
 
 def test_stub_camera_capture_timestamps_use_monotonic_clock_domain():
@@ -1265,7 +1264,6 @@ def test_prepare_timeout_clears_session_task_and_identity(monkeypatch):
     import time
 
     _patch_vision(monkeypatch)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
     monkeypatch.setattr(websocket_api, "SESSION_PREP_TIMEOUT_S", 0.1)
 
     def slow_open(self) -> bool:
@@ -1303,7 +1301,6 @@ def test_prepare_ack_sent_only_after_camera_open(monkeypatch):
 
     _patch_vision(monkeypatch)
     monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
-    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
 
     open_started = {"n": 0}
     open_finished = {"n": 0}
