@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -37,6 +38,17 @@ def _template(*, sides=("left",), moving_pose=False):
     )
 
 
+def _performer_pose(center_x=0.5, *, hips_only=False):
+    left, right = (23, 24) if hips_only else (11, 12)
+    return SimpleNamespace(
+        points={
+            left: SimpleNamespace(x=center_x - 0.1, y=0.6 if hips_only else 0.3),
+            right: SimpleNamespace(x=center_x + 0.1, y=0.6 if hips_only else 0.3),
+        },
+        visibility={left: 0.9, right: 0.9},
+    )
+
+
 def test_custom_capture_uses_minimum_readiness_but_observes_all_modalities():
     session = websocket_api.VisionSession(
         "Custom Movement",
@@ -49,6 +61,133 @@ def test_custom_capture_uses_minimum_readiness_but_observes_all_modalities():
     assert session._pose_needed is True
     assert session._hands_max == 2
     assert session._yolo_frame_skip == 1
+
+
+def test_custom_capture_requests_two_poses_only_for_reference_session(monkeypatch):
+    constructed = []
+
+    class FakePose:
+        def __init__(self, **kwargs):
+            constructed.append(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(websocket_api, "PoseDetector", FakePose)
+    capture = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    capture._ensure_readiness_detectors()
+    assert constructed == [{"max_poses": 2}]
+    capture._ensure_detectors()
+    assert constructed == [{"max_poses": 2}]
+    ordinary = websocket_api.VisionSession("Hand Stall")
+    ordinary._sync_landmark_detectors(needs_hands=False, needs_pose=True)
+    assert constructed[-1] == {}
+
+
+def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    detector = SimpleNamespace(last_person_count=2)
+    session.pose_detector = detector
+    session._observe_custom_people(None)
+    session._observe_custom_people(None)
+    assert session.start_custom_capture(duration_seconds=15) == (
+        False, "single_performer_required"
+    )
+
+    detector.last_person_count = 1
+    session._observe_custom_people(_performer_pose())
+    assert session.start_custom_capture(duration_seconds=15)[0] is False
+    session._observe_custom_people(_performer_pose())
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    session._custom_samples = list(_reference())
+
+    detector.last_person_count = 2
+    session._observe_custom_people(None)
+    assert session._custom_multiple_invalid is False
+    detector.last_person_count = 1
+    session._observe_custom_people(_performer_pose())
+    assert session._custom_multiple_invalid is False
+    session._observe_custom_people(_performer_pose())
+    accepted, code, _ = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+    assert session.custom_reference_count == 1
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    session._custom_samples = list(_reference())
+    detector.last_person_count = 2
+    session._observe_custom_people(None)
+    session._observe_custom_people(None)
+    assert session._custom_multiple_invalid is True
+    accepted, code, _ = session.stop_custom_capture()
+    assert (accepted, code) == (False, "multiple_people_detected")
+    assert session.custom_reference_count == 1
+    assert session._custom_samples is None
+    assert len(session._custom_references) == 1
+
+    detector.last_person_count = 1
+    session._observe_custom_people(_performer_pose())
+    session._observe_custom_people(_performer_pose())
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    session._custom_samples = list(_reference())
+    accepted, code, _ = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+    assert session.custom_reference_count == 2
+
+
+def test_transient_second_pose_cannot_switch_reference_performer():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    detector = SimpleNamespace(last_person_count=1)
+    session.pose_detector = detector
+    session._observe_custom_people(_performer_pose(0.3))
+    session._observe_custom_people(_performer_pose(0.3))
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    session._custom_samples = list(_reference())
+    detector.last_person_count = 2
+    session._observe_custom_people(_performer_pose(0.3))
+    assert session._custom_multiple_invalid is False
+    detector.last_person_count = 1
+    session._observe_custom_people(_performer_pose(0.7))
+    assert session._custom_multiple_invalid is True
+    accepted, code, _ = session.stop_custom_capture()
+    assert (accepted, code) == (False, "multiple_people_detected")
+    assert session.custom_reference_count == 0
+
+
+def test_transient_extra_pose_waits_for_comparable_anchor_without_false_switch():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    detector = SimpleNamespace(last_person_count=1)
+    session.pose_detector = detector
+    session._observe_custom_people(_performer_pose())
+    session._observe_custom_people(_performer_pose())
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    session._custom_samples = list(_reference())
+    detector.last_person_count = 2
+    session._observe_custom_people(None)
+    detector.last_person_count = 1
+    session._observe_custom_people(_performer_pose(hips_only=True))
+    assert session._custom_awaiting_identity is True
+    assert session._custom_multiple_invalid is False
+    session._observe_custom_people(_performer_pose())
+    assert session._custom_awaiting_identity is False
+    accepted, code, _ = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+
+
+def test_custom_readiness_confirmation_requires_one_live_performer():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_READYING
+    session._latest_readiness_snapshot = SimpleNamespace(readiness_stable=True)
+    session._latest_readiness_observed_at = time.monotonic()
+    session.pose_detector = SimpleNamespace(last_person_count=2)
+    session._observe_custom_people(None)
+    session._observe_custom_people(None)
+    assert session.confirm_readiness() == (False, "single_performer_required")
+    session.pose_detector.last_person_count = 1
+    session._observe_custom_people(_performer_pose())
+    session._observe_custom_people(_performer_pose())
+    assert session.confirm_readiness() == (True, None)
 
 
 def test_custom_assessment_readiness_is_derived_from_one_hand_template():

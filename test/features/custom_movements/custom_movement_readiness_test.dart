@@ -45,20 +45,24 @@ Map<String, dynamic> _oneHandTemplateMap() => {
   'prop_events': <Map<String, dynamic>>[],
 };
 
-CommandAck _ack(String action, {int? referenceCount, bool accepted = true}) =>
-    CommandAck(
-      protocolVersion: 1,
-      requestId: 'req-$action',
-      action: action,
-      accepted: accepted,
-      sessionId: 'session-test',
-      sessionState: action == 'stop' ? 'idle' : 'active',
-      referenceCount: referenceCount,
-      movementTemplate: action == 'build_custom_template'
-          ? _oneHandTemplateMap()
-          : null,
-      errorCode: accepted ? null : 'missing_modality',
-    );
+CommandAck _ack(
+  String action, {
+  int? referenceCount,
+  bool accepted = true,
+  String? errorCode,
+}) => CommandAck(
+  protocolVersion: 1,
+  requestId: 'req-$action',
+  action: action,
+  accepted: accepted,
+  sessionId: 'session-test',
+  sessionState: action == 'stop' ? 'idle' : 'active',
+  referenceCount: referenceCount,
+  movementTemplate: action == 'build_custom_template'
+      ? _oneHandTemplateMap()
+      : null,
+  errorCode: accepted ? null : (errorCode ?? 'missing_modality'),
+);
 
 class _CustomSocket extends WebSocketService {
   final _previews = StreamController<PreviewFrame>.broadcast(sync: true);
@@ -75,6 +79,7 @@ class _CustomSocket extends WebSocketService {
   int buildCalls = 0;
   int startCustomCaptureCalls = 0;
   bool rejectNextStop = false;
+  String? rejectNextStopCode;
   bool rejectNextSessionStop = false;
 
   @override
@@ -140,7 +145,14 @@ class _CustomSocket extends WebSocketService {
   Future<CommandAck> sendStopCustomCapture({String? sessionId}) async {
     if (rejectNextStop) {
       rejectNextStop = false;
-      return _ack('stop_custom_capture', accepted: false);
+      final code = rejectNextStopCode;
+      rejectNextStopCode = null;
+      return _ack(
+        'stop_custom_capture',
+        accepted: false,
+        errorCode: code,
+        referenceCount: acceptedReferences,
+      );
     }
     acceptedReferences += 1;
     return _ack('stop_custom_capture', referenceCount: acceptedReferences);
@@ -180,7 +192,12 @@ class _CustomSocket extends WebSocketService {
     );
   }
 
-  void emitFeedback({required bool bottleDetected, bool? readinessStable}) {
+  void emitFeedback({
+    required bool bottleDetected,
+    bool? readinessStable,
+    int? personCount = 1,
+    bool? referenceInvalid,
+  }) {
     _feedback.add(
       PracticeFeedback(
         bottleDetected: bottleDetected,
@@ -189,6 +206,8 @@ class _CustomSocket extends WebSocketService {
         feedbackType: 'positive',
         postureStatus: 'unknown',
         readinessStable: readinessStable,
+        personCount: personCount,
+        referenceInvalid: referenceInvalid,
       ),
     );
   }
@@ -275,6 +294,109 @@ void _useDesktopSurface(WidgetTester tester) {
 }
 
 void main() {
+  test(
+    'reference person count parses safely and affects only semantic equality',
+    () {
+      PracticeFeedback parse(Map<String, dynamic> extra) =>
+          PracticeFeedback.fromJson({
+            'movement': 'Custom Movement',
+            'feedback': 'Ready',
+            ...extra,
+          });
+      final missing = parse({});
+      final zero = parse({'person_count': 0});
+      final one = parse({'person_count': 1});
+      final two = parse({'person_count': 2});
+      expect(missing.personCount, isNull);
+      expect([zero.personCount, one.personCount, two.personCount], [0, 1, 2]);
+      expect(one.semanticEquals(two), isFalse);
+      expect(one.scoredPracticeChromeEquals(two), isTrue);
+      final invalid = parse({'person_count': 1, 'reference_invalid': true});
+      expect(invalid.referenceInvalid, isTrue);
+      expect(one.semanticEquals(invalid), isFalse);
+      expect(one.scoredPracticeChromeEquals(invalid), isTrue);
+    },
+  );
+
+  testWidgets(
+    'recorder requires one performer and rejects a contaminated reference',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final socket = _CustomSocket();
+      await tester.pumpWidget(
+        _withSettings(
+          _TestSettings(),
+          CustomReferenceRecorderDialog(
+            difficulty: 'Medium',
+            prop: TrainingProp.bottle,
+            webSocket: socket,
+          ),
+        ),
+      );
+      await tester.pump();
+      final button = find.byKey(const ValueKey('custom-reference-record'));
+      socket.emitFeedback(
+        bottleDetected: true,
+        readinessStable: true,
+        personCount: 0,
+      );
+      await tester.pump();
+      expect(tester.widget<FilledButton>(button).onPressed, isNull);
+      socket.emitFeedback(
+        bottleDetected: true,
+        readinessStable: true,
+        personCount: 2,
+      );
+      await tester.pump();
+      expect(tester.widget<FilledButton>(button).onPressed, isNull);
+      expect(find.text('Multiple people detected'), findsOneWidget);
+      socket.emitReady();
+      await tester.pump();
+      expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+
+      await tester.tap(button);
+      await tester.pump();
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      socket.emitFeedback(bottleDetected: true, personCount: 2);
+      await tester.pump();
+      expect(find.text('Multiple people detected'), findsOneWidget);
+      socket.emitFeedback(
+        bottleDetected: true,
+        personCount: 1,
+        referenceInvalid: true,
+      );
+      await tester.pump();
+      expect(find.text('Multiple people detected'), findsOneWidget);
+      socket.rejectNextStop = true;
+      socket.rejectNextStopCode = 'multiple_people_detected';
+      await tester.tap(button);
+      await tester.pump();
+      expect(socket.acceptedReferences, 0);
+      expect(
+        find.textContaining('Reference rejected because multiple people'),
+        findsOneWidget,
+      );
+      socket.emitFeedback(bottleDetected: true, personCount: 1);
+      await tester.pump();
+      expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+      await tester.tap(button);
+      await tester.pump();
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      await tester.tap(button);
+      await tester.pump();
+      expect(socket.acceptedReferences, 1);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 200));
+      await socket.closeTestStreams();
+    },
+  );
+
   testWidgets('reference capture readiness is camera and selected prop only', (
     tester,
   ) async {

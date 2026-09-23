@@ -121,6 +121,10 @@ class FeedbackMessage(BaseModel):
     readiness_complete: Optional[bool] = None
     readiness_stable: Optional[bool] = None
     readiness_stable_progress: Optional[float] = None
+    # Custom reference capture only: confirmed visible performer count (2 means 2+).
+    person_count: Optional[int] = None
+    # Custom reference only: this recording has been irreversibly invalidated.
+    reference_invalid: Optional[bool] = None
     calibration_scale: Optional[float] = None
     calibration_source: Optional[Literal["shoulders", "palm_fallback", "default"]] = None
     # Playground freestyle live state. Absent on guided/assignment sessions.

@@ -478,6 +478,8 @@ def _human_error_message(error_code: str) -> str:
         "unexpected_custom_movement_template": "A template is not valid for this capture mode.",
         "custom_capture_already_recording": "A movement reference is already being recorded.",
         "custom_capture_not_recording": "No movement reference is being recorded.",
+        "single_performer_required": "Keep one performer in frame before recording a reference.",
+        "multiple_people_detected": "Reference rejected because multiple people were detected. Keep only one performer in frame and record it again.",
         "invalid_reference_count": "Record three valid references before building the template.",
         "insufficient_frames": "The recording was too short. Perform the complete movement and retry.",
         "missing_modality": "Keep your upper body, hands, and selected prop visible.",
@@ -781,6 +783,16 @@ class VisionSession:
         self._custom_capture_started_at: float | None = None
         self._custom_capture_deadline: float | None = None
         self._custom_previous_prop: tuple[float, float, int] | None = None
+        # Two consecutive evaluated Pose frames confirm either one performer
+        # or multiple people. A single noisy extra pose pauses sampling only.
+        self._custom_single_streak = 0
+        self._custom_multiple_streak = 0
+        self._custom_person_count = 0
+        self._custom_person_observed_at: float | None = None
+        self._custom_multiple_invalid = False
+        self._custom_primary_anchors: dict[str, tuple[float, float, float, float]] = {}
+        self._custom_ambiguous_anchors: dict[str, tuple[float, float, float, float]] = {}
+        self._custom_awaiting_identity = False
         self._orientation_inference_count = 0
         self._orientation_inference_ms = 0.0
 
@@ -811,6 +823,91 @@ class VisionSession:
     def custom_reference_count(self) -> int:
         return len(self._custom_references)
 
+    def _observe_custom_people(self, pose: Any) -> None:
+        if not self._is_custom_capture:
+            return
+        # The primary pose alone cannot prove that only one person is visible.
+        # Fail closed when a detector does not expose the result count.
+        count = min(2, getattr(self.pose_detector, "last_person_count", 0))
+        if count == 1 and pose is None:
+            count = 0
+        self._custom_person_observed_at = time.monotonic()
+        if count == 1:
+            anchors = self._custom_pose_anchors(pose)
+            if self._custom_awaiting_identity:
+                comparable = set(anchors) & set(self._custom_ambiguous_anchors)
+                if comparable:
+                    # Only compare the same joint pair. The position allowance
+                    # grows with elapsed time for fast legitimate body motion.
+                    for kind in comparable:
+                        x, y, width, _ = anchors[kind]
+                        old_x, old_y, old_width, old_at = (
+                            self._custom_ambiguous_anchors[kind]
+                        )
+                        max_shift = min(
+                            0.35,
+                            0.15 + 1.5 * (self._custom_person_observed_at - old_at),
+                        )
+                        if (
+                            abs(x - old_x) > max_shift
+                            or abs(y - old_y) > max_shift
+                            or width < old_width * 0.5
+                            or width > old_width * 2.0
+                        ):
+                            self._custom_multiple_invalid = True
+                    self._custom_awaiting_identity = False
+                    self._custom_ambiguous_anchors = {}
+            self._custom_primary_anchors.update(anchors)
+            self._custom_single_streak += 1
+            self._custom_multiple_streak = 0
+            self._custom_person_count = 1 if self._custom_single_streak >= 2 else 0
+        elif count >= 2:
+            if self._custom_samples is not None and not self._custom_awaiting_identity:
+                self._custom_ambiguous_anchors = {
+                    kind: anchor
+                    for kind, anchor in self._custom_primary_anchors.items()
+                    if self._custom_person_observed_at - anchor[3] <= 0.5
+                }
+                self._custom_awaiting_identity = True
+            self._custom_multiple_streak += 1
+            self._custom_single_streak = 0
+            self._custom_person_count = 2 if self._custom_multiple_streak >= 2 else 0
+            if self._custom_person_count == 2 and self._custom_samples is not None:
+                self._custom_multiple_invalid = True
+        else:
+            self._custom_single_streak = 0
+            self._custom_multiple_streak = 0
+            self._custom_person_count = 0
+
+    @staticmethod
+    def _custom_pose_anchors(pose: Any) -> dict[str, tuple[float, float, float, float]]:
+        if pose is None:
+            return {}
+        anchors = {}
+        for kind, left, right in (("shoulders", 11, 12), ("hips", 23, 24)):
+            first = pose.points.get(left)
+            second = pose.points.get(right)
+            if (
+                first is not None
+                and second is not None
+                and pose.visibility.get(left, 0) >= 0.5
+                and pose.visibility.get(right, 0) >= 0.5
+            ):
+                anchors[kind] = (
+                    (first.x + second.x) / 2,
+                    (first.y + second.y) / 2,
+                    abs(first.x - second.x),
+                    time.monotonic(),
+                )
+        return anchors
+
+    def _single_custom_performer_ready(self) -> bool:
+        return (
+            self._custom_person_count == 1
+            and self._custom_person_observed_at is not None
+            and time.monotonic() - self._custom_person_observed_at <= READINESS_SNAPSHOT_MAX_AGE_S
+        )
+
     def start_custom_capture(self, *, duration_seconds: int) -> tuple[bool, str | None]:
         self._acquire_ai_state(blocking=True)
         try:
@@ -818,7 +915,12 @@ class VisionSession:
                 return False, "invalid_session_purpose"
             if self._custom_samples is not None:
                 return False, "custom_capture_already_recording"
+            if self._is_custom_capture and not self._single_custom_performer_ready():
+                return False, "single_performer_required"
             self._custom_samples = []
+            self._custom_multiple_invalid = False
+            self._custom_awaiting_identity = False
+            self._custom_ambiguous_anchors = {}
             self._custom_capture_started_at = time.monotonic()
             self._custom_capture_deadline = (
                 self._custom_capture_started_at + duration_seconds
@@ -838,6 +940,18 @@ class VisionSession:
             self._custom_capture_started_at = None
             self._custom_capture_deadline = None
             self._custom_previous_prop = None
+            multiple_invalid = self._custom_multiple_invalid
+            identity_unresolved = self._custom_awaiting_identity
+            self._custom_multiple_invalid = False
+            self._custom_awaiting_identity = False
+            self._custom_ambiguous_anchors = {}
+            if multiple_invalid or identity_unresolved:
+                return False, "multiple_people_detected", {
+                    "valid": False,
+                    "accepted": False,
+                    "frame_count": len(samples),
+                    "rejected_reason": "multiple_people_detected",
+                }
             if not samples:
                 return False, "custom_capture_not_recording", {}
             required_modalities = (
@@ -1634,7 +1748,11 @@ class VisionSession:
 
         if needs_pose:
             if self.pose_detector is None:
-                self.pose_detector = PoseDetector()
+                self.pose_detector = (
+                    PoseDetector(max_poses=2)
+                    if self._is_custom_capture
+                    else PoseDetector()
+                )
         elif self.pose_detector is not None:
             self.pose_detector.close()
             self.pose_detector = None
@@ -1657,7 +1775,7 @@ class VisionSession:
             needs_hands=readiness_needs_hands(
                 self.movement, self.prop_type, self.readiness_spec
             ),
-            needs_pose=readiness_needs_pose(
+            needs_pose=self._is_custom_capture or readiness_needs_pose(
                 self.movement, self.prop_type, self.readiness_spec
             ),
         )
@@ -1767,6 +1885,8 @@ class VisionSession:
             snapshot = self._latest_readiness_snapshot
             if snapshot is None or not snapshot.readiness_stable:
                 return False, "readiness_not_stable"
+            if self._is_custom_capture and not self._single_custom_performer_ready():
+                return False, "single_performer_required"
 
             observed_at = self._latest_readiness_observed_at
             if observed_at is None:
@@ -2105,7 +2225,7 @@ class VisionSession:
         needs_h = readiness_needs_hands(
             self.movement, self.prop_type, self.readiness_spec
         )
-        needs_p = readiness_needs_pose(
+        needs_p = self._is_custom_capture or readiness_needs_pose(
             self.movement, self.prop_type, self.readiness_spec
         )
         normalized, hands, pose = self._run_frame_inference(
@@ -2117,6 +2237,8 @@ class VisionSession:
         )
         if self._reject_replaced_capture(captured):
             return None
+        if self._is_custom_capture:
+            self._observe_custom_people(pose)
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)
 
@@ -2209,7 +2331,12 @@ class VisionSession:
                 session_state="readying",
                 readiness_items=readiness_items,
                 readiness_complete=readiness_complete,
-                readiness_stable=readiness_stable,
+                readiness_stable=(
+                    readiness_stable and self._single_custom_performer_ready()
+                    if self._is_custom_capture
+                    else readiness_stable
+                ),
+                person_count=self._custom_person_count if self._is_custom_capture else None,
                 readiness_stable_progress=readiness_stable_progress,
                 calibration_scale=self._calibration.scale,
                 calibration_source=self._calibration.source,
@@ -2393,6 +2520,8 @@ class VisionSession:
         )
         if self._reject_replaced_capture(captured):
             return None
+        if self._is_custom_capture:
+            self._observe_custom_people(pose)
 
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)
@@ -2433,20 +2562,34 @@ class VisionSession:
                         return self._orientation_failure()
             if self._reject_replaced_capture(captured):
                 return None
-            self._record_custom_sample(
-                captured=captured,
-                frame=frame,
-                normalized=normalized,
-                hands=hands,
-                pose=pose,
-                yolo_attempted=run_yolo,
-                orientation=orientation,
-            )
+            if not self._is_custom_capture or self._custom_samples is None or (
+                self._custom_person_count == 1
+                and not self._custom_multiple_invalid
+                and not self._custom_awaiting_identity
+            ):
+                self._record_custom_sample(
+                    captured=captured,
+                    frame=frame,
+                    normalized=normalized,
+                    hands=hands,
+                    pose=pose,
+                    yolo_attempted=run_yolo,
+                    orientation=orientation,
+                )
             feedback = (
                 "Recording movement reference…"
                 if self._custom_samples is not None
                 else "Ready to record the full movement"
             )
+            multiple_people_warning = self._is_custom_capture and (
+                self._custom_person_count >= 2 or self._custom_multiple_invalid
+            )
+            if multiple_people_warning:
+                feedback = (
+                    "Multiple people detected. This reference must be retried."
+                    if self._custom_samples is not None
+                    else "Multiple people detected. Only one person can be in frame while recording a reference."
+                )
             self._publish_overlay(
                 freeze_overlay(
                     published_at_monotonic=time.monotonic(),
@@ -2457,7 +2600,7 @@ class VisionSession:
                     hands=hands,
                     pose=pose,
                     feedback=feedback,
-                    feedback_type="positive",
+                    feedback_type="warning" if multiple_people_warning else "positive",
                     movement=self.display_movement,
                     prop_label=self.prop_display_name,
                 )
@@ -2469,11 +2612,13 @@ class VisionSession:
                     prop_type=self.prop_type,
                     movement=self.display_movement,
                     feedback=feedback,
-                    feedback_type="positive",
+                    feedback_type="warning" if multiple_people_warning else "positive",
                     posture_status="unknown",
                     frame_jpeg_base64=None,
                     camera_ready=True,
                     session_state="active",
+                    person_count=self._custom_person_count if self._is_custom_capture else None,
+                    reference_invalid=self._custom_multiple_invalid if self._is_custom_capture else None,
                 )
             )
             self.timings.add("processing_total", time.perf_counter() - total_start)

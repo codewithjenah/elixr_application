@@ -93,6 +93,8 @@ class PracticeFeedback {
     this.readinessComplete,
     this.readinessStable,
     this.readinessStableProgress,
+    this.personCount,
+    this.referenceInvalid,
     this.calibrationScale,
     this.calibrationSource,
     this.recognitionState,
@@ -153,6 +155,12 @@ class PracticeFeedback {
 
   /// Progress toward stable readiness confirmation (0.0–1.0). Absent when not readying.
   final double? readinessStableProgress;
+
+  /// Custom reference capture: confirmed visible performers (2 means 2+).
+  final int? personCount;
+
+  /// True once the current custom reference cannot be accepted.
+  final bool? referenceInvalid;
 
   /// Session proximity scale from readiness calibration. Null until measured.
   final double? calibrationScale;
@@ -226,6 +234,8 @@ class PracticeFeedback {
         readinessComplete == other.readinessComplete &&
         readinessStable == other.readinessStable &&
         readinessStableProgress == other.readinessStableProgress &&
+        personCount == other.personCount &&
+        referenceInvalid == other.referenceInvalid &&
         calibrationScale == other.calibrationScale &&
         calibrationSource == other.calibrationSource &&
         _readinessItemsEqual(readinessItems, other.readinessItems);
@@ -326,6 +336,10 @@ class PracticeFeedback {
       readinessComplete: json['readiness_complete'] as bool?,
       readinessStable: json['readiness_stable'] as bool?,
       readinessStableProgress: readinessStableProgress,
+      personCount: json['person_count'] is num
+          ? (json['person_count'] as num).toInt().clamp(0, 2)
+          : null,
+      referenceInvalid: json['reference_invalid'] as bool?,
       calibrationScale: json['calibration_scale'] is num
           ? (json['calibration_scale'] as num).toDouble()
           : null,

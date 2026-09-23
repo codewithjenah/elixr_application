@@ -58,6 +58,8 @@ class _CustomReferenceRecorderDialogState
   bool _recording = false;
   bool _busy = false;
   bool _cameraSelectionBusy = false;
+  int? _personCount;
+  bool _referenceContaminated = false;
   int _referenceCount = 0;
   String? _sessionToRelease;
   int? _countdown;
@@ -70,6 +72,7 @@ class _CustomReferenceRecorderDialogState
       !_busy &&
       !_cameraSelectionBusy &&
       !_recording &&
+      _personCount == 1 &&
       (_ready || _active);
 
   @override
@@ -91,7 +94,13 @@ class _CustomReferenceRecorderDialogState
       if (!mounted || _initializing) return;
       setState(() {
         _ready = feedback.readinessStable == true;
-        if (!_ready) _quality = feedback.feedback;
+        _personCount = feedback.personCount;
+        if (_recording &&
+            (feedback.referenceInvalid == true ||
+                (feedback.personCount != null && feedback.personCount! >= 2))) {
+          _referenceContaminated = true;
+        }
+        if (!_ready && !_recording) _quality = feedback.feedback;
       });
     });
     await _prepareSession();
@@ -101,6 +110,8 @@ class _CustomReferenceRecorderDialogState
     setState(() {
       _initializing = true;
       _ready = false;
+      _personCount = null;
+      _referenceContaminated = false;
       _error = null;
       _cameraName = null;
       _quality = 'Position yourself and the selected prop in view.';
@@ -161,6 +172,8 @@ class _CustomReferenceRecorderDialogState
     setState(() {
       _initializing = true;
       _ready = false;
+      _personCount = null;
+      _referenceContaminated = false;
       _quality = 'Position yourself and the selected prop in view.';
       _preview.value = null;
       _presentation.value = null;
@@ -214,6 +227,7 @@ class _CustomReferenceRecorderDialogState
       if (!mounted) return;
       setState(() {
         _recording = true;
+        _referenceContaminated = false;
         _quality = 'Recording the full movement…';
       });
     } catch (_) {
@@ -231,6 +245,16 @@ class _CustomReferenceRecorderDialogState
     try {
       final ack = await _socket.sendStopCustomCapture();
       if (!ack.accepted) {
+        if (ack.errorCode == 'multiple_people_detected') {
+          if (mounted) {
+            setState(() {
+              _recording = false;
+              _error =
+                  'Reference rejected because multiple people were detected. Keep only one performer in frame and record it again.';
+            });
+          }
+          return;
+        }
         throw StateError(ack.message ?? ack.errorCode ?? 'invalid reference');
       }
       final count = ack.referenceCount ?? (_referenceCount + 1);
@@ -345,10 +369,13 @@ class _CustomReferenceRecorderDialogState
               referenceCount: _referenceCount,
               ready: _ready,
               active: _active,
+              personReady: _personCount == 1,
               initializing: _initializing,
               recording: _recording,
               quality: _quality,
               error: _error,
+              multiplePeople: _personCount != null && _personCount! >= 2,
+              referenceContaminated: _referenceContaminated,
               prop: widget.prop,
               presentation: presentation,
             ),
@@ -555,20 +582,26 @@ class _RecorderStatusPanel extends StatelessWidget {
     required this.referenceCount,
     required this.ready,
     required this.active,
+    required this.personReady,
     required this.initializing,
     required this.recording,
     required this.quality,
     required this.error,
+    required this.multiplePeople,
+    required this.referenceContaminated,
     required this.prop,
     required this.presentation,
   });
   final int referenceCount;
   final bool ready;
   final bool active;
+  final bool personReady;
   final bool initializing;
   final bool recording;
   final String quality;
   final String? error;
+  final bool multiplePeople;
+  final bool referenceContaminated;
   final TrainingProp prop;
   final PreviewFrame? presentation;
 
@@ -620,7 +653,7 @@ class _RecorderStatusPanel extends StatelessWidget {
               ? 'Preparing camera'
               : recording
               ? 'Recording reference ${referenceCount + 1} of 3'
-              : active || ready
+              : (active || ready) && personReady
               ? referenceCount == 0
                     ? 'Ready to record'
                     : 'Reference saved — record the next one'
@@ -629,6 +662,18 @@ class _RecorderStatusPanel extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(quality, maxLines: 3, overflow: TextOverflow.ellipsis),
+        if (multiplePeople || (recording && referenceContaminated)) ...[
+          const SizedBox(height: AppSpacing.sm),
+          InfoBar(
+            title: const Text('Multiple people detected'),
+            content: Text(
+              recording || referenceContaminated
+                  ? 'This reference cannot be accepted. Finish it, then retry with only one performer in frame.'
+                  : 'Only one person can be in frame while recording a reference.',
+            ),
+            severity: InfoBarSeverity.warning,
+          ),
+        ],
         if (error != null) ...[
           const SizedBox(height: AppSpacing.sm),
           InfoBar(

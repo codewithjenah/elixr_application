@@ -732,12 +732,16 @@ Teachers and Trainees. They never register a custom name in the official rule
 registry:
 
 - `session_mode: "custom_capture"` prepares readiness for recording reference
-  sequences. Reference readiness requires the camera and selected prop; Hands
-  and Pose are observed during recording so the three demonstrations can infer
+  sequences. Reference readiness requires the camera, selected prop, and one
+  visible performer. The existing Pose pass observes at most two people during
+  readiness and recording; two consecutive evaluated frames confirm the person
+  state. Hands and Pose are observed during recording so the three demonstrations can infer
   reliable one-hand, two-hand, and meaningful-pose capabilities. After
   accepted readiness confirmation and activation,
   `start_custom_capture` begins one bounded monotonic sequence;
   `stop_custom_capture` returns `reference_count` and `reference_quality`.
+  A confirmed second person invalidates the current reference with
+  `multiple_people_detected`; rejected samples do not enter the template.
   `discard_custom_reference` removes the most recent accepted sequence and
   `build_custom_template` returns `movement_template` after at least three
   valid references.
@@ -843,6 +847,8 @@ Optional readiness fields on feedback (present during `readying`; omitted otherw
 - `readiness_complete` — all required items currently ready
 - `readiness_stable` — all items continuously ready for the configured stable duration
 - `readiness_stable_progress` — monotonic progress in `[0, 1]` toward stable
+- `person_count` — optional confirmed visible-person count for custom reference capture (`0` means none or still confirming, `1` means one, `2` means two or more); available during readiness and active capture. It is absent in other modes.
+- `reference_invalid` — optional custom reference flag that stays true after confirmed multiple-person presence or a detected performer switch; `stop_custom_capture` also rejects an unresolved identity gap.
 - `calibration_scale` — optional per-session proximity scale in `[0.6, 1.6]`; omitted/null until a shoulders or palm measurement is taken
 - `calibration_source` — optional `shoulders` | `palm_fallback` | `default`; omitted/null until measured. Accepted `confirm_readiness` `command_ack` includes the locked pair (`1.0` / `default` when nothing was measured).
 

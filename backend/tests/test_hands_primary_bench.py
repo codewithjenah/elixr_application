@@ -257,10 +257,9 @@ def test_yolo_pose_camera_configuration_remains_unchanged():
     assert YOLO_FRAME_SKIP == 2
     assert TARGET_FPS == 20
     assert CAMERA_RELEASE_DEBOUNCE_S == 2.0
-    pose_source = (BACKEND_ROOT / "vision" / "pose_detector.py").read_text(
-        encoding="utf-8"
-    )
-    assert "num_poses=1" in pose_source
+    from vision.pose_detector import PoseDetector
+
+    assert inspect.signature(PoseDetector).parameters["max_poses"].default == 1
     assert "pose_landmarker_lite.task" in (
         BACKEND_ROOT / "vision" / "model_assets.py"
     ).read_text(encoding="utf-8")
