@@ -511,6 +511,36 @@ def test_bartender_roi_usable_candidate_counts_recovery():
     assert abs(snap["fallback_recovery_rate"] - 1.0) < 1e-9
 
 
+def test_staged_hand_recovery_uses_one_primary_call_and_current_prop():
+    calls = {"primary": 0, "roi": 0}
+
+    class Stub(HandsDetector):
+        def __init__(self):
+            self._rotated_fallback = False
+            self._bartender_roi_fallback = True
+            self._max_num_hands = 1
+
+        def _detect_primary(self, frame):
+            calls["primary"] += 1
+            return None
+
+        def _detect_bartender_roi(self, frame, bottle):
+            calls["roi"] += 1
+            assert bottle is current_prop
+            return HandsResult(hands=[_zone_hand(0.375, 0.32)])
+
+    current_prop = _bartender_bottle()
+    detector = Stub()
+    frame = _blank()
+    stage = detector.detect_independent(frame, captured_at_monotonic=12.5)
+    assert stage.hands is None
+    assert calls == {"primary": 1, "roi": 0}
+    result = detector.finish_with_prop(frame, stage, current_prop)
+    assert result is not None
+    assert calls == {"primary": 1, "roi": 1}
+    assert detector.stats.snapshot()["fallback_successes"] == 1
+
+
 def test_fallback_ab_helper_reuses_identical_frames_and_bottles():
     frames = [_blank(), np.ones((480, 640, 3), dtype=np.uint8)]
     bottles = [_bartender_bottle(), None]

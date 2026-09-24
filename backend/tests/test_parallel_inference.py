@@ -14,7 +14,8 @@ from test_session_lifecycle import (
     StubPoseDetector,
     _patch_vision,
 )
-from vision.types import PropDetection
+from test_custom_movement_session import _template
+from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
 
 
 _BRANCH_DELAY_S = 0.12
@@ -282,6 +283,98 @@ def test_custom_frame_keeps_prop_hands_pose_and_capture_identity_together(monkey
         assert recorded["captured"].generation == 0
         assert recorded["yolo_attempted"] is True
         assert session.timings.inference_concurrency_summary()["sequential_frames"] == 1
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("prop_type", ("bottle", "shaker"))
+@pytest.mark.parametrize("session_mode", ("custom_capture", "custom_assessment"))
+def test_custom_stages_hand_recovery_after_parallel_yolo_and_pose(
+    monkeypatch, prop_type, session_mode,
+):
+    _patch_vision(monkeypatch)
+    _patch_prop(monkeypatch)
+    barrier = threading.Barrier(2)
+    _CoordinatedPropDetector.barrier = barrier
+    frame_ids: dict[str, int] = {}
+    observed_hands = HandsResult(
+        hands=[HandLandmarks(points={0: Point2D(0.2, 0.3)})]
+    )
+    observed_pose = PoseLandmarks(points={11: Point2D(0.4, 0.3)})
+
+    class StagedHands(StubHandsDetector):
+        def detect_independent(self, frame, *, captured_at_monotonic=None):
+            self.detect_calls += 1
+            frame_ids["hands"] = id(frame)
+            barrier.wait(timeout=2.0)
+            return "current-hand-stage"
+
+        def finish_with_prop(self, frame, stage, bottle):
+            assert _CoordinatedPropDetector.instances[-1].finished.is_set()
+            assert stage == "current-hand-stage"
+            assert bottle is _CoordinatedPropDetector.instances[-1].detection
+            frame_ids["recovery"] = id(frame)
+            return observed_hands
+
+    class StagedPose(StubPoseDetector):
+        def detect(self, frame):
+            self.detect_calls += 1
+            frame_ids["pose"] = id(frame)
+            return observed_pose
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", StagedHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", StagedPose)
+    kwargs = (
+        {"custom_movement_template": _template(
+            sides=("left", "right"), moving_pose=True,
+        ).to_dict()}
+        if session_mode == "custom_assessment" else {}
+    )
+    session = websocket_api.VisionSession(
+        "Custom Movement", prop_type=prop_type, session_mode=session_mode,
+        **kwargs,
+    )
+    try:
+        session._sync_landmark_detectors(needs_hands=True, needs_pose=True)
+        frame = object()
+        normalized, hands, pose = session._run_frame_inference(
+            frame, captured_at_monotonic=time.monotonic(), run_yolo=True,
+            needs_hands=True, needs_pose=True,
+        )
+        assert frame_ids == {"hands": id(frame), "pose": id(frame), "recovery": id(frame)}
+        assert normalized.primary == (_CoordinatedPropDetector.instances[-1].detection,)
+        assert hands is observed_hands and pose is observed_pose
+        assert session.hands_detector.detect_calls == 1
+        assert session.pose_detector.detect_calls == 1
+        assert session.timings.count("hands") == 1
+        assert session.timings.count("pose") == 1
+        assert session.timings.inference_concurrency_summary() == {
+            "parallel_frames": 1, "sequential_frames": 0,
+        }
+    finally:
+        _CoordinatedPropDetector.barrier = None
+        session.close()
+
+
+def test_failed_custom_hand_stage_still_records_one_timing_sample(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class FailingHands(StubHandsDetector):
+        def detect_independent(self, frame, *, captured_at_monotonic=None):
+            raise RuntimeError("hand inference failed")
+
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_capture",
+    )
+    session.hands_detector = FailingHands()
+    try:
+        with pytest.raises(RuntimeError, match="hand inference failed"):
+            session._detect_landmarks(
+                object(), captured_at_monotonic=time.monotonic(),
+                needs_hands=True, needs_pose=False, hand_reference=None,
+                defer_prop_recovery=True,
+            )
+        assert session.timings.count("hands") == 1
     finally:
         session.close()
 

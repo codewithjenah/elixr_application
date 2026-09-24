@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 import cv2
@@ -34,6 +35,15 @@ _BARTENDER_CROP_TOP_FRACTION = 0.05
 _BARTENDER_CROP_BOTTOM_FRACTION = 0.65
 
 CropBounds = tuple[int, int, int, int]
+
+
+@dataclass(frozen=True)
+class HandsIndependentResult:
+    """Current-frame hands before optional prop-dependent ROI recovery."""
+
+    hands: Optional[HandsResult]
+    rotated_attempted: bool
+    rotated_recovered: bool
 
 
 def _clockwise_point_to_original(point: Point2D) -> Point2D:
@@ -321,9 +331,20 @@ class HandsDetector:
         *,
         captured_at_monotonic: Optional[float] = None,
     ) -> Optional[HandsResult]:
+        independent = self.detect_independent(
+            frame, captured_at_monotonic=captured_at_monotonic
+        )
+        return self.finish_with_prop(frame, independent, bottle)
+
+    def detect_independent(
+        self,
+        frame: np.ndarray,
+        *,
+        captured_at_monotonic: Optional[float] = None,
+    ) -> HandsIndependentResult:
+        """Run VIDEO and rotated recovery without waiting for this frame's prop."""
         stats = self.stats
         stats.detect_calls += 1
-        fallback_used = False
         self._pending_captured_at = captured_at_monotonic
 
         t0 = time.perf_counter()
@@ -334,13 +355,28 @@ class HandsDetector:
         )
 
         rotated_recovered = False
+        rotated_attempted = False
         if hands is None and self._rotated_fallback:
             t0 = time.perf_counter()
             hands = self._detect_rotated(frame)
             stats.record_rotated(time.perf_counter() - t0)
-            fallback_used = True
+            rotated_attempted = True
             rotated_recovered = hands is not None and bool(hands.hands)
             stats.record_rotated_outcome(rotated_recovered)
+
+        return HandsIndependentResult(hands, rotated_attempted, rotated_recovered)
+
+    def finish_with_prop(
+        self,
+        frame: np.ndarray,
+        independent: HandsIndependentResult,
+        bottle: Optional[BottleDetection],
+    ) -> Optional[HandsResult]:
+        """Optionally recover a hand near the current prop; never rerun VIDEO/Pose."""
+        stats = self.stats
+        hands = independent.hands
+        fallback_used = independent.rotated_attempted
+        rotated_recovered = independent.rotated_recovered
 
         if not self._bartender_roi_fallback or bottle is None:
             if fallback_used:

@@ -1684,6 +1684,7 @@ class VisionSession:
         needs_hands: bool,
         needs_pose: bool,
         hand_reference: PropDetection | None,
+        defer_prop_recovery: bool = False,
     ) -> tuple[Any, Any]:
         """Run the ordered per-session MediaPipe stream for one captured frame."""
         hands = None
@@ -1691,7 +1692,12 @@ class VisionSession:
             assert self.hands_detector is not None
             started = time.perf_counter()
             try:
-                if getattr(self.hands_detector, "uses_capture_timestamps", False):
+                if defer_prop_recovery:
+                    independent = self.hands_detector.detect_independent(
+                        frame, captured_at_monotonic=captured_at_monotonic,
+                    )
+                    hands = (independent, time.perf_counter() - started)
+                elif getattr(self.hands_detector, "uses_capture_timestamps", False):
                     hands = self.hands_detector.detect(
                         frame,
                         bottle=hand_reference,
@@ -1700,7 +1706,10 @@ class VisionSession:
                 else:  # Compatibility with deterministic test doubles only.
                     hands = self.hands_detector.detect(frame, bottle=hand_reference)
             finally:
-                self.timings.add("hands", time.perf_counter() - started)
+                # A failed independent pass has no result to carry through to
+                # finish_with_prop, but its time still belongs in telemetry.
+                if not defer_prop_recovery or hands is None:
+                    self.timings.add("hands", time.perf_counter() - started)
 
         pose = None
         if needs_pose:
@@ -1729,14 +1738,21 @@ class VisionSession:
     ) -> tuple[_NormalizedFrameDetections, Any, Any]:
         """Produce same-frame prop and landmark observations with bounded overlap."""
         has_landmark_work = needs_hands or needs_pose
+        staged_hands = bool(
+            needs_hands
+            and self._is_custom
+            and self._hands_bartender_roi
+            and self.hands_detector is not None
+            and callable(getattr(self.hands_detector, "detect_independent", None))
+            and callable(getattr(self.hands_detector, "finish_with_prop", None))
+        )
         hands_can_run_without_prop = (
             not needs_hands
             or (
                 self.hands_detector is not None
-                and not getattr(
-                    self.hands_detector,
-                    "requires_current_prop",
-                    True,
+                and (
+                    not getattr(self.hands_detector, "requires_current_prop", True)
+                    or staged_hands
                 )
             )
         )
@@ -1745,9 +1761,9 @@ class VisionSession:
             and run_yolo
             and has_landmark_work
             and hands_can_run_without_prop
-            # Bartender ROI recovery needs this frame's selected prop. Custom
-            # and freestyle sessions also enable that production fallback.
-            and not (needs_hands and self._hands_bartender_roi)
+            # Generic custom hands can stage prop-independent inference; the
+            # prop ROI still waits for the current YOLO result below.
+            and (not (needs_hands and self._hands_bartender_roi) or staged_hands)
         )
 
         if can_overlap:
@@ -1763,6 +1779,7 @@ class VisionSession:
                 needs_hands=needs_hands,
                 needs_pose=needs_pose,
                 hand_reference=None,
+                defer_prop_recovery=staged_hands,
             )
             # Wait for both even when one failed so no orphan worker can touch
             # a detector after error handling or teardown begins.
@@ -1771,6 +1788,22 @@ class VisionSession:
             self.timings.record_inference_frame(parallel=True)
             normalized = prop_future.result()
             hands, pose = landmark_future.result()
+            if staged_hands:
+                independent, independent_seconds = hands
+                bottle = normalized.primary[0] if normalized.primary else None
+                shaker = normalized.shakers[0] if normalized.shakers else None
+                hand_reference = (
+                    shaker if shaker is not None else bottle
+                ) if self._is_dual_prop else bottle
+                started = time.perf_counter()
+                try:
+                    hands = self.hands_detector.finish_with_prop(
+                        frame, independent, hand_reference,
+                    )
+                finally:
+                    self.timings.add(
+                        "hands", independent_seconds + time.perf_counter() - started,
+                    )
             self._store_normalized_props(normalized)
             return normalized, hands, pose
 
