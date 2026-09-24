@@ -75,6 +75,10 @@ class CameraDeviceService extends ChangeNotifier {
   Future<void> refresh({bool forceRefresh = false}) async {
     if (_state == CameraDiscoveryState.loading) return;
 
+    // A mounted selector can reuse a successful list. Only the user's Refresh
+    // action should ask the backend to enumerate hardware again.
+    if (!forceRefresh && _state == CameraDiscoveryState.success) return;
+
     _state = CameraDiscoveryState.loading;
     _errorMessage = null;
     _errorKind = CameraDiscoveryErrorKind.none;
@@ -126,14 +130,16 @@ class CameraDeviceService extends ChangeNotifier {
     } on HttpException catch (error) {
       _setError(
         CameraDiscoveryErrorKind.httpError,
-        'Camera list request failed (${error.message})',
+        error.message == 'HTTP 503'
+            ? 'Camera discovery is temporarily unavailable. Try Refresh Camera again.'
+            : 'Camera list request failed (${error.message})',
         preserveCameras: true,
       );
     } on FormatException {
       _setError(
         CameraDiscoveryErrorKind.invalidResponse,
         'Backend returned an invalid camera list',
-        preserveCameras: false,
+        preserveCameras: true,
       );
     } catch (error) {
       _setError(

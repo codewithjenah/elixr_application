@@ -1,11 +1,13 @@
 import asyncio
+import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from schemas.camera import CamerasResponse
 from vision.camera import discover_cameras
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/cameras", response_model=CamerasResponse)
@@ -19,5 +21,12 @@ async def list_cameras(force_refresh: bool = False) -> CamerasResponse:
     short-lived discovery cache; single-flight coordination still prevents
     overlapping hardware scans from concurrent callers.
     """
-    payload = await asyncio.to_thread(discover_cameras, force_refresh=force_refresh)
+    try:
+        payload = await asyncio.to_thread(discover_cameras, force_refresh=force_refresh)
+    except (OSError, RuntimeError) as exc:
+        logger.exception("Camera discovery unavailable: force_refresh=%s", force_refresh)
+        raise HTTPException(
+            status_code=503,
+            detail="Camera discovery is temporarily unavailable. Try Refresh Camera again.",
+        ) from exc
     return CamerasResponse.model_validate(payload)

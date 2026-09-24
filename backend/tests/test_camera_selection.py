@@ -503,10 +503,10 @@ def test_discover_cameras_includes_active_shared_without_reopen(monkeypatch):
     monkeypatch.setattr(camera_mod, "enumerate_camera_devices", lambda: [])
 
     result = camera_mod.discover_cameras(max_index=1, force_refresh=True)
-    assert [c["runtime_index"] for c in result["cameras"]] == [0, 1]
+    assert any(c["runtime_index"] == 0 for c in result["cameras"])
     assert result["active_index"] == 0
     assert result["active_device_id"] == "opencv:0"
-    assert 0 not in opened
+    assert opened == []
     assert fake.released is False
 
     camera_mod._release_shared_unlocked()
@@ -572,6 +572,25 @@ def test_cameras_endpoint_plumbs_force_refresh(monkeypatch):
 
     asyncio.run(cameras_api.list_cameras(force_refresh=True))
     assert seen["force_refresh"] is True
+
+
+def test_cameras_endpoint_reports_recoverable_failure(monkeypatch):
+    import asyncio
+
+    from fastapi import HTTPException
+    from api import cameras as cameras_api
+
+    def failed_discovery(**_kwargs):
+        raise OSError("device enumeration failed")
+
+    monkeypatch.setattr(cameras_api, "discover_cameras", failed_discovery)
+    try:
+        asyncio.run(cameras_api.list_cameras())
+    except HTTPException as exc:
+        assert exc.status_code == 503
+        assert "Refresh Camera" in exc.detail
+    else:
+        raise AssertionError("recoverable discovery failure was not reported")
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +689,39 @@ def test_discover_cameras_reuses_cache(monkeypatch):
     second = camera_mod.discover_cameras()
     assert calls["n"] == 1
     assert first == second
+
+
+def test_recoverable_scan_failure_keeps_last_valid_cache(monkeypatch):
+    payload = {
+        "cameras": [],
+        "active_device_id": None,
+        "preferred_index": CAMERA_INDEX,
+        "fallback_index": CAMERA_FALLBACK_INDEX,
+        "active_index": None,
+    }
+    monkeypatch.setattr(camera_mod, "_discover_cameras_impl", lambda **_: payload)
+    camera_mod.reset_discovery_cache()
+    assert camera_mod.discover_cameras(force_refresh=True) == payload
+
+    def failed_scan(**_kwargs):
+        raise OSError("camera driver busy")
+
+    monkeypatch.setattr(camera_mod, "_discover_cameras_impl", failed_scan)
+    assert camera_mod.discover_cameras(force_refresh=True) == payload
+
+
+def test_one_driver_probe_failure_does_not_fail_discovery(monkeypatch):
+    monkeypatch.setattr(camera_mod, "enumerate_camera_devices", lambda: [])
+
+    def probe(index, **_kwargs):
+        if index == 0:
+            raise OSError("driver busy")
+        return index == 1
+
+    monkeypatch.setattr(camera_mod, "_probe_index_for_discovery", probe)
+    camera_mod.reset_discovery_cache()
+    result = camera_mod.discover_cameras(max_index=1, force_refresh=True)
+    assert [camera["runtime_index"] for camera in result["cameras"]] == [1]
 
 
 def test_overlapping_discovery_scans_share_single_flight(monkeypatch):

@@ -27,6 +27,7 @@ from vision.camera_devices import (
     device_id_for_runtime_index,
     display_name_for_runtime_index,
     enumerate_camera_devices,
+    fallback_device_for_index,
     is_fallback_device_id,
     is_stable_device_id,
     lookup_device,
@@ -1096,13 +1097,48 @@ def _discover_cameras_impl(*, max_index: int = DISCOVERY_MAX_INDEX) -> dict[str,
         )
         active_device_id = _shared_device_id
 
-    for index in indices:
-        if active_index is not None and index == active_index:
-            usable_indices.append(index)
-            continue
+    if active_index is not None:
+        with _DISCOVERY_LOCK:
+            cached = _discovery_cache
+        if cached is not None:
+            cameras = [dict(camera) for camera in cached["cameras"]]
+            if not any(camera["runtime_index"] == active_index for camera in cameras):
+                device = next(
+                    (item for item in enumerated if item.runtime_index == active_index),
+                    None,
+                )
+                if device is None:
+                    device = fallback_device_for_index(active_index)
+                cameras.append({
+                    "device_id": active_device_id or device.device_id,
+                    "display_name": device.display_name,
+                    "runtime_index": active_index,
+                    "is_active": True,
+                    "identity_stable": device.identity_stable,
+                    "index": active_index,
+                })
+            for camera in cameras:
+                camera["is_active"] = camera["runtime_index"] == active_index
+            return {**cached, "cameras": cameras,
+                    "active_device_id": active_device_id, "active_index": active_index}
 
-        if _probe_index_for_discovery(index, enumerated=enumerated):
-            usable_indices.append(index)
+    for index in indices:
+        # Session open and discovery must serialize physical VideoCapture opens.
+        # Holding this lock for one probe at a time lets prepare take over
+        # between devices, instead of waiting for a complete scan.
+        with _CAMERA_LOCK:
+            if _shared_cap is not None and _shared_cap.isOpened():
+                active_index = _shared_index
+                active_device_id = _shared_device_id
+                if index == active_index:
+                    usable_indices.append(index)
+                # Never open another capture while a session owns hardware.
+                continue
+            try:
+                if _probe_index_for_discovery(index, enumerated=enumerated):
+                    usable_indices.append(index)
+            except (OSError, cv2.error) as exc:
+                logger.warning("Camera discovery probe failed: index=%s reason=%s", index, exc)
 
     merged = merge_enumerated_with_usable_indices(
         usable_indices,
@@ -1164,7 +1200,7 @@ def discover_cameras(
 
     with _DISCOVERY_LOCK:
         if not force_refresh and _discovery_cache_fresh(now):
-            logger.debug("Returning cached camera discovery result")
+            logger.info("Camera discovery cache hit: age_s=%.2f", now - _discovery_cache_at)
             return dict(_discovery_cache)
 
         if _discovery_scan_inflight:
@@ -1185,6 +1221,18 @@ def discover_cameras(
 
     try:
         result = _discover_cameras_impl(max_index=max_index)
+    except (OSError, cv2.error):
+        logger.exception("Camera discovery scan failed; using last valid result when available")
+        with _DISCOVERY_LOCK:
+            fallback = dict(_discovery_cache) if _discovery_cache is not None else None
+            waiters = list(_discovery_scan_waiters)
+            _discovery_scan_waiters.clear()
+            _discovery_scan_inflight = False
+        for event in waiters:
+            event.set()
+        if fallback is not None:
+            return fallback
+        raise
     except Exception:
         with _DISCOVERY_LOCK:
             waiters = list(_discovery_scan_waiters)
@@ -1200,6 +1248,12 @@ def discover_cameras(
         waiters = list(_discovery_scan_waiters)
         _discovery_scan_waiters.clear()
         _discovery_scan_inflight = False
+
+    logger.info(
+        "Camera discovery scan completed: duration_s=%.2f cameras=%s",
+        time.monotonic() - now,
+        len(result["cameras"]),
+    )
 
     for event in waiters:
         event.set()

@@ -49,7 +49,7 @@ class _CameraSourcePreferenceState extends State<CameraSourcePreference> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _refreshRequested) return;
       _refreshRequested = true;
-      widget.cameras.refresh(forceRefresh: true);
+      widget.cameras.refresh();
     });
   }
 

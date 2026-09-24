@@ -89,6 +89,40 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('mounts reuse discovery and only Refresh forces a scan', (
+    tester,
+  ) async {
+    final requested = <Uri>[];
+    cameras.dispose();
+    cameras = CameraDeviceService(
+      httpGet: (uri) async {
+        requested.add(uri);
+        return _cameraResponse;
+      },
+    );
+    await pumpPreference(tester);
+    requested.clear();
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: CameraSourcePreference(settings: settings, cameras: cameras),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(requested, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('camera-source-refresh')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(requested, hasLength(1));
+    expect(requested.single.queryParameters['force_refresh'], 'true');
+  });
+
   testWidgets('persists a discovered physical camera selection', (
     tester,
   ) async {
@@ -232,7 +266,7 @@ void main() {
     expect(settings.selectedCameraDeviceId, 'dev-missing');
   });
 
-  testWidgets('mount force-refreshes an already populated discovery service', (
+  testWidgets('mount reuses an already populated discovery service', (
     tester,
   ) async {
     var requests = 0;
@@ -260,7 +294,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(requests, 2);
+    expect(requests, 1);
   });
 
   testWidgets('unstable runtime identity cannot be persisted explicitly', (

@@ -272,7 +272,7 @@ void main() {
       await service.refresh();
       expect(service.cameras, hasLength(1));
 
-      await service.refresh();
+      await service.refresh(forceRefresh: true);
       expect(service.cameras, hasLength(1));
       expect(service.errorKind, CameraDiscoveryErrorKind.scanTimeout);
     });
