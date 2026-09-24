@@ -26,7 +26,7 @@ import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../../data/repositories/custom_movement_repository.dart';
-import '../../custom_movements/custom_movement_builder_dialog.dart';
+import '../../custom_movements/custom_movement_authoring_screen.dart';
 import '../../custom_movements/custom_movement_practice_screen.dart';
 import '../../movements/movements_presentation.dart';
 import '../../learning/movement_lesson_content.dart';
@@ -325,7 +325,7 @@ Future<void> _showCreateAutomaticMovement(BuildContext context) async {
   final user = context.read<AuthService>().currentUser;
   final uid = user?.id;
   if (uid == null || user?.isTeacher != true) return;
-  await CustomMovementBuilderDialog.show(
+  await CustomMovementAuthoringScreen.show(
     context,
     ownerUid: uid,
     ownerRole: CustomMovementOwnerRole.teacher,
@@ -435,7 +435,7 @@ class _TeacherAutomaticMovementsSection extends StatelessWidget {
                                 if (!context.mounted || revision == null) {
                                   return;
                                 }
-                                await CustomMovementBuilderDialog.show(
+                                await CustomMovementAuthoringScreen.show(
                                   context,
                                   ownerUid: ownerUid,
                                   ownerRole: CustomMovementOwnerRole.teacher,

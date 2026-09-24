@@ -1854,7 +1854,9 @@ def test_session_enables_only_its_grip_fallback(monkeypatch):
             max_num_hands: int = 2,
             rotated_fallback: bool = False,
             bartender_roi_fallback: bool = False,
+            roi_only_when_below_capacity: bool = False,
         ):
+            assert roi_only_when_below_capacity is False
             fallback_settings.append(
                 (max_num_hands, rotated_fallback, bartender_roi_fallback)
             )

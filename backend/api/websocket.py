@@ -2,6 +2,8 @@ import asyncio
 import base64
 import json
 import logging
+import uuid
+from pathlib import Path
 import threading
 import time
 from collections import deque
@@ -55,6 +57,10 @@ from assessment.custom_movement import (
 )
 from config import (
     DETECTION_PRESENTATION_GRACE_S,
+    CUSTOM_PRESENTATION_MIN_GRACE_S,
+    CUSTOM_PRESENTATION_MAX_GRACE_S,
+    CUSTOM_PRESENTATION_CADENCE_MULTIPLIER,
+    CUSTOM_INFLIGHT_PRESENTATION_LIMIT_S,
     FPS_LOG_INTERVAL,
     EVIDENCE_JPEG_QUALITY,
     EVIDENCE_MAX_BYTES,
@@ -80,6 +86,8 @@ from schemas.commands import (
     BuildCustomTemplateCommand,
     ConfirmReadinessCommand,
     DiscardCustomReferenceCommand,
+    DeleteCustomReferenceCommand,
+    TrimCustomReferenceCommand,
     FinishCustomAssessmentCommand,
     PauseCommand,
     PrepareCommand,
@@ -133,6 +141,7 @@ from vision.startup_diagnostics import (
 )
 from vision.submission_recorder import (
     SubmissionRecorder,
+    SubmissionClipMetadata,
     SubmissionRecorderError,
     cleanup_orphan_submission_temp_files,
 )
@@ -482,7 +491,10 @@ def _human_error_message(error_code: str) -> str:
         "custom_capture_not_recording": "No movement reference is being recorded.",
         "single_performer_required": "Keep one performer in frame before recording a reference.",
         "multiple_people_detected": "Reference rejected because multiple people were detected. Keep only one performer in frame and record it again.",
-        "invalid_reference_count": "Record three valid references before building the template.",
+        "invalid_reference_count": "Record at least two valid references before building the template.",
+        "invalid_reference_id": "That reference is no longer available.",
+        "invalid_trim_range": "Keep more of the movement in the clip.",
+        "reference_file_busy": "Close the reference preview and retry deleting it.",
         "insufficient_frames": "The recording was too short. Perform the complete movement and retry.",
         "missing_modality": "Keep your upper body, hands, and selected prop visible.",
         "track_loss": "The selected prop was lost for too long. Reposition and retry.",
@@ -507,6 +519,28 @@ class _NormalizedFrameDetections:
     annotation: tuple[PropDetection, ...]
     selected_detected: bool
     selected_count: int
+
+
+@dataclass
+class _CustomReferenceDraft:
+    reference_id: str
+    samples: tuple[CustomFrameSample, ...]
+    clip: SubmissionClipMetadata
+    quality: dict[str, Any]
+    trim_start_ms: int = 0
+    trim_end_ms: int | None = None
+
+    @property
+    def video_duration_ms(self) -> int:
+        return round(len(self.clip.frame_capture_times) * 1000 / self.clip.fps)
+
+    def effective_samples(self) -> tuple[CustomFrameSample, ...]:
+        end = self.trim_end_ms if self.trim_end_ms is not None else self.video_duration_ms
+        selected = [sample for sample in self.samples if self.trim_start_ms <= sample.timestamp_ms <= end]
+        if not selected:
+            return ()
+        origin = selected[0].timestamp_ms
+        return tuple(replace(sample, timestamp_ms=sample.timestamp_ms - origin) for sample in selected)
 
 
 class VisionSession:
@@ -761,6 +795,7 @@ class VisionSession:
         self._overlay_snapshot: OverlaySnapshot | None = None
         self._presentation_generation: int | None = None
         self._prop_confirmed_at: dict[tuple[str, int], float] = {}
+        self._presented_props: dict[tuple[str, int], PropDetection] = {}
         self._presented_hands: tuple[HandsResult, float, int] | None = None
         self._presented_pose: tuple[PoseLandmarks, float, int] | None = None
         self._last_overlay_published_at: float | None = None
@@ -778,6 +813,7 @@ class VisionSession:
         self._ai_camera_overwrites = 0
         self._ai_inflight_max = 0
         self._ai_inflight = 0
+        self._ai_inflight_started_at: float | None = None
         self._ai_lifecycle_skips = 0
         # Two bounded lanes overlap independent GPU YOLO and CPU landmark work
         # inside the one analyze_tick that is already allowed in flight.
@@ -788,7 +824,10 @@ class VisionSession:
         self._inference_executor_shutdown = False
         self._submission_recorder: SubmissionRecorder | None = None
         self._submission_recorder_lock = threading.Lock()
-        self._custom_references: list[tuple[CustomFrameSample, ...]] = []
+        self._custom_references: list[_CustomReferenceDraft] = []
+        self._custom_video_recorder: SubmissionRecorder | None = None
+        self._custom_video_lock = threading.Lock()
+        self._custom_sample_capture_times: list[float] = []
         self._custom_samples: list[CustomFrameSample] | None = None
         self._custom_capture_started_at: float | None = None
         self._custom_capture_deadline: float | None = None
@@ -822,6 +861,19 @@ class VisionSession:
             captured_at_monotonic=captured.captured_at_monotonic,
             sequence=captured.sequence,
         )
+
+        # Assignment and reference recording are mutually exclusive session
+        # purposes. Both consume the same preview frame; neither opens a camera.
+
+    def _feed_custom_recorder(self, captured: CapturedFrame) -> None:
+        with self._custom_video_lock:
+            recorder = self._custom_video_recorder
+        if recorder is not None and recorder.is_recording:
+            recorder.write_frame(
+                captured.frame,
+                captured_at_monotonic=captured.captured_at_monotonic,
+                sequence=captured.sequence,
+            )
 
     @property
     def is_custom_capture_session(self) -> bool:
@@ -947,9 +999,20 @@ class VisionSession:
                 return False, "invalid_session_purpose"
             if self._custom_samples is not None:
                 return False, "custom_capture_already_recording"
+            if self._is_custom_capture and len(self._custom_references) >= 10:
+                return False, "invalid_reference_count"
             if self._is_custom_capture and not self._single_custom_performer_ready():
                 return False, "single_performer_required"
+            if self._is_custom_capture:
+                recorder = SubmissionRecorder(max_duration_s=duration_seconds)
+                try:
+                    recorder.start()
+                except SubmissionRecorderError as exc:
+                    return False, exc.code
+                with self._custom_video_lock:
+                    self._custom_video_recorder = recorder
             self._custom_samples = []
+            self._custom_sample_capture_times = []
             self._custom_multiple_invalid = False
             self._custom_awaiting_identity = False
             self._custom_ambiguous_anchors = {}
@@ -968,6 +1031,11 @@ class VisionSession:
         self._acquire_ai_state(blocking=True)
         try:
             samples = tuple(self._custom_samples or ())
+            sample_times = tuple(self._custom_sample_capture_times)
+            self._custom_sample_capture_times = []
+            with self._custom_video_lock:
+                recorder = self._custom_video_recorder
+                self._custom_video_recorder = None
             self._custom_samples = None
             self._custom_capture_started_at = None
             self._custom_capture_deadline = None
@@ -978,6 +1046,8 @@ class VisionSession:
             self._custom_awaiting_identity = False
             self._custom_ambiguous_anchors = {}
             if multiple_invalid or identity_unresolved:
+                if recorder is not None:
+                    recorder.cancel()
                 return False, "multiple_people_detected", {
                     "valid": False,
                     "accepted": False,
@@ -985,7 +1055,32 @@ class VisionSession:
                     "rejected_reason": "multiple_people_detected",
                 }
             if not samples:
+                if recorder is not None:
+                    recorder.cancel()
                 return False, "custom_capture_not_recording", {}
+            clip = None
+            if self._is_custom_capture:
+                try:
+                    if recorder is None:
+                        raise SubmissionRecorderError("record_failed", "Reference video is unavailable.")
+                    clip = recorder.stop()
+                    paired = [
+                        (video_ms, sample)
+                        for sample, observed_at in zip(samples, sample_times)
+                        if (video_ms := clip.video_ms_for_capture(observed_at)) is not None
+                    ]
+                    mapped: list[CustomFrameSample] = []
+                    for video_ms, sample in paired:
+                        timestamp_ms = max(video_ms, mapped[-1].timestamp_ms + 1 if mapped else 0)
+                        mapped.append(replace(sample, timestamp_ms=timestamp_ms))
+                    samples = tuple(mapped)
+                    if not samples:
+                        recorder.cancel()
+                        return False, "insufficient_frames", {"valid": False, "accepted": False}
+                except SubmissionRecorderError as exc:
+                    if recorder is not None:
+                        recorder.cancel()
+                    return False, exc.code, {"valid": False, "accepted": False}
             required_modalities = (
                 self._custom_template.required_modalities
                 if self._is_custom_assessment and self._custom_template is not None
@@ -1029,10 +1124,26 @@ class VisionSession:
                 quality,
             )
             if not validation.valid:
+                if recorder is not None:
+                    recorder.cancel()
                 code = validation.codes[0].value if validation.codes else "invalid_reference"
                 return False, code, quality
             if self._is_custom_capture:
-                self._custom_references.append(samples)
+                assert clip is not None
+                draft = _CustomReferenceDraft(
+                    reference_id=uuid.uuid4().hex,
+                    samples=samples,
+                    clip=clip,
+                    quality=quality,
+                )
+                self._custom_references.append(draft)
+                quality.update({
+                    "reference_id": draft.reference_id,
+                    "local_file_path": clip.local_path,
+                    "video_duration_ms": draft.video_duration_ms,
+                    "trim_start_ms": 0,
+                    "trim_end_ms": draft.video_duration_ms,
+                })
             else:
                 # Assessment capture is retained until finish_custom_assessment.
                 self._custom_samples = list(samples)
@@ -1048,8 +1159,50 @@ class VisionSession:
             if self._custom_samples is not None:
                 raise ValueError("custom_capture_already_recording")
             if self._custom_references:
+                self._delete_custom_draft(self._custom_references[-1])
                 self._custom_references.pop()
             return len(self._custom_references)
+        finally:
+            self._release_ai_state()
+
+    @staticmethod
+    def _delete_custom_draft(draft: _CustomReferenceDraft) -> None:
+        try:
+            Path(draft.clip.local_path).unlink(missing_ok=True)
+        except OSError as exc:
+            raise ValueError("reference_file_busy") from exc
+
+    def delete_custom_reference(self, reference_id: str) -> int:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_custom_capture or self._custom_samples is not None:
+                raise ValueError("invalid_session_purpose")
+            for index, draft in enumerate(self._custom_references):
+                if draft.reference_id == reference_id:
+                    self._delete_custom_draft(draft)
+                    self._custom_references.pop(index)
+                    return len(self._custom_references)
+            raise ValueError("invalid_reference_id")
+        finally:
+            self._release_ai_state()
+
+    def trim_custom_reference(self, reference_id: str, start_ms: int, end_ms: int) -> dict[str, Any]:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_custom_capture or self._custom_samples is not None:
+                raise ValueError("invalid_session_purpose")
+            draft = next((item for item in self._custom_references if item.reference_id == reference_id), None)
+            if draft is None:
+                raise ValueError("invalid_reference_id")
+            if start_ms < 0 or end_ms > draft.video_duration_ms or end_ms <= start_ms:
+                raise ValueError("invalid_trim_range")
+            candidate = replace(draft, trim_start_ms=start_ms, trim_end_ms=end_ms)
+            validation = validate_custom_movement_sequence(candidate.effective_samples(), ("prop_translation",))
+            if not validation.valid:
+                raise ValueError("invalid_trim_range")
+            draft.trim_start_ms = start_ms
+            draft.trim_end_ms = end_ms
+            return {"reference_id": reference_id, "trim_start_ms": start_ms, "trim_end_ms": end_ms}
         finally:
             self._release_ai_state()
 
@@ -1059,7 +1212,7 @@ class VisionSession:
             if not self._is_custom_capture:
                 raise ValueError("invalid_session_purpose")
             template = build_custom_movement_template(
-                tuple(self._custom_references),
+                tuple(draft.effective_samples() for draft in self._custom_references),
             )
             return template.to_dict()
         finally:
@@ -1186,6 +1339,7 @@ class VisionSession:
             prop_metadata=prop_metadata,
             orientation=orientation,
         ))
+        self._custom_sample_capture_times.append(captured.captured_at_monotonic)
 
     @staticmethod
     def _custom_capture_diagnostics(
@@ -1416,8 +1570,10 @@ class VisionSession:
                 self._overlay_snapshot = None
                 self._last_overlay_published_at = None
                 self._overlay_publish_period_s = None
+                self._ai_inflight_started_at = None
             self._presentation_generation = None
             self._prop_confirmed_at.clear()
+            self._presented_props.clear()
             self._presented_hands = None
             self._presented_pose = None
 
@@ -1429,10 +1585,19 @@ class VisionSession:
             if period is not None
             else OVERLAY_PRESENTATION_BASE_GRACE_S
         )
-        return min(
+        continuity = min(
             OVERLAY_PRESENTATION_MAX_GRACE_S,
             max(OVERLAY_PRESENTATION_BASE_GRACE_S, cadence_grace),
         )
+        return max(continuity, self._custom_presentation_grace_s()) if self._is_custom else continuity
+
+    def _custom_presentation_grace_s(self) -> float:
+        if not self._is_custom:
+            return DETECTION_PRESENTATION_GRACE_S
+        with self._overlay_lock:
+            period = self._overlay_publish_period_s
+        candidate = (period * CUSTOM_PRESENTATION_CADENCE_MULTIPLIER) if period else CUSTOM_PRESENTATION_MIN_GRACE_S
+        return min(CUSTOM_PRESENTATION_MAX_GRACE_S, max(CUSTOM_PRESENTATION_MIN_GRACE_S, candidate))
 
     def _preview_presentation_metadata(
         self, overlay: OverlaySnapshot | None
@@ -1482,34 +1647,48 @@ class VisionSession:
         boxes: list[PropDetection] = []
         expiries: list[float | None] = []
         live_keys: set[tuple[str, int]] = set()
+        grace = self._custom_presentation_grace_s()
         for kind, detection in live:
-            key = (kind, detection.track_id) if detection.track_id is not None else None
+            key = (kind, detection.track_id if detection.track_id is not None else -1) if (detection.track_id is not None or self._is_custom) else None
             if key is not None:
                 live_keys.add(key)
             if detection.yolo_confirmed and run_yolo:
                 if key is not None:
                     self._prop_confirmed_at[key] = captured_at
+                    self._presented_props[key] = detection
                 boxes.append(detection)
-                expiries.append(None)
+                expiries.append(captured_at + grace if self._is_custom else None)
             elif key is not None:
                 last_confirmed = self._prop_confirmed_at.get(key)
                 if last_confirmed is not None:
-                    expires = last_confirmed + DETECTION_PRESENTATION_GRACE_S
+                    expires = last_confirmed + grace
                     if captured_at <= expires:
                         # A skipped YOLO tick can extrapolate a prior confirmed
                         # box, but that is tracking geometry, not new evidence.
                         boxes.append(replace(detection, yolo_confirmed=False))
                         expiries.append(expires)
-        if run_yolo:
+        if self._is_custom:
+            confirmed_kinds = {
+                kind for kind, detection in live if detection.yolo_confirmed and run_yolo
+            }
+            for key, last_confirmed in list(self._prop_confirmed_at.items()):
+                expires = last_confirmed + grace
+                if captured_at > expires or (key[0] in confirmed_kinds and key not in live_keys):
+                    self._prop_confirmed_at.pop(key, None)
+                    self._presented_props.pop(key, None)
+                elif key not in live_keys and key in self._presented_props:
+                    boxes.append(replace(self._presented_props[key], yolo_confirmed=False))
+                    expiries.append(expires)
+        elif run_yolo:
             self._prop_confirmed_at = {
-                key: stamp for key, stamp in self._prop_confirmed_at.items()
-                if key in live_keys
+                key: stamp for key, stamp in self._prop_confirmed_at.items() if key in live_keys
             }
         return boxes, tuple(expiries)
 
     def _ensure_presentation_generation(self, generation: int) -> None:
         if self._presentation_generation != generation:
             self._prop_confirmed_at.clear()
+            self._presented_props.clear()
             self._presented_hands = None
             self._presented_pose = None
             self._presentation_generation = generation
@@ -1520,14 +1699,15 @@ class VisionSession:
     ) -> tuple[HandsResult | None, PoseLandmarks | None, float | None, float | None]:
         """Bridge detector misses by original observation age for drawing only."""
         self._ensure_presentation_generation(generation)
+        grace = self._custom_presentation_grace_s()
         if hands is not None and any(hand.points for hand in hands.hands):
             self._presented_hands = (freeze_hands(hands), captured_at, generation)
-            drawn_hands, hands_expiry = hands, None
+            drawn_hands, hands_expiry = hands, captured_at + grace if self._is_custom else None
         elif self._presented_hands is not None:
             cached, observed_at, cached_generation = self._presented_hands
             if (cached_generation == generation
-                    and captured_at <= observed_at + DETECTION_PRESENTATION_GRACE_S):
-                drawn_hands, hands_expiry = cached, observed_at + DETECTION_PRESENTATION_GRACE_S
+                    and captured_at <= observed_at + grace):
+                drawn_hands, hands_expiry = cached, observed_at + grace
             else:
                 self._presented_hands = None
                 drawn_hands, hands_expiry = None, None
@@ -1540,12 +1720,12 @@ class VisionSession:
             drawn_pose, pose_expiry = None, None
         elif pose is not None and pose.points:
             self._presented_pose = (freeze_pose(pose), captured_at, generation)
-            drawn_pose, pose_expiry = pose, None
+            drawn_pose, pose_expiry = pose, captured_at + grace if self._is_custom else None
         elif self._presented_pose is not None:
             cached, observed_at, cached_generation = self._presented_pose
             if (cached_generation == generation
-                    and captured_at <= observed_at + DETECTION_PRESENTATION_GRACE_S):
-                drawn_pose, pose_expiry = cached, observed_at + DETECTION_PRESENTATION_GRACE_S
+                    and captured_at <= observed_at + grace):
+                drawn_pose, pose_expiry = cached, observed_at + grace
             else:
                 self._presented_pose = None
                 drawn_pose, pose_expiry = None, None
@@ -1601,7 +1781,14 @@ class VisionSession:
             return None
         if now is None:
             now = time.monotonic()
-        if not snapshot.is_fresh(now, OVERLAY_DEAD_WORKER_TIMEOUT_S):
+        with self._overlay_lock:
+            inflight_started = self._ai_inflight_started_at
+        alive_inflight = (
+            self._is_custom
+            and inflight_started is not None
+            and now - inflight_started <= CUSTOM_INFLIGHT_PRESENTATION_LIMIT_S
+        )
+        if not snapshot.is_fresh(now, OVERLAY_DEAD_WORKER_TIMEOUT_S) and not alive_inflight:
             # A dead AI worker must not leave a positive presentation snapshot
             # around for a later camera frame.
             with self._presentation_lock:
@@ -1611,6 +1798,7 @@ class VisionSession:
                         self._presented_hands = None
                         self._presented_pose = None
                         self._prop_confirmed_at.clear()
+                        self._presented_props.clear()
                         self.preview_timings.add_presentation_expiry(dead_worker=True)
             return None
         if preview is None:
@@ -1623,6 +1811,17 @@ class VisionSession:
             self.preview_timings.add_overlay_alignment_rejection(
                 generation_mismatch=True
             )
+            with self._presentation_lock:
+                with self._overlay_lock:
+                    if self._overlay_snapshot is snapshot:
+                        self._overlay_snapshot = None
+                        self._last_overlay_published_at = None
+                        self._overlay_publish_period_s = None
+                        self._prop_confirmed_at.clear()
+                        self._presented_props.clear()
+                        self._presented_hands = None
+                        self._presented_pose = None
+                        self._presentation_generation = None
             return None
         if capture_age_s < 0.0 or sequence_gap < 0:
             self.preview_timings.add_overlay_alignment_rejection(ahead=True)
@@ -2343,6 +2542,7 @@ class VisionSession:
             return None
 
         self._feed_submission_recorder(captured)
+        self._feed_custom_recorder(captured)
 
         self.preview_timings.add_frame_age(
             time.monotonic() - captured.captured_at_monotonic
@@ -2399,6 +2599,8 @@ class VisionSession:
                 self._ai_lifecycle_skips += 1
                 return None
             self._ai_inflight += 1
+            with self._overlay_lock:
+                self._ai_inflight_started_at = time.monotonic()
             if self._ai_inflight > self._ai_inflight_max:
                 self._ai_inflight_max = self._ai_inflight
             publish_at_start = latest_frame_publish_count()
@@ -2414,6 +2616,8 @@ class VisionSession:
                 return None
             finally:
                 self._ai_inflight -= 1
+                with self._overlay_lock:
+                    self._ai_inflight_started_at = None
                 self._ai_camera_overwrites += max(
                     0, latest_frame_publish_count() - publish_at_start
                 )
@@ -3120,6 +3324,19 @@ class VisionSession:
             self._calibration.reset()
             self._hold_validator.reset()
             self._clear_overlay()
+            with self._custom_video_lock:
+                recorder = self._custom_video_recorder
+                self._custom_video_recorder = None
+            if recorder is not None:
+                recorder.cancel()
+            for draft in self._custom_references:
+                try:
+                    self._delete_custom_draft(draft)
+                except ValueError:
+                    # Startup orphan cleanup can retry after Windows releases
+                    # a native playback handle left by a disconnected client.
+                    logger.warning("Custom reference clip remained locked at close")
+            self._custom_references.clear()
             self.camera.release()
             if not self._inference_executor_shutdown:
                 self._inference_executor.shutdown(
@@ -3901,6 +4118,9 @@ async def websocket_endpoint(websocket: WebSocket):
         content_type: str | None = None,
         video_sha256: str | None = None,
         reference_count: int | None = None,
+        reference_id: str | None = None,
+        trim_start_ms: int | None = None,
+        trim_end_ms: int | None = None,
         reference_quality: dict[str, Any] | None = None,
         movement_template: dict[str, Any] | None = None,
         custom_assessment: dict[str, Any] | None = None,
@@ -3925,6 +4145,9 @@ async def websocket_endpoint(websocket: WebSocket):
             content_type=content_type,
             video_sha256=video_sha256,
             reference_count=reference_count,
+            reference_id=reference_id,
+            trim_start_ms=trim_start_ms,
+            trim_end_ms=trim_end_ms,
             reference_quality=reference_quality,
             movement_template=movement_template,
             custom_assessment=custom_assessment,
@@ -4776,6 +4999,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     ),
                     reference_count=session.custom_reference_count,
                     reference_quality=quality,
+                    reference_id=quality.get("reference_id"),
+                    local_file_path=quality.get("local_file_path"),
+                    video_duration_ms=quality.get("video_duration_ms"),
+                    trim_start_ms=quality.get("trim_start_ms"),
+                    trim_end_ms=quality.get("trim_end_ms"),
                 )
                 return
 
@@ -4788,6 +5016,38 @@ async def websocket_endpoint(websocket: WebSocket):
                     accepted=True,
                     session_state=state,
                     reference_count=count,
+                )
+                return
+
+            if isinstance(command, DeleteCustomReferenceCommand):
+                count = await asyncio.to_thread(session.delete_custom_reference, command.reference_id)
+                await send_ack(
+                    request_id=command.request_id,
+                    session_id=command.session_id,
+                    action=command.action,
+                    accepted=True,
+                    session_state=state,
+                    reference_count=count,
+                    reference_id=command.reference_id,
+                )
+                return
+
+            if isinstance(command, TrimCustomReferenceCommand):
+                trim = await asyncio.to_thread(
+                    session.trim_custom_reference,
+                    command.reference_id,
+                    command.trim_start_ms,
+                    command.trim_end_ms,
+                )
+                await send_ack(
+                    request_id=command.request_id,
+                    session_id=command.session_id,
+                    action=command.action,
+                    accepted=True,
+                    session_state=state,
+                    reference_id=command.reference_id,
+                    trim_start_ms=trim["trim_start_ms"],
+                    trim_end_ms=trim["trim_end_ms"],
                 )
                 return
 

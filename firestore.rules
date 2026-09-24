@@ -2847,7 +2847,7 @@ service cloud.firestore {
      'normalization_metadata', 'feature_capabilities',
      'canonical_sequence', 'variability_metadata', 'prop_events'])
     && value.schema_version in [1, 2]
-    && value.reference_count is int && value.reference_count >= 3
+    && value.reference_count is int && value.reference_count >= 2
     && value.reference_count <= 10
     && value.feature_capabilities is map
     && ((value.schema_version == 1

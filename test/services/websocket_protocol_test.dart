@@ -204,6 +204,11 @@ void main() {
           'accepted': true,
           'session_state': 'readying',
           'reference_count': 3,
+          'reference_id': 'stable-reference',
+          'local_file_path': 'C:/temp/reference.mp4',
+          'video_duration_ms': 7000,
+          'trim_start_ms': 0,
+          'trim_end_ms': 7000,
           'reference_quality': {'valid': true},
           'movement_template': {'schema_version': 1},
           'custom_assessment': {
@@ -217,6 +222,10 @@ void main() {
       expect(decoded, isA<WsCommandAckMessage>());
       final ack = (decoded as WsCommandAckMessage).ack;
       expect(ack.referenceCount, 3);
+      expect(ack.referenceId, 'stable-reference');
+      expect(ack.localFilePath, 'C:/temp/reference.mp4');
+      expect(ack.trimStartMs, 0);
+      expect(ack.trimEndMs, 7000);
       expect(ack.referenceQuality, {'valid': true});
       expect(ack.movementTemplate, {'schema_version': 1});
       expect(ack.customAssessment?['total'], 10);

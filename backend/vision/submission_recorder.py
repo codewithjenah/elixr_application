@@ -7,6 +7,7 @@ Does not open a second ``cv2.VideoCapture``.
 from __future__ import annotations
 
 import hashlib
+import bisect
 import logging
 import threading
 import time
@@ -68,6 +69,20 @@ class SubmissionClipMetadata:
     video_size_bytes: int
     content_type: str = SUBMISSION_CONTENT_TYPE
     sha256: str | None = None
+    # Capture timestamps for frames actually written. VideoWriter assigns
+    # constant-FPS presentation times, so these map detector samples to MP4 time.
+    frame_capture_times: tuple[float, ...] = ()
+    fps: float = TARGET_FPS
+
+    def video_ms_for_capture(self, captured_at: float) -> int | None:
+        times = self.frame_capture_times
+        if not times or captured_at < times[0] or captured_at > times[-1]:
+            return None
+        right = bisect.bisect_left(times, captured_at)
+        index = min(right, len(times) - 1)
+        if index > 0 and abs(times[index - 1] - captured_at) < abs(times[index] - captured_at):
+            index -= 1
+        return round(index * 1000 / self.fps)
 
 
 def submission_temp_dir(root: Path | None = None) -> Path:
@@ -168,6 +183,7 @@ class SubmissionRecorder:
         self._failed_message: str | None = None
         self._final_metadata: SubmissionClipMetadata | None = None
         self._last_sequence: int | None = None
+        self._frame_capture_times: list[float] = []
 
     @property
     def is_recording(self) -> bool:
@@ -209,6 +225,7 @@ class SubmissionRecorder:
             self._failed_code = None
             self._failed_message = None
             self._last_sequence = None
+            self._frame_capture_times = []
 
     def write_frame(
         self,
@@ -255,6 +272,7 @@ class SubmissionRecorder:
                     )
                     return False
                 self._frames_written += 1
+                self._frame_capture_times.append(captured_at)
                 self._last_frame_at = captured_at
                 self._last_sequence = sequence
                 if self._path is not None:
@@ -399,6 +417,8 @@ class SubmissionRecorder:
             video_size_bytes=size,
             content_type=SUBMISSION_CONTENT_TYPE,
             sha256=sha256,
+            frame_capture_times=tuple(self._frame_capture_times),
+            fps=self._fps,
         )
         self._state = "finalized"
         self._final_metadata = metadata
@@ -453,3 +473,4 @@ class SubmissionRecorder:
         self._failed_message = None
         self._final_metadata = None
         self._last_sequence = None
+        self._frame_capture_times = []

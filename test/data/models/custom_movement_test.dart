@@ -40,6 +40,25 @@ void main() {
       expect(template.toMap(), templateMap());
     });
 
+    test('accepts two through ten references and rejects one', () {
+      for (final count in [2, 3, 4, 5, 10]) {
+        expect(
+          MovementTemplate.tryFrom(
+            templateMap()..['reference_count'] = count,
+          )?.isReady,
+          isTrue,
+        );
+      }
+      expect(
+        MovementTemplate.tryFrom(templateMap()..['reference_count'] = 1),
+        isNull,
+      );
+      expect(
+        MovementTemplate.tryFrom(templateMap()..['reference_count'] = 11),
+        isNull,
+      );
+    });
+
     test('rejects executable/unknown fields and v1 rotation', () {
       final executable = templateMap()..['python_rule'] = 'eval(user_input)';
       final rotating = templateMap();
@@ -167,8 +186,8 @@ void main() {
       );
     });
 
-    test('revision requires at least three references', () {
-      final incomplete = templateMap()..['reference_count'] = 2;
+    test('revision requires at least two references', () {
+      final incomplete = templateMap()..['reference_count'] = 1;
 
       expect(
         CustomMovementRevision.tryFromMap({

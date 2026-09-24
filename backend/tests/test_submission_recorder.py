@@ -46,6 +46,26 @@ class FakeWriter:
         self.released = True
 
 
+def test_capture_times_map_to_written_mp4_frame_times(tmp_path):
+    recorder = SubmissionRecorder(
+        fps=10,
+        temp_root=tmp_path,
+        writer_factory=lambda path, fps, size: FakeWriter(path),
+        monotonic=lambda: 100.0,
+    )
+    recorder.start()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    for sequence, captured_at in enumerate((100.10, 100.22, 100.41), start=1):
+        assert recorder.write_frame(frame, captured_at_monotonic=captured_at, sequence=sequence)
+    clip = recorder.stop()
+    assert clip.video_ms_for_capture(100.10) == 0
+    assert clip.video_ms_for_capture(100.23) == 100
+    assert clip.video_ms_for_capture(100.40) == 200
+    assert clip.video_ms_for_capture(100.05) is None
+    assert clip.video_ms_for_capture(100.50) is None
+    recorder.cleanup()
+
+
 class InflatingOnReleaseWriter(FakeWriter):
     def __init__(self, path: Path, *, final_size: int):
         super().__init__(path)

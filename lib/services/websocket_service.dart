@@ -210,6 +210,30 @@ class WebSocketService extends ChangeNotifier {
         sessionId: sessionId,
       );
 
+  Future<CommandAck> sendDeleteCustomReference(
+    String referenceId, {
+    String? sessionId,
+  }) => _sendCustomCommand(
+    action: 'delete_custom_reference',
+    sessionId: sessionId,
+    payload: {'reference_id': referenceId},
+  );
+
+  Future<CommandAck> sendTrimCustomReference(
+    String referenceId, {
+    required int startMs,
+    required int endMs,
+    String? sessionId,
+  }) => _sendCustomCommand(
+    action: 'trim_custom_reference',
+    sessionId: sessionId,
+    payload: {
+      'reference_id': referenceId,
+      'trim_start_ms': startMs,
+      'trim_end_ms': endMs,
+    },
+  );
+
   Future<CommandAck> sendBuildCustomTemplate({String? sessionId}) =>
       _sendCustomCommand(action: 'build_custom_template', sessionId: sessionId);
 

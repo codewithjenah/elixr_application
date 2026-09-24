@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from assessment.custom_movement import (
     FailureCode, FrameSample, Landmark, MovementTemplate, build_template,
     compare_sequence, detect_prop_events, normalize_sequence, validate_sequence,
@@ -47,12 +49,18 @@ def test_valid_and_invalid_reference_validation():
     assert FailureCode.MISSING_MODALITY in invalid.codes
 
 
-def test_template_requires_three_references_and_is_serializable_deterministically():
+def test_template_requires_two_references_and_is_serializable_deterministically():
     try:
-        build_template([_sequence(), _sequence()], ("pose",))
+        build_template([_sequence()], ("pose",))
         assert False
     except ValueError as error:
         assert error.args[0] == FailureCode.INVALID_REFERENCE_COUNT.value
+    assert build_template([_sequence(), _sequence()], ("pose",)).reference_count == 2
+    for count in (3, 4, 5):
+        assert build_template([_sequence() for _ in range(count)], ("pose",)).reference_count == count
+    lone_observation = tuple(replace(frame, pose={**frame.pose, "99": Landmark(.5, .5)}) for frame in _sequence())
+    agreement = build_template([lone_observation, _sequence()], ("pose", "prop_translation"))
+    assert all("99" not in frame.pose for frame in agreement.canonical_sequence)
     first, second = _template(), _template()
     assert first.to_dict() == second.to_dict()
     assert first.reference_count == 3 and len(first.canonical_sequence) == 32

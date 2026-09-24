@@ -278,7 +278,7 @@ class MovementTemplate:
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(FailureCode.INVALID_SCHEMA.value) from exc
         if (
-            template.reference_count < 3
+            template.reference_count < 2
             or len(template.canonical_sequence) != CANONICAL_FRAMES
             or not set(template.required_modalities).issubset(SUPPORTED_MODALITIES)
             or not template.required_modalities
@@ -705,11 +705,11 @@ def build_template(
     references: Sequence[Sequence[FrameSample]],
     required_modalities: Iterable[str] | None = None,
 ) -> MovementTemplate:
-    """Build a stable canonical template from at least three valid captures."""
-    if len(references) < 3:
+    """Build a stable canonical template from at least two valid captures."""
+    if len(references) < 2:
         raise ValueError(FailureCode.INVALID_REFERENCE_COUNT.value)
     # ``required_modalities`` remains accepted for source compatibility with
-    # version-1 callers, but capabilities are now inferred from the three
+    # version-1 callers, but capabilities are now inferred from the recorded
     # actual demonstrations rather than imposed by the client.
     if required_modalities is not None and not set(required_modalities).issubset(
         SUPPORTED_MODALITIES
@@ -772,7 +772,7 @@ def build_template(
                 timestamp_ms=round(
                     canonical_duration * index / (CANONICAL_FRAMES - 1)
                 ),
-                minimum_presence=max(1, math.ceil(len(references) / 2)),
+                minimum_presence=len(references) // 2 + 1,
             )
         )
     prop_coverage = sum(frame.prop is not None for frame in canonical) / CANONICAL_FRAMES

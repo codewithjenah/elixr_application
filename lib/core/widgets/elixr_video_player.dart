@@ -36,6 +36,8 @@ class ElixrVideoPlayer extends StatefulWidget {
     this.autoPlay = false,
     this.mirrored = true,
     this.session,
+    this.clipStart = Duration.zero,
+    this.clipEnd,
   });
 
   final Uri source;
@@ -46,6 +48,8 @@ class ElixrVideoPlayer extends StatefulWidget {
   /// with the trainee's live view by default.
   final bool mirrored;
   final ElixrPlaybackSession? session;
+  final Duration clipStart;
+  final Duration? clipEnd;
 
   @override
   State<ElixrVideoPlayer> createState() => _ElixrVideoPlayerState();
@@ -57,11 +61,12 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
   bool _ready = false;
   bool _opening = false;
   int _openGeneration = 0;
+  bool _clampingPlayback = false;
 
   @override
   void initState() {
     super.initState();
-    widget.session?.attach(_releaseNative);
+    widget.session?.attach(_releaseSession);
     _open(widget.source);
   }
 
@@ -70,10 +75,14 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.session != widget.session) {
       oldWidget.session?.attach(() async {});
-      widget.session?.attach(_releaseNative);
+      widget.session?.attach(_releaseSession);
     }
     if (oldWidget.source != widget.source) {
       _open(widget.source);
+    } else if (oldWidget.clipStart != widget.clipStart ||
+        oldWidget.clipEnd != widget.clipEnd) {
+      final controller = _controller;
+      if (controller != null) unawaited(controller.seekTo(widget.clipStart));
     }
   }
 
@@ -82,8 +91,38 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
     _controller = null;
     _ready = false;
     if (controller != null) {
+      controller.removeListener(_onPlaybackTick);
       await controller.dispose();
     }
+  }
+
+  Future<void> _releaseSession() async {
+    // Invalidate an in-flight initialize before it can acquire the clip again.
+    _openGeneration++;
+    await _releaseNative();
+  }
+
+  void _onPlaybackTick() {
+    final controller = _controller;
+    final end = widget.clipEnd;
+    if (controller == null ||
+        end == null ||
+        _clampingPlayback ||
+        !controller.value.isPlaying ||
+        controller.value.position < end) {
+      return;
+    }
+    _clampingPlayback = true;
+    unawaited(() async {
+      try {
+        await controller.pause();
+        await controller.seekTo(end);
+      } catch (_) {
+        // Native release may race a final playback callback.
+      } finally {
+        _clampingPlayback = false;
+      }
+    }());
   }
 
   Future<void> _open(Uri source) async {
@@ -97,6 +136,7 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
         : WinVideoPlayerController.networkUrl(source);
     try {
       await next.initialize();
+      if (widget.clipStart > Duration.zero) await next.seekTo(widget.clipStart);
       if (widget.autoPlay) {
         await next.play();
       }
@@ -106,6 +146,7 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
       }
       setState(() {
         _controller = next;
+        next.addListener(_onPlaybackTick);
         _ready = true;
         _opening = false;
       });
@@ -131,6 +172,8 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
         builder: (dialogContext) => _FullscreenElixrVideoPlayer(
           controller: controller,
           mirrored: widget.mirrored,
+          clipStart: widget.clipStart,
+          clipEnd: widget.clipEnd,
           onClose: () => Navigator.of(dialogContext).pop(),
         ),
       ),
@@ -143,6 +186,7 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
     widget.session?.attach(() async {});
     final controller = _controller;
     _controller = null;
+    controller?.removeListener(_onPlaybackTick);
     controller?.dispose();
     super.dispose();
   }
@@ -185,6 +229,8 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
         _ElixrVideoControls(
           controller: controller,
           onFullscreen: _showFullscreen,
+          clipStart: widget.clipStart,
+          clipEnd: widget.clipEnd,
         ),
       ],
     );
@@ -224,11 +270,15 @@ class _ElixrVideoControls extends StatefulWidget {
     required this.controller,
     this.onFullscreen,
     this.isFullscreen = false,
+    this.clipStart = Duration.zero,
+    this.clipEnd,
   });
 
   final WinVideoPlayerController controller;
   final VoidCallback? onFullscreen;
   final bool isFullscreen;
+  final Duration clipStart;
+  final Duration? clipEnd;
 
   @override
   State<_ElixrVideoControls> createState() => _ElixrVideoControlsState();
@@ -254,8 +304,10 @@ class _ElixrVideoControlsState extends State<_ElixrVideoControls> {
       if (controller.value.isPlaying) {
         await controller.pause();
       } else {
-        if (controller.value.isCompleted) {
-          await controller.seekTo(Duration.zero);
+        if (controller.value.isCompleted ||
+            (widget.clipEnd != null &&
+                controller.value.position >= widget.clipEnd!)) {
+          await controller.seekTo(widget.clipStart);
         }
         await controller.play();
       }
@@ -272,7 +324,12 @@ class _ElixrVideoControlsState extends State<_ElixrVideoControls> {
   }
 
   Future<void> _seekTo(int milliseconds, int durationMs) async {
-    final targetMs = milliseconds.clamp(0, durationMs).toInt();
+    final targetMs = milliseconds
+        .clamp(
+          widget.clipStart.inMilliseconds,
+          widget.clipEnd?.inMilliseconds ?? durationMs,
+        )
+        .toInt();
     try {
       await widget.controller.seekTo(Duration(milliseconds: targetMs));
     } catch (_) {
@@ -288,9 +345,15 @@ class _ElixrVideoControlsState extends State<_ElixrVideoControls> {
       valueListenable: widget.controller,
       builder: (context, value, _) {
         final durationMs = value.duration.inMilliseconds;
-        final maxMs = durationMs > 0 ? durationMs : 1;
+        final minMs = widget.clipStart.inMilliseconds
+            .clamp(0, durationMs)
+            .toInt();
+        final endMs = (widget.clipEnd?.inMilliseconds ?? durationMs)
+            .clamp(minMs, durationMs)
+            .toInt();
+        final maxMs = endMs > minMs ? endMs : minMs + 1;
         final positionMs = (_scrubPositionMs ?? value.position.inMilliseconds)
-            .clamp(0, durationMs > 0 ? durationMs : 0)
+            .clamp(minMs, endMs)
             .toInt();
         final foreground = widget.isFullscreen
             ? Colors.white
@@ -302,7 +365,7 @@ class _ElixrVideoControlsState extends State<_ElixrVideoControls> {
             Slider(
               key: const Key('elixr_video_progress'),
               value: positionMs.toDouble(),
-              min: 0,
+              min: minMs.toDouble(),
               max: maxMs.toDouble(),
               label: _formatVideoDuration(Duration(milliseconds: positionMs)),
               onChanged: durationMs <= 0
@@ -369,11 +432,15 @@ class _FullscreenElixrVideoPlayer extends StatelessWidget {
   const _FullscreenElixrVideoPlayer({
     required this.controller,
     required this.mirrored,
+    required this.clipStart,
+    required this.clipEnd,
     required this.onClose,
   });
 
   final WinVideoPlayerController controller;
   final bool mirrored;
+  final Duration clipStart;
+  final Duration? clipEnd;
   final VoidCallback onClose;
 
   @override
@@ -429,6 +496,8 @@ class _FullscreenElixrVideoPlayer extends StatelessWidget {
                       controller: controller,
                       isFullscreen: true,
                       onFullscreen: onClose,
+                      clipStart: clipStart,
+                      clipEnd: clipEnd,
                     ),
                   ),
                 ),

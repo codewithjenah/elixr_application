@@ -274,7 +274,7 @@ def test_custom_preview_stays_annotated_through_bounded_ai_gap(
             assert preview.hands_presentation_state == "tracking"
             assert preview.pose_presentation_state == "tracking"
         assert len(draws) == 3
-        current[0] = CapturedFrame(frame, base + .80, 5)
+        current[0] = CapturedFrame(frame, base + 1.05, 5)
         expired = session.render_preview()
         assert expired is not None and expired.vision_overlay_present is False
         assert len(draws) == 3
@@ -427,7 +427,7 @@ def test_yolo_miss_coasts_briefly_without_entering_normalized_observations(
     )
     assert len(boxes) == len(expected)
     assert any(not box.yolo_confirmed for box in boxes)
-    assert any(expiry == captured_at + websocket_api.DETECTION_PRESENTATION_GRACE_S
+    assert any(expiry == captured_at + session._custom_presentation_grace_s()
                for expiry in expires)
 
     session._publish_overlay(
@@ -456,13 +456,13 @@ def test_yolo_miss_coasts_briefly_without_entering_normalized_observations(
         assert preview.prop_presentation_state == "coasted"
     assert drawn == [[replace(box, yolo_confirmed=False) for box in boxes]]
     expired_boxes, _ = session._presentation_boxes(
-        captured_at=captured_at + websocket_api.DETECTION_PRESENTATION_GRACE_S + .01,
+        captured_at=captured_at + session._custom_presentation_grace_s() + .01,
         generation=1, run_yolo=True,
     )
     assert expired_boxes == list(normalized.annotation)
     # A still-published snapshot also drops coasted geometry on a later JPEG.
     expired_overlay = session._read_fresh_overlay(
-        preview=CapturedFrame(frame, captured_at + .3, 3, 1)
+        preview=CapturedFrame(frame, captured_at + session._custom_presentation_grace_s() + .01, 3, 1)
     )
     assert expired_overlay is not None
     assert list(expired_overlay.boxes) == [
@@ -518,7 +518,7 @@ def test_one_landmark_miss_coasts_then_expires_on_the_rendered_jpeg(monkeypatch)
     assert drawn[-1][2].points[0] == Point2D(.4, .5)
 
     # Expiry is checked per JPEG, even if AI has not published another snapshot.
-    preview_frame[0] = CapturedFrame(frame, base + .26, 4, 1)
+    preview_frame[0] = CapturedFrame(frame, base + .46, 4, 1)
     expired = session.render_preview()
     assert expired is not None
     assert expired.hands_presentation_state == "missing"
@@ -527,7 +527,7 @@ def test_one_landmark_miss_coasts_then_expires_on_the_rendered_jpeg(monkeypatch)
 
     # One more missing AI result cannot renew the original observation age.
     session._publish_presentation(
-        captured=CapturedFrame(frame, base + .27, 5, 1), run_yolo=True,
+        captured=CapturedFrame(frame, base + 1.51, 5, 1), run_yolo=True,
         hands=None, pose=None, feedback="missing", feedback_type="warning",
         prop_label="Bottle",
     )
@@ -558,7 +558,7 @@ def test_repeated_landmark_misses_expire_by_observation_age(monkeypatch):
     assert second_miss.hands is not None and second_miss.pose is not None
     assert session._presented_hands[1] == base
     assert session._presented_pose[1] == base
-    expired = publish(4, .26, None, None)
+    expired = publish(4, .46, None, None)
     assert expired.hands is None and expired.pose is None
     recovered = publish(5, .30, hands, pose)
     assert recovered.hands is not None and recovered.pose is not None
@@ -705,6 +705,33 @@ def test_dead_ai_watchdog_clears_custom_presentation(monkeypatch):
     session.close()
 
 
+def test_custom_inflight_ai_bridges_worker_timeout_but_still_has_a_deadline(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session.start()
+    base = time.monotonic()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    session._publish_overlay(freeze_overlay(
+        published_at_monotonic=base,
+        captured_at_monotonic=base,
+        capture_sequence=1,
+        capture_generation=1,
+        boxes=[PropDetection(1, 2, 5, 6, .9, yolo_confirmed=True)],
+        hands=None, pose=None, feedback="present", feedback_type="positive",
+        movement="Custom Movement", prop_label="Bottle",
+    ))
+    with session._overlay_lock:
+        session._overlay_publish_period_s = .4
+        session._ai_inflight_started_at = base + .4
+    alive = session._read_fresh_overlay(
+        preview=CapturedFrame(frame, base + .95, 2, 1), now=base + .95,
+    )
+    assert alive is not None
+    assert alive.boxes and alive.boxes[0].yolo_confirmed is False
+    assert session._read_fresh_overlay(now=base + 2.41) is None
+    session.close()
+
+
 def test_recent_capture_overlay_is_drawn(monkeypatch):
     _patch_vision(monkeypatch)
     monkeypatch.setattr(websocket_api, "OVERLAY_MAX_CAPTURE_AGE_S", 0.1)
@@ -774,6 +801,8 @@ def test_overlay_from_previous_camera_generation_is_rejected(monkeypatch):
     summary = session.preview_timings.overlay_alignment_summary()
     assert summary["count"] == 0
     assert summary["generation_rejections"] == 1
+    assert session._overlay_snapshot is None
+    assert session._presented_hands is None and session._presented_pose is None
 
     session._publish_overlay(
         freeze_overlay(
@@ -840,7 +869,7 @@ def test_expired_whole_overlay_makes_all_custom_preview_states_missing(monkeypat
     frame = np.zeros((48, 64, 3), dtype=np.uint8)
     session._publish_overlay(freeze_overlay(
         published_at_monotonic=now,
-        captured_at_monotonic=now - .4,
+        captured_at_monotonic=now - 1.0,
         capture_sequence=1,
         capture_generation=1,
         boxes=[PropDetection(1, 2, 20, 40, .9)],

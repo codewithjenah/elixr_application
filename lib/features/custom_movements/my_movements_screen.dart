@@ -14,7 +14,7 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/custom_movement.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../services/auth_service.dart';
-import 'custom_movement_builder_dialog.dart';
+import 'custom_movement_authoring_screen.dart';
 
 class MyMovementsScreen extends StatelessWidget {
   const MyMovementsScreen({super.key});
@@ -90,7 +90,7 @@ class MyMovementsLibrary extends StatelessWidget {
                       const Text('Create your first movement'),
                       const SizedBox(height: 6),
                       const Text(
-                        'Record three references, then practice against your own template.',
+                        'Record at least two references, then practice against your own template.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 14),
@@ -198,7 +198,7 @@ class _EmbeddedLibraryHeader extends StatelessWidget {
 Future<void> _createTraineeMovement(BuildContext context, User user) async {
   final uid = user.id;
   if (uid == null) return;
-  await CustomMovementBuilderDialog.show(
+  await CustomMovementAuthoringScreen.show(
     context,
     ownerUid: uid,
     ownerRole: CustomMovementOwnerRole.trainee,
@@ -228,7 +228,7 @@ class _MovementCardState extends State<_MovementCard> {
       revisionId: widget.movement.activeRevisionId,
     );
     if (!context.mounted || revision == null) return;
-    await CustomMovementBuilderDialog.show(
+    await CustomMovementAuthoringScreen.show(
       context,
       ownerUid: widget.ownerUid,
       ownerRole: widget.movement.ownerRole,

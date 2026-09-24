@@ -10,7 +10,7 @@ import 'teacher_activity_assessment.dart';
 class MovementTemplate {
   static const currentSchemaVersion = 2;
   static const currentCaptureVersion = 1;
-  static const minimumReferences = 3;
+  static const minimumReferences = 2;
   static const maximumEncodedBytes = 700 * 1024;
 
   const MovementTemplate({
@@ -145,7 +145,7 @@ class MovementTemplate {
         durationMs <= 0 ||
         durationMs > 120000 ||
         referenceCount == null ||
-        referenceCount < 1 ||
+        referenceCount < minimumReferences ||
         referenceCount > 10 ||
         modalities == null ||
         modalities.isEmpty ||

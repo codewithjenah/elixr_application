@@ -29,6 +29,9 @@ class CommandAck {
     this.contentType,
     this.videoSha256,
     this.referenceCount,
+    this.referenceId,
+    this.trimStartMs,
+    this.trimEndMs,
     this.referenceQuality,
     this.movementTemplate,
     this.customAssessment,
@@ -53,6 +56,9 @@ class CommandAck {
   final String? contentType;
   final String? videoSha256;
   final int? referenceCount;
+  final String? referenceId;
+  final int? trimStartMs;
+  final int? trimEndMs;
   final Map<String, dynamic>? referenceQuality;
   final Map<String, dynamic>? movementTemplate;
   final Map<String, dynamic>? customAssessment;
@@ -81,6 +87,9 @@ class CommandAck {
       contentType: json['content_type'] as String?,
       videoSha256: json['video_sha256'] as String?,
       referenceCount: (json['reference_count'] as num?)?.toInt(),
+      referenceId: json['reference_id'] as String?,
+      trimStartMs: (json['trim_start_ms'] as num?)?.toInt(),
+      trimEndMs: (json['trim_end_ms'] as num?)?.toInt(),
       referenceQuality: _jsonMap(json['reference_quality']),
       movementTemplate: _jsonMap(json['movement_template']),
       customAssessment: _jsonMap(json['custom_assessment']),

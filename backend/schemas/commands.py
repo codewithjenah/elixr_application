@@ -181,6 +181,18 @@ class DiscardCustomReferenceCommand(_CommandBase):
     action: Literal["discard_custom_reference"]
 
 
+class DeleteCustomReferenceCommand(_CommandBase):
+    action: Literal["delete_custom_reference"]
+    reference_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class TrimCustomReferenceCommand(_CommandBase):
+    action: Literal["trim_custom_reference"]
+    reference_id: Annotated[str, Field(min_length=1, max_length=64)]
+    trim_start_ms: Annotated[StrictInt, Field(ge=0)]
+    trim_end_ms: Annotated[StrictInt, Field(gt=0)]
+
+
 class BuildCustomTemplateCommand(_CommandBase):
     action: Literal["build_custom_template"]
 
@@ -241,6 +253,8 @@ InboundCommand = Union[
     StartCustomCaptureCommand,
     StopCustomCaptureCommand,
     DiscardCustomReferenceCommand,
+    DeleteCustomReferenceCommand,
+    TrimCustomReferenceCommand,
     BuildCustomTemplateCommand,
     FinishCustomAssessmentCommand,
 ]
@@ -277,6 +291,10 @@ def parse_v1_command(data: dict) -> InboundCommand:
         return StopCustomCaptureCommand.model_validate(data)
     if action == "discard_custom_reference":
         return DiscardCustomReferenceCommand.model_validate(data)
+    if action == "delete_custom_reference":
+        return DeleteCustomReferenceCommand.model_validate(data)
+    if action == "trim_custom_reference":
+        return TrimCustomReferenceCommand.model_validate(data)
     if action == "build_custom_template":
         return BuildCustomTemplateCommand.model_validate(data)
     if action == "finish_custom_assessment":

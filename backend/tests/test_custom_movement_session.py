@@ -1,4 +1,6 @@
 import time
+import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,6 +11,84 @@ from api import websocket as websocket_api
 from config import YOLO_FRAME_SKIP
 from vision.camera import CapturedFrame
 from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
+
+
+@pytest.fixture(autouse=True)
+def _reference_video_double(monkeypatch, tmp_path):
+    class FakeRecorder:
+        def __init__(self, **kwargs):
+            self.started = time.monotonic()
+            self.path = tmp_path / f"reference_{uuid.uuid4().hex}.mp4"
+
+        def start(self):
+            pass
+
+        def stop(self):
+            self.path.write_bytes(b"test video")
+            started = self.started
+            return SimpleNamespace(
+                local_path=str(self.path),
+                frame_capture_times=tuple(started + index * .1 for index in range(20)),
+                fps=10.0,
+                video_ms_for_capture=lambda observed: max(0, round((observed - started) * 1000)),
+            )
+
+        def cancel(self):
+            self.path.unlink(missing_ok=True)
+
+    monkeypatch.setattr(websocket_api, "SubmissionRecorder", FakeRecorder)
+
+
+def _set_samples(session, samples):
+    session._custom_samples = list(samples)
+    started = session._custom_video_recorder.started
+    session._custom_sample_capture_times = [started + index * .1 for index in range(len(samples))]
+
+
+def _accepted_reference(session):
+    session._custom_person_count = 1
+    session._custom_person_observed_at = time.monotonic()
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    _set_samples(session, _reference())
+    accepted, code, quality = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+    return quality
+
+
+def test_reference_drafts_have_stable_ids_and_delete_only_selected_clip():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    first, middle, last = [_accepted_reference(session) for _ in range(3)]
+    assert len({first["reference_id"], middle["reference_id"], last["reference_id"]}) == 3
+    assert all(Path(item["local_file_path"]).exists() for item in (first, middle, last))
+    assert session.delete_custom_reference(middle["reference_id"]) == 2
+    assert not Path(middle["local_file_path"]).exists()
+    assert Path(first["local_file_path"]).exists()
+    assert Path(last["local_file_path"]).exists()
+    assert session.build_custom_template()["reference_count"] == 2
+    assert session.delete_custom_reference(first["reference_id"]) == 1
+    with pytest.raises(ValueError, match="invalid_reference_count"):
+        session.build_custom_template()
+    session.close()
+    assert not Path(last["local_file_path"]).exists()
+
+
+def test_reference_trim_rebases_samples_and_invalid_edit_preserves_prior_trim():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    first = _accepted_reference(session)
+    draft = session._custom_references[0]
+    assert draft.samples[0].timestamp_ms == 0
+    assert draft.samples[-1].timestamp_ms == 900
+    result = session.trim_custom_reference(first["reference_id"], 100, 800)
+    assert result["trim_start_ms"] == 100
+    assert [sample.timestamp_ms for sample in draft.effective_samples()] == list(range(0, 800, 100))
+    with pytest.raises(ValueError, match="invalid_trim_range"):
+        session.trim_custom_reference(first["reference_id"], 100, 150)
+    assert (draft.trim_start_ms, draft.trim_end_ms) == (100, 800)
+    session.trim_custom_reference(first["reference_id"], 0, draft.video_duration_ms)
+    assert draft.effective_samples() == draft.samples
+    session.close()
 
 
 def _reference(*, sides=("left",), moving_pose=False):
@@ -101,7 +181,7 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     assert session.start_custom_capture(duration_seconds=15)[0] is False
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
-    session._custom_samples = list(_reference())
+    _set_samples(session, _reference())
 
     detector.last_distinct_person_count = 2
     session._observe_custom_people(None)
@@ -114,7 +194,7 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     assert (accepted, code) == (True, None)
     assert session.custom_reference_count == 1
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
-    session._custom_samples = list(_reference())
+    _set_samples(session, _reference())
     detector.last_distinct_person_count = 2
     observed_at = time.monotonic()
     session._observe_custom_people(None, captured_at_monotonic=observed_at)
@@ -132,7 +212,7 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
-    session._custom_samples = list(_reference())
+    _set_samples(session, _reference())
     accepted, code, _ = session.stop_custom_capture()
     assert (accepted, code) == (True, None)
     assert session.custom_reference_count == 2
@@ -146,7 +226,7 @@ def test_transient_second_pose_cannot_switch_reference_performer():
     session._observe_custom_people(_performer_pose(0.3))
     session._observe_custom_people(_performer_pose(0.3))
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
-    session._custom_samples = list(_reference())
+    _set_samples(session, _reference())
     detector.last_distinct_person_count = 2
     session._observe_custom_people(_performer_pose(0.3))
     assert session._custom_multiple_invalid is False
@@ -166,7 +246,7 @@ def test_repeated_duplicate_candidates_do_not_contaminate_reference():
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
-    session._custom_samples = list(_reference())
+    _set_samples(session, _reference())
 
     detector.last_person_count = 2  # MediaPipe's duplicate raw candidate.
     for _ in range(5):
@@ -184,7 +264,7 @@ def test_transient_extra_pose_waits_for_comparable_anchor_without_false_switch()
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
-    session._custom_samples = list(_reference())
+    _set_samples(session, _reference())
     detector.last_distinct_person_count = 2
     session._observe_custom_people(None)
     detector.last_distinct_person_count = 1

@@ -32,6 +32,9 @@ class CommandAck(BaseModel):
     content_type: Optional[str] = None
     video_sha256: Optional[str] = None
     reference_count: Optional[int] = None
+    reference_id: Optional[str] = None
+    trim_start_ms: Optional[int] = None
+    trim_end_ms: Optional[int] = None
     reference_quality: Optional[dict[str, Any]] = None
     movement_template: Optional[dict[str, Any]] = None
     custom_assessment: Optional[dict[str, Any]] = None

@@ -264,7 +264,9 @@ class _CustomReferenceRecorderDialogState
         _referenceCount = count;
         _quality = ack.message ?? 'Reference accepted.';
       });
-      if (count >= MovementTemplate.minimumReferences) {
+      // Compatibility screen retained for older widget tests. The routed
+      // authoring page owns the current 2-required / 5-maximum workflow.
+      if (count >= 3) {
         final built = await _socket.sendBuildCustomTemplate();
         final template = MovementTemplate.tryFrom(built.movementTemplate);
         if (!built.accepted || template == null || !template.isReady) {
@@ -637,7 +639,7 @@ class _RecorderStatusPanel extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: AppSpacing.xs),
-        for (var index = 0; index < MovementTemplate.minimumReferences; index++)
+        for (var index = 0; index < 3; index++)
           _ReferenceStep(
             index: index,
             count: referenceCount,

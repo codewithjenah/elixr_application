@@ -25,6 +25,20 @@ from schemas.commands import (
 from schemas.protocol import CommandAck, ProtocolError
 
 
+def test_custom_reference_commands_and_ack_metadata():
+    base = {"protocol_version": 1, "request_id": "request-1", "session_id": "session-1"}
+    delete = parse_v1_command({**base, "action": "delete_custom_reference", "reference_id": "stable-id"})
+    assert delete.reference_id == "stable-id"
+    trim = parse_v1_command({**base, "action": "trim_custom_reference", "reference_id": "stable-id", "trim_start_ms": 100, "trim_end_ms": 900})
+    assert (trim.trim_start_ms, trim.trim_end_ms) == (100, 900)
+    with pytest.raises(ValidationError):
+        parse_v1_command({**base, "action": "trim_custom_reference", "reference_id": "", "trim_start_ms": -1, "trim_end_ms": 0})
+    ack = CommandAck(request_id="request-1", session_id="session-1", action="stop_custom_capture", accepted=True,
+                     reference_id="stable-id", local_file_path="C:/temp/clip.mp4", video_duration_ms=1000,
+                     trim_start_ms=0, trim_end_ms=1000)
+    assert CommandAck.model_validate_json(ack.model_dump_json()).reference_id == "stable-id"
+
+
 def _frame(h: int = 48, w: int = 64) -> np.ndarray:
     frame = np.full((h, w, 3), 120, dtype=np.uint8)
     frame[10:20, 10:20] = 200

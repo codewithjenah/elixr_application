@@ -735,16 +735,24 @@ registry:
   sequences. Reference readiness requires the camera, selected prop, and one
   visible performer. The existing Pose pass observes at most two people during
   readiness and recording; two consecutive evaluated frames confirm the person
-  state. Hands and Pose are observed during recording so the three demonstrations can infer
+  state. Hands and Pose are observed during recording so the demonstrations can infer
   reliable one-hand, two-hand, and meaningful-pose capabilities. After
   accepted readiness confirmation and activation,
   `start_custom_capture` begins one bounded monotonic sequence;
-  `stop_custom_capture` returns `reference_count` and `reference_quality`.
+  `stop_custom_capture` returns `reference_count`, `reference_quality`, a stable
+  `reference_id`, and a temporary local MP4 path and duration for authoring preview.
+  Detector samples map to MP4 time through capture timestamps of frames actually
+  written by the existing Python camera producer. `trim_custom_reference`
+  selects a non-destructive time range and validates the retained samples;
+  `delete_custom_reference` removes an arbitrary draft by ID and its temp clip.
   A confirmed second person invalidates the current reference with
   `multiple_people_detected`; rejected samples do not enter the template.
-  `discard_custom_reference` removes the most recent accepted sequence and
-  `build_custom_template` returns `movement_template` after at least three
-  valid references.
+  `discard_custom_reference` remains a compatibility command for removing the
+  most recent draft. `build_custom_template` uses retained trimmed drafts and
+  returns `movement_template` after at least two valid references. The authoring
+  page recommends three and permits up to five; existing templates with up to
+  ten references remain readable. Temporary clips are deleted on draft deletion
+  or session close and are never persisted to Firestore.
 - `session_mode: "custom_assessment"` requires a versioned
   `custom_movement_template` on `prepare`. The backend derives readiness from
   that template (legacy version-1 hand templates conservatively retain

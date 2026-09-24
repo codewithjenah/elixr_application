@@ -33,6 +33,13 @@ OVERLAY_DEAD_WORKER_TIMEOUT_S = 0.90
 # Multiple misses may bridge this short interval, but reuse never renews it.
 # Never use this geometry as an assessment observation.
 DETECTION_PRESENTATION_GRACE_S = 0.25
+# Custom inference executes YOLO, Hands, Pose, and optional orientation per
+# tick. Draw-only retention follows measured publication cadence; the bounds
+# cap stale geometry even if inference slows or stops.
+CUSTOM_PRESENTATION_MIN_GRACE_S = 0.45
+CUSTOM_PRESENTATION_MAX_GRACE_S = 1.50
+CUSTOM_PRESENTATION_CADENCE_MULTIPLIER = 2.5
+CUSTOM_INFLIGHT_PRESENTATION_LIMIT_S = 2.0
 
 # A private, annotated snapshot is emitted only when a Guided Practice hold is
 # first confirmed.  Keep it small enough for the client-side Firebase upload
