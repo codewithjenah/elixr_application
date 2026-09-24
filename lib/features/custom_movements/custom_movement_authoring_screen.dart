@@ -378,6 +378,13 @@ class _CustomMovementAuthoringScreenState
   }
 
   Future<void> _selectPreview(_ReferenceDraft reference) async {
+    if (_previewId == reference.id) {
+      setState(() {
+        _pendingStart = reference.startMs;
+        _pendingEnd = reference.endMs;
+      });
+      return;
+    }
     await _playback.release();
     if (!mounted) return;
     setState(() {

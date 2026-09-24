@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/elixr_video_player.dart';
@@ -13,6 +16,8 @@ class _FakeVideoPlayerPlatform extends VideoPlayerWinPlatform {
   int? lastSeekMs;
   bool failOpen = false;
   int openCalls = 0;
+  Completer<void>? openGate;
+  Completer<void>? disposeGate;
 
   @override
   Future<WinVideoPlayerValue?> openVideo(
@@ -22,6 +27,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerWinPlatform {
     Map<String, String> httpHeaders,
   ) async {
     openCalls++;
+    await openGate?.future;
     if (failOpen) throw StateError('video unavailable');
     const textureIdForTest = 1;
     final value = WinVideoPlayerValue(
@@ -81,6 +87,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerWinPlatform {
 
   @override
   Future<void> dispose(int textureId) async {
+    await disposeGate?.future;
     players.remove(textureId);
   }
 
@@ -90,8 +97,79 @@ class _FakeVideoPlayerPlatform extends VideoPlayerWinPlatform {
   }
 }
 
+Uri _testClip() {
+  final directory = Directory.systemTemp.createTempSync('elixr_player_test_');
+  final file = File('${directory.path}${Platform.pathSeparator}clip.mp4');
+  file.writeAsBytesSync([0]);
+  addTearDown(() => directory.deleteSync(recursive: true));
+  return file.uri;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('playback release waits for an in-progress native open', (
+    tester,
+  ) async {
+    final initialPlatform = VideoPlayerWinPlatform.instance;
+    final fakePlatform = _FakeVideoPlayerPlatform()
+      ..openGate = Completer<void>();
+    VideoPlayerWinPlatform.instance = fakePlatform;
+    addTearDown(() => VideoPlayerWinPlatform.instance = initialPlatform);
+    final session = ElixrPlaybackSession();
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: SizedBox(
+          height: 280,
+          child: ElixrVideoPlayer(source: _testClip(), session: session),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(fakePlatform.openCalls, 1);
+    var released = false;
+    final release = session.release().then((_) => released = true);
+    await tester.pump();
+    expect(released, isFalse);
+    fakePlatform.openGate!.complete();
+    await release;
+    expect(released, isTrue);
+    expect(fakePlatform.players, isEmpty);
+  });
+
+  testWidgets(
+    'playback session waits for native disposal after player unmounts',
+    (tester) async {
+      final initialPlatform = VideoPlayerWinPlatform.instance;
+      final fakePlatform = _FakeVideoPlayerPlatform();
+      VideoPlayerWinPlatform.instance = fakePlatform;
+      addTearDown(() => VideoPlayerWinPlatform.instance = initialPlatform);
+      final session = ElixrPlaybackSession();
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: SizedBox(
+            height: 280,
+            child: ElixrVideoPlayer(source: _testClip(), session: session),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(fakePlatform.players, isNotEmpty);
+
+      fakePlatform.disposeGate = Completer<void>();
+      await tester.pumpWidget(const SizedBox.shrink());
+      var released = false;
+      final release = session.release().then((_) => released = true);
+      await tester.pump();
+      expect(released, isFalse);
+      fakePlatform.disposeGate!.complete();
+      await release;
+      expect(released, isTrue);
+      expect(fakePlatform.players, isEmpty);
+    },
+  );
 
   testWidgets('video controls support playback, seeking, and fullscreen', (
     tester,
@@ -106,9 +184,7 @@ void main() {
         theme: AppTheme.dark,
         home: SizedBox(
           height: 280,
-          child: ElixrVideoPlayer(
-            source: Uri(scheme: 'file', path: 'clip'),
-          ),
+          child: ElixrVideoPlayer(source: _testClip()),
         ),
       ),
     );
@@ -169,9 +245,7 @@ void main() {
         theme: AppTheme.dark,
         home: SizedBox(
           height: 280,
-          child: ElixrVideoPlayer(
-            source: Uri(scheme: 'file', path: 'clip'),
-          ),
+          child: ElixrVideoPlayer(source: _testClip()),
         ),
       ),
     );

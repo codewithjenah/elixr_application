@@ -5,10 +5,12 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/custom_movement.dart';
 import 'package:elixr_application/data/models/movement_template.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/custom_movement_repository.dart';
 import 'package:elixr_application/features/custom_movements/custom_movement_authoring_screen.dart';
+import 'package:elixr_application/features/settings/widgets/camera_source_preference.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/websocket_service.dart';
@@ -115,6 +117,11 @@ class _Socket extends Fake implements WebSocketService {
   int count = 0;
   final List<String> deleted = [];
   final List<String> trimmed = [];
+  bool rejectNextReference = false;
+  final List<String?> preparedCameraIds = [];
+  int stopCalls = 0;
+  String? preparedMode;
+  TeacherActivityReadinessSpec? preparedReadiness;
 
   CommandAck _ack(
     String action, {
@@ -137,23 +144,23 @@ class _Socket extends Fake implements WebSocketService {
     movementTemplate: template,
   );
 
-  void ready() {
+  void ready({int personCount = 1, bool readinessStable = true}) {
     previews.add(
       PreviewFrame(
         jpegBytes: base64Decode(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aXcAAAAASUVORK5CYII=',
+          'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAC0lEQVR4nGNgQAYAAA4AAamRc7EAAAAASUVORK5CYII=',
         ),
       ),
     );
     feedback.add(
-      const PracticeFeedback(
+      PracticeFeedback(
         bottleDetected: true,
         movement: 'Custom Movement',
         feedback: 'Ready',
         feedbackType: 'positive',
         postureStatus: 'correct',
-        readinessStable: true,
-        personCount: 1,
+        readinessStable: readinessStable,
+        personCount: personCount,
       ),
     );
   }
@@ -169,15 +176,40 @@ class _Socket extends Fake implements WebSocketService {
       return Future<void>.value();
     }
     if (method == #dispose) return null;
-    if (method == #sendPrepare ||
-        method == #sendBeginReadiness ||
+    if (method == #sendPrepare) {
+      preparedCameraIds.add(
+        invocation.namedArguments[#cameraDeviceId] as String?,
+      );
+      preparedMode = invocation.namedArguments[#sessionMode] as String?;
+      preparedReadiness =
+          invocation.namedArguments[#readinessSpec]
+              as TeacherActivityReadinessSpec?;
+      return Future<CommandAck>.value(_ack('prepare'));
+    }
+    if (method == #stopPracticeSession) {
+      stopCalls++;
+      return Future<CommandAck>.value(_ack('stop'));
+    }
+    if (method == #sendBeginReadiness ||
         method == #sendConfirmReadiness ||
         method == #sendActivate ||
-        method == #sendStartCustomCapture ||
-        method == #stopPracticeSession) {
+        method == #sendStartCustomCapture) {
       return Future<CommandAck>.value(_ack('$method'));
     }
     if (method == #sendStopCustomCapture) {
+      if (rejectNextReference) {
+        rejectNextReference = false;
+        return Future<CommandAck>.value(
+          CommandAck(
+            protocolVersion: 1,
+            requestId: 'request-stop_custom_capture',
+            sessionId: 'session-1',
+            action: 'stop_custom_capture',
+            accepted: false,
+            errorCode: 'multiple_people_detected',
+          ),
+        );
+      }
       count++;
       return Future<CommandAck>.value(
         _ack(
@@ -221,8 +253,25 @@ class _Socket extends Fake implements WebSocketService {
 }
 
 class _Settings extends SettingsService {
+  _Settings({this.deviceId});
+
+  String? deviceId;
+
   @override
-  Future<String?> loadSelectedCameraDeviceId() async => null;
+  String? get selectedCameraDeviceId => deviceId;
+
+  @override
+  Future<SettingsWriteOutcome> setSelectedCameraDevice(
+    String? nextDeviceId, {
+    String? displayName,
+  }) async {
+    deviceId = nextDeviceId;
+    notifyListeners();
+    return SettingsWriteOutcome.saved;
+  }
+
+  @override
+  Future<String?> loadSelectedCameraDeviceId() async => deviceId;
 }
 
 Widget _host({
@@ -231,9 +280,13 @@ Widget _host({
   CustomMovement? existing,
   CustomMovementRevision? revision,
   CustomMovementOwnerRole role = CustomMovementOwnerRole.trainee,
+  _Settings? settingsOverride,
 }) {
-  final settings = _Settings();
-  final cameras = CameraDeviceService(httpGet: (_) async => '{"cameras":[]}');
+  final settings = settingsOverride ?? _Settings();
+  final cameras = CameraDeviceService(
+    httpGet: (_) async =>
+        '{"cameras":[{"device_id":"dev-a","display_name":"Camera A","runtime_index":0,"is_active":false,"identity_stable":true},{"device_id":"dev-b","display_name":"Camera B","runtime_index":1,"is_active":false,"identity_stable":true}]}',
+  );
   return MultiProvider(
     providers: [
       ChangeNotifierProvider<SettingsService>.value(value: settings),
@@ -269,6 +322,127 @@ Future<void> _record(WidgetTester tester) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'camera source change closes the old reference session before preparing another',
+    (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final socket = _Socket();
+      addTearDown(socket.close);
+      final settings = _Settings(deviceId: 'dev-a');
+      await tester.pumpWidget(
+        _host(
+          repository: _Repository(),
+          socket: socket,
+          settingsOverride: settings,
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('custom-movement-name')),
+        'Bottle Loop',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('custom-movement-description')),
+        'A complete bottle loop.',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-movement-next')),
+      );
+      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+      for (
+        var attempt = 0;
+        attempt < 20 && socket.preparedCameraIds.isEmpty;
+        attempt++
+      ) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(socket.preparedCameraIds, ['dev-a']);
+      expect(socket.preparedMode, 'custom_capture');
+      expect(socket.preparedReadiness?.isCameraOnly, isTrue);
+      await tester.pump(const Duration(milliseconds: 100));
+      final cameraPreference = tester.widget<CameraSourcePreference>(
+        find.byType(CameraSourcePreference),
+      );
+      await settings.setSelectedCameraDevice('dev-b');
+      cameraPreference.onSelectionSaved!('dev-b');
+      for (
+        var attempt = 0;
+        attempt < 20 && socket.preparedCameraIds.length < 2;
+        attempt++
+      ) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(socket.stopCalls, 1);
+      expect(socket.preparedCameraIds, ['dev-a', 'dev-b']);
+      socket.ready();
+      await tester.pump();
+      final cameraBefore = tester.getRect(find.byType(AspectRatio).first);
+      await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+      await tester.pump();
+      expect(tester.getRect(find.byType(AspectRatio).first), cameraBefore);
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      expect(tester.getRect(find.byType(AspectRatio).first), cameraBefore);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'reference recording requires one person and rejected clips can be retried',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final socket = _Socket();
+      addTearDown(socket.close);
+      await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+      await tester.enterText(
+        find.byKey(const ValueKey('custom-movement-name')),
+        'Bottle Loop',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('custom-movement-description')),
+        'A complete bottle loop.',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-movement-next')),
+      );
+      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+      await tester.pump(const Duration(milliseconds: 100));
+      final record = find.byKey(const ValueKey('custom-reference-record'));
+      socket.ready(personCount: 0);
+      await tester.pump();
+      expect(tester.widget<FilledButton>(record).onPressed, isNull);
+      socket.ready(personCount: 2);
+      await tester.pump();
+      expect(tester.widget<FilledButton>(record).onPressed, isNull);
+      socket.ready();
+      for (var attempt = 0; attempt < 20; attempt++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (tester.widget<FilledButton>(record).onPressed != null) break;
+      }
+      expect(tester.widget<FilledButton>(record).onPressed, isNotNull);
+      socket.rejectNextReference = true;
+      await _record(tester);
+      expect(socket.count, 0);
+      expect(
+        find.textContaining('This reference was not usable'),
+        findsOneWidget,
+      );
+      await _record(tester);
+      expect(socket.count, 1);
+      expect(find.textContaining('Reference 1'), findsOneWidget);
+      socket.ready(readinessStable: false);
+      await tester.pump();
+      expect(tester.widget<FilledButton>(record).onPressed, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'full page guides two required references and keeps a third optional',
@@ -405,6 +579,7 @@ void main() {
       await tester.tap(find.text('Apply trim'));
       await tester.pump(const Duration(milliseconds: 100));
       expect(socket.trimmed, ['reference-2']);
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.ensureVisible(find.text('Reset trim'));
       await tester.tap(find.text('Reset trim'));
       await tester.pump(const Duration(milliseconds: 100));
@@ -414,6 +589,10 @@ void main() {
       await tester.ensureVisible(find.text('Delete').at(1));
       await tester.tap(find.text('Delete').at(1));
       await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
       expect(socket.deleted, ['reference-2']);
       expect(
         find.byKey(const ValueKey('reference-player-reference-2')),

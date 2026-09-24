@@ -62,12 +62,13 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
   bool _opening = false;
   int _openGeneration = 0;
   bool _clampingPlayback = false;
+  final Set<Future<void>> _openingFutures = {};
 
   @override
   void initState() {
     super.initState();
     widget.session?.attach(_releaseSession);
-    _open(widget.source);
+    _startOpen(widget.source);
   }
 
   @override
@@ -78,7 +79,7 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
       widget.session?.attach(_releaseSession);
     }
     if (oldWidget.source != widget.source) {
-      _open(widget.source);
+      _startOpen(widget.source);
     } else if (oldWidget.clipStart != widget.clipStart ||
         oldWidget.clipEnd != widget.clipEnd) {
       final controller = _controller;
@@ -99,7 +100,27 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
   Future<void> _releaseSession() async {
     // Invalidate an in-flight initialize before it can acquire the clip again.
     _openGeneration++;
+    await Future.wait(_openingFutures.toList());
     await _releaseNative();
+  }
+
+  void _startOpen(Uri source) {
+    final opening = _open(source);
+    _openingFutures.add(opening);
+    unawaited(
+      opening.then<void>(
+        (_) => _openingFutures.remove(opening),
+        onError: (Object error, StackTrace stackTrace) {
+          _openingFutures.remove(opening);
+          if (mounted) {
+            setState(() {
+              _error = 'This clip could not be played in-app.';
+              _opening = false;
+            });
+          }
+        },
+      ),
+    );
   }
 
   void _onPlaybackTick() {
@@ -131,6 +152,15 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
     if (!mounted || generation != _openGeneration) return;
     _error = null;
     setState(() => _opening = true);
+    if ((source.isScheme('file') || source.scheme.isEmpty) &&
+        !File(source.toFilePath()).existsSync()) {
+      if (!mounted || generation != _openGeneration) return;
+      setState(() {
+        _error = 'This clip could not be played in-app.';
+        _opening = false;
+      });
+      return;
+    }
     final next = source.isScheme('file') || source.scheme.isEmpty
         ? WinVideoPlayerController.file(File(source.toFilePath()))
         : WinVideoPlayerController.networkUrl(source);
@@ -182,12 +212,10 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
 
   @override
   void dispose() {
-    _openGeneration++;
-    widget.session?.attach(() async {});
-    final controller = _controller;
-    _controller = null;
-    controller?.removeListener(_onPlaybackTick);
-    controller?.dispose();
+    final released = _releaseSession();
+    // The parent may need to delete the local file after this widget unmounts.
+    widget.session?.attach(() => released);
+    unawaited(released);
     super.dispose();
   }
 
@@ -201,7 +229,7 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
           title: 'Video unavailable',
           message: _error!,
           actionLabel: 'Retry',
-          onAction: _opening ? null : () => unawaited(_open(widget.source)),
+          onAction: _opening ? null : () => _startOpen(widget.source),
         ),
       );
     }
