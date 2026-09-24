@@ -257,6 +257,36 @@ def test_freestyle_prepare_command_parses_allowlist():
     assert cmd.allowed_movements[1].prop_type == "shaker"
 
 
+def test_endless_target_command_is_strict_and_generation_scoped():
+    from pydantic import ValidationError
+
+    payload = {
+        "protocol_version": 1,
+        "request_id": "req-target",
+        "session_id": "session-1",
+        "action": "set_endless_target",
+        "target_generation": 2,
+        "target_type": "movement",
+        "movement": "Hand Stall",
+        "prop_type": "bottle",
+    }
+    command = parse_v1_command(payload)
+    assert command.target_generation == 2
+    assert command.movement == "Hand Stall"
+    for invalid in (
+        {**payload, "target_generation": 0},
+        {**payload, "target_type": "toss_catch"},
+        {**payload, "movement": None},
+        {**payload, "prop_type": "bottle_and_shaker"},
+    ):
+        try:
+            parse_v1_command(invalid)
+        except ValidationError:
+            pass
+        else:
+            raise AssertionError(f"Accepted invalid target: {invalid}")
+
+
 def test_pause_and_resume_commands_parse():
     pause = parse_v1_command(
         {

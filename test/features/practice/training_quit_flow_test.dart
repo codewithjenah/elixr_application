@@ -650,11 +650,11 @@ void main() {
     tester,
   ) async {
     await pumpPlayground(tester);
-    expect(find.text('NO SCORING'), findsOneWidget);
+    expect(find.text('RUN SCORE ONLY'), findsOneWidget);
     expect(find.text('PERFECT!'), findsNothing);
     await tester.tap(_backButton());
     await _pumpUi(tester);
-    expect(find.text('Quit Playground?'), findsNothing);
+    expect(find.text('Quit Endless Mode?'), findsNothing);
     expect(find.text('dashboard-destination'), findsOneWidget);
     expect(ws.stopCalls, 1);
   });
@@ -672,7 +672,7 @@ void main() {
     );
     await tester.tap(_backButton());
     await _pumpUi(tester);
-    expect(find.text('Quit Playground?'), findsOneWidget);
+    expect(find.text('Quit Endless Mode?'), findsOneWidget);
     expect(find.text('PERFECT!'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('training-quit-keep')));
     await _pumpUi(tester);

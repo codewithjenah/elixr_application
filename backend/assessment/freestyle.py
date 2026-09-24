@@ -26,7 +26,7 @@ RecognitionState = Literal["searching", "candidate", "confirmed", "paused"]
 
 ADVANCED_DISPLAY = "Advanced technique detected"
 ADVANCED_HINT = "Keep progressing to discover this movement."
-FLIP_DISPLAY = "Flip"
+FLIP_DISPLAY = "Toss & Catch"
 FREESTYLE_MOVEMENT_LABEL = "Freestyle"
 
 CONFIRM_SECONDS = 0.45
@@ -521,6 +521,7 @@ def _tagged_props(
 @dataclass
 class FreestyleRecognizer:
     allowed_movements: frozenset[tuple[str, str]]
+    targeted: bool = False
     evaluate_fn: EvaluateFn = evaluate_movement
     confirm_seconds: float = CONFIRM_SECONDS
     exit_seconds: float = EXIT_SECONDS
@@ -538,6 +539,8 @@ class FreestyleRecognizer:
     _unknown_seconds: float = 0.0
     _samples: list[_StaticSample] = field(default_factory=list)
     _paused: bool = False
+    _target: tuple[str, str] | None = None
+    _target_type: str | None = None
     _last_timestamp: float | None = None
     _last_tick: FreestyleTick = field(
         default_factory=lambda: FreestyleTick(
@@ -565,6 +568,35 @@ class FreestyleRecognizer:
             recognized_display=None,
             detected_prop_type=None,
         )
+
+    def set_target(self, target_type: str, movement: str | None, prop_type: str) -> bool:
+        if not self.targeted:
+            return False
+        if target_type == "movement":
+            if (movement is None or
+                (movement, prop_type) not in self.allowed_movements or
+                MOVEMENT_CONFIG[movement].get("required_prop_count", 1) != 1):
+                return False
+            target = (movement, prop_type)
+        elif (target_type == "toss_catch" and prop_type in {"bottle", "shaker"}
+              and any(prop == prop_type for _, prop in self.allowed_movements)):
+            target = ("Toss & Catch", prop_type)
+        else:
+            return False
+        self._target = target
+        self._target_type = target_type
+        self._flip.reset()
+        self._states.clear()
+        self._prev_hips.clear()
+        self._clear_static_hold()
+        self._last_timestamp = None
+        self._last_tick = FreestyleTick("searching", None, None)
+        return True
+
+    def clear_target(self) -> None:
+        self.reset()
+        self._target = None
+        self._target_type = None
 
     def set_paused(self, paused: bool) -> None:
         self._paused = paused
@@ -601,12 +633,14 @@ class FreestyleRecognizer:
 
         flip_event = self._flip.update(
             timestamp=timestamp,
-            bottles=bottles,
-            shakers=shakers,
+            bottles=bottles if not self.targeted or self._target[1] == "bottle" else [],
+            shakers=shakers if not self.targeted or self._target[1] == "shaker" else [],
             hands=hands,
             width=width,
             height=height,
-        )
+        ) if not self.targeted or self._target_type == "toss_catch" else None
+        if self.targeted and flip_event is not None and flip_event.prop_type != self._target[1]:
+            flip_event = None
         confirmed_bottles = [item for item in bottles if item.yolo_confirmed]
         confirmed_shakers = [item for item in shakers if item.yolo_confirmed]
         scored = self._evaluate_catalog(
@@ -615,7 +649,7 @@ class FreestyleRecognizer:
             hands=hands,
             pose=pose,
             calibration_scale=calibration_scale,
-        )
+        ) if not self.targeted or self._target_type == "movement" else []
         chosen = self._arbitrate(scored, detected_prop)
         static_dt = dt
         if self._last_timestamp is not None:
@@ -653,8 +687,12 @@ class FreestyleRecognizer:
     ) -> list[tuple[tuple[str, str], RuleResult, float]]:
         scored: list[tuple[tuple[str, str], RuleResult, float]] = []
         for movement in official_freestyle_movements():
+            if self.targeted and (self._target is None or movement != self._target[0]):
+                continue
             jobs: list[tuple[str, BottleDetection | None, list[PropDetection], list[PropDetection] | None, str]] = []
             for prop_type in movement_supported_prop_types(movement):
+                if self.targeted and prop_type != self._target[1]:
+                    continue
                 if prop_type == "bottle" and bottles:
                     jobs.append(("bottle", bottles[0], bottles, None, "Bottle"))
                 elif prop_type == "shaker" and shakers:

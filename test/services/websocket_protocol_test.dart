@@ -329,6 +329,40 @@ void main() {
     }
 
     test(
+      'Endless target command is correlated and does not activate session',
+      () async {
+        final sessionId = service.beginPracticeAttempt();
+        final future = service.sendSetEndlessTarget(
+          targetGeneration: 3,
+          movement: 'Hand Stall',
+          prop: TrainingProp.shaker,
+        );
+        await Future<void>.delayed(Duration.zero);
+        final payload = sent.last;
+        expect(payload['action'], 'set_endless_target');
+        expect(payload['protocol_version'], 1);
+        expect(payload['session_id'], sessionId);
+        expect(payload['request_id'], isNotEmpty);
+        expect(payload['target_generation'], 3);
+        expect(payload['target_type'], 'movement');
+        expect(payload['movement'], 'Hand Stall');
+        expect(payload['prop_type'], 'shaker');
+        expect(service.sessionActive, isFalse);
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': payload['request_id'],
+          'session_id': sessionId,
+          'action': 'set_endless_target',
+          'accepted': true,
+          'session_state': 'active',
+        });
+        expect((await future).accepted, isTrue);
+        expect(service.sessionActive, isFalse);
+      },
+    );
+
+    test(
       'version 1 command payloads contain protocol and identifiers',
       () async {
         final prepareFuture = service.sendPrepare(

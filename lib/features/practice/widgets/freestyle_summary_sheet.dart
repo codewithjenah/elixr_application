@@ -9,25 +9,29 @@ import '../freestyle/freestyle_models.dart';
 class FreestyleSummarySheet {
   const FreestyleSummarySheet._();
 
-  static Future<void> show(
+  static Future<bool?> show(
     BuildContext context, {
     required FreestyleSessionStats stats,
     required int durationSeconds,
     required VoidCallback onDone,
   }) {
-    return ElixDialog.show<void>(
+    return ElixDialog.show<bool>(
       context,
-      title: 'Freestyle Complete',
+      title: 'Endless Run Summary',
       barrierDismissible: true,
       maxWidth: 520,
       scrollableContent: true,
       content: _SummaryBody(stats: stats, durationSeconds: durationSeconds),
       actions: [
+        Button(
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+          child: const Text('Play Again'),
+        ),
         ElixPrimaryButton(
           label: 'Done',
           expanded: true,
           onPressed: () {
-            Navigator.of(context, rootNavigator: true).pop();
+            Navigator.of(context, rootNavigator: true).pop(false);
             onDone();
           },
         ),
@@ -61,9 +65,10 @@ class _SummaryBody extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.md),
         for (final row in [
-          ('Recognized', '${stats.movementsRecognized}'),
-          ('Unique', '${stats.uniqueUnlockedMovements}'),
-          ('Flips', '${stats.flips}'),
+          ('Successful targets', '${stats.movementsRecognized + stats.flips}'),
+          ('Missed targets', '${stats.missed}'),
+          ('Run score', '${stats.runScore}'),
+          ('Unique movements', '${stats.uniqueUnlockedMovements}'),
           ('Perfect', '${stats.perfect}'),
           ('Great', '${stats.great}'),
           ('Nice', '${stats.nice}'),

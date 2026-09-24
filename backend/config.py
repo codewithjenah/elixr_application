@@ -542,6 +542,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_pose": False,
         "max_hands": 2,
         "supported_prop_types": ("bottle",),
+        "required_prop_count": 2,
     },
     "Bottle in a tin": {
         "difficulty": "Hard",
@@ -550,6 +551,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "required_prop_type": "bottle_and_shaker",
         "max_hands": 1,
         "supported_prop_types": ("bottle_and_shaker",),
+        "required_prop_count": 2,
     },
     "Double Forearm Stall": {
         "difficulty": "Hard",
@@ -557,6 +559,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_pose": True,
         "max_hands": 0,
         "supported_prop_types": ("bottle",),
+        "required_prop_count": 2,
     },
     # Internal Free Practice vision mode: prop detection + preview only.
     # Not a user-selectable catalog movement (Flutter catalog omits it).

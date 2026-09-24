@@ -32,12 +32,10 @@ class TrainingQuitCopy {
   );
 
   static const playground = TrainingQuitCopy(
-    title: 'Quit Playground?',
-    body:
-        'Your current Freestyle session will end. This Playground run is not scored and '
-        'will not be saved.',
+    title: 'Quit Endless Mode?',
+    body: 'Your Endless run will end. Its session score will not be saved.',
     keepLabel: 'Keep Training',
-    quitLabel: 'Quit Session',
+    quitLabel: 'End Session',
   );
 
   static const assignment = TrainingQuitCopy(

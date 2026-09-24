@@ -109,7 +109,7 @@ class _PracticeSectionState extends State<PracticeSection> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Playground music',
+                  'Endless Mode music',
                   style: AppTheme.body.copyWith(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -118,7 +118,7 @@ class _PracticeSectionState extends State<PracticeSection> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Choose session music for Freestyle Playground. Movement selection is no longer required.',
+                  'Choose music for Endless Mode runs.',
                   style: AppTheme.caption.copyWith(
                     color: context.elixTextSecondary,
                   ),

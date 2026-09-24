@@ -49,10 +49,12 @@ void main() {
       'quality': 'great',
       'movement': 'Bottle Flip',
       'prop_type': 'shaker',
+      'target_generation': 7,
     });
     expect(event.kind, RecognitionKind.flip);
-    expect(event.displayLabel, 'Flip');
+    expect(event.displayLabel, 'Toss & Catch');
     expect(event.movement, isNull);
+    expect(event.targetGeneration, 7);
     expect(event.countsForCombo, isTrue);
   });
 

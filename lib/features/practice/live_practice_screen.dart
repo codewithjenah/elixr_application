@@ -191,6 +191,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _commandInFlight = false;
   bool _freestyleActivationInFlight = false;
   bool _freestyleSummaryOpen = false;
+  TrainingProp _endlessProp = TrainingProp.bottle;
+  int _requestedTargetGeneration = 0;
+  FreestyleSessionPhase _lastRenderedFreestylePhase =
+      FreestyleSessionPhase.idle;
 
   static const _wideBreakpoint = AppSpacing.practiceDesktopBreakpoint;
   static const _compactBreakpoint = AppSpacing.practiceCompactBreakpoint;
@@ -311,6 +315,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     ];
   }
 
+  List<EndlessTarget> _endlessPool() {
+    return endlessPoolFromReady(_freestyleAllowlist(), _endlessProp);
+  }
+
   bool get _isPlayground => widget.teacherCreatedAssignment == null;
 
   void _onFreestyleChanged() {
@@ -320,7 +328,14 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     } else {
       _run.resumeElapsed();
     }
-    setState(() {});
+    if (_freestyle.phase == FreestyleSessionPhase.active &&
+        _freestyle.targetGeneration > _requestedTargetGeneration) {
+      unawaited(_setEndlessTarget(_freestyle.generation));
+    }
+    if (_freestyle.phase != _lastRenderedFreestylePhase) {
+      _lastRenderedFreestylePhase = _freestyle.phase;
+      setState(() {});
+    }
   }
 
   void _onWsStateChanged() {
@@ -336,7 +351,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       unawaited(_sfx.stop());
       setState(
         () => _sessionError =
-            'Backend connection lost. Restart Freestyle to continue.',
+            'Backend connection lost. Restart Endless Mode to continue.',
       );
       return;
     }
@@ -911,10 +926,19 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _latestFeedback = null;
     _bottleDetected = false;
     if (assignment == null) {
-      final generation = _freestyle.start();
+      final pool = _endlessPool();
+      if (pool.length < 2) {
+        setState(
+          () => _startError =
+              'Complete a tutorial for a ${_endlessProp.displayLabel} movement before starting.',
+        );
+        return;
+      }
+      _requestedTargetGeneration = 0;
+      final generation = _freestyle.start(pool: pool);
       if (generation == null) {
         setState(() {
-          _sessionError = 'Could not start Freestyle. Try again.';
+          _sessionError = 'Could not start Endless Mode. Try again.';
         });
         return;
       }
@@ -1051,13 +1075,17 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       final ack = await _ws.sendPrepare(
         movement: TeacherCreatedAssignmentPractice.backendMovementName,
         difficulty: 'Easy',
-        prop: TrainingProp.bottleAndShaker,
+        prop: _endlessProp,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
             : null,
-        sessionMode: 'freestyle',
-        allowedMovements: _freestyleAllowlist(),
+        sessionMode: 'endless',
+        allowedMovements: [
+          for (final target in _endlessPool())
+            if (!target.isTossCatch)
+              (movement: target.movement, prop: target.prop),
+        ],
       );
       if (!mounted ||
           generation != _freestyle.generation ||
@@ -1122,6 +1150,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _freestyleActivationInFlight = true;
     _run.enterCountdown();
     try {
+      if (!await _setEndlessTarget(generation)) return;
       final ack = await _ws.sendActivate();
       if (!mounted || generation != _freestyle.generation) {
         return;
@@ -1142,6 +1171,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         return;
       }
       if (!_freestyle.markActive(generation)) return;
+      _freestyle.confirmTarget(generation, _freestyle.targetGeneration);
       _run.enterActive();
       final settings = context.read<SettingsService>();
       await _music.start(
@@ -1179,11 +1209,54 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     }
   }
 
+  Future<bool> _setEndlessTarget(int generation) async {
+    final target = _freestyle.currentTarget;
+    final targetGeneration = _freestyle.targetGeneration;
+    if (!mounted ||
+        generation != _freestyle.generation ||
+        target == null ||
+        targetGeneration <= _requestedTargetGeneration) {
+      return false;
+    }
+    _requestedTargetGeneration = targetGeneration;
+    try {
+      final ack = await _ws.sendSetEndlessTarget(
+        targetGeneration: targetGeneration,
+        movement: target.isTossCatch ? null : target.movement,
+        prop: target.prop,
+      );
+      if (!mounted ||
+          generation != _freestyle.generation ||
+          targetGeneration != _freestyle.targetGeneration) {
+        return false;
+      }
+      if (!ack.accepted) throw StateError(ack.errorCode ?? 'Target rejected');
+      if (_freestyle.phase == FreestyleSessionPhase.active) {
+        _freestyle.confirmTarget(generation, targetGeneration);
+      }
+      return true;
+    } catch (error) {
+      if (mounted && generation == _freestyle.generation) {
+        debugPrint('Endless target command failed: $error');
+        _freestyle.cancelToIdle();
+        _run.cancelToIdle();
+        unawaited(_stopWebSocketSession());
+        setState(
+          () => _sessionError = 'Could not set Endless target. Start again.',
+        );
+      }
+      return false;
+    }
+  }
+
   Future<void> _pauseFreestyle() async {
     final generation = _freestyle.generation;
     if (!_freestyle.pause(generation)) return;
     try {
-      await _ws.sendPause();
+      final ack = await _ws.sendPause();
+      if (mounted && generation == _freestyle.generation && !ack.accepted) {
+        _freestyle.resume(generation);
+      }
     } on Object catch (error) {
       debugPrint('Freestyle pause command failed: $error');
     }
@@ -1191,20 +1264,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   Future<void> _resumeFreestyle() async {
     final generation = _freestyle.generation;
-    if (!_freestyle.resume(generation)) return;
+    if (!_freestyle.isPaused) return;
     try {
       final ack = await _ws.sendResume();
       if (!mounted || generation != _freestyle.generation) return;
-      if (!ack.accepted) {
-        _freestyle.pause(generation);
-        setState(() {});
-      }
+      if (ack.accepted) _freestyle.resume(generation);
     } on Object catch (error) {
       debugPrint('Freestyle resume command failed: $error');
-      if (generation == _freestyle.generation) {
-        _freestyle.pause(generation);
-        if (mounted) setState(() {});
-      }
     }
   }
 
@@ -1228,7 +1294,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _freestyle.markCompleted(generation);
       if (!mounted || _leaving) return;
       _freestyleSummaryOpen = true;
-      await FreestyleSummarySheet.show(
+      final playAgain = await FreestyleSummarySheet.show(
         context,
         stats: stats,
         durationSeconds: durationSeconds,
@@ -1243,6 +1309,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         _bottleDetected = false;
         _sessionError = null;
       });
+      if (playAgain == true) {
+        // The old session was stopped and its generation invalidated above.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_beginSelectedCameraSession());
+        });
+      }
     } finally {
       _freestyleSummaryOpen = false;
       _stopInFlight = false;
@@ -1502,13 +1574,13 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 final assignment = widget.teacherCreatedAssignment;
                 final header = TrainingSessionHeader(
                   onBack: _onBack,
-                  title: assignment?.title ?? 'Playground',
+                  title: assignment?.title ?? 'Endless Mode',
                   statusPill: assignment == null
-                      ? 'NO SCORING'
+                      ? 'RUN SCORE ONLY'
                       : 'TEACHER REVIEWED',
                   statusPillColor: AppColors.primarySoft,
                   instruction: assignment == null
-                      ? 'Freestyle is unscored and is not saved to your practice history. ELIXR will recognize techniques as you perform them.'
+                      ? 'Complete the current movement before time runs out. The run score stays on this device.'
                       : (assignment.instructions.isEmpty
                             ? 'Practice this Teacher Activity. Your Teacher reviews the recording.'
                             : assignment.instructions),
@@ -1537,10 +1609,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       (_isPlayground &&
                           _freestyle.liveState == RecognitionState.confirmed),
                   idleTitle: assignment == null
-                      ? 'Freestyle Playground'
+                      ? 'Endless Mode'
                       : 'Practice Arena',
                   idleSubtitle: assignment == null
-                      ? 'Press Start Freestyle when you are ready.'
+                      ? 'Select a prop, then start your sequence.'
                       : 'Press Start assignment practice when you are ready.',
                   idleCaption: assignment == null
                       ? 'Keep your upper body, hands, and bottle or shaker visible.'
@@ -1579,9 +1651,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                           !_freestyle.isComplete
                       ? FreestyleOverlay(
                           controller: _freestyle,
+                          elapsedSeconds: _run.elapsedSeconds,
                           onPause: () => unawaited(_pauseFreestyle()),
                           onResume: () => unawaited(_resumeFreestyle()),
-                          onQuit: () => unawaited(_onCancelPressed()),
+                          onQuit: () => unawaited(_finishFreestyle()),
                           connectionLost:
                               !_ws.isConnected && _freestyle.hasWorkToLose,
                         )
@@ -1620,10 +1693,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   metrics: idlePanel
                       ? TrainingReadyBrief(
                           title: assignment == null
-                              ? 'Freestyle Playground'
+                              ? 'Endless Mode'
                               : 'Ready to practice',
                           body: assignment == null
-                              ? 'Freestyle is unscored and is not saved to your practice history. Move freely while ELIXR recognizes techniques.'
+                              ? 'Follow the current target. Misses advance the sequence; the run continues until you end it.'
                               : 'Start assignment practice when the camera is ready. This attempt is teacher-reviewed, not scored.',
                         )
                       : LivePracticeElapsedMetric(
@@ -1667,7 +1740,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         ),
                   notice: Text(
                     assignment == null
-                        ? 'Freestyle is unscored and is not saved to your practice history.'
+                        ? 'Run score is session only. Mastery and XP are unchanged.'
                         : 'Teacher-created practice is not scored and does not award XP.',
                     style: AppTheme.bodySecondary.copyWith(
                       color: context.elixTextSecondary,
@@ -1681,6 +1754,34 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            if (assignment == null && showCameraSelector) ...[
+                              Text(
+                                'Run prop',
+                                style: AppTheme.body.copyWith(
+                                  color: context.elixTextPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.sm),
+                              ComboBox<TrainingProp>(
+                                value: _endlessProp,
+                                items: const [
+                                  ComboBoxItem(
+                                    value: TrainingProp.bottle,
+                                    child: Text('Bottle'),
+                                  ),
+                                  ComboBoxItem(
+                                    value: TrainingProp.shaker,
+                                    child: Text('Cocktail Shaker'),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() => _endlessProp = value);
+                                  }
+                                },
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                            ],
                             if (assignment != null && _recording != null)
                               SubmissionRecordingPanel(
                                 controller: _recording!,
@@ -1726,7 +1827,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   actionArea: TrainingActionArea(
                     kind: actionKind,
                     startLabel: assignment == null
-                        ? 'Start Freestyle'
+                        ? 'Start Endless Mode'
                         : (_assignmentStartBlocked
                               ? 'Attempt unavailable'
                               : 'Start assignment practice'),

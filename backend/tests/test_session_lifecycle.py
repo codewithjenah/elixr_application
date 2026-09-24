@@ -196,6 +196,43 @@ def test_prepare_opens_one_camera_session(monkeypatch):
     session.close()
 
 
+def test_endless_target_switch_reuses_camera_and_clears_on_close(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "DualPropDetector", _StubDualPropDetector)
+    session = websocket_api.VisionSession(
+        "Free Practice",
+        prop_type="bottle_and_shaker",
+        session_mode="endless",
+        allowed_movements=[
+            ("Normal Grip", "bottle"),
+            ("Reverse Grip", "bottle"),
+            ("Double Hand Stall", "bottle"),
+        ],
+    )
+    session.start()
+    assert session.set_endless_target("movement", "Normal Grip", "bottle", 1) == (True, None)
+    _activate_prepared(session)
+    assert session.set_endless_target("movement", "Hand Stall", "bottle", 2) == (False, "invalid_endless_target")
+    assert session.set_endless_target("movement", "Normal Grip", "shaker", 2) == (False, "invalid_endless_target")
+    assert session.set_endless_target("movement", "Double Hand Stall", "bottle", 2) == (False, "invalid_endless_target")
+    from schemas.recognition import RecognitionEventMessage
+    session._pending_recognition_events.append(RecognitionEventMessage(
+        session_id="old", event_id="old:1", kind="movement",
+        display_label="Normal Grip", identity_revealed=True,
+        movement="Normal Grip", prop_type="bottle", target_generation=1,
+    ))
+    assert session.set_endless_target("movement", "Reverse Grip", "bottle", 2) == (True, None)
+    assert session.drain_recognition_events() == []
+    assert session.set_endless_target("movement", "Normal Grip", "bottle", 1) == (False, "stale_target_generation")
+    assert session.set_recognition_paused(True) == (True, None)
+    assert session.set_recognition_paused(False) == (True, None)
+    assert session._recognizer._target == ("Reverse Grip", "bottle")
+    assert StubCamera.open_calls == 1
+    session.close()
+    assert session._target_generation == 0
+    assert session._recognizer._target is None
+
+
 def test_preview_marks_first_jpeg_once_without_persisting(monkeypatch):
     _patch_vision(monkeypatch)
     from vision.startup_diagnostics import (

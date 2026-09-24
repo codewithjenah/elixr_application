@@ -72,7 +72,7 @@ const elixSidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
-    label: 'Playground',
+    label: 'Endless Mode',
     icon: FluentIcons.video,
     route: AppRoutePaths.livePractice,
     group: SidebarGroup.training,

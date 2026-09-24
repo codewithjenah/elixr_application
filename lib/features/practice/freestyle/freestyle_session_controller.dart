@@ -1,12 +1,44 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
+import '../../../core/constants/movements.dart';
 import '../../../data/models/recognition_event.dart';
 import '../../../data/models/training_prop.dart';
 import 'freestyle_models.dart';
 
-/// I/O-free Playground freestyle session. The screen owns WebSocket commands
+/// Build the single-prop run pool from the existing personal-ready variants.
+List<EndlessTarget> endlessPoolFromReady(
+  List<({String movement, TrainingProp prop})> ready,
+  TrainingProp selectedProp,
+) => [
+  for (final variant in ready)
+    for (final movement in movementCatalog)
+      if (movement.name == variant.movement &&
+          variant.prop == selectedProp &&
+          movement.requiredPropCount == 1 &&
+          movement.supportedProps.contains(selectedProp))
+        EndlessTarget(
+          movement: movement.name,
+          prop: selectedProp,
+          difficulty: movement.difficulty,
+        ),
+  if (ready.any((variant) => variant.prop == selectedProp))
+    EndlessTarget(
+      movement: 'Toss & Catch',
+      prop: selectedProp,
+      difficulty: 'Medium',
+    ),
+];
+
+/// I/O-free Endless session. The screen owns WebSocket commands
 /// and reports results with the matching [generation].
 class FreestyleSessionController extends ChangeNotifier {
+  FreestyleSessionController({int Function(int)? randomIndex})
+    : _randomIndex = randomIndex ?? Random().nextInt;
+
+  final int Function(int) _randomIndex;
   FreestyleSessionPhase _phase = FreestyleSessionPhase.idle;
   FreestyleSessionStats _stats = const FreestyleSessionStats();
   final Set<String> _seenEventIds = {};
@@ -18,6 +50,15 @@ class FreestyleSessionController extends ChangeNotifier {
   RecognitionState _liveState = RecognitionState.searching;
   TrainingProp? _detectedProp;
   String? _errorMessage;
+  List<EndlessTarget> _pool = const [];
+  final List<EndlessTarget> _queue = [];
+  Timer? _targetTimer;
+  Timer? _advanceTimer;
+  int _targetGeneration = 0;
+  int _remainingSeconds = 0;
+  bool _targetReady = false;
+  bool _pendingAdvance = false;
+  RecognitionQuality? _successQuality;
 
   FreestyleSessionPhase get phase => _phase;
   int get generation => _generation;
@@ -27,6 +68,12 @@ class FreestyleSessionController extends ChangeNotifier {
   RecognitionState get liveState => _liveState;
   TrainingProp? get detectedProp => _detectedProp;
   String? get errorMessage => _errorMessage;
+  EndlessTarget? get currentTarget => _queue.isEmpty ? null : _queue.first;
+  List<EndlessTarget> get upcomingTargets => _queue.skip(1).take(2).toList();
+  int get targetGeneration => _targetGeneration;
+  int get remainingSeconds => _remainingSeconds;
+  bool get targetReady => _targetReady;
+  RecognitionQuality? get successQuality => _successQuality;
   bool get isPaused => _phase == FreestyleSessionPhase.paused;
   bool get isComplete => _phase == FreestyleSessionPhase.completed;
   bool get isActive =>
@@ -39,11 +86,24 @@ class FreestyleSessionController extends ChangeNotifier {
     _ => true,
   };
 
-  int? start() {
+  int? start({List<EndlessTarget>? pool}) {
     if (_disposed) return null;
+    _cancelTimers();
+    _pool = List.unmodifiable(pool ?? const []);
+    _queue.clear();
+    if (_pool.isNotEmpty) {
+      _fillQueue();
+      _targetGeneration = 1;
+      _remainingSeconds = currentTarget!.seconds;
+    }
+    _targetReady = false;
+    _pendingAdvance = false;
+    _successQuality = null;
     _seenEventIds.clear();
     _uniqueMovements.clear();
-    _stats = const FreestyleSessionStats();
+    _stats = FreestyleSessionStats(
+      props: _pool.isEmpty ? const {} : {_pool.first.prop},
+    );
     _liveLabel = null;
     _liveQuality = null;
     _liveState = RecognitionState.searching;
@@ -78,6 +138,8 @@ class FreestyleSessionController extends ChangeNotifier {
       return false;
     }
     _phase = FreestyleSessionPhase.paused;
+    _targetTimer?.cancel();
+    _advanceTimer?.cancel();
     _liveState = RecognitionState.paused;
     notifyListeners();
     return true;
@@ -88,6 +150,11 @@ class FreestyleSessionController extends ChangeNotifier {
       return false;
     }
     _phase = FreestyleSessionPhase.active;
+    if (_pendingAdvance) {
+      _advanceTarget();
+    } else if (_targetReady) {
+      _startTargetTimer();
+    }
     if (_liveState == RecognitionState.paused) {
       _liveState = _liveLabel == null
           ? RecognitionState.searching
@@ -110,7 +177,9 @@ class FreestyleSessionController extends ChangeNotifier {
       return false;
     }
     var changed = false;
-    if (state != null && state != RecognitionState.unknown) {
+    if (state != null &&
+        state != RecognitionState.unknown &&
+        state != _liveState) {
       _liveState = state;
       changed = true;
     }
@@ -121,7 +190,9 @@ class FreestyleSessionController extends ChangeNotifier {
         _liveQuality = null;
         changed = true;
       }
-    } else if (recognizedDisplay != null && recognizedDisplay.isNotEmpty) {
+    } else if (recognizedDisplay != null &&
+        recognizedDisplay.isNotEmpty &&
+        recognizedDisplay != _liveLabel) {
       _liveLabel = recognizedDisplay;
       changed = true;
     }
@@ -142,6 +213,32 @@ class FreestyleSessionController extends ChangeNotifier {
     }
     if (event.eventId.isEmpty || !_seenEventIds.add(event.eventId)) {
       return false;
+    }
+    if (_pool.isNotEmpty) {
+      final target = currentTarget;
+      if (!_targetReady ||
+          target == null ||
+          event.targetGeneration != _targetGeneration ||
+          event.propType != target.prop ||
+          !(target.isTossCatch
+              ? event.kind == RecognitionKind.flip
+              : event.kind == RecognitionKind.movement &&
+                    event.movement == target.movement)) {
+        return false;
+      }
+      _targetReady = false;
+      _pendingAdvance = true;
+      _targetTimer?.cancel();
+      _successQuality = event.quality;
+      _advanceTimer?.cancel();
+      final completedGeneration = _targetGeneration;
+      _advanceTimer = Timer(const Duration(milliseconds: 450), () {
+        if (_matches(generation) &&
+            _targetGeneration == completedGeneration &&
+            _phase == FreestyleSessionPhase.active) {
+          _advanceTarget();
+        }
+      });
     }
     if (event.kind == RecognitionKind.unknown) return false;
 
@@ -172,6 +269,9 @@ class FreestyleSessionController extends ChangeNotifier {
       }
     } else if (event.kind == RecognitionKind.flip) {
       flips += 1;
+      if (_pool.isNotEmpty && _uniqueMovements.add('Toss & Catch')) {
+        unique = _uniqueMovements.length;
+      }
     } else if (event.kind == RecognitionKind.advancedTechnique) {
       advanced += 1;
     }
@@ -225,6 +325,15 @@ class FreestyleSessionController extends ChangeNotifier {
       nice: nice,
       bestCombo: best,
       combo: combo,
+      missed: _stats.missed,
+      runScore:
+          _stats.runScore +
+          switch (event.quality) {
+            RecognitionQuality.perfect => 3,
+            RecognitionQuality.great => 2,
+            RecognitionQuality.nice => 1,
+            null => 0,
+          },
       props: props,
       feed: List.unmodifiable(feed),
     );
@@ -234,6 +343,7 @@ class FreestyleSessionController extends ChangeNotifier {
 
   bool beginEnding(int generation) {
     if (!_matches(generation) || !isActive) return false;
+    _cancelTimers();
     _phase = FreestyleSessionPhase.ending;
     notifyListeners();
     return true;
@@ -265,6 +375,9 @@ class FreestyleSessionController extends ChangeNotifier {
 
   void cancelToIdle() {
     if (_disposed) return;
+    _cancelTimers();
+    _queue.clear();
+    _pool = const [];
     _generation++;
     _phase = FreestyleSessionPhase.idle;
     _liveLabel = null;
@@ -276,9 +389,90 @@ class FreestyleSessionController extends ChangeNotifier {
 
   bool _matches(int generation) => !_disposed && generation == _generation;
 
+  bool confirmTarget(int generation, int targetGeneration) {
+    if (!_matches(generation) ||
+        targetGeneration != _targetGeneration ||
+        currentTarget == null ||
+        !isActive ||
+        _targetReady) {
+      return false;
+    }
+    _targetReady = true;
+    _remainingSeconds = currentTarget!.seconds;
+    if (!isPaused) _startTargetTimer();
+    notifyListeners();
+    return true;
+  }
+
+  void _startTargetTimer() {
+    _targetTimer?.cancel();
+    _targetTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_disposed ||
+          _phase != FreestyleSessionPhase.active ||
+          !_targetReady) {
+        return;
+      }
+      _remainingSeconds--;
+      if (_remainingSeconds <= 0) {
+        _targetReady = false;
+        _targetTimer?.cancel();
+        _stats = _stats.copyWith(missed: _stats.missed + 1, combo: 0);
+        _advanceTarget();
+      } else {
+        notifyListeners();
+      }
+    });
+  }
+
+  void _fillQueue() {
+    while (_queue.length < 3 && _pool.isNotEmpty) {
+      final previous = _queue.isEmpty ? null : _queue.last;
+      final beforePrevious = _queue.length < 2
+          ? null
+          : _queue[_queue.length - 2];
+      var choices = _pool
+          .where(
+            (target) =>
+                _pool.length == 1 || target.movement != previous?.movement,
+          )
+          .toList();
+      if (choices.length > 1 && beforePrevious != null) {
+        final varied = choices
+            .where((target) => target.movement != beforePrevious.movement)
+            .toList();
+        if (varied.isNotEmpty) choices = varied;
+      }
+      if (choices.isEmpty) choices = _pool;
+      _queue.add(choices[_randomIndex(choices.length)]);
+    }
+  }
+
+  void _advanceTarget() {
+    if (_queue.isEmpty) return;
+    _queue.removeAt(0);
+    _fillQueue();
+    // Event IDs need only be retained for the active target. The wire target
+    // generation rejects delayed events after this boundary.
+    _seenEventIds.clear();
+    _targetGeneration++;
+    _targetReady = false;
+    _pendingAdvance = false;
+    _successQuality = null;
+    _remainingSeconds = currentTarget?.seconds ?? 0;
+    notifyListeners();
+  }
+
+  void _cancelTimers() {
+    _targetTimer?.cancel();
+    _advanceTimer?.cancel();
+    _targetTimer = null;
+    _advanceTimer = null;
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    _cancelTimers();
     super.dispose();
   }
 }

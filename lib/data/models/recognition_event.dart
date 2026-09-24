@@ -24,6 +24,7 @@ class RecognitionEvent {
     this.propType,
     this.supportingMessage,
     this.captureSequence,
+    this.targetGeneration,
   });
 
   final String sessionId;
@@ -36,6 +37,7 @@ class RecognitionEvent {
   final TrainingProp? propType;
   final String? supportingMessage;
   final int? captureSequence;
+  final int? targetGeneration;
 
   bool get countsForCombo =>
       kind == RecognitionKind.movement ||
@@ -78,6 +80,7 @@ class RecognitionEvent {
                 ? 'Keep progressing to discover this movement.'
                 : null),
       captureSequence: (json['capture_sequence'] as num?)?.toInt(),
+      targetGeneration: (json['target_generation'] as num?)?.toInt(),
     );
   }
 
@@ -91,7 +94,7 @@ class RecognitionEvent {
       return 'Advanced technique detected';
     }
     if (kind == RecognitionKind.flip) {
-      return 'Flip';
+      return 'Toss & Catch';
     }
     if (kind == RecognitionKind.failedAction) {
       return '';

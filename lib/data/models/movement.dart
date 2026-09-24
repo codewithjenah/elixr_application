@@ -8,6 +8,7 @@ class Movement {
     required this.requiresHandsDetection,
     required this.enabled,
     this.supportedProps = const [TrainingProp.bottle],
+    this.requiredPropCount = 1,
   });
 
   final String name;
@@ -22,4 +23,7 @@ class Movement {
   /// a choice between multiple props, and some require a fixed combination
   /// such as [TrainingProp.bottleAndShaker].
   final List<TrainingProp> supportedProps;
+
+  /// Number of simultaneous items needed for this technique.
+  final int requiredPropCount;
 }

@@ -30,6 +30,7 @@ class RecognitionEventMessage(BaseModel):
     prop_type: Optional[PropType] = None
     supporting_message: Optional[str] = None
     capture_sequence: Optional[int] = None
+    target_generation: Optional[int] = None
 
     @model_validator(mode="after")
     def _hide_locked_identity(self) -> "RecognitionEventMessage":
@@ -42,5 +43,5 @@ class RecognitionEventMessage(BaseModel):
         elif self.kind == "flip":
             self.movement = None
             if not self.display_label:
-                self.display_label = "Flip"
+                self.display_label = "Toss & Catch"
         return self

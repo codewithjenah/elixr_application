@@ -290,7 +290,7 @@ void main() {
     expect(find.text('Camera, mirroring, and session music.'), findsOneWidget);
     expect(find.text('Mirror camera feed'), findsOneWidget);
     expect(find.text('Camera source'), findsOneWidget);
-    expect(find.text('Playground music'), findsOneWidget);
+    expect(find.text('Endless Mode music'), findsOneWidget);
     expect(find.text('Save session settings'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

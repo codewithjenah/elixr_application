@@ -12,6 +12,7 @@ RecognitionEvent _event({
   String? movement = 'Normal Grip',
   TrainingProp prop = TrainingProp.bottle,
   bool identityRevealed = true,
+  int? targetGeneration,
 }) {
   return RecognitionEvent(
     sessionId: 'session-1',
@@ -22,10 +23,202 @@ RecognitionEvent _event({
     quality: quality,
     movement: movement,
     propType: prop,
+    targetGeneration: targetGeneration,
   );
 }
 
 void main() {
+  const endlessPool = [
+    EndlessTarget(
+      movement: 'Normal Grip',
+      prop: TrainingProp.bottle,
+      difficulty: 'Easy',
+    ),
+    EndlessTarget(
+      movement: 'Hand Stall',
+      prop: TrainingProp.bottle,
+      difficulty: 'Medium',
+    ),
+    EndlessTarget(
+      movement: 'Reverse Grip',
+      prop: TrainingProp.bottle,
+      difficulty: 'Easy',
+    ),
+  ];
+
+  test('Endless pool uses only ready single-prop variants', () {
+    final ready = [
+      (movement: 'Normal Grip', prop: TrainingProp.bottle),
+      (movement: 'Hand Stall', prop: TrainingProp.shaker),
+      (movement: 'Double Hand Stall', prop: TrainingProp.bottle),
+      (movement: 'Bottle in a tin', prop: TrainingProp.bottleAndShaker),
+    ];
+    final bottle = endlessPoolFromReady(ready, TrainingProp.bottle);
+    expect(
+      bottle.map((target) => target.movement),
+      containsAll(['Normal Grip', 'Toss & Catch']),
+    );
+    expect(
+      bottle.map((target) => target.movement),
+      isNot(contains('Double Hand Stall')),
+    );
+    expect(
+      bottle.map((target) => target.movement),
+      isNot(contains('Hand Stall')),
+    );
+    final shaker = endlessPoolFromReady(ready, TrainingProp.shaker);
+    expect(
+      shaker.map((target) => target.movement),
+      containsAll(['Hand Stall', 'Toss & Catch']),
+    );
+    expect(
+      shaker.every((target) => target.prop == TrainingProp.shaker),
+      isTrue,
+    );
+  });
+
+  testWidgets(
+    'Endless target accepts one matching event, scores and advances',
+    (tester) async {
+      final controller = FreestyleSessionController(randomIndex: (_) => 0);
+      addTearDown(controller.dispose);
+      final generation = controller.start(pool: endlessPool)!;
+      controller.markPrepared(generation);
+      controller.markActive(generation);
+      final first = controller.currentTarget!;
+      expect(controller.upcomingTargets, hasLength(2));
+      expect(controller.confirmTarget(generation, 1), isTrue);
+      expect(
+        controller.applyEvent(
+          generation,
+          _event(
+            eventId: 'wrong',
+            movement: 'Locked Move',
+            targetGeneration: 1,
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        controller.applyEvent(
+          generation,
+          _event(
+            eventId: 'success',
+            movement: first.movement,
+            displayLabel: first.movement,
+            targetGeneration: 1,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        controller.applyEvent(
+          generation,
+          _event(
+            eventId: 'duplicate',
+            movement: first.movement,
+            targetGeneration: 1,
+          ),
+        ),
+        isFalse,
+      );
+      expect(controller.stats.runScore, 3);
+      expect(controller.stats.combo, 1);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(controller.targetGeneration, 2);
+      expect(controller.currentTarget!.movement, isNot(first.movement));
+      expect(
+        controller.applyEvent(
+          generation,
+          _event(
+            eventId: 'late',
+            movement: first.movement,
+            targetGeneration: 1,
+          ),
+        ),
+        isFalse,
+      );
+      expect(controller.stats.movementsRecognized, 1);
+    },
+  );
+
+  testWidgets('Endless timeout misses, resets combo, and pause freezes timer', (
+    tester,
+  ) async {
+    final controller = FreestyleSessionController(randomIndex: (_) => 0);
+    addTearDown(controller.dispose);
+    final generation = controller.start(pool: endlessPool)!;
+    controller.markPrepared(generation);
+    controller.markActive(generation);
+    controller.confirmTarget(generation, 1);
+    final firstSeconds = controller.remainingSeconds;
+    controller.pause(generation);
+    await tester.pump(const Duration(seconds: 20));
+    expect(controller.remainingSeconds, firstSeconds);
+    controller.resume(generation);
+    await tester.pump(Duration(seconds: firstSeconds));
+    expect(controller.stats.missed, 1);
+    expect(controller.targetGeneration, 2);
+    expect(controller.stats.combo, 0);
+    expect(controller.stats.runScore, 0);
+    expect(controller.targetReady, isFalse);
+  });
+
+  testWidgets(
+    'Endless Nice and Great score one and two without a combo multiplier',
+    (tester) async {
+      final controller = FreestyleSessionController(randomIndex: (_) => 0);
+      addTearDown(controller.dispose);
+      final generation = controller.start(pool: endlessPool)!;
+      controller.markPrepared(generation);
+      controller.markActive(generation);
+      for (final quality in [
+        RecognitionQuality.nice,
+        RecognitionQuality.great,
+      ]) {
+        final target = controller.currentTarget!;
+        final targetGeneration = controller.targetGeneration;
+        controller.confirmTarget(generation, targetGeneration);
+        expect(
+          controller.applyEvent(
+            generation,
+            _event(
+              eventId: 'score-$targetGeneration',
+              movement: target.movement,
+              displayLabel: target.movement,
+              quality: quality,
+              targetGeneration: targetGeneration,
+            ),
+          ),
+          isTrue,
+        );
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(controller.stats.runScore, 3);
+      expect(controller.stats.combo, 2);
+      expect(controller.stats.nice, 1);
+      expect(controller.stats.great, 1);
+      controller.confirmTarget(generation, controller.targetGeneration);
+      await tester.pump(Duration(seconds: controller.remainingSeconds));
+      expect(controller.stats.missed, 1);
+      expect(controller.stats.combo, 0);
+      expect(controller.stats.runScore, 3);
+    },
+  );
+
+  test('Endless fresh run invalidates old generation', () {
+    final controller = FreestyleSessionController(randomIndex: (_) => 0);
+    addTearDown(controller.dispose);
+    final old = controller.start(pool: endlessPool)!;
+    controller.cancelToIdle();
+    final fresh = controller.start(pool: endlessPool)!;
+    controller.markPrepared(fresh);
+    controller.markActive(fresh);
+    controller.confirmTarget(fresh, 1);
+    expect(controller.applyEvent(old, _event(targetGeneration: 1)), isFalse);
+    expect(controller.stats.runScore, 0);
+  });
+
   test('start does not require a selected movement set', () {
     final controller = FreestyleSessionController();
     addTearDown(controller.dispose);

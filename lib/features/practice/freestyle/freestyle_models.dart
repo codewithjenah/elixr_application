@@ -12,6 +12,24 @@ enum FreestyleSessionPhase {
   error,
 }
 
+class EndlessTarget {
+  const EndlessTarget({
+    required this.movement,
+    required this.prop,
+    required this.difficulty,
+  });
+
+  final String movement;
+  final TrainingProp prop;
+  final String difficulty;
+  bool get isTossCatch => movement == 'Toss & Catch';
+  int get seconds => switch (difficulty) {
+    'Hard' => 12,
+    'Medium' => 10,
+    _ => 8,
+  };
+}
+
 class FreestyleFeedEntry {
   const FreestyleFeedEntry({
     required this.displayLabel,
@@ -35,6 +53,8 @@ class FreestyleSessionStats {
     this.nice = 0,
     this.bestCombo = 0,
     this.combo = 0,
+    this.missed = 0,
+    this.runScore = 0,
     this.props = const {},
     this.feed = const [],
   });
@@ -48,6 +68,8 @@ class FreestyleSessionStats {
   final int nice;
   final int bestCombo;
   final int combo;
+  final int missed;
+  final int runScore;
   final Set<TrainingProp> props;
   final List<FreestyleFeedEntry> feed;
 
@@ -61,6 +83,8 @@ class FreestyleSessionStats {
     int? nice,
     int? bestCombo,
     int? combo,
+    int? missed,
+    int? runScore,
     Set<TrainingProp>? props,
     List<FreestyleFeedEntry>? feed,
   }) {
@@ -75,6 +99,8 @@ class FreestyleSessionStats {
       nice: nice ?? this.nice,
       bestCombo: bestCombo ?? this.bestCombo,
       combo: combo ?? this.combo,
+      missed: missed ?? this.missed,
+      runScore: runScore ?? this.runScore,
       props: props ?? this.props,
       feed: feed ?? this.feed,
     );

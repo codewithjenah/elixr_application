@@ -188,6 +188,7 @@ class _RecordingWebSocketService extends WebSocketService {
   int beginReadinessCalls = 0;
   int confirmReadinessCalls = 0;
   int activateCalls = 0;
+  int targetCalls = 0;
   int startRecordingCalls = 0;
   int stopCalls = 0;
   int disconnectCalls = 0;
@@ -275,6 +276,24 @@ class _RecordingWebSocketService extends WebSocketService {
   Future<CommandAck> sendActivate({String? sessionId}) {
     activateCalls += 1;
     return activateAck.future;
+  }
+
+  @override
+  Future<CommandAck> sendSetEndlessTarget({
+    required int targetGeneration,
+    required String? movement,
+    required TrainingProp prop,
+    String? sessionId,
+  }) async {
+    targetCalls += 1;
+    return CommandAck(
+      protocolVersion: 1,
+      requestId: 'target-test',
+      action: 'set_endless_target',
+      accepted: true,
+      sessionId: currentSessionId,
+      sessionState: 'preparing',
+    );
   }
 
   @override
@@ -606,7 +625,7 @@ void main() {
         )
         .onChanged!('win32:external-camera');
     await tester.pump();
-    await tester.tap(find.text('Start Freestyle'));
+    await tester.tap(find.text('Start Endless Mode'));
     await tester.pump();
     expect(
       ws.preparePayloads.single['camera_device_id'],
@@ -616,6 +635,28 @@ void main() {
       find.byKey(const ValueKey('camera-source-preference')),
       findsNothing,
     );
+    ws.acceptPrepare();
+    await tester.pump();
+  });
+
+  testWidgets('Endless Shaker setup keeps one prop throughout the allowlist', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await pumpScreen(tester);
+    tester
+        .widget<ComboBox<TrainingProp>>(find.byType(ComboBox<TrainingProp>))
+        .onChanged!(TrainingProp.shaker);
+    await tester.pump();
+    await tester.tap(find.text('Start Endless Mode'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
+    final payload = ws.preparePayloads.single;
+    expect(payload['prop_type'], 'shaker');
+    final allowed = payload['allowed_movements'] as List;
+    expect(allowed, isNotEmpty);
+    expect(allowed.every((entry) => entry['prop_type'] == 'shaker'), isTrue);
     ws.acceptPrepare();
     await tester.pump();
   });
@@ -849,12 +890,10 @@ void main() {
   ) async {
     await pumpScreen(tester);
 
-    expect(find.text('Playground'), findsOneWidget);
-    expect(find.text('Start Freestyle'), findsOneWidget);
+    expect(find.text('Endless Mode'), findsWidgets);
+    expect(find.text('Start Endless Mode'), findsOneWidget);
     expect(
-      find.text(
-        'Freestyle is unscored and is not saved to your practice history.',
-      ),
+      find.text('Run score is session only. Mastery and XP are unchanged.'),
       findsWidgets,
     );
     expect(find.text('Build Your Set'), findsNothing);
@@ -873,8 +912,8 @@ void main() {
     expect(ws.beginCalls, 1);
     expect(ws.preparePayloads, hasLength(1));
     expect(ws.preparePayloads.single['movement'], 'Free Practice');
-    expect(ws.preparePayloads.single['session_mode'], 'freestyle');
-    expect(ws.preparePayloads.single['prop_type'], 'bottle_and_shaker');
+    expect(ws.preparePayloads.single['session_mode'], 'endless');
+    expect(ws.preparePayloads.single['prop_type'], 'bottle');
     expect(ws.preparePayloads.single['allowed_movements'], isA<List>());
     expect(
       (ws.preparePayloads.single['allowed_movements'] as List).any(
@@ -908,6 +947,7 @@ void main() {
       await tester.pump();
       while (tester.takeException() != null) {}
 
+      expect(ws.targetCalls, 1);
       expect(ws.activateCalls, 1);
       expect(
         find.byType(GameCountdownOverlay),

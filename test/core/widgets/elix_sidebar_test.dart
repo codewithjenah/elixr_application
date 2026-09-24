@@ -30,7 +30,7 @@ void main() {
       expect(classroom.route, '/teacher-access');
 
       final playground = elixSidebarItems.singleWhere(
-        (item) => item.label == 'Playground',
+        (item) => item.label == 'Endless Mode',
       );
       expect(playground.route, '/live-practice');
 

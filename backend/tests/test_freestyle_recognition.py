@@ -140,6 +140,92 @@ def _tick(recognizer: FreestyleRecognizer, t: float, evaluate=None, **kwargs):
     )
 
 
+def test_endless_target_filters_catalog_and_resets_candidate():
+    evaluate = _ScriptedEvaluate({
+        "Normal Grip": _valid(),
+        "Reverse Grip": _valid(),
+    })
+    recognizer = FreestyleRecognizer(
+        allowed_movements=frozenset({
+            ("Normal Grip", "bottle"), ("Reverse Grip", "bottle"),
+        }),
+        targeted=True,
+        evaluate_fn=evaluate,
+        confirm_seconds=0.15,
+    )
+    assert _tick(recognizer, 0.0).event is None
+    assert evaluate.calls == []
+    assert not recognizer.set_target("movement", "Hand Stall", "bottle")
+    assert not recognizer.set_target("movement", "Normal Grip", "shaker")
+    assert not recognizer.set_target("movement", "Double Hand Stall", "bottle")
+    assert not recognizer.set_target("toss_catch", None, "shaker")
+    assert recognizer.set_target("movement", "Normal Grip", "bottle")
+    _tick(recognizer, 0.05)
+    _tick(recognizer, 0.10)
+    assert recognizer._candidate_key == ("Normal Grip", "bottle")
+    assert recognizer.set_target("movement", "Reverse Grip", "bottle")
+    assert recognizer._candidate_key is None
+    assert recognizer._confirmed_key is None
+    evaluate.calls.clear()
+    events = [_tick(recognizer, 1 + i * 0.05).event for i in range(10)]
+    assert {name for name, _ in evaluate.calls} == {"Reverse Grip"}
+    assert len([event for event in events if event is not None]) == 1
+    assert next(event for event in events if event is not None).movement == "Reverse Grip"
+    recognizer.set_paused(True)
+    assert _tick(recognizer, 2.0).event is None
+    recognizer.set_paused(False)
+    assert recognizer._target == ("Reverse Grip", "bottle")
+    recognizer.clear_target()
+    assert recognizer._target is None
+
+
+def test_generic_airborne_event_is_named_toss_catch():
+    assert FLIP_DISPLAY == "Toss & Catch"
+
+
+def test_targeted_toss_catch_emits_generic_event_without_rotation_claim():
+    recognizer = FreestyleRecognizer(
+        allowed_movements=frozenset({("Normal Grip", "bottle")}),
+        targeted=True,
+    )
+    recognizer._flip = FlipTracker(
+        grip_seconds=0.1,
+        min_airborne_seconds=0.1,
+        catch_stable_seconds=0.1,
+        release_speed=0.2,
+        catch_speed=0.5,
+    )
+    assert recognizer.set_target("toss_catch", None, "bottle")
+    hands = _hands_at(0.5, 0.48)
+    far_hands = _hands_at(0.12, 0.82)
+    t = 0.0
+    events = []
+
+    def tick(y, current_hands):
+        nonlocal t
+        result = _tick(
+            recognizer, t,
+            bottles=[_box(x1=300, y1=y, track_id=9)],
+            hands=current_hands,
+        )
+        if result.event is not None:
+            events.append(result.event)
+        t += 0.05
+
+    for _ in range(5):
+        tick(220, hands)
+    for y in (185, 150, 115, 80):
+        tick(y, far_hands)
+    for y in (90, 140, 190, 208, 216, 220):
+        tick(y, hands if y >= 208 else far_hands)
+    for _ in range(6):
+        tick(220, hands)
+    assert len(events) == 1
+    assert events[0].kind == "flip"  # Wire compatibility; no rotation evidence.
+    assert events[0].display_label == "Toss & Catch"
+    assert events[0].movement is None
+
+
 def test_sanitize_allowed_movements_drops_internal_and_unknown():
     cleaned = sanitize_allowed_movements(
         [

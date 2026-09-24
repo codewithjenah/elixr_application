@@ -71,7 +71,7 @@ class PrepareCommand(_CommandBase):
     allow_submission_recording: StrictBool = False
     readiness_spec: Optional[TeacherActivityReadinessSpec] = None
     session_mode: Optional[
-        Literal["freestyle", "custom_capture", "custom_assessment"]
+        Literal["freestyle", "endless", "custom_capture", "custom_assessment"]
     ] = None
     custom_movement_template: Optional[dict[str, Any]] = None
     allowed_movements: Optional[list[AllowedMovement]] = Field(
@@ -153,6 +153,20 @@ class PauseCommand(_CommandBase):
 
 class ResumeCommand(_CommandBase):
     action: Literal["resume"]
+
+
+class SetEndlessTargetCommand(_CommandBase):
+    action: Literal["set_endless_target"]
+    target_generation: Annotated[StrictInt, Field(ge=1)]
+    target_type: Literal["movement", "toss_catch"]
+    movement: Optional[Annotated[str, Field(min_length=1, max_length=MAX_MOVEMENT_LENGTH)]] = None
+    prop_type: Literal["bottle", "shaker"]
+
+    @model_validator(mode="after")
+    def _validate_target_shape(self) -> "SetEndlessTargetCommand":
+        if (self.target_type == "movement") != (self.movement is not None):
+            raise ValueError("invalid_endless_target")
+        return self
 
 
 class StartSubmissionRecordCommand(_CommandBase):
@@ -246,6 +260,7 @@ InboundCommand = Union[
     StopCommand,
     PauseCommand,
     ResumeCommand,
+    SetEndlessTargetCommand,
     StartCommand,
     StartSubmissionRecordCommand,
     StopSubmissionRecordCommand,
@@ -277,6 +292,8 @@ def parse_v1_command(data: dict) -> InboundCommand:
         return PauseCommand.model_validate(data)
     if action == "resume":
         return ResumeCommand.model_validate(data)
+    if action == "set_endless_target":
+        return SetEndlessTargetCommand.model_validate(data)
     if action == "start":
         return StartCommand.model_validate(data)
     if action == "start_submission_record":

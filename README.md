@@ -614,7 +614,7 @@ Prepare (preview only):
 }
 ```
 
-Playground Freestyle uses the same `prepare` command with optional fields:
+Endless Mode uses the same `prepare` command with optional fields:
 
 ```json
 {
@@ -624,16 +624,31 @@ Playground Freestyle uses the same `prepare` command with optional fields:
   "action": "prepare",
   "movement": "Free Practice",
   "difficulty": "Easy",
-  "prop_type": "bottle_and_shaker",
+  "prop_type": "bottle",
   "bottle_detection_enabled": true,
-  "session_mode": "freestyle",
+  "session_mode": "endless",
   "allowed_movements": [
     {"movement": "Normal Grip", "prop_type": "bottle"}
   ]
 }
 ```
 
-`session_mode: "freestyle"` keeps one observation session active. The backend evaluates shared frame observations against the allowlist and must not disclose locked official movement names. Omit `session_mode` for official guided practice, Teacher-reviewed assignments, and Free Practice recording; automatically assessed custom movements use the custom modes documented below. Pause and resume freeze or resume recognition without tearing down the camera:
+`session_mode: "endless"` keeps one camera and WebSocket session active. The client sends only personally unlocked, tutorial-completed single-prop variants in `allowed_movements`. Before activation and after each target, the client sends a correlated `set_endless_target` command and waits for `command_ack`:
+
+```json
+{
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "set_endless_target",
+  "target_generation": 1,
+  "target_type": "movement",
+  "movement": "Normal Grip",
+  "prop_type": "bottle"
+}
+```
+
+For the generic release, airborne, catch technique, use `target_type: "toss_catch"`, omit `movement`, and keep the selected single `prop_type`. This does not verify bottle rotation. The backend rejects locked, unsupported, multi-prop, stale-generation, wrong-session, or wrong-lifecycle targets. While a target is active, it evaluates only that movement; each `recognition_event` includes `target_generation` so an old event cannot complete a later target. Target changes reset candidate and hold state without restarting the camera or models. The prior `session_mode: "freestyle"` remains accepted for protocol compatibility. Omit `session_mode` for official guided practice, Teacher-reviewed assignments, and Free Practice recording; automatically assessed custom movements use the custom modes documented below. Pause and resume freeze or resume recognition without tearing down the camera:
 
 ```json
 {

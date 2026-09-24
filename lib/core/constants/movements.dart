@@ -104,6 +104,7 @@ const movementCatalog = <Movement>[
         'Balance two bottles simultaneously, with one upright bottle on each open palm.',
     requiresHandsDetection: true,
     enabled: true,
+    requiredPropCount: 2,
   ),
   Movement(
     name: 'Bottle in a tin',
@@ -121,6 +122,7 @@ const movementCatalog = <Movement>[
         'Balance two bottles simultaneously, with one bottle on each forearm.',
     requiresHandsDetection: true,
     enabled: true,
+    requiredPropCount: 2,
   ),
 ];
 

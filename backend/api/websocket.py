@@ -93,6 +93,7 @@ from schemas.commands import (
     PrepareCommand,
     PropType,
     ResumeCommand,
+    SetEndlessTargetCommand,
     StartCommand,
     StartSubmissionRecordCommand,
     StartCustomCaptureCommand,
@@ -447,6 +448,8 @@ def _human_error_message(error_code: str) -> str:
         "session_not_active": "No matching active session is available.",
         "session_already_active": "The session is already active.",
         "session_id_mismatch": "The session_id does not match the current session.",
+        "invalid_endless_target": "This target is unavailable for the current Endless run.",
+        "stale_target_generation": "An older Endless target update was ignored.",
         "readiness_not_stable": (
             "Readiness is not stable yet. Keep the required inputs visible "
             "and try again."
@@ -561,7 +564,8 @@ class VisionSession:
         if prop_type not in {"bottle", "shaker", "bottle_and_shaker"}:
             raise ValueError("invalid_prop_type")
 
-        self._is_freestyle = session_mode == "freestyle"
+        self._is_freestyle = session_mode in {"freestyle", "endless"}
+        self._is_endless = session_mode == "endless"
         self._is_custom_capture = session_mode == "custom_capture"
         self._is_custom_assessment = session_mode == "custom_assessment"
         self._is_custom = self._is_custom_capture or self._is_custom_assessment
@@ -756,7 +760,8 @@ class VisionSession:
         self._last_live_shakers: list[PropDetection] = []
         self._recognizer: FreestyleRecognizer | None = (
             FreestyleRecognizer(
-                allowed_movements=sanitize_allowed_movements(allowed_movements)
+                allowed_movements=sanitize_allowed_movements(allowed_movements),
+                targeted=self._is_endless,
             )
             if self._is_freestyle
             else None
@@ -764,6 +769,7 @@ class VisionSession:
         self._recognition_paused = False
         self._pending_recognition_events: list[RecognitionEventMessage] = []
         self._recognition_event_seq = 0
+        self._target_generation = 0
         self._freestyle_display: str | None = None
 
         # Assessment always uses current-frame landmarks. Only the short-lived
@@ -2416,6 +2422,27 @@ class VisionSession:
         finally:
             self._release_ai_state()
 
+    def set_endless_target(
+        self, target_type: str, movement: str | None, prop_type: str,
+        target_generation: int,
+    ) -> tuple[bool, str | None]:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if not self._is_endless or self._recognizer is None:
+                return False, "invalid_command"
+            if self._lifecycle not in {SESSION_PREPARED, SESSION_ACTIVE}:
+                return False, "session_not_prepared"
+            if target_generation <= self._target_generation:
+                return False, "stale_target_generation"
+            if not self._recognizer.set_target(target_type, movement, prop_type):
+                return False, "invalid_endless_target"
+            self._target_generation = target_generation
+            self._pending_recognition_events.clear()
+            self._freestyle_display = None
+            return True, None
+        finally:
+            self._release_ai_state()
+
     def drain_recognition_events(self) -> list[RecognitionEventMessage]:
         events = self._pending_recognition_events
         self._pending_recognition_events = []
@@ -3236,6 +3263,7 @@ class VisionSession:
                     else None,
                     supporting_message=event.supporting_message,
                     capture_sequence=captured.sequence,
+                    target_generation=self._target_generation if self._is_endless else None,
                 )
             )
 
@@ -3325,6 +3353,10 @@ class VisionSession:
             self._readiness_confirmed = False
             self._movement_state = None
             self._prev_hip_center = None
+            self._pending_recognition_events.clear()
+            self._target_generation = 0
+            if self._recognizer is not None:
+                self._recognizer.clear_target()
             self._calibration.reset()
             self._hold_validator.reset()
             self._clear_overlay()
@@ -4355,10 +4387,11 @@ async def websocket_endpoint(websocket: WebSocket):
         start_active = command.action == "start"
         allowed_entries: list[tuple[str, str]] | None = None
         prop_type = command.prop_type
-        if session_mode == "freestyle":
+        if session_mode in {"freestyle", "endless"}:
             raw_allowed = getattr(command, "allowed_movements", None) or []
             allowed_entries = [
                 (item.movement, item.prop_type) for item in raw_allowed
+                if session_mode != "endless" or item.prop_type == command.prop_type
             ]
             prop_type = "bottle_and_shaker"
 
@@ -4387,7 +4420,7 @@ async def websocket_endpoint(websocket: WebSocket):
             submission_recording_allowed = (
                 bool(command.allow_submission_recording)
                 and command.movement == "Free Practice"
-                and session_mode != "freestyle"
+                and session_mode not in {"freestyle", "endless"}
             )
             prepared_session = session_ref.get("session")
             prepared_camera = (
@@ -4695,6 +4728,44 @@ async def websocket_endpoint(websocket: WebSocket):
             action=command.action,
             accepted=True,
             session_state="active",
+        )
+
+    async def handle_v1_set_endless_target(command: SetEndlessTargetCommand) -> None:
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+        if active_id is not None and command.session_id != active_id:
+            error_code = "session_id_mismatch"
+        elif session is None:
+            error_code = "session_not_prepared"
+        else:
+            accepted, error_code = await asyncio.to_thread(
+                session.set_endless_target,
+                command.target_type,
+                command.movement,
+                command.prop_type,
+                command.target_generation,
+            )
+            if accepted:
+                await send_ack(
+                    request_id=command.request_id,
+                    session_id=command.session_id,
+                    action=command.action,
+                    accepted=True,
+                    session_state=_public_session_state(
+                        session, current_session_id=current_session_id,
+                    ),
+                )
+                return
+        await send_ack(
+            request_id=command.request_id,
+            session_id=command.session_id,
+            action=command.action,
+            accepted=False,
+            session_state=_public_session_state(
+                session, current_session_id=current_session_id,
+            ),
+            error_code=error_code or "invalid_endless_target",
+            message=_human_error_message(error_code or "invalid_endless_target"),
         )
 
     async def handle_v1_stop(command: StopCommand) -> None:
@@ -5202,6 +5273,8 @@ async def websocket_endpoint(websocket: WebSocket):
             await handle_v1_pause_or_resume(command)
         elif isinstance(command, ResumeCommand):
             await handle_v1_pause_or_resume(command)
+        elif isinstance(command, SetEndlessTargetCommand):
+            await handle_v1_set_endless_target(command)
         elif isinstance(command, BeginReadinessCommand):
             await handle_v1_begin_readiness(command)
         elif isinstance(command, ConfirmReadinessCommand):

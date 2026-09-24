@@ -293,6 +293,22 @@ class WebSocketService extends ChangeNotifier {
     return _sendSessionAction(action: 'resume', sessionId: sessionId);
   }
 
+  Future<CommandAck> sendSetEndlessTarget({
+    required int targetGeneration,
+    required String? movement,
+    required TrainingProp prop,
+    String? sessionId,
+  }) => _sendCustomCommand(
+    action: 'set_endless_target',
+    sessionId: sessionId,
+    payload: {
+      'target_generation': targetGeneration,
+      'target_type': movement == null ? 'toss_catch' : 'movement',
+      'movement': ?movement,
+      'prop_type': prop.protocolValue,
+    },
+  );
+
   Future<CommandAck> _sendSessionAction({
     required String action,
     String? sessionId,
@@ -859,7 +875,7 @@ class WebSocketService extends ChangeNotifier {
     if (readinessSpec != null) {
       payload['readiness_spec'] = readinessSpec.toMap();
     }
-    if (sessionMode == 'freestyle') {
+    if (sessionMode == 'freestyle' || sessionMode == 'endless') {
       payload['session_mode'] = sessionMode;
       payload['allowed_movements'] = [
         for (final entry in allowedMovements ?? const [])
@@ -1223,7 +1239,8 @@ class WebSocketService extends ChangeNotifier {
       case 'finish_custom_assessment':
       case 'pause':
       case 'resume':
-        // Recording must not mutate prepare/activate/stop session flags.
+      case 'set_endless_target':
+        // Auxiliary commands must not mutate prepare/activate/stop flags.
         break;
       default:
         if (ack.sessionState != null) {
