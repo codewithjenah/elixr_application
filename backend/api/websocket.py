@@ -602,8 +602,8 @@ class VisionSession:
         ):
             raise ValueError("orientation_model_unavailable")
         if self._is_custom_capture:
-            # Reference capture observes both landmark detectors while active,
-            # but readiness only gates camera + the selected physical prop.
+            # Observe Hands and Pose during readiness and capture. Readiness
+            # still gates camera + selected prop, not landmark visibility.
             readiness_spec = {"hands": "none", "body": "none"}
         elif self._is_custom_assessment and self._custom_template is not None:
             required_sides = self._custom_template.required_hand_sides
@@ -2205,12 +2205,12 @@ class VisionSession:
         )
 
     def _ensure_readiness_detectors(self) -> None:
-        """Create only the detectors required for readiness observation."""
+        """Create readiness detectors, including optional custom observations."""
         if self._prop_detection_only and self.readiness_spec is None:
             self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
             return
         self._sync_landmark_detectors(
-            needs_hands=readiness_needs_hands(
+            needs_hands=self._is_custom_capture or readiness_needs_hands(
                 self.movement, self.prop_type, self.readiness_spec
             ),
             needs_pose=self._is_custom_capture or readiness_needs_pose(
@@ -2666,7 +2666,7 @@ class VisionSession:
         self._frame_index += 1
         run_yolo = (self._frame_index - 1) % self._yolo_frame_skip == 0
 
-        needs_h = readiness_needs_hands(
+        needs_h = self._is_custom_capture or readiness_needs_hands(
             self.movement, self.prop_type, self.readiness_spec
         )
         needs_p = self._is_custom_capture or readiness_needs_pose(

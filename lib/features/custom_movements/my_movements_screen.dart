@@ -90,7 +90,7 @@ class MyMovementsLibrary extends StatelessWidget {
                       const Text('Create your first movement'),
                       const SizedBox(height: 6),
                       const Text(
-                        'Record at least two references, then practice against your own template.',
+                        'Record the movement at least twice, then practice with feedback from your own examples.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 14),

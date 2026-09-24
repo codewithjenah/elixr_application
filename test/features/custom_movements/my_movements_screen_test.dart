@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_back_button.dart';
 import 'package:elixr_application/data/models/custom_movement.dart';
 import 'package:elixr_application/data/models/movement_template.dart';
 import 'package:elixr_application/data/models/session.dart';
@@ -252,12 +253,12 @@ void main() {
       expect(find.bySemanticsLabel('Back to Movements'), findsOneWidget);
       expect(find.byKey(const ValueKey('my-movements-create')), findsOneWidget);
       expect(find.text('Create your first movement'), findsOneWidget);
-      expect(find.textContaining('at least two references'), findsOneWidget);
+      expect(find.textContaining('at least twice'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('my-movements-create')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Create Movement'), findsWidgets);
+      expect(find.text('Create movement'), findsOneWidget);
       expect(find.byType(CustomMovementAuthoringScreen), findsOneWidget);
       expect(find.byType(ContentDialog), findsNothing);
       expect(find.byKey(const ValueKey('custom-movement-save')), findsNothing);
@@ -422,9 +423,9 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('my-movement-edit-actions')));
       await tester.pumpAndSettle();
       expect(repository.requestedRevisionId, movement.activeRevisionId);
-      expect(find.text('Edit Movement'), findsOneWidget);
+      expect(find.text('Edit movement'), findsOneWidget);
 
-      await tester.tap(find.text('Back').last);
+      await tester.tap(find.byType(ElixBackButton).last);
       await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const ValueKey('my-movement-delete-actions')),

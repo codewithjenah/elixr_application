@@ -5,6 +5,11 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
+import '../../core/widgets/elix_back_button.dart';
+import '../../core/widgets/elix_editorial_header.dart';
+import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elixr_video_player.dart';
 import '../../data/models/custom_movement.dart';
@@ -24,13 +29,58 @@ class _ReferenceDraft {
     required this.id,
     required this.path,
     required this.durationMs,
+    required this.quality,
   });
 
   final String id;
   final String path;
   final int durationMs;
+  final _ReferenceQuality? quality;
   int startMs = 0;
   late int endMs = durationMs;
+}
+
+/// The backend reports observed-frame coverage. It is feedback for the next
+/// recording, not a replacement for template inference (which also checks gaps).
+class _ReferenceQuality {
+  const _ReferenceQuality({
+    required this.leftHandCoverage,
+    required this.rightHandCoverage,
+    required this.poseCoverage,
+  });
+
+  final double? leftHandCoverage;
+  final double? rightHandCoverage;
+  final double? poseCoverage;
+
+  // Matches template_engine.MIN_COVERAGE. Final template inference also checks
+  // tracking gaps, so this only prompts a better next recording.
+  static const minimumCoverageHint = 0.70;
+
+  double? get bestHandCoverage {
+    final values = [
+      leftHandCoverage,
+      rightHandCoverage,
+    ].whereType<double>().toList();
+    if (values.isEmpty) return null;
+    return values.reduce((a, b) => a > b ? a : b);
+  }
+
+  static _ReferenceQuality? fromJson(Map<String, dynamic>? value) {
+    if (value == null) return null;
+    double? coverage(String key) {
+      final raw = value[key];
+      if (raw is! num) return null;
+      final result = raw.toDouble();
+      return result.isFinite && result >= 0 && result <= 1 ? result : null;
+    }
+
+    return _ReferenceQuality(
+      leftHandCoverage: coverage('left_hand_coverage'),
+      rightHandCoverage: coverage('right_hand_coverage'),
+      poseCoverage: coverage('pose_coverage'),
+    );
+  }
 }
 
 /// Shared trainee/teacher authoring page. Clips are session-local drafts;
@@ -228,10 +278,13 @@ class _CustomMovementAuthoringScreenState
       });
       _feedbackSubscription ??= _socket.feedbackStream.listen((feedback) {
         if (!mounted) return;
-        setState(() {
-          _ready = feedback.readinessStable == true;
-          _personCount = feedback.personCount;
-        });
+        final ready = feedback.readinessStable == true;
+        if (_ready != ready || _personCount != feedback.personCount) {
+          setState(() {
+            _ready = ready;
+            _personCount = feedback.personCount;
+          });
+        }
       });
       final settings = context.read<SettingsService>();
       await _socket.connect();
@@ -332,11 +385,20 @@ class _CustomMovementAuthoringScreenState
       if (id == null || path == null || duration == null || duration <= 0) {
         throw StateError('Incomplete reference clip metadata');
       }
+      await _playback.release();
       if (!mounted) return;
       setState(() {
         _references.add(
-          _ReferenceDraft(id: id, path: path, durationMs: duration),
+          _ReferenceDraft(
+            id: id,
+            path: path,
+            durationMs: duration,
+            quality: _ReferenceQuality.fromJson(ack.referenceQuality),
+          ),
         );
+        _previewId = id;
+        _pendingStart = 0;
+        _pendingEnd = duration;
         _template = null;
         _recording = false;
       });
@@ -345,7 +407,7 @@ class _CustomMovementAuthoringScreenState
         setState(() {
           _recording = false;
           _error =
-              'This reference was not usable. Keep more of the full movement in view and retry.';
+              'This example was not usable. Keep more of the full movement in view and retry.';
         });
       }
     } finally {
@@ -370,7 +432,7 @@ class _CustomMovementAuthoringScreenState
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Could not delete this reference. Try again.');
+        setState(() => _error = 'Could not delete this example. Try again.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -432,7 +494,7 @@ class _CustomMovementAuthoringScreenState
     if (_replacingReferences &&
         _references.length < MovementTemplate.minimumReferences) {
       setState(
-        () => _error = 'Record at least 2 valid references before reviewing.',
+        () => _error = 'Record the movement at least twice before reviewing.',
       );
       return;
     }
@@ -443,7 +505,9 @@ class _CustomMovementAuthoringScreenState
         _requireAccepted(ack);
         final template = MovementTemplate.tryFrom(ack.movementTemplate);
         if (template == null || !template.isReady) {
-          throw StateError('Invalid template');
+          throw StateError(
+            'ELIXR could not learn this movement from the current examples.',
+          );
         }
         if (_trackRotation && !template.requiresRotation) {
           throw StateError(
@@ -462,7 +526,7 @@ class _CustomMovementAuthoringScreenState
           setState(
             () => _error = error is StateError
                 ? error.message
-                : 'Could not build the assessment. Review your references and retry.',
+                : 'Could not learn this movement. Review your examples and try again.',
           );
         }
       } finally {
@@ -483,7 +547,8 @@ class _CustomMovementAuthoringScreenState
     if (metadataError != null || template == null || !_hasUsableTemplate) {
       setState(
         () => _error =
-            metadataError ?? 'Record 2 valid references before saving.',
+            metadataError ??
+            'Record at least two usable examples before saving.',
       );
       return;
     }
@@ -548,128 +613,206 @@ class _CustomMovementAuthoringScreenState
     }
   }
 
-  Widget _surface(Widget child) => Container(
+  Widget _surface(Widget child, {bool tinted = false}) => Container(
     padding: const EdgeInsets.all(AppSpacing.mdPlus),
     decoration: BoxDecoration(
-      color: FluentTheme.of(context).resources.cardBackgroundFillColorDefault,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(
-        color: FluentTheme.of(context).resources.cardStrokeColorDefault,
-      ),
+      color: tinted
+          ? context.elixColors.surfaceTinted
+          : context.elixColors.surfaceRaised,
+      borderRadius: BorderRadius.circular(ElixRadius.panel),
+      border: Border.all(color: context.elixColors.borderSubtle),
     ),
     child: child,
   );
 
-  Widget _details() => _surface(
-    Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Movement details',
-          style: FluentTheme.of(context).typography.subtitle,
-        ),
-        const SizedBox(height: 6),
-        const Text('Give your movement a name and choose what you will hold.'),
-        const SizedBox(height: AppSpacing.md),
-        const Text('Movement name'),
-        TextBox(
-          key: const ValueKey('custom-movement-name'),
-          controller: _name,
-          maxLength: CustomMovement.nameMaxLength,
-          placeholder: 'For example, Bottle Flip',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        const Text('Short description'),
-        TextBox(
-          key: const ValueKey('custom-movement-description'),
-          controller: _description,
-          minLines: 2,
-          maxLines: 3,
-          maxLength: CustomMovement.descriptionMaxLength,
-          placeholder: 'Describe the movement from start to finish',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        const Text('Difficulty'),
-        ComboBox<String>(
-          key: const ValueKey('custom-movement-difficulty'),
-          value: _difficulty,
-          isExpanded: true,
-          items: CustomMovement.allowedDifficulties
-              .map((item) => ComboBoxItem(value: item, child: Text(item)))
-              .toList(),
-          onChanged: (value) {
-            if (value != null) setState(() => _difficulty = value);
-          },
-        ),
-        const SizedBox(height: AppSpacing.md),
-        const Text('Prop'),
-        ComboBox<TrainingProp>(
-          key: const ValueKey('custom-movement-prop'),
-          value: _prop,
-          isExpanded: true,
-          items: CustomMovement.supportedProps
-              .map(
-                (item) =>
-                    ComboBoxItem(value: item, child: Text(item.displayLabel)),
-              )
-              .toList(),
-          onChanged: _references.isNotEmpty
-              ? null
-              : (value) {
-                  if (value == null || value == _prop) return;
-                  if (_sessionStarted) {
-                    _resettingProp = true;
-                    unawaited(() async {
-                      try {
-                        await _resetSession();
-                      } finally {
-                        if (mounted) setState(() => _resettingProp = false);
-                      }
-                    }());
-                  }
-                  setState(() {
-                    _prop = value;
-                    _template = null;
-                    _replacingReferences = true;
-                    if (value != TrainingProp.bottle) _trackRotation = false;
-                  });
-                },
-        ),
-        const SizedBox(height: 6),
-        Text(
-          _references.isEmpty
-              ? 'Use a bottle or cocktail shaker for every demonstration.'
-              : 'Delete recorded references before changing the prop.',
-        ),
-        if (_prop == TrainingProp.bottle) ...[
+  Widget _field(String label, Widget control) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(label, style: ElixTypography.label(color: context.elixTextPrimary)),
+      const SizedBox(height: AppSpacing.sm),
+      control,
+    ],
+  );
+
+  Widget _details() => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 900),
+    child: _surface(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Set up your movement',
+            style: ElixTypography.sectionTitle(
+              context,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Give it a name, choose your prop, and tell ELIXR what kind of movement you are teaching.',
+            style: ElixTypography.supporting(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _field(
+            'Movement name',
+            TextBox(
+              key: const ValueKey('custom-movement-name'),
+              controller: _name,
+              maxLength: CustomMovement.nameMaxLength,
+              placeholder: 'For example, Bottle Loop',
+            ),
+          ),
           const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              ToggleSwitch(
-                key: const ValueKey('custom-movement-require-rotation'),
-                checked: _trackRotation,
-                onChanged: (value) => setState(() {
-                  _trackRotation = value;
-                  if (_references.isEmpty &&
-                      widget.existingRevision != null &&
-                      _prop == widget.existing?.propType) {
-                    _replacingReferences =
-                        value &&
-                        widget.existingRevision!.template.requiresRotation !=
-                            true;
-                    _template = widget.existingRevision!.template;
-                  }
-                }),
+          _field(
+            'Short description',
+            TextBox(
+              key: const ValueKey('custom-movement-description'),
+              controller: _description,
+              minLines: 2,
+              maxLines: 3,
+              maxLength: CustomMovement.descriptionMaxLength,
+              placeholder: 'Describe the movement from start to finish',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final difficulty = _field(
+                'Difficulty',
+                ComboBox<String>(
+                  key: const ValueKey('custom-movement-difficulty'),
+                  value: _difficulty,
+                  isExpanded: true,
+                  items: CustomMovement.allowedDifficulties
+                      .map(
+                        (item) => ComboBoxItem(value: item, child: Text(item)),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) setState(() => _difficulty = value);
+                  },
+                ),
+              );
+              final prop = _field(
+                'Prop',
+                ComboBox<TrainingProp>(
+                  key: const ValueKey('custom-movement-prop'),
+                  value: _prop,
+                  isExpanded: true,
+                  items: CustomMovement.supportedProps
+                      .map(
+                        (item) => ComboBoxItem(
+                          value: item,
+                          child: Text(item.displayLabel),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _references.isNotEmpty
+                      ? null
+                      : (value) {
+                          if (value == null || value == _prop) return;
+                          if (_sessionStarted) {
+                            _resettingProp = true;
+                            unawaited(() async {
+                              try {
+                                await _resetSession();
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _resettingProp = false);
+                                }
+                              }
+                            }());
+                          }
+                          setState(() {
+                            _prop = value;
+                            _template = null;
+                            _replacingReferences = true;
+                            if (value != TrainingProp.bottle) {
+                              _trackRotation = false;
+                            }
+                          });
+                        },
+                ),
+              );
+              if (constraints.maxWidth < 560) {
+                return Column(
+                  children: [
+                    difficulty,
+                    const SizedBox(height: AppSpacing.md),
+                    prop,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: difficulty),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: prop),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            _references.isEmpty
+                ? 'Use the same prop for every example.'
+                : 'Delete recorded examples before changing the prop.',
+            style: ElixTypography.caption(color: context.elixTextSecondary),
+          ),
+          if (_prop == TrainingProp.bottle) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _surface(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Does the bottle visibly rotate?',
+                          style: ElixTypography.label(
+                            color: context.elixTextPrimary,
+                          ),
+                        ),
+                      ),
+                      ToggleSwitch(
+                        key: const ValueKey('custom-movement-require-rotation'),
+                        checked: _trackRotation,
+                        onChanged: (value) => setState(() {
+                          _trackRotation = value;
+                          if (_references.isEmpty &&
+                              widget.existingRevision != null &&
+                              _prop == widget.existing?.propType) {
+                            _replacingReferences =
+                                value &&
+                                widget
+                                        .existingRevision!
+                                        .template
+                                        .requiresRotation !=
+                                    true;
+                            _template = widget.existingRevision!.template;
+                          }
+                        }),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    _trackRotation
+                        ? 'Add orange tape near the top and yellow tape near the base so ELIXR can follow the turn.'
+                        : 'Optional. Turn this on only when the bottle makes a visible turn.',
+                    style: ElixTypography.supporting(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              const Expanded(child: Text('Track visible bottle rotation')),
-            ],
-          ),
-          const Text(
-            'For turns, place orange tape on the top and yellow tape on the base. Keep both visible while you move.',
-          ),
+              tinted: true,
+            ),
+          ],
         ],
-      ],
+      ),
     ),
   );
 
@@ -729,7 +872,67 @@ class _CustomMovementAuthoringScreenState
     return '$minutes:$seconds.$hundredths';
   }
 
-  Widget _referenceCard(_ReferenceDraft reference, int index) => _surface(
+  Widget _checkRow(String label, bool present, String missing) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+    child: Row(
+      children: [
+        Icon(
+          present ? FluentIcons.check_mark : FluentIcons.info,
+          size: 14,
+          color: present
+              ? context.elixColors.success
+              : context.elixColors.warning,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            label,
+            style: ElixTypography.label(color: context.elixTextPrimary),
+          ),
+        ),
+        Text(
+          present ? 'In view' : missing,
+          style: ElixTypography.caption(color: context.elixTextSecondary),
+        ),
+      ],
+    ),
+  );
+
+  Widget _cameraCheck() => ValueListenableBuilder<PreviewFrame?>(
+    valueListenable: _presentation,
+    builder: (context, preview, _) {
+      final prop = preview?.propPresentationState == 'confirmed';
+      final hands = preview?.handsPresentationState == 'tracking';
+      final body = preview?.posePresentationState == 'tracking';
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Camera check',
+            style: ElixTypography.cardTitle(color: context.elixTextPrimary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _checkRow(
+            'One person',
+            _personCount == 1,
+            'Keep one person in frame',
+          ),
+          _checkRow(_prop.displayLabel, prop, 'Show your prop'),
+          _checkRow('Hands', hands, 'Move hands into view'),
+          _checkRow('Upper body', body, 'Move into view'),
+          if (!hands) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Keep your hands fully visible so ELIXR can learn more movement detail.',
+              style: ElixTypography.caption(color: context.elixTextSecondary),
+            ),
+          ],
+        ],
+      );
+    },
+  );
+
+  Widget _captureWorkspace() => _surface(
     Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -737,111 +940,25 @@ class _CustomMovementAuthoringScreenState
           children: [
             Expanded(
               child: Text(
-                'Reference ${index + 1}  ·  ${_time(reference.endMs - reference.startMs)}  ·  Good reference',
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                'Live camera',
+                style: ElixTypography.sectionTitle(
+                  context,
+                  color: context.elixTextPrimary,
+                ),
               ),
             ),
-            Button(
-              onPressed: _busy ? null : () => _selectPreview(reference),
-              child: const Text('Preview / Trim'),
-            ),
-            const SizedBox(width: 8),
-            Button(
-              onPressed: _busy ? null : () => _delete(reference),
-              child: const Text('Delete'),
-            ),
+            if (_recording)
+              Text(
+                '● Recording',
+                style: ElixTypography.label(color: context.elixColors.error),
+              ),
           ],
         ),
-        if (_previewId == reference.id) ...[
-          const SizedBox(height: AppSpacing.sm),
-          SizedBox(
-            height: 260,
-            child: ElixrVideoPlayer(
-              key: ValueKey('reference-player-${reference.id}'),
-              source: Uri.file(reference.path),
-              session: _playback,
-              clipStart: Duration(milliseconds: _pendingStart),
-              clipEnd: Duration(milliseconds: _pendingEnd),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text('Start: ${_time(_pendingStart)}'),
-          Slider(
-            value: _pendingStart.toDouble(),
-            min: 0,
-            max: reference.durationMs.toDouble(),
-            onChanged: (value) => setState(
-              () => _pendingStart = value.round().clamp(0, _pendingEnd - 1),
-            ),
-          ),
-          Text('End: ${_time(_pendingEnd)}'),
-          Slider(
-            value: _pendingEnd.toDouble(),
-            min: 0,
-            max: reference.durationMs.toDouble(),
-            onChanged: (value) => setState(
-              () => _pendingEnd = value.round().clamp(
-                _pendingStart + 1,
-                reference.durationMs,
-              ),
-            ),
-          ),
-          Text('Selected duration: ${_time(_pendingEnd - _pendingStart)}'),
-          Row(
-            children: [
-              Button(
-                onPressed: _busy
-                    ? null
-                    : () => _applyTrim(reference, 0, reference.durationMs),
-                child: const Text('Reset trim'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: _busy
-                    ? null
-                    : () => _applyTrim(reference, _pendingStart, _pendingEnd),
-                child: const Text('Apply trim'),
-              ),
-            ],
-          ),
-        ],
-      ],
-    ),
-  );
-
-  Widget _referencesStep() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Text(
-        'Record references',
-        style: FluentTheme.of(context).typography.subtitle,
-      ),
-      const SizedBox(height: 6),
-      const Text('2 required  ·  3 recommended  ·  Up to 5'),
-      if (widget.existing != null && !_replacingReferences) ...[
-        const SizedBox(height: AppSpacing.md),
-        _surface(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Your saved assessment is active. Earlier raw videos were not saved.',
-              ),
-              const SizedBox(height: 8),
-              Button(
-                onPressed: () {
-                  setState(() {
-                    _replacingReferences = true;
-                    _template = null;
-                  });
-                  unawaited(_prepare());
-                },
-                child: const Text('Record new references'),
-              ),
-            ],
-          ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Show the full movement from start to finish.',
+          style: ElixTypography.supporting(color: context.elixTextSecondary),
         ),
-      ] else ...[
         const SizedBox(height: AppSpacing.md),
         CameraSourcePreference(
           settings: context.watch<SettingsService>(),
@@ -859,154 +976,625 @@ class _CustomMovementAuthoringScreenState
           onSelectionSaved: _changeCamera,
         ),
         const SizedBox(height: AppSpacing.md),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final camera = _camera();
-            final guidance = _surface(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    _initializing
-                        ? 'Preparing camera…'
-                        : _personCount == 1
-                        ? 'One person ready'
-                        : 'Keep one person in the camera.',
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Keep your ${_prop.displayLabel.toLowerCase()} and upper body visible.',
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Perform the complete movement from start to finish.',
-                  ),
-                  const SizedBox(height: 8),
-                  ValueListenableBuilder<PreviewFrame?>(
-                    valueListenable: _presentation,
-                    builder: (context, preview, _) => Text(
-                      'Prop: ${preview?.propPresentationState ?? 'missing'}  ·  Hands: ${preview?.handsPresentationState ?? 'missing'}  ·  Body: ${preview?.posePresentationState ?? 'missing'}',
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  FilledButton(
-                    key: const ValueKey('custom-reference-record'),
-                    onPressed: _recording
-                        ? (_busy ? null : _finishReference)
-                        : (_canRecord ? _record : null),
-                    child: Text(
-                      _recording ? 'Finish Reference' : 'Record Reference',
-                    ),
-                  ),
-                ],
-              ),
-            );
-            if (constraints.maxWidth < 800) {
-              return Column(
-                children: [camera, const SizedBox(height: 12), guidance],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 7, child: camera),
-                const SizedBox(width: 12),
-                Expanded(flex: 4, child: guidance),
-              ],
-            );
-          },
-        ),
+        _camera(),
         const SizedBox(height: AppSpacing.md),
-        for (var index = 0; index < _references.length; index++) ...[
-          _referenceCard(_references[index], index),
+        _cameraCheck(),
+        const SizedBox(height: AppSpacing.md),
+        ElixPrimaryButton(
+          key: const ValueKey('custom-reference-record'),
+          label: _recording
+              ? 'Finish example'
+              : _references.isEmpty
+              ? 'Record example'
+              : 'Record another example',
+          onPressed: _recording
+              ? (_busy ? null : _finishReference)
+              : (_canRecord ? _record : null),
+        ),
+        if (_initializing) ...[
           const SizedBox(height: AppSpacing.sm),
-        ],
-        if (_references.length == 2)
-          const InfoBar(
-            title: Text('Ready to build'),
-            content: Text(
-              'A third reference is recommended for better consistency.',
-            ),
-            severity: InfoBarSeverity.info,
+          Text(
+            'Preparing camera…',
+            style: ElixTypography.caption(color: context.elixTextSecondary),
           ),
-        if (_references.length >= 5)
-          const Text('You have reached the 5 reference limit.'),
+        ],
       ],
-    ],
+    ),
   );
 
-  Widget _reviewStep() => _surface(
+  String _coverageLabel(double? value) =>
+      value == null ? 'Not reported' : '${(value * 100).round()}% of frames';
+
+  Widget _exampleCard(_ReferenceDraft reference, int index) {
+    final selected = _previewId == reference.id;
+    final quality = reference.quality;
+    final handCoverage = quality?.bestHandCoverage;
+    return Container(
+      key: ValueKey('example-card-${reference.id}'),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.smPlus),
+      decoration: BoxDecoration(
+        color: selected
+            ? context.elixColors.surfaceSelected
+            : context.elixColors.surfaceInteractive,
+        borderRadius: BorderRadius.circular(ElixRadius.card),
+        border: Border.all(
+          color: selected
+              ? context.elixColors.borderInteractive
+              : context.elixColors.borderSubtle,
+          width: selected && context.isHighContrast ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Example ${index + 1}',
+                  style: ElixTypography.cardTitle(
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '✓ Accepted',
+                style: ElixTypography.caption(
+                  color: context.elixColors.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '${_time(reference.endMs - reference.startMs)}${reference.startMs > 0 || reference.endMs < reference.durationMs ? ' · Trimmed' : ''}',
+            style: ElixTypography.caption(color: context.elixTextSecondary),
+          ),
+          if (handCoverage != null &&
+              handCoverage < _ReferenceQuality.minimumCoverageHint) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Hands were difficult to see',
+              style: ElixTypography.caption(color: context.elixColors.warning),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              Button(
+                key: ValueKey('example-select-${reference.id}'),
+                onPressed: _busy ? null : () => _selectPreview(reference),
+                child: Text(selected ? 'Selected' : 'Preview / edit'),
+              ),
+              Button(
+                onPressed: _busy ? null : () => _delete(reference),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _qualityDetails(_ReferenceDraft reference) {
+    final quality = reference.quality;
+    if (quality == null) return const SizedBox.shrink();
+    final bestHand = quality.bestHandCoverage;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'What the camera saw',
+          style: ElixTypography.label(color: context.elixTextPrimary),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Left hand: ${_coverageLabel(quality.leftHandCoverage)} · Right hand: ${_coverageLabel(quality.rightHandCoverage)}',
+          style: ElixTypography.caption(color: context.elixTextSecondary),
+        ),
+        Text(
+          'Upper body: ${_coverageLabel(quality.poseCoverage)}',
+          style: ElixTypography.caption(color: context.elixTextSecondary),
+        ),
+        if (bestHand != null &&
+            bestHand < _ReferenceQuality.minimumCoverageHint) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Try keeping your hands fully in frame on your next example.',
+            style: ElixTypography.caption(color: context.elixColors.warning),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _exampleEditor(_ReferenceDraft reference, int index) => _surface(
     Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Review and save',
-          style: FluentTheme.of(context).typography.subtitle,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Text(_name.text.trim()),
-        Text('$_difficulty  ·  ${_prop.displayLabel}'),
-        const SizedBox(height: AppSpacing.md),
-        Text(
-          _replacingReferences
-              ? '${_references.length} recorded references will form this assessment.'
-              : 'The existing assessment template remains active. No historical reference videos are available.',
-        ),
-        if (_references.length == 2)
-          const InfoBar(
-            title: Text('Optional improvement'),
-            content: Text(
-              'You can save now. A third reference is recommended.',
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Example ${index + 1}',
+                style: ElixTypography.sectionTitle(
+                  context,
+                  color: context.elixTextPrimary,
+                ),
+              ),
             ),
-            severity: InfoBarSeverity.info,
+            Text(
+              '✓ Accepted',
+              style: ElixTypography.caption(color: context.elixColors.success),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        LayoutBuilder(
+          builder: (context, constraints) => SizedBox(
+            height: constraints.maxWidth < 430
+                ? 240
+                : constraints.maxWidth * 9 / 16,
+            child: ElixrVideoPlayer(
+              key: ValueKey('reference-player-${reference.id}'),
+              source: Uri.file(reference.path),
+              session: _playback,
+              clipStart: Duration(milliseconds: _pendingStart),
+              clipEnd: Duration(milliseconds: _pendingEnd),
+            ),
           ),
+        ),
+        _qualityDetails(reference),
         const SizedBox(height: AppSpacing.md),
         Text(
-          _template?.requiresRotation == true
-              ? 'Assessment can track prop path, visible body and hands, and visible bottle rotation.'
-              : 'Assessment can track prop path and the body and hands visible in your references.',
+          'Trim example',
+          style: ElixTypography.cardTitle(color: context.elixTextPrimary),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Choose the part that shows the full movement. Your original recording stays intact.',
+          style: ElixTypography.caption(color: context.elixTextSecondary),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.smPlus),
+          decoration: BoxDecoration(
+            color: context.elixColors.surfaceTinted,
+            borderRadius: BorderRadius.circular(ElixRadius.card),
+            border: Border.all(color: context.elixColors.borderSubtle),
+          ),
+          child: Column(
+            children: [
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                children: [
+                  Text('Start  ${_time(_pendingStart)}'),
+                  Text('End  ${_time(_pendingEnd)}'),
+                ],
+              ),
+              Slider(
+                value: _pendingStart.toDouble(),
+                min: 0,
+                max: reference.durationMs.toDouble(),
+                onChanged: (value) => setState(
+                  () => _pendingStart = value.round().clamp(0, _pendingEnd - 1),
+                ),
+              ),
+              Slider(
+                value: _pendingEnd.toDouble(),
+                min: 0,
+                max: reference.durationMs.toDouble(),
+                onChanged: (value) => setState(
+                  () => _pendingEnd = value.round().clamp(
+                    _pendingStart + 1,
+                    reference.durationMs,
+                  ),
+                ),
+              ),
+              Text(
+                'Selected  ${_time(_pendingEnd - _pendingStart)}',
+                style: ElixTypography.label(color: context.elixTextPrimary),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            Button(
+              onPressed: _busy
+                  ? null
+                  : () => _applyTrim(reference, 0, reference.durationMs),
+              child: const Text('Reset trim'),
+            ),
+            ElixPrimaryButton(
+              label: 'Apply changes',
+              expanded: false,
+              onPressed: _busy
+                  ? null
+                  : () => _applyTrim(reference, _pendingStart, _pendingEnd),
+            ),
+          ],
         ),
       ],
     ),
   );
 
+  Widget _examplesWorkspace() {
+    final selectedIndex = _references.indexWhere(
+      (item) => item.id == _previewId,
+    );
+    return _surface(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Your examples',
+                  style: ElixTypography.sectionTitle(
+                    context,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '${_references.length} of 5',
+                style: ElixTypography.label(color: context.elixTextSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            _references.length < 2
+                ? 'Record the movement at least twice.'
+                : _references.length == 2
+                ? "You're ready to continue. A third example helps ELIXR learn the pattern more consistently."
+                : 'Recommended amount reached. You can review whenever you are ready.',
+            style: ElixTypography.supporting(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 480) {
+                return Column(
+                  children: [
+                    for (var index = 0; index < _references.length; index++)
+                      _exampleCard(_references[index], index),
+                  ],
+                );
+              }
+              final cardWidth = (constraints.maxWidth - AppSpacing.sm) / 2;
+              return Wrap(
+                spacing: AppSpacing.sm,
+                children: [
+                  for (var index = 0; index < _references.length; index++)
+                    SizedBox(
+                      width: cardWidth,
+                      child: _exampleCard(_references[index], index),
+                    ),
+                ],
+              );
+            },
+          ),
+          if (_references.isEmpty)
+            Text(
+              'Your recordings will appear here. Select one to preview or trim it.',
+              style: ElixTypography.supporting(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          if (selectedIndex >= 0) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _exampleEditor(_references[selectedIndex], selectedIndex),
+          ],
+          if (_references.length >= 5)
+            Text(
+              'You have reached the 5 example limit.',
+              style: ElixTypography.caption(color: context.elixTextSecondary),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _studioStep() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        'Show ELIXR the movement',
+        style: ElixTypography.pageTitle(
+          context,
+          color: context.elixTextPrimary,
+        ),
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Text(
+        'Perform the full movement from start to finish. Record it at least twice so ELIXR can learn the pattern.',
+        style: ElixTypography.supporting(color: context.elixTextSecondary),
+      ),
+      const SizedBox(height: AppSpacing.lg),
+      if (widget.existing != null && !_replacingReferences)
+        _surface(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Your saved movement is ready',
+                style: ElixTypography.cardTitle(color: context.elixTextPrimary),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Earlier recordings were not saved. You can keep this version or record new examples.',
+                style: ElixTypography.supporting(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              ElixPrimaryButton(
+                label: 'Record new examples',
+                expanded: false,
+                onPressed: () {
+                  setState(() {
+                    _replacingReferences = true;
+                    _template = null;
+                  });
+                  unawaited(_prepare());
+                },
+              ),
+            ],
+          ),
+        )
+      else
+        LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 980) {
+              return Column(
+                children: [
+                  _captureWorkspace(),
+                  const SizedBox(height: AppSpacing.md),
+                  _examplesWorkspace(),
+                ],
+              );
+            }
+            final mainWidth = (constraints.maxWidth - AppSpacing.md) * 0.58;
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: mainWidth, child: _captureWorkspace()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _examplesWorkspace()),
+              ],
+            );
+          },
+        ),
+    ],
+  );
+
+  Widget _capability(String label) => Padding(
+    padding: const EdgeInsets.only(top: AppSpacing.sm),
+    child: Row(
+      children: [
+        Icon(
+          FluentIcons.check_mark,
+          size: 14,
+          color: context.elixColors.success,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Text(
+          label,
+          style: ElixTypography.supporting(color: context.elixTextPrimary),
+        ),
+      ],
+    ),
+  );
+
+  Widget _reviewStep() {
+    final capabilities =
+        _template?.featureCapabilities ?? const <String, bool>{};
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 900),
+      child: _surface(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Review and save',
+              style: ElixTypography.pageTitle(
+                context,
+                color: context.elixTextPrimary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Check what ELIXR learned before saving.',
+              style: ElixTypography.supporting(
+                color: context.elixTextSecondary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Movement',
+              style: ElixTypography.label(color: context.elixTextSecondary),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _name.text.trim(),
+              style: ElixTypography.sectionTitle(
+                context,
+                color: context.elixTextPrimary,
+              ),
+            ),
+            Text(
+              '$_difficulty · ${_prop.displayLabel}',
+              style: ElixTypography.supporting(
+                color: context.elixTextSecondary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Examples',
+              style: ElixTypography.label(color: context.elixTextSecondary),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _replacingReferences
+                  ? '${_references.length} recorded'
+                  : 'Saved version',
+              style: ElixTypography.cardTitle(color: context.elixTextPrimary),
+            ),
+            if (_replacingReferences && _references.length == 2)
+              Text(
+                'You can save now. A third example may improve consistency.',
+                style: ElixTypography.supporting(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            if (!_replacingReferences)
+              Text(
+                'Earlier recordings are not available, but this version remains active.',
+                style: ElixTypography.supporting(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            const SizedBox(height: AppSpacing.lg),
+            _surface(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'What ELIXR learned',
+                    style: ElixTypography.cardTitle(
+                      color: context.elixTextPrimary,
+                    ),
+                  ),
+                  if (capabilities['prop_translation'] == true)
+                    _capability('${_prop.displayLabel} movement'),
+                  if (capabilities['hands'] == true) _capability('Hands'),
+                  if (capabilities['pose'] == true) _capability('Upper body'),
+                  if (capabilities['prop_rotation'] == true)
+                    _capability('Visible bottle rotation'),
+                ],
+              ),
+              tinted: true,
+            ),
+            if (capabilities['hands'] != true ||
+                capabilities['pose'] != true) ...[
+              const SizedBox(height: AppSpacing.md),
+              InfoBar(
+                title: Text(
+                  capabilities['hands'] != true && capabilities['pose'] != true
+                      ? 'Only prop movement was learned'
+                      : capabilities['hands'] != true
+                      ? 'Hands were not learned'
+                      : 'Upper body was not learned',
+                ),
+                content: Text(
+                  capabilities['hands'] != true && capabilities['pose'] != true
+                      ? 'Hands and upper body were not tracked consistently enough to be part of this assessment. You can save now, or record better examples with your hands and upper body in frame.'
+                      : capabilities['hands'] != true
+                      ? 'Hands were not tracked consistently enough to be part of this assessment. You can save now, or record better examples with your hands fully in frame.'
+                      : 'Upper body movement was not tracked consistently enough to be part of this assessment. You can save now, or record better examples with your upper body in frame.',
+                ),
+                severity: InfoBarSeverity.warning,
+              ),
+              if (_replacingReferences) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Button(
+                  onPressed: _busy ? null : () => setState(() => _step = 1),
+                  child: const Text('Go back and record better examples'),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _progress() => LayoutBuilder(
+    builder: (context, constraints) {
+      Widget step(int index) => Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.smPlus,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: index == _step
+              ? context.elixColors.surfaceSelected
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(ElixRadius.pill),
+          border: Border.all(
+            color: index == _step
+                ? context.elixColors.borderInteractive
+                : context.elixColors.borderSubtle,
+          ),
+        ),
+        child: Text(
+          '${index < _step ? '✓' : '${index + 1}'}  ${const ['Set up', 'Show movement', 'Review'][index]}',
+          style: ElixTypography.label(
+            color: index > _step
+                ? context.elixTextSecondary
+                : context.elixTextPrimary,
+          ),
+        ),
+      );
+      if (constraints.maxWidth < 480) {
+        return Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [for (var index = 0; index < 3; index++) step(index)],
+        );
+      }
+      return Row(
+        children: [
+          for (var index = 0; index < 3; index++) ...[
+            if (index > 0)
+              Expanded(
+                child: Container(
+                  height: 1,
+                  margin: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                  color: context.elixColors.borderSubtle,
+                ),
+              ),
+            step(index),
+          ],
+        ],
+      );
+    },
+  );
+
   @override
   Widget build(BuildContext context) => ElixScaffoldPage(
-    header: PageHeader(
-      leading: Button(
-        onPressed: _busy ? null : _exit,
-        child: const Text('Back'),
-      ),
-      title: Text(
-        widget.existing == null ? 'Create Movement' : 'Edit Movement',
-      ),
+    header: ElixEditorialPageHeader(
+      leading: ElixBackButton(onPressed: _busy ? null : _exit),
+      eyebrow: 'CUSTOM MOVEMENT',
+      heading: widget.existing == null ? 'Create movement' : 'Edit movement',
+      subtitle: 'Teach ELIXR a movement using your own demonstrations.',
+      variant: ElixEditorialHeaderVariant.compact,
     ),
     content: SingleChildScrollView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1120),
+          constraints: const BoxConstraints(maxWidth: 1400),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Wrap(
-                spacing: 16,
-                runSpacing: 8,
-                children: [
-                  for (var index = 0; index < 3; index++)
-                    Text(
-                      '${index + 1}. ${const ['Movement details', 'Record references', 'Review and save'][index]}',
-                      style: TextStyle(
-                        fontWeight: index == _step
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
-                ],
-              ),
+              _progress(),
               const SizedBox(height: AppSpacing.lg),
               if (_step == 0) _details(),
-              if (_step == 1) _referencesStep(),
+              if (_step == 1) _studioStep(),
               if (_step == 2) _reviewStep(),
               if (_error != null) ...[
                 const SizedBox(height: AppSpacing.md),
@@ -1020,24 +1608,27 @@ class _CustomMovementAuthoringScreenState
               Row(
                 children: [
                   if (_step > 0)
-                    Button(
+                    ElixPrimaryButton(
+                      label: 'Previous',
+                      expanded: false,
+                      variant: ElixButtonVariant.outline,
                       onPressed: _busy
                           ? null
                           : () => setState(() {
                               _step--;
                               _error = null;
                             }),
-                      child: const Text('Previous'),
                     ),
                   const Spacer(),
                   if (_step == 0)
-                    FilledButton(
+                    ElixPrimaryButton(
                       key: const ValueKey('custom-movement-next'),
                       onPressed: _resettingProp ? null : _nextDetails,
-                      child: const Text('Next: References'),
+                      label: 'Next: Show movement',
+                      expanded: false,
                     ),
                   if (_step == 1)
-                    FilledButton(
+                    ElixPrimaryButton(
                       key: const ValueKey('custom-movement-review'),
                       onPressed:
                           _busy ||
@@ -1045,13 +1636,15 @@ class _CustomMovementAuthoringScreenState
                               (_replacingReferences && _references.length < 2)
                           ? null
                           : _review,
-                      child: const Text('Review movement'),
+                      label: 'Review movement',
+                      expanded: false,
                     ),
                   if (_step == 2)
-                    FilledButton(
+                    ElixPrimaryButton(
                       key: const ValueKey('custom-movement-save'),
                       onPressed: _busy || !_hasUsableTemplate ? null : _save,
-                      child: Text(_busy ? 'Saving…' : 'Save Movement'),
+                      label: _busy ? 'Saving…' : 'Save movement',
+                      expanded: false,
                     ),
                 ],
               ),

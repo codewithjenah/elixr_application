@@ -186,6 +186,26 @@ def test_one_hand_template_does_not_require_unused_hand_or_static_pose():
     assert comparison.component_scores["Prop path"] == 3
 
 
+def test_accepted_prop_only_examples_do_not_invent_hand_capability():
+    references = [
+        tuple(
+            FrameSample(
+                index * 100,
+                hands={"left": Landmark(.25, .45)} if index < 2 else {},
+                prop=Landmark(.2 + .03 * index, .4),
+            )
+            for index in range(10)
+        )
+        for _ in range(2)
+    ]
+    assert all(validate_sequence(reference, ("prop_translation",)).valid
+               for reference in references)
+    template = build_template(references)
+    assert template.reference_count == 2
+    assert template.feature_capabilities["prop_translation"] is True
+    assert template.feature_capabilities["hands"] is False
+
+
 def test_non_required_hand_is_filtered_from_canonical_and_scoring():
     def with_transient_right(reference_index, *, candidate=False):
         frames = []

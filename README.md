@@ -733,14 +733,20 @@ registry:
 
 - `session_mode: "custom_capture"` prepares readiness for recording reference
   sequences. Reference readiness requires the camera, selected prop, and one
-  visible performer. The existing Pose pass observes at most two people during
-  readiness and recording; two consecutive evaluated frames confirm the person
-  state. Hands and Pose are observed during recording so the demonstrations can infer
-  reliable one-hand, two-hand, and meaningful-pose capabilities. After
+  visible performer. Pose observes at most two people during readiness and
+  recording; two consecutive evaluated frames confirm the person state. Hands
+  also runs during custom readiness so the camera check can show actual hand
+  visibility, but missing hands does not block readiness. The same Hands
+  detector is reused after activation. Hands and Pose are observed during
+  recording so the demonstrations can infer reliable one-hand, two-hand, and
+  meaningful-pose capabilities. After
   accepted readiness confirmation and activation,
   `start_custom_capture` begins one bounded monotonic sequence;
   `stop_custom_capture` returns `reference_count`, `reference_quality`, a stable
   `reference_id`, and a temporary local MP4 path and duration for authoring preview.
+  The authoring studio shows per-example hand and body coverage from
+  `reference_quality`; the final review uses the built template's actual
+  capabilities rather than treating an accepted clip as proof of hand tracking.
   Detector samples map to MP4 time through capture timestamps of frames actually
   written by the existing Python camera producer. `trim_custom_reference`
   selects a non-destructive time range and validates the retained samples;

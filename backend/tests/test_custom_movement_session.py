@@ -11,6 +11,7 @@ from api import websocket as websocket_api
 from config import YOLO_FRAME_SKIP
 from vision.camera import CapturedFrame
 from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
+from test_session_lifecycle import StubHandsDetector, _patch_vision
 
 
 @pytest.fixture(autouse=True)
@@ -146,6 +147,7 @@ def test_custom_capture_uses_minimum_readiness_but_observes_all_modalities():
 
 def test_custom_capture_requests_two_poses_only_for_reference_session(monkeypatch):
     constructed = []
+    hands_constructed = []
 
     class FakePose:
         def __init__(self, **kwargs):
@@ -154,15 +156,104 @@ def test_custom_capture_requests_two_poses_only_for_reference_session(monkeypatc
         def close(self):
             pass
 
+    class FakeHands:
+        def __init__(self, **kwargs):
+            hands_constructed.append(kwargs)
+
+        def close(self):
+            pass
+
     monkeypatch.setattr(websocket_api, "PoseDetector", FakePose)
+    monkeypatch.setattr(websocket_api, "HandsDetector", FakeHands)
     capture = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     capture._ensure_readiness_detectors()
     assert constructed == [{"max_poses": 2}]
+    assert len(hands_constructed) == 1
+    assert hands_constructed[0]["max_num_hands"] == 2
+    readiness_hands = capture.hands_detector
     capture._ensure_detectors()
     assert constructed == [{"max_poses": 2}]
+    assert len(hands_constructed) == 1
+    assert capture.hands_detector is readiness_hands
     ordinary = websocket_api.VisionSession("Hand Stall")
     ordinary._sync_landmark_detectors(needs_hands=False, needs_pose=True)
     assert constructed[-1] == {}
+
+
+def test_custom_readiness_observes_hands_without_requiring_them(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class VisibleHands(StubHandsDetector):
+        def detect(self, frame, bottle=None):
+            self.detect_calls += 1
+            return HandsResult(hands=[HandLandmarks(
+                points={0: Point2D(.2, .3)}, handedness="Left",
+            )])
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", VisibleHands)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    try:
+        assert session.readiness_spec == {"hands": "none", "body": "none"}
+        assert session.start()
+        assert session.begin_readiness()
+        assert session._readiness_tracker._profile.needs_hands() is False
+        detector = session.hands_detector
+        assert isinstance(detector, VisibleHands)
+        assert detector.max_num_hands == 2
+        assert session.process_readiness_frame() is not None
+        assert detector.detect_calls >= 1
+        assert session._overlay_snapshot is not None
+        assert session._overlay_snapshot.hands is not None
+        assert session._preview_presentation_metadata(session._overlay_snapshot)[
+            "hands_presentation_state"
+        ] == "tracking"
+        # Readiness remains about camera, prop, and one performer, even if hands
+        # later leave the frame. Activation keeps the warmed detector instance.
+        session._latest_readiness_snapshot = SimpleNamespace(readiness_stable=True)
+        session._latest_readiness_observed_at = time.monotonic()
+        session._custom_person_count = 1
+        session._custom_person_observed_at = time.monotonic()
+        assert session.confirm_readiness() == (True, None)
+        assert session.activate() == (True, None)
+        assert session.hands_detector is detector
+    finally:
+        session.close()
+
+
+def test_active_custom_samples_use_current_hands_for_coverage(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class VisibleHands(StubHandsDetector):
+        def detect_independent(self, frame, *, captured_at_monotonic=None):
+            self.detect_calls += 1
+            return HandsResult(hands=[
+                HandLandmarks(points={0: Point2D(.2, .3)}, handedness="Left"),
+                HandLandmarks(points={0: Point2D(.8, .3)}, handedness="Right"),
+            ])
+
+        def finish_with_prop(self, frame, independent, bottle):
+            return independent
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", VisibleHands)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    try:
+        assert session.start()
+        assert session.activate() == (True, None)
+        session._custom_samples = []
+        session._custom_capture_started_at = 1000.0
+        session._custom_capture_deadline = None
+        session._custom_person_count = 1
+        monkeypatch.setattr(session, "_observe_custom_people", lambda *a, **k: None)
+        assert session.process_frame() is not None
+        assert session.hands_detector.detect_calls >= 1
+        assert session._custom_samples
+        assert any(key.startswith("left:") for key in session._custom_samples[0].hands)
+        assert any(key.startswith("right:") for key in session._custom_samples[0].hands)
+        quality = session._custom_capture_diagnostics(tuple(session._custom_samples))
+        assert quality["left_hand_coverage"] == 1.0
+        assert quality["right_hand_coverage"] == 1.0
+    finally:
+        session.close()
 
 
 def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():

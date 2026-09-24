@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
+import 'package:elixr_application/core/widgets/elixr_video_player.dart';
 import 'package:elixr_application/data/models/custom_movement.dart';
 import 'package:elixr_application/data/models/movement_template.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
@@ -122,6 +124,7 @@ class _Socket extends Fake implements WebSocketService {
   int stopCalls = 0;
   String? preparedMode;
   TeacherActivityReadinessSpec? preparedReadiness;
+  Map<String, dynamic>? templateOverride;
 
   CommandAck _ack(
     String action, {
@@ -129,6 +132,7 @@ class _Socket extends Fake implements WebSocketService {
     int? start,
     int? end,
     Map<String, dynamic>? template,
+    Map<String, dynamic>? quality,
   }) => CommandAck(
     protocolVersion: 1,
     requestId: 'request-$action',
@@ -142,14 +146,22 @@ class _Socket extends Fake implements WebSocketService {
     trimStartMs: start,
     trimEndMs: end,
     movementTemplate: template,
+    referenceQuality: quality,
   );
 
-  void ready({int personCount = 1, bool readinessStable = true}) {
+  void ready({
+    int personCount = 1,
+    bool readinessStable = true,
+    bool handsVisible = false,
+  }) {
     previews.add(
       PreviewFrame(
         jpegBytes: base64Decode(
           'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAC0lEQVR4nGNgQAYAAA4AAamRc7EAAAAASUVORK5CYII=',
         ),
+        propPresentationState: 'confirmed',
+        handsPresentationState: handsVisible ? 'tracking' : 'missing',
+        posePresentationState: 'tracking',
       ),
     );
     feedback.add(
@@ -217,6 +229,11 @@ class _Socket extends Fake implements WebSocketService {
           id: 'reference-$count',
           start: 0,
           end: 7000,
+          quality: {
+            'left_hand_coverage': 0.25,
+            'right_hand_coverage': 0.1,
+            'pose_coverage': 0.8,
+          },
         ),
       );
     }
@@ -240,7 +257,10 @@ class _Socket extends Fake implements WebSocketService {
     }
     if (method == #sendBuildCustomTemplate) {
       return Future<CommandAck>.value(
-        _ack('build_custom_template', template: _templateMap(count)),
+        _ack(
+          'build_custom_template',
+          template: templateOverride ?? _templateMap(count),
+        ),
       );
     }
     return super.noSuchMethod(invocation);
@@ -281,6 +301,7 @@ Widget _host({
   CustomMovementRevision? revision,
   CustomMovementOwnerRole role = CustomMovementOwnerRole.trainee,
   _Settings? settingsOverride,
+  FluentThemeData? theme,
 }) {
   final settings = settingsOverride ?? _Settings();
   final cameras = CameraDeviceService(
@@ -293,7 +314,7 @@ Widget _host({
       ChangeNotifierProvider<CameraDeviceService>.value(value: cameras),
     ],
     child: FluentApp(
-      theme: AppTheme.dark,
+      theme: theme ?? AppTheme.dark,
       home: CustomMovementAuthoringScreen(
         ownerUid: 'owner-1',
         ownerRole: role,
@@ -315,7 +336,7 @@ Future<void> _record(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 1));
   await tester.pump(const Duration(seconds: 1));
   await tester.pump();
-  expect(find.text('Finish Reference'), findsOneWidget);
+  expect(find.text('Finish example'), findsOneWidget);
   await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
   await tester.pump(const Duration(milliseconds: 100));
 }
@@ -379,14 +400,17 @@ void main() {
       expect(socket.preparedCameraIds, ['dev-a', 'dev-b']);
       socket.ready();
       await tester.pump();
-      final cameraBefore = tester.getRect(find.byType(AspectRatio).first);
+      final cameraBefore = tester.getSize(find.byType(AspectRatio).first);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-reference-record')),
+      );
       await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
       await tester.pump();
-      expect(tester.getRect(find.byType(AspectRatio).first), cameraBefore);
+      expect(tester.getSize(find.byType(AspectRatio).first), cameraBefore);
       for (var second = 0; second < 3; second++) {
         await tester.pump(const Duration(seconds: 1));
       }
-      expect(tester.getRect(find.byType(AspectRatio).first), cameraBefore);
+      expect(tester.getSize(find.byType(AspectRatio).first), cameraBefore);
       expect(tester.takeException(), isNull);
     },
   );
@@ -417,29 +441,29 @@ void main() {
       final record = find.byKey(const ValueKey('custom-reference-record'));
       socket.ready(personCount: 0);
       await tester.pump();
-      expect(tester.widget<FilledButton>(record).onPressed, isNull);
+      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
       socket.ready(personCount: 2);
       await tester.pump();
-      expect(tester.widget<FilledButton>(record).onPressed, isNull);
+      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
       socket.ready();
       for (var attempt = 0; attempt < 20; attempt++) {
         await tester.pump(const Duration(milliseconds: 50));
-        if (tester.widget<FilledButton>(record).onPressed != null) break;
+        if (tester.widget<ElixPrimaryButton>(record).onPressed != null) break;
       }
-      expect(tester.widget<FilledButton>(record).onPressed, isNotNull);
+      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
       socket.rejectNextReference = true;
       await _record(tester);
       expect(socket.count, 0);
       expect(
-        find.textContaining('This reference was not usable'),
+        find.textContaining('This example was not usable'),
         findsOneWidget,
       );
       await _record(tester);
       expect(socket.count, 1);
-      expect(find.textContaining('Reference 1'), findsOneWidget);
+      expect(find.textContaining('Example 1'), findsWidgets);
       socket.ready(readinessStable: false);
       await tester.pump();
-      expect(tester.widget<FilledButton>(record).onPressed, isNotNull);
+      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
       expect(tester.takeException(), isNull);
     },
   );
@@ -456,7 +480,8 @@ void main() {
       addTearDown(socket.close);
       await tester.pumpWidget(_host(repository: repository, socket: socket));
       expect(find.byType(ContentDialog), findsNothing);
-      expect(find.text('Movement details'), findsWidgets);
+      expect(find.text('Set up your movement'), findsWidgets);
+      expect(find.textContaining('Record references'), findsNothing);
       await tester.enterText(
         find.byKey(const ValueKey('custom-movement-name')),
         'Bottle Loop',
@@ -471,22 +496,28 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
       await tester.pump(const Duration(milliseconds: 100));
       expect(
-        find.text('2 required  ·  3 recommended  ·  Up to 5'),
+        tester.getTopLeft(find.text('Live camera').first).dx,
+        lessThan(tester.getTopLeft(find.text('Your examples')).dx),
+      );
+      expect(
+        find.text(
+          'Perform the full movement from start to finish. Record it at least twice so ELIXR can learn the pattern.',
+        ),
         findsOneWidget,
       );
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-movement-review')),
             )
             .onPressed,
         isNull,
       );
-      socket.ready();
+      socket.ready(handsVisible: true);
       for (var attempt = 0; attempt < 20; attempt++) {
         await tester.pump(const Duration(milliseconds: 50));
         if (tester
-                .widget<FilledButton>(
+                .widget<ElixPrimaryButton>(
                   find.byKey(const ValueKey('custom-reference-record')),
                 )
                 .onPressed !=
@@ -496,8 +527,8 @@ void main() {
       }
       expect(find.textContaining('Could not prepare'), findsNothing);
       expect(
-        find.text('One person ready'),
-        findsOneWidget,
+        find.text('In view'),
+        findsWidgets,
         reason: tester
             .widgetList<Text>(find.byType(Text))
             .map((item) => item.data)
@@ -505,33 +536,55 @@ void main() {
             .join(' | '),
       );
       expect(find.text('Preparing camera…'), findsNothing);
+      expect(find.text('Move hands into view'), findsNothing);
+      socket.ready(handsVisible: false);
+      await tester.pump();
+      expect(find.text('Move hands into view'), findsOneWidget);
+      expect(
+        find.textContaining('Keep your hands fully visible'),
+        findsOneWidget,
+      );
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-reference-record')),
             )
             .onPressed,
         isNotNull,
       );
       await _record(tester);
-      expect(find.textContaining('Reference 1'), findsOneWidget);
+      expect(find.textContaining('Example 1'), findsWidgets);
+      expect(find.text('Good reference'), findsNothing);
+      expect(find.text('✓ Accepted'), findsWidgets);
+      expect(find.text('Hands were difficult to see'), findsOneWidget);
+      expect(find.textContaining('Left hand: 25% of frames'), findsOneWidget);
+      expect(find.byType(ElixrVideoPlayer), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('example-card-reference-1')),
+          matching: find.byType(ElixrVideoPlayer),
+        ),
+        findsNothing,
+      );
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-movement-review')),
             )
             .onPressed,
         isNull,
       );
       await _record(tester);
-      expect(find.textContaining('Reference 2'), findsOneWidget);
+      expect(find.textContaining('Example 2'), findsWidgets);
       expect(
-        find.textContaining('A third reference is recommended'),
+        find.textContaining(
+          'A third example helps ELIXR learn the pattern more consistently',
+        ),
         findsOneWidget,
       );
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-movement-review')),
             )
             .onPressed,
@@ -542,9 +595,12 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
       await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Only prop movement was learned'), findsOneWidget);
+      expect(find.text('Upper body'), findsNothing);
+      expect(find.text('Go back and record better examples'), findsOneWidget);
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-movement-save')),
             )
             .onPressed,
@@ -554,17 +610,23 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       for (var index = 0; index < 3; index++) {
         await _record(tester);
+        if (index == 0) {
+          expect(
+            find.textContaining('Recommended amount reached'),
+            findsOneWidget,
+          );
+        }
       }
-      expect(find.textContaining('5 reference limit'), findsOneWidget);
+      expect(find.textContaining('5 example limit'), findsOneWidget);
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-reference-record')),
             )
             .onPressed,
         isNull,
       );
-      final previews = find.text('Preview / Trim');
+      final previews = find.text('Preview / edit');
       await tester.ensureVisible(previews.at(1));
       await tester.tap(previews.at(1));
       await tester.pump(const Duration(milliseconds: 100));
@@ -572,19 +634,27 @@ void main() {
         find.byKey(const ValueKey('reference-player-reference-2')),
         findsOneWidget,
       );
-      await tester.ensureVisible(find.text('Apply trim'));
+      expect(find.byType(ElixrVideoPlayer), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('example-card-reference-2')),
+          matching: find.byType(ElixrVideoPlayer),
+        ),
+        findsNothing,
+      );
+      await tester.ensureVisible(find.text('Apply changes'));
       tester.widget<Slider>(find.byType(Slider).first).onChanged!(1000);
       await tester.pump();
-      expect(find.text('Start: 00:01.00'), findsOneWidget);
-      await tester.tap(find.text('Apply trim'));
+      expect(find.text('Start  00:01.00'), findsOneWidget);
+      await tester.tap(find.text('Apply changes'));
       await tester.pump(const Duration(milliseconds: 100));
       expect(socket.trimmed, ['reference-2']);
       await tester.pump(const Duration(milliseconds: 100));
       await tester.ensureVisible(find.text('Reset trim'));
       await tester.tap(find.text('Reset trim'));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Start: 00:00.00'), findsOneWidget);
-      expect(find.text('Selected duration: 00:07.00'), findsOneWidget);
+      expect(find.text('Start  00:00.00'), findsOneWidget);
+      expect(find.text('Selected  00:07.00'), findsOneWidget);
       expect(socket.trimmed, ['reference-2', 'reference-2']);
       await tester.ensureVisible(find.text('Delete').at(1));
       await tester.tap(find.text('Delete').at(1));
@@ -598,7 +668,7 @@ void main() {
         find.byKey(const ValueKey('reference-player-reference-2')),
         findsNothing,
       );
-      expect(find.textContaining('Reference 4'), findsOneWidget);
+      expect(find.textContaining('Example 4'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -636,10 +706,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
       await tester.pump(const Duration(milliseconds: 100));
       expect(
-        find.textContaining('Earlier raw videos were not saved'),
+        find.textContaining('Earlier recordings were not saved'),
         findsOneWidget,
       );
-      expect(find.text('Record new references'), findsOneWidget);
+      expect(find.text('Record new examples'), findsOneWidget);
       await tester.ensureVisible(
         find.byKey(const ValueKey('custom-movement-review')),
       );
@@ -647,7 +717,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-movement-save')),
             )
             .onPressed,
@@ -702,10 +772,10 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.textContaining('visible bottle rotation'), findsWidgets);
+      expect(find.textContaining('Visible bottle rotation'), findsWidgets);
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-movement-save')),
             )
             .onPressed,
@@ -732,7 +802,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ElixPrimaryButton>(
               find.byKey(const ValueKey('custom-movement-review')),
             )
             .onPressed,
@@ -740,4 +810,156 @@ void main() {
       );
     },
   );
+
+  testWidgets('review shows only learned hand and body capabilities', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _Socket();
+    addTearDown(socket.close);
+    final movement = _movement(CustomMovementOwnerRole.trainee);
+    final template = _templateMap(3);
+    template['required_modalities'] = ['prop_translation', 'hands', 'pose'];
+    template['feature_capabilities'] = {
+      ...template['feature_capabilities'] as Map<String, dynamic>,
+      'hands': true,
+      'pose': true,
+    };
+    final revision = CustomMovementRevision(
+      id: 'revision-1',
+      movementId: movement.id,
+      ownerUid: movement.ownerUid,
+      ownerRole: movement.ownerRole,
+      template: MovementTemplate.tryFrom(template)!,
+    );
+    await tester.pumpWidget(
+      _host(
+        repository: _Repository(),
+        socket: socket,
+        existing: movement,
+        revision: revision,
+      ),
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-next')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-review')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+    await tester.pump();
+    expect(find.text('Hands'), findsOneWidget);
+    expect(find.text('Upper body'), findsOneWidget);
+    expect(find.text('Hands were not learned'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('narrow recording studio stacks live capture above examples', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(450, 750);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await tester.enterText(
+      find.byKey(const ValueKey('custom-movement-name')),
+      'Bottle Loop',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('custom-movement-description')),
+      'A complete bottle loop.',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-next')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+    await tester.pump(const Duration(milliseconds: 100));
+    socket.ready();
+    await tester.pump();
+    final live = find.text('Live camera').first;
+    final examples = find.text('Your examples');
+    expect(
+      tester.getTopLeft(live).dy,
+      lessThan(tester.getTopLeft(examples).dy),
+    );
+    await _record(tester);
+    expect(find.byType(ElixrVideoPlayer), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide studio keeps compact examples beside the live camera', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await tester.enterText(
+      find.byKey(const ValueKey('custom-movement-name')),
+      'Bottle Loop',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('custom-movement-description')),
+      'A complete bottle loop.',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-next')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+    await tester.pump(const Duration(milliseconds: 100));
+    socket.ready(handsVisible: true);
+    await tester.pump();
+    await _record(tester);
+    await _record(tester);
+    final first = tester.getTopLeft(
+      find.byKey(const ValueKey('example-card-reference-1')),
+    );
+    final second = tester.getTopLeft(
+      find.byKey(const ValueKey('example-card-reference-2')),
+    );
+    expect((first.dy - second.dy).abs(), lessThan(2));
+    expect(first.dx, lessThan(second.dx));
+    expect(find.byType(ElixrVideoPlayer), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('setup remains usable in light, dark, and high contrast themes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(450, 750);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    for (final theme in [
+      AppTheme.dark,
+      AppTheme.light,
+      AppTheme.highContrastDark,
+      AppTheme.highContrastLight,
+    ]) {
+      final socket = _Socket();
+      addTearDown(socket.close);
+      await tester.pumpWidget(
+        _host(repository: _Repository(), socket: socket, theme: theme),
+      );
+      expect(find.text('Set up your movement'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('custom-movement-name')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
 }

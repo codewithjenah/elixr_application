@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import time
 
 import numpy as np
+import pytest
 
 from vision.hands_timestamp import (
     CaptureMonotonicTimestampClock,
@@ -190,7 +192,8 @@ def test_injected_capture_clock_receives_frame_timestamp(monkeypatch):
     detector.close()
 
 
-def test_readiness_to_active_detector_reuse_does_not_reset_clock(monkeypatch):
+@pytest.mark.parametrize("session_mode", (None, "custom_capture"))
+def test_readiness_to_active_detector_reuse_does_not_reset_clock(monkeypatch, session_mode):
     from api import websocket as websocket_api
     from test_session_lifecycle import (
         StubHandsDetector,
@@ -219,7 +222,10 @@ def test_readiness_to_active_detector_reuse_does_not_reset_clock(monkeypatch):
 
     monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
 
-    session = websocket_api.VisionSession("Normal Grip")
+    session = websocket_api.VisionSession(
+        "Custom Movement" if session_mode else "Normal Grip",
+        **({"session_mode": session_mode} if session_mode else {}),
+    )
     session.start()
     session.begin_readiness()
     detector = session.hands_detector
@@ -228,11 +234,16 @@ def test_readiness_to_active_detector_reuse_does_not_reset_clock(monkeypatch):
     session.process_readiness_frame()
     stamp_after_readiness = clock.last_timestamp_ms
     assert stamp_after_readiness == 33
+    if session_mode == "custom_capture":
+        session._custom_person_count = 1
+        session._custom_person_observed_at = time.monotonic()
     _activate_after_readiness(session)
     assert session.hands_detector is detector
     assert session.hands_detector.timestamp_clock is clock
     assert detector.close_calls == 0
     assert clock.last_timestamp_ms == stamp_after_readiness
+    session.process_frame()
+    assert clock.last_timestamp_ms > stamp_after_readiness
     session.close()
 
 
