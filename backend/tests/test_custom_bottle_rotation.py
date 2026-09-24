@@ -1,6 +1,7 @@
 import math
 import asyncio
 import json
+from dataclasses import replace
 
 import pytest
 import numpy as np
@@ -234,18 +235,115 @@ def test_three_references_learn_rotation_and_score_a_plain_toss_lower():
     plain = compare_sequence(template, _sequence(0))
     multi = compare_sequence(template, _sequence(2))
     opposite = compare_sequence(template, _sequence(-1))
+    assert genuine.validation.valid
+    assert genuine.component_scores["Prop path"] == 3
+    assert genuine.component_scores["Control/stability"] == 3
+    assert genuine.rotation_diagnostics["rotation_evidence"] == "verified"
     assert genuine.total > plain.total + 2
     assert genuine.total > multi.total + 2
     assert genuine.total > opposite.total + 2
 
 
+def test_missing_partial_and_changed_identity_rotation_remain_bounded():
+    template = build_template([_sequence(1)] * 3)
+    matching = compare_sequence(template, _sequence(1))
+    missing = compare_sequence(template, _sequence(1, gap=range(41)))
+    partial = compare_sequence(template, _sequence(1, gap=range(13, 23)))
+    changed = compare_sequence(template, _sequence(1, track_change=20))
+
+    assert missing.validation.valid
+    assert FailureCode.INSUFFICIENT_ORIENTATION not in missing.validation.codes
+    assert missing.rotation_diagnostics["rotation_evidence"] == "unverified"
+    assert missing.rotation_diagnostics["orientation_coverage"] == 0
+    assert missing.rotation_diagnostics["orientation_pair_coverage"] == 0
+    for name in ("Prop path", "Control/stability"):
+        assert missing.component_scores[name] <= 1
+        assert missing.component_confidence[name] == 0
+        assert partial.component_scores[name] < matching.component_scores[name]
+        assert partial.component_confidence[name] < matching.component_confidence[name]
+        assert changed.component_scores[name] <= 1
+        assert changed.component_confidence[name] == 0
+    assert partial.validation.valid
+    assert partial.rotation_diagnostics["rotation_evidence"] == "partial"
+    assert 0 < partial.rotation_diagnostics["orientation_pair_coverage"] < 1
+    assert changed.validation.valid
+    assert changed.rotation_diagnostics["rotation_track_stable"] is False
+    assert changed.rotation_diagnostics["rotation_evidence"] == "unverified"
+    assert matching.total > missing.total
+    assert missing.total <= 9
+    assert changed.total <= 9
+
+
+def test_track_change_during_marker_outage_cannot_verify_rotation():
+    template = build_template([_sequence(1)] * 3)
+    attempt = compare_sequence(
+        template, _sequence(1, gap=range(36, 41), track_change=38)
+    )
+    assert attempt.validation.valid
+    assert attempt.rotation_diagnostics["orientation_coverage"] > 0.8
+    assert attempt.rotation_diagnostics["rotation_track_stable"] is False
+    assert attempt.rotation_diagnostics["rotation_evidence"] == "unverified"
+    assert attempt.component_scores["Prop path"] <= 1
+    assert attempt.component_scores["Control/stability"] <= 1
+
+
+def test_required_prop_loss_still_invalidates_rotating_assessment():
+    template = build_template([_sequence(1)] * 3)
+    lost = tuple(
+        replace(frame, prop=None, orientation=None)
+        if 15 <= index <= 22 else frame
+        for index, frame in enumerate(_sequence(1))
+    )
+    comparison = compare_sequence(template, lost)
+    assert not comparison.validation.valid
+    assert FailureCode.TRACK_LOSS in comparison.validation.codes
+    assert comparison.total == 0
+
+
+def test_session_accepts_unobserved_rotation_and_returns_coaching_feedback():
+    template = build_template([_sequence(1)] * 3)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(_sequence(1, gap=range(41)))
+    accepted, code, quality = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+    assert quality["valid"]
+    assessment = session.finish_custom_assessment()
+    assert assessment["diagnostics"]["rotation_required"] is True
+    assert assessment["diagnostics"]["rotation_evidence"] == "unverified"
+    assert assessment["component_scores"]["Prop path"] <= 1
+    assert assessment["component_scores"]["Control/stability"] <= 1
+    assert assessment["total"] <= 9
+    assert any("rotation could not be fully verified" in item for item in assessment["feedback"])
+    session.close()
+
+
+def test_shaker_assessment_has_no_rotation_requirement():
+    template = build_template([_sequence(0)] * 3)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment", prop_type="shaker",
+        custom_movement_template=template.to_dict(),
+    )
+    assert session._orientation_detector is None
+    session._custom_samples = list(_sequence(0))
+    assert session.stop_custom_capture()[:2] == (True, None)
+    assessment = session.finish_custom_assessment()
+    assert assessment["diagnostics"]["rotation_required"] is False
+    assert not any("rotation could not" in item for item in assessment["feedback"])
+    session.close()
+
+
 def test_translation_and_inconsistent_rotation_do_not_claim_capability():
     translation = build_template([_sequence(0)] * 3)
     inconsistent = build_template([_sequence(1), _sequence(-1), _sequence(2)])
+    low_coverage = build_template([_sequence(1, gap=range(12, 24))] * 3)
     assert translation.schema_version == 1
     assert translation.feature_capabilities["prop_rotation"] is False
     assert MovementTemplate.from_dict(translation.to_dict()).schema_version == 1
     assert inconsistent.feature_capabilities["prop_rotation"] is False
+    assert low_coverage.feature_capabilities["prop_rotation"] is False
 
 
 def test_missing_weights_never_enable_runtime(tmp_path):

@@ -772,16 +772,18 @@ and receive correlated `command_ack` responses. Templates are inert data;
 there is no authored code, `eval`, or authored threshold support. Current
 capabilities include data-driven Pose, left/right Hands, prop translation, and
 observable release/catch events. Ordinary YOLO axis-aligned boxes still do not
-provide orientation. An optional separately validated bottle top/base keypoint
-model can add observed projected rotation to version-2 templates; version-1
-non-rotation templates remain readable. Without validated weights, capture
-builds version-1 translation/body/hand templates and a version-2 assessment
-returns `orientation_model_unavailable` on prepare. Low keypoint coverage
-returns `insufficient_orientation` during a rotation assessment. Rotation
-reduces the existing Prop path and Control/stability components on mismatch;
-the public `0..12` total is unchanged. The model and release validation path
-are documented in `backend/docs/bottle-orientation.md`. Projected 2D rotation
-cannot establish hidden turns or 3D front-versus-behind depth. The three
+provide orientation. For custom Bottle movements, orange top/neck and yellow
+base/bottom markers inside a current YOLO-confirmed Bottle ROI provide observed
+projected rotation for version-2 templates; version-1 non-rotation templates
+remain readable. Reference learning requires sufficiently covered, stable, and
+consistent rotation observations. During assessment, incomplete marker evidence
+reduces confidence and caps Prop path and Control/stability instead of
+invalidating an otherwise observable sequence. Complete prop loss still follows
+the required translation coverage and gap limits. The public `0..12` total is
+unchanged. The marker runtime and optional future learned detector are documented
+in `backend/docs/bottle-orientation.md`. Shaker rotation is unsupported;
+projected 2D Bottle rotation cannot establish hidden turns or 3D
+front-versus-behind depth. The three
 references are normalized, matched to a deterministic DTW medoid, temporally
 aligned, and only then aggregated so execution-speed differences do not smear
 the canonical phases. Custom templates currently accept one Bottle or one

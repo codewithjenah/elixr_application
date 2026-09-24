@@ -16,6 +16,9 @@ performs the scenario on the target Windows hardware.
   coverage, overlay capture-age mean/p95, overlay stale/generation rejection
   counts, visible overlay flicker (yes/no), rejection reason (if any), and
   assessment sequence duration.
+- For finished Bottle rotation assessments, also record `rotation_required`,
+  orientation and pair coverage, alignment coverage, rotation track stability,
+  rotation evidence status, and both affected component confidences.
 - Do not save raw frames for diagnostics.
 
 ## Camera matrix
@@ -28,8 +31,14 @@ performs the scenario on the target Windows hardware.
 | [ ] PASS / [ ] FAIL | Cross-hand toss/catch | Release with one hand and catch with the other | Left/right semantics remain distinct; matching cross-hand order scores above a wrong-hand/wrong-order attempt | Both hand coverages, release/catch events, track changes |
 | [ ] PASS / [ ] FAIL | Deliberately incorrect trajectory | Perform a clearly different lateral/vertical prop path | Attempt remains observable but receives a materially lower prop-path/total score | Sequence duration and component scores |
 | [ ] PASS / [ ] FAIL | Moderately different speed | Repeat the demonstrated motion faster and slower without changing its order/path | DTW tolerates moderate timing variation without losing the movement phases | Effective FPS, duration ratio, timing and path scores |
-| [ ] PASS / [ ] FAIL | Brief bottle detector loss | Briefly occlude the prop near the toss apex, then reacquire it | A reasonable short loss preserves identity when prediction supports it; a long/unrelated detection is rejected or gets a new identity | YOLO confirmation rate, longest gap, prop track changes |
+| [ ] PASS / [ ] FAIL | Brief bottle detector loss | Briefly occlude the prop near the toss apex, then reacquire it | Short real-observation gaps may remain valid within the existing prop limits; long loss is rejected. Predicted/coasted boxes provide preview continuity only and do not count as scoring evidence | YOLO confirmation rate, longest gap, prop track changes |
 | [ ] PASS / [ ] FAIL | Different horizontal position/camera distance | Repeat the same motion offset in frame and at a moderate distance change | Body-relative normalization keeps a matching score when observability remains adequate | Pose/hand coverage, prop path score, effective FPS |
+| [ ] PASS / [ ] FAIL | Marked Bottle flip reference | Put orange tape near the top/neck and yellow tape near the base/bottom; record three consistent projected flips | Template claims `prop_rotation=true` only with sufficient continuous, stable signed rotation evidence in every reference | Marker visibility on physical preview, prop track changes, saved capability |
+| [ ] PASS / [ ] FAIL | Matching marked Bottle flip | Repeat the learned projected turn with both markers visible | Strong rotation evidence raises Prop path and Control/stability above a plain toss, opposite turn, or wrong visible turn count | Rotation evidence status, component scores, signed turn behavior |
+| [ ] PASS / [ ] FAIL | Temporary marker loss with Bottle detected | Obscure one tape marker during part of the flip while keeping the Bottle center detected | Assessment remains valid if all required base modalities remain observable; rotation confidence and scores fall, with marker-visibility coaching | YOLO confirmation rate, orientation/pair coverage, rotation evidence status, component confidence |
+| [ ] PASS / [ ] FAIL | Bottle track identity change | Force a reacquisition during a marked flip | Observations from different track IDs do not become one verified continuous rotation | Prop track changes, rotation track stability, rotation evidence status |
+| [ ] PASS / [ ] FAIL | Shaker flip | Record and assess a Shaker toss using visible hands and prop trajectory | Scoring uses observable modalities; no Shaker rotation capability or turn-count claim appears | Saved `prop_rotation=false`, required modalities, prop coverage |
+| [ ] PASS / [ ] FAIL | Behind-the-back occlusion | Perform a movement with the prop hidden behind the performer | A long Bottle or Shaker prop-observation gap remains invalid; no predicted box supplies assessment evidence | Longest prop observation gap, YOLO confirmation rate, rejection code |
 
 ## Failure attribution
 
@@ -44,9 +53,16 @@ performs the scenario on the target Windows hardware.
 - A valid capture with poor matching scores points to sequence alignment or
   performance mismatch; compare component scores and sequence duration.
 
-## Explicit limitation
+## Explicit limitations
 
-Exact bottle orientation, 180/360 rotation, and spin count are unsupported.
-Axis-aligned YOLO boxes cannot supply those measurements, and templates must
-continue to report `prop_rotation=false` until an orientation/keypoint model is
-designed and validated.
+Orange top/neck and yellow base/bottom markers inside a current YOLO-confirmed
+Bottle ROI provide a directed **2D projected** rotation trace. The system can
+compare visible signed turns and progression; axis-aligned YOLO boxes alone
+cannot supply orientation. Longitudinal roll, rotation into depth, complete
+occlusion, motion blur, and frame-to-frame turn aliasing remain limitations.
+Missing marker evidence reduces assessment confidence and caps rotation-dependent
+components; it does not prove a successful flip. Missing prop-center evidence
+still follows the strict prop-translation coverage and gap requirements.
+Shaker rotation is unsupported. Long behind-the-back prop occlusion cannot be
+validated from the current observations, and presentation-only coasted boxes
+must not be counted as captured evidence.

@@ -1095,10 +1095,6 @@ class VisionSession:
                 samples,
                 required_modalities,
                 required_hand_sides=required_hand_sides,
-                require_rotation=(
-                    self._custom_template is not None
-                    and self._custom_template.rotation_trace is not None
-                ),
             )
             rejected_reason = (
                 validation.codes[0].value if validation.codes else None
@@ -1238,6 +1234,13 @@ class VisionSession:
                 for name, score in result.component_scores.items()
                 if score is not None
             ]
+            if (
+                result.rotation_diagnostics.get("rotation_required")
+                and result.rotation_diagnostics.get("rotation_evidence") != "verified"
+            ):
+                payload["feedback"].append(
+                    "Bottle rotation could not be fully verified. Keep the top and base markers visible during the flip."
+                )
             payload["sequence_duration_ms"] = samples[-1].timestamp_ms
             payload["diagnostics"] = self._custom_capture_diagnostics(
                 samples,
@@ -1245,6 +1248,7 @@ class VisionSession:
                 orientation_count=self._orientation_inference_count,
                 orientation_provider=(self._orientation_detector.provider if self._orientation_detector else None),
             )
+            payload["diagnostics"].update(result.rotation_diagnostics)
             self._custom_samples = None
             return payload
         finally:

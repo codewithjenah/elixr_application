@@ -299,6 +299,7 @@ class SequenceComparison:
     total: int
     performance_level: str
     validation: ValidationResult
+    rotation_diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -888,11 +889,11 @@ def _observed_rotation(samples: Sequence[FrameSample]) -> tuple[list[float | Non
 
 
 def _rotation_track_stable(samples: Sequence[FrameSample]) -> bool:
-    """Different track IDs cannot establish one continuous rotating bottle."""
+    """Every observed prop must retain the same identity for verified rotation."""
     identities = {
         frame.prop_metadata.get("track_id")
         for frame in samples
-        if frame.orientation is not None and frame.prop is not None
+        if frame.prop is not None
     }
     return len(identities) == 1 and None not in identities
 
@@ -1080,7 +1081,6 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
         samples,
         template.required_modalities,
         required_hand_sides=template.required_hand_sides,
-        require_rotation=template.rotation_trace is not None,
     )
     names = ("Body technique", "Hand technique", "Prop path", "Timing", "Control/stability")
     scores: dict[str, int | None] = {name: None for name in names}
@@ -1141,27 +1141,54 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
             scores["Control/stability"] = _quality(sum(usable) / len(usable), coverage)
     if template.rotation_trace is not None:
         rotation = _rotation_trace(samples)
-        rotation_path = _dtw_angles(template.rotation_trace.angles_rad, rotation.angles_rad)
-        aligned_errors = [
-            abs(expected - observed)
-            for i, j in rotation_path
-            if (expected := template.rotation_trace.angles_rad[i]) is not None
-            and (observed := rotation.angles_rad[j]) is not None
-        ]
-        alignment_coverage = len(aligned_errors) / max(len(rotation_path), 1)
+        stable = _rotation_track_stable(samples)
+        aligned_errors: list[float] = []
+        alignment_coverage = 0.0
+        if stable and rotation.pair_coverage > 0:
+            rotation_path = _dtw_angles(template.rotation_trace.angles_rad, rotation.angles_rad)
+            aligned_errors = [
+                abs(expected - observed)
+                for i, j in rotation_path
+                if (expected := template.rotation_trace.angles_rad[i]) is not None
+                and (observed := rotation.angles_rad[j]) is not None
+            ]
+            alignment_coverage = len(aligned_errors) / max(len(rotation_path), 1)
         evidence = min(rotation.coverage, rotation.pair_coverage, alignment_coverage)
-        if aligned_errors:
+        status = (
+            "verified"
+            if stable
+            and rotation.coverage >= MIN_ROTATION_COVERAGE
+            and rotation.pair_coverage >= MIN_ROTATION_PAIR_COVERAGE
+            and alignment_coverage >= MIN_ROTATION_PAIR_COVERAGE
+            else "partial" if evidence > 0 else "unverified"
+        )
+        if aligned_errors and evidence > 0:
             # Rotation changes both the prop-path and control components, but
             # public component names and the 0..12 total remain unchanged.
             # Total signed angle catches equal-start/end one-vs-two-turn cases;
-            # aligned progression catches opposite direction and timing.
+            # aligned progression catches opposite direction and timing. Gaps
+            # contribute no invented angle and reduce evidence confidence.
             total_error = abs(rotation.total_signed_rad - template.rotation_trace.total_signed_rad)
             progression_error = sum(aligned_errors) / len(aligned_errors)
             similarity = math.exp(-total_error / (0.65 * math.pi) - progression_error / (0.65 * math.pi))
             rotation_score = min(3, round(3 * similarity * evidence))
-            for name in ("Prop path", "Control/stability"):
-                scores[name] = min(scores[name] if scores[name] is not None else 0, rotation_score)
-                confidence[name] = min(confidence[name], evidence)
+        else:
+            # The other modalities remain assessable, but an unseen or
+            # identity-ambiguous flip cannot earn a high rotation result.
+            rotation_score = 1
+        for name in ("Prop path", "Control/stability"):
+            scores[name] = min(scores[name] if scores[name] is not None else 0, rotation_score)
+            confidence[name] = min(confidence[name], evidence)
+        rotation_diagnostics = {
+            "rotation_required": True,
+            "orientation_coverage": round(rotation.coverage, 3),
+            "orientation_pair_coverage": round(rotation.pair_coverage, 3),
+            "rotation_alignment_coverage": round(alignment_coverage, 3),
+            "rotation_track_stable": stable,
+            "rotation_evidence": status,
+        }
+    else:
+        rotation_diagnostics = {"rotation_required": False}
     numeric = [score if score is not None else 0 for score in scores.values()]
     total = max(0, min(12, round(sum(numeric) * 12 / 15)))
-    return SequenceComparison(scores, confidence, total, _level(total), validation)
+    return SequenceComparison(scores, confidence, total, _level(total), validation, rotation_diagnostics)
