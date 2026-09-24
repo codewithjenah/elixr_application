@@ -237,6 +237,10 @@ class HandsDetector:
             label = "Unknown"
             if i < len(handedness) and handedness[i]:
                 label = handedness[i][0].category_name
+                # MediaPipe labels assume a mirrored selfie image. Detection
+                # receives raw OpenCV frames; Flutter mirrors only its view.
+                # Normalize once here for both capture and assessment.
+                label = {"Left": "Right", "Right": "Left"}.get(label, label)
 
             points: dict[int, Point2D] = {}
             for idx, landmark in enumerate(hand_lms):

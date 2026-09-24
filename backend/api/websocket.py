@@ -500,6 +500,7 @@ def _human_error_message(error_code: str) -> str:
         "reference_file_busy": "Close the reference preview and retry deleting it.",
         "insufficient_frames": "The recording was too short. Perform the complete movement and retry.",
         "missing_modality": "Keep your upper body, hands, and selected prop visible.",
+        "insufficient_hand_coverage": "Hand tracking was too incomplete to learn this movement. Re-record the references with hands visible throughout.",
         "track_loss": "The selected prop was lost for too long. Reposition and retry.",
         "invalid_timestamps": "The recording timing was invalid. Please retry.",
         "invalid_schema": "The movement template format is not supported.",
@@ -606,9 +607,8 @@ class VisionSession:
         ):
             raise ValueError("orientation_model_unavailable")
         if self._is_custom_capture:
-            # Observe Hands and Pose during readiness and capture. Readiness
-            # still gates camera + selected prop, not landmark visibility.
-            readiness_spec = {"hands": "none", "body": "none"}
+            # Reference authoring always requires observable technique inputs.
+            readiness_spec = {"hands": "one_hand", "body": "upper_body"}
         elif self._is_custom_assessment and self._custom_template is not None:
             required_sides = self._custom_template.required_hand_sides
             readiness_spec = {
@@ -640,6 +640,10 @@ class VisionSession:
         self.bottle_detection_enabled = bottle_detection_enabled
         self.session_id = session_id
         self.readiness_spec = readiness_spec
+        self._custom_capture_requirements = (
+            readiness_profile_for(movement, prop_type, readiness_spec).requirements
+            if self._is_custom_capture else ()
+        )
         self._yolo_frame_skip = 1 if self._is_custom else YOLO_FRAME_SKIP
         if self._is_freestyle:
             diagnostics_mode = "freestyle"
@@ -846,6 +850,8 @@ class VisionSession:
         self._custom_distinct_people_in_frame = False
         self._custom_person_count = 0
         self._custom_person_observed_at: float | None = None
+        self._custom_capture_visible = (False, False, False)
+        self._custom_capture_observed_at: float | None = None
         self._custom_multiple_invalid = False
         self._custom_primary_anchors: dict[str, tuple[float, float, float, float]] = {}
         self._custom_ambiguous_anchors: dict[str, tuple[float, float, float, float]] = {}
@@ -998,6 +1004,28 @@ class VisionSession:
             and time.monotonic() - self._custom_person_observed_at <= READINESS_SNAPSHOT_MAX_AGE_S
         )
 
+    def _observe_custom_capture_visibility(self, obs: ReadinessObservation) -> None:
+        passed = {
+            req.code: bool(req.predicate(obs))
+            for req in self._custom_capture_requirements
+        }
+        prop_codes = ("bottle_detected", "shaker_detected") if self.prop_type == "bottle_and_shaker" else (
+            "shaker_detected" if self.prop_type == "shaker" else "bottle_detected",
+        )
+        self._custom_capture_visible = (
+            all(passed.get(code, False) for code in prop_codes),
+            passed.get("supporting_hand_visible", False),
+            passed.get("upper_body_visible", False),
+        )
+        self._custom_capture_observed_at = time.monotonic()
+
+    def _custom_capture_visibility_ready(self) -> bool:
+        return (
+            self._custom_capture_observed_at is not None
+            and time.monotonic() - self._custom_capture_observed_at <= READINESS_SNAPSHOT_MAX_AGE_S
+            and all(self._custom_capture_visible)
+        )
+
     def start_custom_capture(self, *, duration_seconds: int) -> tuple[bool, str | None]:
         self._acquire_ai_state(blocking=True)
         try:
@@ -1009,6 +1037,8 @@ class VisionSession:
                 return False, "invalid_reference_count"
             if self._is_custom_capture and not self._single_custom_performer_ready():
                 return False, "single_performer_required"
+            if self._is_custom_capture and not self._custom_capture_visibility_ready():
+                return False, "readiness_not_stable"
             if self._is_custom_capture:
                 recorder = SubmissionRecorder(max_duration_s=duration_seconds)
                 try:
@@ -1215,6 +1245,7 @@ class VisionSession:
                 raise ValueError("invalid_session_purpose")
             template = build_custom_movement_template(
                 tuple(draft.effective_samples() for draft in self._custom_references),
+                required_modalities=("hands",),
             )
             return template.to_dict()
         finally:
@@ -2729,6 +2760,8 @@ class VisionSession:
             hands=hands,
             pose=pose,
         )
+        if self._is_custom_capture:
+            self._observe_custom_capture_visibility(obs)
 
         snapshot = None
         observed_at = time.monotonic()
@@ -2803,6 +2836,9 @@ class VisionSession:
                     else readiness_stable
                 ),
                 person_count=self._custom_person_count if self._is_custom_capture else None,
+                capture_prop_visible=self._custom_capture_visible[0] if self._is_custom_capture else None,
+                capture_hands_visible=self._custom_capture_visible[1] if self._is_custom_capture else None,
+                capture_upper_body_visible=self._custom_capture_visible[2] if self._is_custom_capture else None,
                 readiness_stable_progress=readiness_stable_progress,
                 calibration_scale=self._calibration.scale,
                 calibration_source=self._calibration.source,
@@ -3022,6 +3058,12 @@ class VisionSession:
                         return self._orientation_failure()
             if self._reject_replaced_capture(captured):
                 return None
+            if self._is_custom_capture:
+                self._observe_custom_capture_visibility(ReadinessObservation(
+                    has_camera_frame=True,
+                    bottles=list(normalized.bottles), shakers=list(normalized.shakers),
+                    hands=hands, pose=pose,
+                ))
             if not self._is_custom_capture or self._custom_samples is None or (
                 self._custom_person_count == 1
                 and not self._custom_multiple_invalid
@@ -3069,6 +3111,9 @@ class VisionSession:
                     camera_ready=True,
                     session_state="active",
                     person_count=self._custom_person_count if self._is_custom_capture else None,
+                    capture_prop_visible=self._custom_capture_visible[0] if self._is_custom_capture else None,
+                    capture_hands_visible=self._custom_capture_visible[1] if self._is_custom_capture else None,
+                    capture_upper_body_visible=self._custom_capture_visible[2] if self._is_custom_capture else None,
                     reference_invalid=self._custom_multiple_invalid if self._is_custom_capture else None,
                 )
             )

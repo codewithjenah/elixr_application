@@ -150,6 +150,10 @@ class _CustomMovementAuthoringScreenState
   bool _initializing = false;
   bool _active = false;
   bool _ready = false;
+  bool _propVisible = false;
+  bool _handsVisible = false;
+  bool _upperBodyVisible = false;
+  DateTime? _captureObservedAt;
   bool _recording = false;
   bool _busy = false;
   bool _cameraBusy = false;
@@ -176,6 +180,12 @@ class _CustomMovementAuthoringScreenState
       !_recording &&
       _references.length < 5 &&
       _personCount == 1 &&
+      _propVisible &&
+      _handsVisible &&
+      _upperBodyVisible &&
+      _captureObservedAt != null &&
+      DateTime.now().difference(_captureObservedAt!) <
+          const Duration(seconds: 2) &&
       (_ready || _active);
 
   @override
@@ -250,6 +260,10 @@ class _CustomMovementAuthoringScreenState
         _active = false;
         _ready = false;
         _personCount = null;
+        _propVisible = false;
+        _handsVisible = false;
+        _upperBodyVisible = false;
+        _captureObservedAt = null;
         _frame.value = null;
       });
     }
@@ -279,11 +293,21 @@ class _CustomMovementAuthoringScreenState
       _feedbackSubscription ??= _socket.feedbackStream.listen((feedback) {
         if (!mounted) return;
         final ready = feedback.readinessStable == true;
-        if (_ready != ready || _personCount != feedback.personCount) {
+        if ((!_active && _ready != ready) ||
+            _personCount != feedback.personCount ||
+            _propVisible != (feedback.capturePropVisible == true) ||
+            _handsVisible != (feedback.captureHandsVisible == true) ||
+            _upperBodyVisible != (feedback.captureUpperBodyVisible == true)) {
           setState(() {
-            _ready = ready;
+            if (!_active) _ready = ready;
             _personCount = feedback.personCount;
+            _propVisible = feedback.capturePropVisible == true;
+            _handsVisible = feedback.captureHandsVisible == true;
+            _upperBodyVisible = feedback.captureUpperBodyVisible == true;
+            _captureObservedAt = DateTime.now();
           });
+        } else {
+          _captureObservedAt = DateTime.now();
         }
       });
       final settings = context.read<SettingsService>();
@@ -303,7 +327,10 @@ class _CustomMovementAuthoringScreenState
           legacyCameraIndex: cameraId == null
               ? settings.pendingLegacyCameraIndex
               : null,
-          readinessSpec: const TeacherActivityReadinessSpec(),
+          readinessSpec: const TeacherActivityReadinessSpec(
+            hands: ActivityHandRequirement.oneHand,
+            body: ActivityBodyRequirement.upperBody,
+          ),
         ),
       );
       _requireAccepted(await _socket.sendBeginReadiness(sessionId: id));
@@ -502,6 +529,11 @@ class _CustomMovementAuthoringScreenState
       setState(() => _busy = true);
       try {
         final ack = await _socket.sendBuildCustomTemplate();
+        if (!ack.accepted && ack.errorCode == 'insufficient_hand_coverage') {
+          throw StateError(
+            'Hands were visible but tracking was too intermittent to learn the hand movement. Re-record examples with at least one hand clearly visible throughout.',
+          );
+        }
         _requireAccepted(ack);
         final template = MovementTemplate.tryFrom(ack.movementTemplate);
         if (template == null || !template.isReady) {
@@ -890,9 +922,12 @@ class _CustomMovementAuthoringScreenState
             style: ElixTypography.label(color: context.elixTextPrimary),
           ),
         ),
-        Text(
-          present ? 'In view' : missing,
-          style: ElixTypography.caption(color: context.elixTextSecondary),
+        Flexible(
+          child: Text(
+            present ? 'In view' : missing,
+            textAlign: TextAlign.end,
+            style: ElixTypography.caption(color: context.elixTextSecondary),
+          ),
         ),
       ],
     ),
@@ -901,9 +936,9 @@ class _CustomMovementAuthoringScreenState
   Widget _cameraCheck() => ValueListenableBuilder<PreviewFrame?>(
     valueListenable: _presentation,
     builder: (context, preview, _) {
-      final prop = preview?.propPresentationState == 'confirmed';
-      final hands = preview?.handsPresentationState == 'tracking';
-      final body = preview?.posePresentationState == 'tracking';
+      final prop = _propVisible;
+      final hands = _handsVisible;
+      final body = _upperBodyVisible;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -917,9 +952,17 @@ class _CustomMovementAuthoringScreenState
             _personCount == 1,
             'Keep one person in frame',
           ),
-          _checkRow(_prop.displayLabel, prop, 'Show your prop'),
-          _checkRow('Hands', hands, 'Move hands into view'),
-          _checkRow('Upper body', body, 'Move into view'),
+          _checkRow(
+            'Selected prop',
+            prop,
+            'Show your ${_prop.displayLabel.toLowerCase()}',
+          ),
+          _checkRow('Hands', hands, 'Keep at least one hand visible to record'),
+          _checkRow(
+            'Upper body',
+            body,
+            'Keep shoulders and one arm visible to record',
+          ),
           if (!hands) ...[
             const SizedBox(height: AppSpacing.sm),
             Text(

@@ -55,6 +55,7 @@ class FailureCode(str, Enum):
     TRACK_LOSS = "track_loss"
     INVALID_REFERENCE_COUNT = "invalid_reference_count"
     INVALID_TIMESTAMPS = "invalid_timestamps"
+    INSUFFICIENT_HAND_COVERAGE = "insufficient_hand_coverage"
     INSUFFICIENT_ORIENTATION = "insufficient_orientation"
 
 
@@ -709,14 +710,33 @@ def build_template(
     """Build a stable canonical template from at least two valid captures."""
     if len(references) < 2:
         raise ValueError(FailureCode.INVALID_REFERENCE_COUNT.value)
-    # ``required_modalities`` remains accepted for source compatibility with
-    # version-1 callers, but capabilities are now inferred from the recorded
-    # actual demonstrations rather than imposed by the client.
+    # The caller may require a modality that capture explicitly promised.
+    # Its details (including which hand side) are still inferred from samples.
     if required_modalities is not None and not set(required_modalities).issubset(
         SUPPORTED_MODALITIES
     ):
         raise ValueError(FailureCode.INVALID_SCHEMA.value)
     required, hand_sides = _infer_requirements(references)
+    # Capture readiness guarantees a hand at the start, but intermittent
+    # tracking must not turn a hand-led demonstration into a path-only model.
+    # A single reliable side is enough; never impose a two-hand requirement.
+    if not hand_sides and (
+        (required_modalities is not None and "hands" in required_modalities)
+        or any(
+            any(point.usable() for point in frame.hands.values())
+            for reference in references for frame in reference
+        )
+    ):
+        raise ValueError(FailureCode.INSUFFICIENT_HAND_COVERAGE.value)
+    # A second side seen throughout every demonstration is technique evidence,
+    # even if gaps keep it below the reliable-side threshold. Avoid silently
+    # treating that repeated two-hand attempt as a one-hand movement.
+    for side in ("left", "right"):
+        if side not in hand_sides and all(
+            _coverage(reference, "hands", hand_side=side)[0] >= 0.30
+            for reference in references
+        ):
+            raise ValueError(FailureCode.INSUFFICIENT_HAND_COVERAGE.value)
     normalised: list[tuple[FrameSample, ...]] = []
     durations: list[int] = []
     for reference in references:

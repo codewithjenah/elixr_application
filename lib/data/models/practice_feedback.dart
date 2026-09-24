@@ -95,6 +95,9 @@ class PracticeFeedback {
     this.readinessStableProgress,
     this.personCount,
     this.referenceInvalid,
+    this.capturePropVisible,
+    this.captureHandsVisible,
+    this.captureUpperBodyVisible,
     this.calibrationScale,
     this.calibrationSource,
     this.recognitionState,
@@ -161,6 +164,9 @@ class PracticeFeedback {
 
   /// True once the current custom reference cannot be accepted.
   final bool? referenceInvalid;
+  final bool? capturePropVisible;
+  final bool? captureHandsVisible;
+  final bool? captureUpperBodyVisible;
 
   /// Session proximity scale from readiness calibration. Null until measured.
   final double? calibrationScale;
@@ -340,6 +346,9 @@ class PracticeFeedback {
           ? (json['person_count'] as num).toInt().clamp(0, 2)
           : null,
       referenceInvalid: json['reference_invalid'] as bool?,
+      capturePropVisible: json['capture_prop_visible'] as bool?,
+      captureHandsVisible: json['capture_hands_visible'] as bool?,
+      captureUpperBodyVisible: json['capture_upper_body_visible'] as bool?,
       calibrationScale: json['calibration_scale'] is num
           ? (json['calibration_scale'] as num).toDouble()
           : null,

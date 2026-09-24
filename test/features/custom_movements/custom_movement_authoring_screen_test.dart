@@ -152,7 +152,9 @@ class _Socket extends Fake implements WebSocketService {
   void ready({
     int personCount = 1,
     bool readinessStable = true,
-    bool handsVisible = false,
+    bool handsVisible = true,
+    bool upperBodyVisible = true,
+    bool propVisible = true,
   }) {
     previews.add(
       PreviewFrame(
@@ -173,6 +175,9 @@ class _Socket extends Fake implements WebSocketService {
         postureStatus: 'correct',
         readinessStable: readinessStable,
         personCount: personCount,
+        capturePropVisible: propVisible,
+        captureHandsVisible: handsVisible,
+        captureUpperBodyVisible: upperBodyVisible,
       ),
     );
   }
@@ -327,10 +332,12 @@ Widget _host({
   );
 }
 
-Future<void> _record(WidgetTester tester) async {
+Future<void> _record(WidgetTester tester, _Socket socket) async {
   await tester.ensureVisible(
     find.byKey(const ValueKey('custom-reference-record')),
   );
+  socket.ready();
+  await tester.pump();
   await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
   await tester.pump(const Duration(seconds: 1));
   await tester.pump(const Duration(seconds: 1));
@@ -382,7 +389,8 @@ void main() {
       }
       expect(socket.preparedCameraIds, ['dev-a']);
       expect(socket.preparedMode, 'custom_capture');
-      expect(socket.preparedReadiness?.isCameraOnly, isTrue);
+      expect(socket.preparedReadiness?.hands, ActivityHandRequirement.oneHand);
+      expect(socket.preparedReadiness?.body, ActivityBodyRequirement.upperBody);
       await tester.pump(const Duration(milliseconds: 100));
       final cameraPreference = tester.widget<CameraSourcePreference>(
         find.byType(CameraSourcePreference),
@@ -445,6 +453,12 @@ void main() {
       socket.ready(personCount: 2);
       await tester.pump();
       expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
+      socket.ready(handsVisible: false);
+      await tester.pump();
+      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
+      socket.ready(upperBodyVisible: false);
+      await tester.pump();
+      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
       socket.ready();
       for (var attempt = 0; attempt < 20; attempt++) {
         await tester.pump(const Duration(milliseconds: 50));
@@ -452,13 +466,13 @@ void main() {
       }
       expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
       socket.rejectNextReference = true;
-      await _record(tester);
+      await _record(tester, socket);
       expect(socket.count, 0);
       expect(
         find.textContaining('This example was not usable'),
         findsOneWidget,
       );
-      await _record(tester);
+      await _record(tester, socket);
       expect(socket.count, 1);
       expect(find.textContaining('Example 1'), findsWidgets);
       socket.ready(readinessStable: false);
@@ -536,10 +550,16 @@ void main() {
             .join(' | '),
       );
       expect(find.text('Preparing camera…'), findsNothing);
-      expect(find.text('Move hands into view'), findsNothing);
+      expect(
+        find.text('Keep at least one hand visible to record'),
+        findsNothing,
+      );
       socket.ready(handsVisible: false);
       await tester.pump();
-      expect(find.text('Move hands into view'), findsOneWidget);
+      expect(
+        find.text('Keep at least one hand visible to record'),
+        findsOneWidget,
+      );
       expect(
         find.textContaining('Keep your hands fully visible'),
         findsOneWidget,
@@ -550,9 +570,11 @@ void main() {
               find.byKey(const ValueKey('custom-reference-record')),
             )
             .onPressed,
-        isNotNull,
+        isNull,
       );
-      await _record(tester);
+      socket.ready(handsVisible: true);
+      await tester.pump();
+      await _record(tester, socket);
       expect(find.textContaining('Example 1'), findsWidgets);
       expect(find.text('Good reference'), findsNothing);
       expect(find.text('✓ Accepted'), findsWidgets);
@@ -574,7 +596,7 @@ void main() {
             .onPressed,
         isNull,
       );
-      await _record(tester);
+      await _record(tester, socket);
       expect(find.textContaining('Example 2'), findsWidgets);
       expect(
         find.textContaining(
@@ -609,7 +631,7 @@ void main() {
       await tester.tap(find.text('Previous'));
       await tester.pump(const Duration(milliseconds: 100));
       for (var index = 0; index < 3; index++) {
-        await _record(tester);
+        await _record(tester, socket);
         if (index == 0) {
           expect(
             find.textContaining('Recommended amount reached'),
@@ -891,7 +913,7 @@ void main() {
       tester.getTopLeft(live).dy,
       lessThan(tester.getTopLeft(examples).dy),
     );
-    await _record(tester);
+    await _record(tester, socket);
     expect(find.byType(ElixrVideoPlayer), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -921,8 +943,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     socket.ready(handsVisible: true);
     await tester.pump();
-    await _record(tester);
-    await _record(tester);
+    await _record(tester, socket);
+    await _record(tester, socket);
     final first = tester.getTopLeft(
       find.byKey(const ValueKey('example-card-reference-1')),
     );

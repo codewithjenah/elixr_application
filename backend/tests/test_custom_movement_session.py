@@ -7,10 +7,12 @@ import numpy as np
 import pytest
 
 from assessment.custom_movement import FrameSample, Landmark, build_template
+from assessment.readiness import ReadinessObservation
 from api import websocket as websocket_api
 from config import YOLO_FRAME_SKIP
 from vision.camera import CapturedFrame
 from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
+from vision.hands_detector import HandsDetector
 from test_session_lifecycle import StubHandsDetector, _patch_vision
 
 
@@ -46,9 +48,87 @@ def _set_samples(session, samples):
     session._custom_sample_capture_times = [started + index * .1 for index in range(len(samples))]
 
 
+def _visible(session):
+    session._custom_capture_visible = (True, True, True)
+    session._custom_capture_observed_at = time.monotonic()
+
+
+@pytest.mark.parametrize("raw_label,semantic", (("Left", "right"), ("Right", "left")))
+def test_raw_mediapipe_handedness_is_shared_by_authoring_and_assessment(raw_label, semantic):
+    raw = SimpleNamespace(
+        hand_landmarks=[[SimpleNamespace(x=.3, y=.4)]],
+        handedness=[[SimpleNamespace(category_name=raw_label)]],
+    )
+    hands = HandsDetector._to_hands_result(raw)
+    assert hands.hands[0].handedness.lower() == semantic
+    for mode in ("custom_capture", "custom_assessment"):
+        session = websocket_api.VisionSession(
+            "Custom Movement", session_mode=mode,
+            custom_movement_template=(
+                build_template([_reference(), _reference()]).to_dict()
+                if mode == "custom_assessment" else None
+            ),
+        )
+        session._custom_samples = []
+        session._custom_capture_started_at = 10.0
+        captured = SimpleNamespace(captured_at_monotonic=10.1)
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        normalized = SimpleNamespace(primary=[])
+        session._record_custom_sample(
+            captured=captured, frame=frame, normalized=normalized,
+            hands=hands, pose=None, yolo_attempted=True,
+        )
+        assert any(key.startswith(f"{semantic}:") for key in session._custom_samples[0].hands)
+
+
+@pytest.mark.parametrize("visible,accepted", (
+    ((False, True, True), False),
+    ((True, False, True), False),
+    ((True, True, False), False),
+    ((True, True, True), True),
+))
+def test_capture_start_requires_current_prop_hand_and_upper_body(visible, accepted):
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    session._custom_person_count = 1
+    session._custom_person_observed_at = time.monotonic()
+    session._custom_capture_visible = visible
+    session._custom_capture_observed_at = time.monotonic()
+    result = session.start_custom_capture(duration_seconds=15)
+    assert result[0] is accepted
+    if accepted:
+        session._custom_video_recorder.cancel()
+
+
+def test_custom_visibility_accepts_one_real_hand_and_rejects_missing_inputs():
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    prop = PropDetection(x1=10, y1=10, x2=20, y2=30, confidence=.9)
+    pose = PoseLandmarks(
+        points={index: Point2D(.4, .3) for index in (11, 12, 13, 15)},
+        visibility={index: .9 for index in (11, 12, 13, 15)},
+    )
+    hands = HandsResult(hands=[HandLandmarks(
+        points={0: Point2D(.3, .4), 9: Point2D(.3, .35)},
+        handedness="Left",
+    )])
+    session._observe_custom_capture_visibility(ReadinessObservation(
+        has_camera_frame=True, bottles=[prop], hands=hands, pose=pose,
+    ))
+    assert session._custom_capture_visible == (True, True, True)
+    session._observe_custom_capture_visibility(ReadinessObservation(
+        has_camera_frame=True, bottles=[prop], hands=None, pose=pose,
+    ))
+    assert session._custom_capture_visible == (True, False, True)
+    session._observe_custom_capture_visibility(ReadinessObservation(
+        has_camera_frame=True, bottles=[prop], hands=hands, pose=None,
+    ))
+    assert session._custom_capture_visible == (True, True, False)
+
+
 def _accepted_reference(session):
     session._custom_person_count = 1
     session._custom_person_observed_at = time.monotonic()
+    _visible(session)
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     _set_samples(session, _reference())
     accepted, code, quality = session.stop_custom_capture()
@@ -131,14 +211,14 @@ def _performer_pose(center_x=0.5, *, hips_only=False):
     )
 
 
-def test_custom_capture_uses_minimum_readiness_but_observes_all_modalities():
+def test_custom_capture_requires_one_hand_and_upper_body():
     session = websocket_api.VisionSession(
         "Custom Movement",
         session_mode="custom_capture",
         readiness_spec={"hands": "two_hands", "body": "upper_body"},
     )
 
-    assert session.readiness_spec == {"hands": "none", "body": "none"}
+    assert session.readiness_spec == {"hands": "one_hand", "body": "upper_body"}
     assert session._hands_needed is True
     assert session._pose_needed is True
     assert session._hands_max == 2
@@ -180,7 +260,7 @@ def test_custom_capture_requests_two_poses_only_for_reference_session(monkeypatc
     assert constructed[-1] == {}
 
 
-def test_custom_readiness_observes_hands_without_requiring_them(monkeypatch):
+def test_custom_readiness_requires_hands_and_pose(monkeypatch):
     _patch_vision(monkeypatch)
 
     class VisibleHands(StubHandsDetector):
@@ -193,10 +273,10 @@ def test_custom_readiness_observes_hands_without_requiring_them(monkeypatch):
     monkeypatch.setattr(websocket_api, "HandsDetector", VisibleHands)
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     try:
-        assert session.readiness_spec == {"hands": "none", "body": "none"}
+        assert session.readiness_spec == {"hands": "one_hand", "body": "upper_body"}
         assert session.start()
         assert session.begin_readiness()
-        assert session._readiness_tracker._profile.needs_hands() is False
+        assert session._readiness_tracker._profile.needs_hands() is True
         detector = session.hands_detector
         assert isinstance(detector, VisibleHands)
         assert detector.max_num_hands == 2
@@ -207,12 +287,14 @@ def test_custom_readiness_observes_hands_without_requiring_them(monkeypatch):
         assert session._preview_presentation_metadata(session._overlay_snapshot)[
             "hands_presentation_state"
         ] == "tracking"
-        # Readiness remains about camera, prop, and one performer, even if hands
+        # The confirmation test supplies a stable snapshot after verifying the
+        # custom profile; live visibility is checked again when recording.
         # later leave the frame. Activation keeps the warmed detector instance.
         session._latest_readiness_snapshot = SimpleNamespace(readiness_stable=True)
         session._latest_readiness_observed_at = time.monotonic()
         session._custom_person_count = 1
         session._custom_person_observed_at = time.monotonic()
+        _visible(session)
         assert session.confirm_readiness() == (True, None)
         assert session.activate() == (True, None)
         assert session.hands_detector is detector
@@ -271,6 +353,7 @@ def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     session._observe_custom_people(_performer_pose())
     assert session.start_custom_capture(duration_seconds=15)[0] is False
     session._observe_custom_people(_performer_pose())
+    _visible(session)
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     _set_samples(session, _reference())
 
@@ -316,6 +399,7 @@ def test_transient_second_pose_cannot_switch_reference_performer():
     session.pose_detector = detector
     session._observe_custom_people(_performer_pose(0.3))
     session._observe_custom_people(_performer_pose(0.3))
+    _visible(session)
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     _set_samples(session, _reference())
     detector.last_distinct_person_count = 2
@@ -336,6 +420,7 @@ def test_repeated_duplicate_candidates_do_not_contaminate_reference():
     session.pose_detector = detector
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
+    _visible(session)
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     _set_samples(session, _reference())
 
@@ -354,6 +439,7 @@ def test_transient_extra_pose_waits_for_comparable_anchor_without_false_switch()
     session.pose_detector = detector
     session._observe_custom_people(_performer_pose())
     session._observe_custom_people(_performer_pose())
+    _visible(session)
     assert session.start_custom_capture(duration_seconds=15) == (True, None)
     _set_samples(session, _reference())
     detector.last_distinct_person_count = 2

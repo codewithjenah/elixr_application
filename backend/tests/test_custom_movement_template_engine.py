@@ -186,7 +186,7 @@ def test_one_hand_template_does_not_require_unused_hand_or_static_pose():
     assert comparison.component_scores["Prop path"] == 3
 
 
-def test_accepted_prop_only_examples_do_not_invent_hand_capability():
+def test_poor_hand_tracking_cannot_downgrade_to_prop_only_template():
     references = [
         tuple(
             FrameSample(
@@ -200,10 +200,22 @@ def test_accepted_prop_only_examples_do_not_invent_hand_capability():
     ]
     assert all(validate_sequence(reference, ("prop_translation",)).valid
                for reference in references)
-    template = build_template(references)
-    assert template.reference_count == 2
-    assert template.feature_capabilities["prop_translation"] is True
-    assert template.feature_capabilities["hands"] is False
+    import pytest
+    with pytest.raises(ValueError, match=FailureCode.INSUFFICIENT_HAND_COVERAGE.value):
+        build_template(references)
+
+
+def test_repeated_second_hand_cannot_silently_downgrade_to_one_hand():
+    import pytest
+    references = [
+        tuple(replace(frame, hands={
+            "left": frame.hands["left"],
+            **({"right": frame.hands["right"]} if index in (1, 3, 5, 7) else {}),
+        }) for index, frame in enumerate(_sequence()))
+        for _ in range(2)
+    ]
+    with pytest.raises(ValueError, match=FailureCode.INSUFFICIENT_HAND_COVERAGE.value):
+        build_template(references)
 
 
 def test_non_required_hand_is_filtered_from_canonical_and_scoring():

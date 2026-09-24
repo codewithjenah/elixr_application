@@ -125,6 +125,10 @@ class FeedbackMessage(BaseModel):
     person_count: Optional[int] = None
     # Custom reference only: this recording has been irreversibly invalidated.
     reference_invalid: Optional[bool] = None
+    # Current inference frame, never presentation grace or frozen readiness.
+    capture_prop_visible: Optional[bool] = None
+    capture_hands_visible: Optional[bool] = None
+    capture_upper_body_visible: Optional[bool] = None
     calibration_scale: Optional[float] = None
     calibration_source: Optional[Literal["shoulders", "palm_fallback", "default"]] = None
     # Playground freestyle live state. Absent on guided/assignment sessions.

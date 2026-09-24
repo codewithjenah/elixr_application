@@ -747,11 +747,10 @@ Teachers and Trainees. They never register a custom name in the official rule
 registry:
 
 - `session_mode: "custom_capture"` prepares readiness for recording reference
-  sequences. Reference readiness requires the camera, selected prop, and one
-  visible performer. Pose observes at most two people during readiness and
-  recording; two consecutive evaluated frames confirm the person state. Hands
-  also runs during custom readiness so the camera check can show actual hand
-  visibility, but missing hands does not block readiness. The same Hands
+  sequences. Reference readiness requires the camera, selected prop, at least
+  one tracked hand, visible upper body, and exactly one confirmed performer.
+  Pose observes at most two people during readiness and recording; two
+  consecutive evaluated frames confirm the person state. The same Hands
   detector is reused after activation. Hands and Pose are observed during
   recording so the demonstrations can infer reliable one-hand, two-hand, and
   meaningful-pose capabilities. After
@@ -768,6 +767,12 @@ registry:
   `delete_custom_reference` removes an arbitrary draft by ID and its temp clip.
   A confirmed second person invalidates the current reference with
   `multiple_people_detected`; rejected samples do not enter the template.
+  `start_custom_capture` also checks fresh current-frame prop, hand, and upper
+  body evidence. If hand tracking is too incomplete to infer a reliable side,
+  `build_custom_template` rejects the references with
+  `insufficient_hand_coverage` so the author can re-record them. MediaPipe
+  handedness is normalized from raw OpenCV input to performer left/right once
+  in the shared detector; mirrored Flutter preview does not change stored sides.
   `discard_custom_reference` remains a compatibility command for removing the
   most recent draft. `build_custom_template` uses retained trimmed drafts and
   returns `movement_template` after at least two valid references. The authoring
@@ -880,6 +885,7 @@ Optional readiness fields on feedback (present during `readying`; omitted otherw
 - `readiness_stable_progress` — monotonic progress in `[0, 1]` toward stable
 - `person_count` — optional confirmed visible-person count for custom reference capture (`0` means none or still confirming, `1` means one, `2` means two or more); available during readiness and active capture. It is absent in other modes.
 - `reference_invalid` — optional custom reference flag that stays true after confirmed multiple-person presence or a detected performer switch; `stop_custom_capture` also rejects an unresolved identity gap.
+- `capture_prop_visible`, `capture_hands_visible`, `capture_upper_body_visible` — optional current inference-frame observability flags during custom reference readiness and active capture. They do not use presentation grace or cached overlay landmarks; Flutter uses them to gate the Record Reference button.
 - `calibration_scale` — optional per-session proximity scale in `[0.6, 1.6]`; omitted/null until a shoulders or palm measurement is taken
 - `calibration_source` — optional `shoulders` | `palm_fallback` | `default`; omitted/null until measured. Accepted `confirm_readiness` `command_ack` includes the locked pair (`1.0` / `default` when nothing was measured).
 
