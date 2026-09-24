@@ -16,6 +16,7 @@ from api import websocket as websocket_api
 from assessment.rules.base import RuleResult
 from assessment.scoring import RubricTracker
 from schemas.feedback import PreviewFrameMessage
+from test_custom_movement_session import _template
 from test_session_lifecycle import (
     StubBottleDetector,
     StubCamera,
@@ -222,7 +223,66 @@ def test_recently_published_overlay_bridges_preview_ai_scheduling_gap(monkeypatc
     session.close()
 
 
-def test_custom_preview_metadata_and_annotation_share_confirmed_prop(monkeypatch):
+@pytest.mark.parametrize("prop_type", ("bottle", "shaker"))
+@pytest.mark.parametrize("session_mode", ("custom_capture", "custom_assessment"))
+def test_custom_preview_stays_annotated_through_bounded_ai_gap(
+    monkeypatch, prop_type, session_mode,
+):
+    _patch_vision(monkeypatch)
+    draws = []
+
+    def track_annotation(frame, boxes, hands, *args, pose=None, **kwargs):
+        draws.append((boxes, hands, pose))
+        return frame
+
+    monkeypatch.setattr(websocket_api, "annotate_frame", track_annotation)
+    kwargs = (
+        {"custom_movement_template": _template(
+            sides=("left", "right"), moving_pose=True,
+        ).to_dict()}
+        if session_mode == "custom_assessment" else {}
+    )
+    session = websocket_api.VisionSession(
+        "Custom Movement", prop_type=prop_type, session_mode=session_mode,
+        **kwargs,
+    )
+    session.start()
+    base = time.monotonic()
+    frame = np.zeros((48, 64, 3), dtype=np.uint8)
+    box = PropDetection(1, 2, 20, 40, .9, yolo_confirmed=True)
+    session._publish_overlay(freeze_overlay(
+        published_at_monotonic=base,
+        captured_at_monotonic=base,
+        capture_sequence=1,
+        boxes=[box],
+        hands=HandsResult(hands=[HandLandmarks(points={0: Point2D(.2, .3)})]),
+        pose=PoseLandmarks(points={0: Point2D(.4, .5)}),
+        feedback="observed", feedback_type="positive",
+        movement="Custom Movement", prop_label=prop_type,
+    ))
+    with session._overlay_lock:
+        session._overlay_publish_period_s = .40
+    current = [CapturedFrame(frame, base + .10, 2)]
+    session.camera.peek_latest = lambda **kwargs: current[0]
+    try:
+        for sequence, age in ((2, .10), (3, .30), (4, .55)):
+            current[0] = CapturedFrame(frame, base + age, sequence)
+            preview = session.render_preview()
+            assert preview is not None
+            assert preview.vision_overlay_present is True
+            assert preview.prop_presentation_state == "coasted"
+            assert preview.hands_presentation_state == "tracking"
+            assert preview.pose_presentation_state == "tracking"
+        assert len(draws) == 3
+        current[0] = CapturedFrame(frame, base + .80, 5)
+        expired = session.render_preview()
+        assert expired is not None and expired.vision_overlay_present is False
+        assert len(draws) == 3
+    finally:
+        session.close()
+
+
+def test_custom_preview_metadata_marks_reused_confirmed_prop_as_coasted(monkeypatch):
     """A custom status may say detected only when this JPEG drew the box."""
     _patch_vision(monkeypatch)
     annotate_boxes: list[list[PropDetection]] = []
@@ -255,18 +315,31 @@ def test_custom_preview_metadata_and_annotation_share_confirmed_prop(monkeypatch
     # an indefinitely stale overlay; the hard cap still bounds it.
     with session._overlay_lock:
         session._overlay_publish_period_s = 1.0 / 3.0
-    session.camera.peek_latest = lambda **kwargs: CapturedFrame(
+    current = [CapturedFrame(
         frame=np.full((48, 64, 3), 120, dtype=np.uint8),
-        captured_at_monotonic=10.4,
-        sequence=8,
+        captured_at_monotonic=10.0,
+        sequence=1,
+    )]
+    session.camera.peek_latest = lambda **kwargs: current[0]
+
+    original = session.render_preview()
+    assert original is not None
+    assert original.prop_presentation_state == "confirmed"
+    assert annotate_boxes == [[box]]
+
+    current[0] = CapturedFrame(
+        frame=current[0].frame, captured_at_monotonic=10.4, sequence=8,
     )
 
     message = session.render_preview()
 
     assert message is not None
-    assert message.prop_presentation_state == "confirmed"
+    assert message.prop_presentation_state == "coasted"
     assert message.overlay_capture_sequence == 1
-    assert annotate_boxes == [[box]]
+    assert len(annotate_boxes) == 2
+    assert len(annotate_boxes[1]) == 1
+    assert annotate_boxes[1][0].yolo_confirmed is False
+    assert session._overlay_snapshot.boxes == (box,)
     session.close()
 
 
@@ -381,7 +454,7 @@ def test_yolo_miss_coasts_briefly_without_entering_normalized_observations(
     assert preview is not None
     if session_mode == "custom_capture":
         assert preview.prop_presentation_state == "coasted"
-    assert drawn == [boxes]
+    assert drawn == [[replace(box, yolo_confirmed=False) for box in boxes]]
     expired_boxes, _ = session._presentation_boxes(
         captured_at=captured_at + websocket_api.DETECTION_PRESENTATION_GRACE_S + .01,
         generation=1, run_yolo=True,
@@ -392,7 +465,9 @@ def test_yolo_miss_coasts_briefly_without_entering_normalized_observations(
         preview=CapturedFrame(frame, captured_at + .3, 3, 1)
     )
     assert expired_overlay is not None
-    assert list(expired_overlay.boxes) == list(normalized.annotation)
+    assert list(expired_overlay.boxes) == [
+        replace(box, yolo_confirmed=False) for box in normalized.annotation
+    ]
     recovered = replace(missing, yolo_confirmed=True)
     live[key] = [recovered]
     session._detect_normalized_props(frame)

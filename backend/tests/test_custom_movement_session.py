@@ -2,6 +2,7 @@ import time
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from assessment.custom_movement import FrameSample, Landmark, build_template
 from api import websocket as websocket_api
@@ -360,8 +361,17 @@ def test_unconfirmed_prop_without_prior_confirmation_is_not_sampled_or_drawn():
     assert boxes == []
 
 
-def test_render_only_landmark_cache_never_enters_custom_reference_sample():
-    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+@pytest.mark.parametrize("session_mode", ("custom_capture", "custom_assessment"))
+def test_render_only_landmark_cache_never_enters_custom_samples(session_mode):
+    kwargs = (
+        {"custom_movement_template": _template(
+            sides=("left", "right"), moving_pose=True,
+        ).to_dict()}
+        if session_mode == "custom_assessment" else {}
+    )
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode=session_mode, **kwargs,
+    )
     started = time.monotonic()
     session._custom_samples = []
     session._custom_capture_started_at = started

@@ -1637,24 +1637,29 @@ class VisionSession:
             preview_capture_generation=preview.generation,
             max_capture_age_s=OVERLAY_MAX_CAPTURE_AGE_S,
         ):
-            return self._expire_presentation_geometry(snapshot, preview.captured_at_monotonic)
+            return self._expire_presentation_geometry(snapshot, preview)
         self.preview_timings.add_overlay_alignment_rejection(stale_capture_age=True)
         # The current snapshot can bridge the normal preview/AI scheduling
         # gap, but only for the short rendering grace. Modality deadlines
         # above still apply to a snapshot containing coasted geometry.
         if capture_age_s <= self._presentation_continuity_s():
-            return self._expire_presentation_geometry(snapshot, preview.captured_at_monotonic)
+            return self._expire_presentation_geometry(snapshot, preview)
         return None
 
     def _expire_presentation_geometry(
-        self, snapshot: OverlaySnapshot, captured_at: float
+        self, snapshot: OverlaySnapshot, preview: CapturedFrame
     ) -> OverlaySnapshot:
         """Keep each JPEG's geometry and metadata within original observation ages."""
+        captured_at = preview.captured_at_monotonic
         boxes_and_expiries = zip(snapshot.boxes, snapshot.box_expires_at)
         boxes = tuple(
             box for box, expires in boxes_and_expiries
             if expires is None or captured_at <= expires
         ) if snapshot.box_expires_at else snapshot.boxes
+        if preview.sequence > snapshot.capture_sequence:
+            # A later preview is presentation of the last AI observation, not
+            # a YOLO confirmation on the newer camera frame.
+            boxes = tuple(replace(box, yolo_confirmed=False) for box in boxes)
         hands = (
             None if snapshot.hands_expires_at is not None
             and captured_at > snapshot.hands_expires_at else snapshot.hands
@@ -1964,6 +1969,12 @@ class VisionSession:
                     max_num_hands=self._hands_max,
                     rotated_fallback=self._hands_rotated_fallback,
                     bartender_roi_fallback=self._hands_bartender_roi,
+                    # Generic two-hand custom sessions need recovery only while
+                    # a hand is absent; prop-contact replacement is an official
+                    # Bartender's Grip behavior, not a template requirement.
+                    roi_only_when_below_capacity=(
+                        self._is_custom and self._hands_max == 2
+                    ),
                 )
                 logger.info(
                     "HandsDetector created movement=%s hands_max=%s",

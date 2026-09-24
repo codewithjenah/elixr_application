@@ -541,6 +541,53 @@ def test_staged_hand_recovery_uses_one_primary_call_and_current_prop():
     assert detector.stats.snapshot()["fallback_successes"] == 1
 
 
+def test_generic_custom_full_hand_capacity_skips_contact_roi_replacement():
+    calls = {"roi": 0}
+    observed = HandsResult(hands=[_hand(0.9, 0.9), _hand(0.8, 0.8)])
+
+    class Stub(HandsDetector):
+        def __init__(self):
+            self._rotated_fallback = False
+            self._bartender_roi_fallback = True
+            self._roi_only_when_below_capacity = True
+            self._max_num_hands = 2
+
+        def _detect_primary(self, frame):
+            return observed
+
+        def _detect_bartender_roi(self, frame, bottle):
+            calls["roi"] += 1
+            return HandsResult(hands=[_zone_hand(0.375, 0.32)])
+
+    detector = Stub()
+    result = detector.detect(_blank(), _bartender_bottle())
+    assert result is observed
+    assert calls["roi"] == 0
+    assert detector.stats.snapshot()["bartender_attempts"] == 0
+
+
+def test_generic_custom_roi_still_recovers_missing_hand():
+    calls = {"roi": 0}
+
+    class Stub(HandsDetector):
+        def __init__(self):
+            self._rotated_fallback = False
+            self._bartender_roi_fallback = True
+            self._roi_only_when_below_capacity = True
+            self._max_num_hands = 2
+
+        def _detect_primary(self, frame):
+            return HandsResult(hands=[_hand(0.9, 0.9)])
+
+        def _detect_bartender_roi(self, frame, bottle):
+            calls["roi"] += 1
+            return HandsResult(hands=[_zone_hand(0.375, 0.32)])
+
+    result = Stub().detect(_blank(), _bartender_bottle())
+    assert result is not None and len(result.hands) == 2
+    assert calls["roi"] == 1
+
+
 def test_fallback_ab_helper_reuses_identical_frames_and_bottles():
     frames = [_blank(), np.ones((480, 640, 3), dtype=np.uint8)]
     bottles = [_bartender_bottle(), None]
@@ -585,15 +632,16 @@ def test_fallback_disabled_benchmark_does_not_mutate_production_defaults():
     assert after["timestamp_clock"] is None
 
 
-def test_max_num_hands_and_plus_33_remain_production_defaults():
+def test_max_num_hands_and_capture_time_remain_production_defaults():
     defaults = production_hands_defaults()
     assert defaults["max_num_hands"] == 2
     assert defaults["timestamp_clock"] is None
-    from vision.hands_timestamp import default_timestamp_clock, Synthetic33TimestampClock
+    from vision.hands_timestamp import default_timestamp_clock, VideoTimestampClock
 
     clock = default_timestamp_clock(None)
-    assert isinstance(clock, Synthetic33TimestampClock)
-    assert clock.next_ms() == 33
+    assert isinstance(clock, VideoTimestampClock)
+    assert clock.next_ms(10.0) == 0
+    assert clock.next_ms(10.033) == 33
 
 
 def test_recovery_diagnostics_reset_between_runs():

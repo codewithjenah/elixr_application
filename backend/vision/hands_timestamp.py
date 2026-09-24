@@ -50,7 +50,7 @@ def relative_time_ms(
 
 @dataclass
 class Synthetic33TimestampClock:
-    """Current production VIDEO clock: previous timestamp + 33 ms per call."""
+    """Optional replay clock: previous timestamp + 33 ms per call."""
 
     last_timestamp_ms: int = 0
 

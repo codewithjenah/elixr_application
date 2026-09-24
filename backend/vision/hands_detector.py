@@ -159,11 +159,13 @@ class HandsDetector:
         rotated_fallback: bool = False,
         bartender_roi_fallback: bool = False,
         timestamp_clock: Optional[HandsTimestampClock] = None,
+        roi_only_when_below_capacity: bool = False,
     ):
         self._model_path = ensure_hand_model()
         self._max_num_hands = max_num_hands
         self._rotated_fallback = rotated_fallback
         self._bartender_roi_fallback = bartender_roi_fallback
+        self._roi_only_when_below_capacity = roi_only_when_below_capacity
         # Production VIDEO timestamps follow the actual captured-frame clock.
         self.timestamp_clock = default_timestamp_clock(timestamp_clock)
         self.timestamp_clock.reset()
@@ -378,7 +380,16 @@ class HandsDetector:
         fallback_used = independent.rotated_attempted
         rotated_recovered = independent.rotated_recovered
 
-        if not self._bartender_roi_fallback or bottle is None:
+        if (
+            not self._bartender_roi_fallback
+            or bottle is None
+            or (
+                getattr(self, "_roi_only_when_below_capacity", False)
+                and hands is not None
+                and len(hands.hands) >= self._max_num_hands
+                and all(hand.points for hand in hands.hands)
+            )
+        ):
             if fallback_used:
                 stats.mark_fallback_activated()
                 stats.record_fallback_frame(

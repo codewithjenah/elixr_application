@@ -303,6 +303,10 @@ def test_custom_stages_hand_recovery_after_parallel_yolo_and_pose(
     observed_pose = PoseLandmarks(points={11: Point2D(0.4, 0.3)})
 
     class StagedHands(StubHandsDetector):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.roi_only_when_below_capacity = kwargs["roi_only_when_below_capacity"]
+
         def detect_independent(self, frame, *, captured_at_monotonic=None):
             self.detect_calls += 1
             frame_ids["hands"] = id(frame)
@@ -345,6 +349,7 @@ def test_custom_stages_hand_recovery_after_parallel_yolo_and_pose(
         assert normalized.primary == (_CoordinatedPropDetector.instances[-1].detection,)
         assert hands is observed_hands and pose is observed_pose
         assert session.hands_detector.detect_calls == 1
+        assert session.hands_detector.roi_only_when_below_capacity is True
         assert session.pose_detector.detect_calls == 1
         assert session.timings.count("hands") == 1
         assert session.timings.count("pose") == 1
