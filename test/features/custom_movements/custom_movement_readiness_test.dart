@@ -395,6 +395,55 @@ void main() {
     },
   );
 
+  testWidgets('legacy empty instructions do not refer to unavailable videos', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final socket = _CustomSocket();
+    final movement = CustomMovement(
+      id: 'legacy-empty-instructions',
+      ownerUid: 'teacher-1',
+      ownerRole: CustomMovementOwnerRole.teacher,
+      name: 'Legacy movement',
+      description: '',
+      difficulty: 'Easy',
+      propType: TrainingProp.bottle,
+      status: CustomMovementStatus.active,
+      activeRevisionId: 'revision-legacy',
+    );
+    final revision = CustomMovementRevision(
+      id: 'revision-legacy',
+      movementId: movement.id,
+      ownerUid: movement.ownerUid,
+      ownerRole: movement.ownerRole,
+      template: MovementTemplate.tryFrom(_oneHandTemplateMap())!,
+    );
+
+    await tester.pumpWidget(
+      _withSettings(
+        _TestSettings(),
+        CustomMovementPracticeScreen(
+          movement: movement,
+          revision: revision,
+          repository: _UnusedRepository(),
+          webSocket: socket,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text(
+        'Execution instructions are unavailable. If you own this movement, edit it to add guidance; otherwise ask the owner to add them before you practice.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('saved reference'), findsNothing);
+    expect(find.textContaining('saved references'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
   testWidgets(
     'custom assessment releases its session when capture startup fails',
     (tester) async {

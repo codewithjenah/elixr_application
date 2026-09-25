@@ -763,6 +763,10 @@ registry:
   The authoring studio shows per-example hand and body coverage from
   `reference_quality`; the final review uses the built template's actual
   capabilities rather than treating an accepted clip as proof of hand tracking.
+  Creating or revising a movement requires written step-by-step execution
+  guidance in its existing `description` field; practice displays that guidance.
+  Reference recording is limited to 15 seconds, with a visible client countdown
+  that automatically sends `stop_custom_capture` at its deadline.
   Detector samples map to MP4 time through capture timestamps of frames actually
   written by the existing Python camera producer. `trim_custom_reference`
   selects a non-destructive time range and validates the retained samples;
@@ -811,8 +815,11 @@ projected 2D Bottle rotation cannot establish hidden turns or 3D
 front-versus-behind depth. The three
 references are normalized, matched to a deterministic DTW medoid, temporally
 aligned, and only then aggregated so execution-speed differences do not smear
-the canonical phases. Custom templates currently accept one Bottle or one
-Cocktail Shaker; the combined
+the canonical phases. Control/stability compares local curvature in the
+phase-aligned normalized prop path, so it responds to jitter separately from
+overall path position and tolerates smooth speed changes. Missing prop
+observations cannot earn perfect control. Custom templates currently accept one
+Bottle or one Cocktail Shaker; the combined
 Bottle + Shaker option is rejected until the template format can preserve two
 synchronized prop tracks instead of silently dropping one.
 

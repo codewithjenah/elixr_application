@@ -169,6 +169,42 @@ void main() {
       expect(movement.isOwnedBy('trainee-1'), isTrue);
     });
 
+    test(
+      'write validation requires instructions while legacy empty data parses',
+      () {
+        final legacy = CustomMovement.tryFromMap({
+          'owner_uid': 'trainee-1',
+          'owner_role': 'trainee',
+          'name': 'My Cascade',
+          'description': '',
+          'difficulty': 'Hard',
+          'prop_type': 'shaker',
+          'status': 'active',
+          'active_revision_id': 'rev-1',
+          'schema_version': 1,
+        }, id: 'movement-1');
+
+        expect(legacy, isNotNull);
+        expect(
+          CustomMovement.validateMetadata(
+            name: 'My Cascade',
+            description: '  ',
+            difficulty: 'Hard',
+          ),
+          'Describe how to perform this movement from start to finish.',
+        );
+        expect(
+          CustomMovement.validateMetadata(
+            name: 'My Cascade',
+            description:
+                'Hold the bottle in your left hand, loop it once, then catch it.',
+            difficulty: 'Hard',
+          ),
+          isNull,
+        );
+      },
+    );
+
     test('accepts only the owner and active-revision reference image path', () {
       final movement = CustomMovement.tryFromMap({
         'owner_uid': 'trainee-1',

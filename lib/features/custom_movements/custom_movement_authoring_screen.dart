@@ -129,6 +129,7 @@ class CustomMovementAuthoringScreen extends StatefulWidget {
 
 class _CustomMovementAuthoringScreenState
     extends State<CustomMovementAuthoringScreen> {
+  static const _referenceCaptureDuration = Duration(seconds: 15);
   late final TextEditingController _name;
   late final TextEditingController _description;
   late final WebSocketService _socket;
@@ -138,12 +139,16 @@ class _CustomMovementAuthoringScreenState
   final ElixrPlaybackSession _playback = ElixrPlaybackSession();
   StreamSubscription<PreviewFrame>? _previewSubscription;
   StreamSubscription<PracticeFeedback>? _feedbackSubscription;
+  Timer? _referenceCaptureTimer;
+  Timer? _referenceCaptureDeadlineTimer;
+  final ValueNotifier<int> _referenceRemainingSeconds = ValueNotifier(
+    _referenceCaptureDuration.inSeconds,
+  );
   final List<_ReferenceDraft> _references = [];
 
   late String _difficulty;
   late TrainingProp _prop;
   MovementTemplate? _template;
-  bool _trackRotation = false;
   bool _replacingReferences = false;
   bool _sessionStarted = false;
   bool _previewReady = false;
@@ -154,7 +159,10 @@ class _CustomMovementAuthoringScreenState
   bool _handsVisible = false;
   bool _upperBodyVisible = false;
   DateTime? _captureObservedAt;
+  DateTime? _referenceCaptureDeadline;
   bool _recording = false;
+  bool _finishingReference = false;
+  Future<void>? _finishReferenceFuture;
   Uint8List? _referenceImageJpegBytes;
   bool _busy = false;
   bool _cameraBusy = false;
@@ -200,23 +208,26 @@ class _CustomMovementAuthoringScreenState
     _prop = widget.existing?.propType ?? TrainingProp.bottle;
     _template = widget.existingRevision?.template;
     _replacingReferences = widget.existing == null;
-    _trackRotation =
-        _prop == TrainingProp.bottle && _template?.requiresRotation == true;
   }
 
   @override
   void dispose() {
+    _cancelReferenceCaptureTimers();
     unawaited(_teardown());
     _name.dispose();
     _description.dispose();
     _frame.dispose();
     _presentation.dispose();
+    _referenceRemainingSeconds.dispose();
     super.dispose();
   }
 
   Future<void> _teardown() async {
     if (_closed) return;
     _closed = true;
+    _cancelReferenceCaptureTimers();
+    _recording = false;
+    _finishingReference = false;
     try {
       await _playback.release();
     } catch (_) {
@@ -242,6 +253,9 @@ class _CustomMovementAuthoringScreenState
   }
 
   Future<void> _resetSession() async {
+    _cancelReferenceCaptureTimers();
+    _recording = false;
+    _finishingReference = false;
     await _playback.release();
     final id = _sessionId;
     _sessionId = null;
@@ -359,9 +373,12 @@ class _CustomMovementAuthoringScreenState
 
   Future<void> _record() async {
     if (!_canRecord) return;
+    _cancelReferenceCaptureTimers();
     setState(() {
       _busy = true;
       _error = null;
+      _recording = false;
+      _finishingReference = false;
     });
     try {
       if (!_active) {
@@ -378,11 +395,26 @@ class _CustomMovementAuthoringScreenState
         _requireAccepted(await _socket.sendActivate());
         _active = true;
       }
+      // Anchor the client deadline immediately before the correlated start
+      // command. Starting early by the command round-trip keeps the authoring
+      // UI from claiming capture is active after the backend's own deadline.
+      final deadline = DateTime.now().add(_referenceCaptureDuration);
       _requireAccepted(
-        await _socket.sendStartCustomCapture(durationSeconds: 15),
+        await _socket.sendStartCustomCapture(
+          durationSeconds: _referenceCaptureDuration.inSeconds,
+        ),
       );
-      if (mounted) setState(() => _recording = true);
+      if (mounted) {
+        setState(() {
+          _recording = true;
+          _referenceCaptureDeadline = deadline;
+          _referenceRemainingSeconds.value =
+              _referenceCaptureDuration.inSeconds;
+        });
+        _startReferenceCaptureTimers(deadline);
+      }
     } catch (_) {
+      _cancelReferenceCaptureTimers();
       if (mounted) {
         setState(
           () => _error =
@@ -399,9 +431,22 @@ class _CustomMovementAuthoringScreenState
     }
   }
 
-  Future<void> _finishReference() async {
-    if (!_recording || _busy) return;
-    setState(() => _busy = true);
+  Future<void> _finishReference({bool automatic = false}) {
+    final inProgress = _finishReferenceFuture;
+    if (inProgress != null) return inProgress;
+    if (!_recording) return Future<void>.value();
+    _cancelReferenceCaptureTimers();
+    setState(() {
+      _recording = false;
+      _finishingReference = true;
+      _busy = true;
+    });
+    final completion = _stopAndStoreReference(automatic: automatic);
+    _finishReferenceFuture = completion;
+    return completion;
+  }
+
+  Future<void> _stopAndStoreReference({required bool automatic}) async {
     try {
       final ack = await _socket.sendStopCustomCapture();
       _requireAccepted(ack);
@@ -427,7 +472,6 @@ class _CustomMovementAuthoringScreenState
         _pendingStart = 0;
         _pendingEnd = duration;
         _template = null;
-        _recording = false;
         _referenceImageJpegBytes =
             referenceFrame != null &&
                 referenceFrame.lengthInBytes >= 1024 &&
@@ -437,19 +481,84 @@ class _CustomMovementAuthoringScreenState
       });
     } catch (_) {
       if (mounted) {
-        setState(() {
-          _recording = false;
-          _error =
-              'This example was not usable. Keep more of the full movement in view and retry.';
-        });
+        setState(
+          () => _error = automatic
+              ? 'Recording time ended, but this example could not be finalized. Keep the full movement in view and retry.'
+              : 'This example was not usable. Keep more of the full movement in view and retry.',
+        );
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      _cancelReferenceCaptureTimers();
+      _finishReferenceFuture = null;
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _finishingReference = false;
+        });
+      }
     }
   }
 
+  void _startReferenceCaptureTimers(DateTime deadline) {
+    _referenceCaptureDeadline = deadline;
+    _referenceCaptureTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _updateReferenceCaptureTime(),
+    );
+    final untilDeadline = deadline.difference(DateTime.now());
+    _referenceCaptureDeadlineTimer = Timer(
+      untilDeadline.isNegative ? Duration.zero : untilDeadline,
+      _expireReferenceCapture,
+    );
+    _updateReferenceCaptureTime();
+  }
+
+  void _updateReferenceCaptureTime() {
+    final deadline = _referenceCaptureDeadline;
+    if (!mounted || !_recording || deadline == null) {
+      _cancelReferenceCaptureTimers();
+      return;
+    }
+    final remaining =
+        (deadline.difference(DateTime.now()).inMilliseconds / 1000)
+            .ceil()
+            .clamp(0, _referenceCaptureDuration.inSeconds);
+    if (remaining == 0) {
+      _expireReferenceCapture();
+    } else if (remaining != _referenceRemainingSeconds.value) {
+      _referenceRemainingSeconds.value = remaining;
+    }
+  }
+
+  void _expireReferenceCapture() {
+    if (!mounted || !_recording) return;
+    _referenceCaptureTimer?.cancel();
+    _referenceCaptureTimer = null;
+    _referenceCaptureDeadlineTimer?.cancel();
+    _referenceCaptureDeadlineTimer = null;
+    _referenceRemainingSeconds.value = 0;
+    unawaited(_finishReference(automatic: true));
+  }
+
+  void _cancelReferenceCaptureTimers() {
+    _referenceCaptureTimer?.cancel();
+    _referenceCaptureTimer = null;
+    _referenceCaptureDeadlineTimer?.cancel();
+    _referenceCaptureDeadlineTimer = null;
+    _referenceCaptureDeadline = null;
+    if (mounted) {
+      _referenceRemainingSeconds.value = _referenceCaptureDuration.inSeconds;
+    }
+  }
+
+  String _formatReferenceCaptureRemaining(int remainingSeconds) {
+    final minutes = remainingSeconds ~/ 60;
+    final seconds = remainingSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _delete(_ReferenceDraft reference) async {
-    if (_busy) return;
+    if (_busy || _recording) return;
     setState(() => _busy = true);
     try {
       if (_previewId == reference.id) {
@@ -473,6 +582,7 @@ class _CustomMovementAuthoringScreenState
   }
 
   Future<void> _selectPreview(_ReferenceDraft reference) async {
+    if (_busy || _recording) return;
     if (_previewId == reference.id) {
       setState(() {
         _pendingStart = reference.startMs;
@@ -490,7 +600,7 @@ class _CustomMovementAuthoringScreenState
   }
 
   Future<void> _applyTrim(_ReferenceDraft reference, int start, int end) async {
-    if (_busy) return;
+    if (_busy || _recording) return;
     setState(() => _busy = true);
     try {
       final ack = await _socket.sendTrimCustomReference(
@@ -684,7 +794,7 @@ class _CustomMovementAuthoringScreenState
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'Give it a name, choose your prop, and tell ELIXR what kind of movement you are teaching.',
+            'Name the movement, choose its prop, and explain the action so a first-time trainee can follow it.',
             style: ElixTypography.supporting(color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -699,15 +809,21 @@ class _CustomMovementAuthoringScreenState
           ),
           const SizedBox(height: AppSpacing.md),
           _field(
-            'Short description',
+            'How to perform this movement',
             TextBox(
               key: const ValueKey('custom-movement-description'),
               controller: _description,
               minLines: 2,
               maxLines: 3,
               maxLength: CustomMovement.descriptionMaxLength,
-              placeholder: 'Describe the movement from start to finish',
+              placeholder:
+                  'Describe each step from start to finish, including the important body, hand, and prop actions',
             ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Explain the movement in order. ELIXR shows these instructions during practice.',
+            style: ElixTypography.caption(color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.lg),
           LayoutBuilder(
@@ -742,7 +858,7 @@ class _CustomMovementAuthoringScreenState
                         ),
                       )
                       .toList(),
-                  onChanged: _references.isNotEmpty
+                  onChanged: _references.isNotEmpty || _recording || _busy
                       ? null
                       : (value) {
                           if (value == null || value == _prop) return;
@@ -762,9 +878,6 @@ class _CustomMovementAuthoringScreenState
                             _prop = value;
                             _template = null;
                             _replacingReferences = true;
-                            if (value != TrainingProp.bottle) {
-                              _trackRotation = false;
-                            }
                           });
                         },
                 ),
@@ -801,35 +914,8 @@ class _CustomMovementAuthoringScreenState
               Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Does the bottle visibly rotate?',
-                          style: ElixTypography.label(
-                            color: context.elixTextPrimary,
-                          ),
-                        ),
-                      ),
-                      ToggleSwitch(
-                        key: const ValueKey('custom-movement-require-rotation'),
-                        checked: _trackRotation,
-                        onChanged: (value) => setState(() {
-                          _trackRotation = value;
-                          if (_references.isEmpty &&
-                              widget.existingRevision != null &&
-                              _prop == widget.existing?.propType) {
-                            _template = widget.existingRevision!.template;
-                          }
-                        }),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
                   Text(
-                    _trackRotation
-                        ? 'Optional quality bonus: orange tape near the top and yellow tape near the base can help ELIXR observe the turn. The movement can still be saved and scored without it.'
-                        : 'Rotation is optional. Body, hands, timing, and prop path determine the movement score.',
+                    'ELIXR may automatically learn visible projected bottle rotation when orange top/neck and yellow base/bottom markers are clear. Rotation is optional bonus evidence; body movement, hands, timing, and prop path remain the primary assessment. Missing rotation evidence does not prevent the movement from being assessed.',
                     style: ElixTypography.supporting(
                       color: context.elixTextSecondary,
                     ),
@@ -986,13 +1072,24 @@ class _CustomMovementAuthoringScreenState
                 ),
               ),
             ),
-            if (_recording)
-              Text(
-                '● Recording',
-                style: ElixTypography.label(color: context.elixColors.error),
-              ),
           ],
         ),
+        if (_recording || _finishingReference) ...[
+          const SizedBox(height: AppSpacing.xs),
+          if (_recording)
+            ValueListenableBuilder<int>(
+              valueListenable: _referenceRemainingSeconds,
+              builder: (context, remainingSeconds, _) => Text(
+                '● Recording · ${_formatReferenceCaptureRemaining(remainingSeconds)} remaining',
+                style: ElixTypography.label(color: context.elixColors.error),
+              ),
+            )
+          else
+            Text(
+              'Finishing example…',
+              style: ElixTypography.label(color: context.elixTextSecondary),
+            ),
+        ],
         const SizedBox(height: AppSpacing.sm),
         Text(
           'Show the full movement from start to finish.',
@@ -1023,11 +1120,13 @@ class _CustomMovementAuthoringScreenState
           key: const ValueKey('custom-reference-record'),
           label: _recording
               ? 'Finish example'
+              : _finishingReference
+              ? 'Finishing example…'
               : _references.isEmpty
               ? 'Record example'
               : 'Record another example',
           onPressed: _recording
-              ? (_busy ? null : _finishReference)
+              ? (_busy ? null : () => _finishReference())
               : (_canRecord ? _record : null),
         ),
         if (_initializing) ...[
@@ -1105,11 +1204,15 @@ class _CustomMovementAuthoringScreenState
             children: [
               Button(
                 key: ValueKey('example-select-${reference.id}'),
-                onPressed: _busy ? null : () => _selectPreview(reference),
+                onPressed: _busy || _recording
+                    ? null
+                    : () => _selectPreview(reference),
                 child: Text(selected ? 'Selected' : 'Preview / edit'),
               ),
               Button(
-                onPressed: _busy ? null : () => _delete(reference),
+                onPressed: _busy || _recording
+                    ? null
+                    : () => _delete(reference),
                 child: const Text('Delete'),
               ),
             ],
@@ -1222,20 +1325,27 @@ class _CustomMovementAuthoringScreenState
                 value: _pendingStart.toDouble(),
                 min: 0,
                 max: reference.durationMs.toDouble(),
-                onChanged: (value) => setState(
-                  () => _pendingStart = value.round().clamp(0, _pendingEnd - 1),
-                ),
+                onChanged: _busy || _recording
+                    ? null
+                    : (value) => setState(
+                        () => _pendingStart = value.round().clamp(
+                          0,
+                          _pendingEnd - 1,
+                        ),
+                      ),
               ),
               Slider(
                 value: _pendingEnd.toDouble(),
                 min: 0,
                 max: reference.durationMs.toDouble(),
-                onChanged: (value) => setState(
-                  () => _pendingEnd = value.round().clamp(
-                    _pendingStart + 1,
-                    reference.durationMs,
-                  ),
-                ),
+                onChanged: _busy || _recording
+                    ? null
+                    : (value) => setState(
+                        () => _pendingEnd = value.round().clamp(
+                          _pendingStart + 1,
+                          reference.durationMs,
+                        ),
+                      ),
               ),
               Text(
                 'Selected  ${_time(_pendingEnd - _pendingStart)}',
@@ -1250,7 +1360,7 @@ class _CustomMovementAuthoringScreenState
           runSpacing: AppSpacing.sm,
           children: [
             Button(
-              onPressed: _busy
+              onPressed: _busy || _recording
                   ? null
                   : () => _applyTrim(reference, 0, reference.durationMs),
               child: const Text('Reset trim'),
@@ -1258,7 +1368,7 @@ class _CustomMovementAuthoringScreenState
             ElixPrimaryButton(
               label: 'Apply changes',
               expanded: false,
-              onPressed: _busy
+              onPressed: _busy || _recording
                   ? null
                   : () => _applyTrim(reference, _pendingStart, _pendingEnd),
             ),
@@ -1480,6 +1590,16 @@ class _CustomMovementAuthoringScreenState
                 color: context.elixTextSecondary,
               ),
             ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'How to perform it',
+              style: ElixTypography.label(color: context.elixTextSecondary),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _description.text.trim(),
+              style: ElixTypography.supporting(color: context.elixTextPrimary),
+            ),
             const SizedBox(height: AppSpacing.lg),
             Text(
               'Examples',
@@ -1527,12 +1647,13 @@ class _CustomMovementAuthoringScreenState
               ),
               tinted: true,
             ),
-            if (_trackRotation && capabilities['prop_rotation'] != true) ...[
+            if (_prop == TrainingProp.bottle &&
+                capabilities['prop_rotation'] != true) ...[
               const SizedBox(height: AppSpacing.md),
               const InfoBar(
-                title: Text('Rotation could not be learned'),
+                title: Text('Visible bottle rotation was not learned'),
                 content: Text(
-                  'You can save this movement. Rotation will not affect its score; record clearer marked examples later if you want the optional bonus.',
+                  'This movement is still valid and scorable. Clear orange top/neck and yellow base/bottom markers can help ELIXR learn projected turns for an optional bonus. Body movement, hands, timing, and prop path remain the primary assessment.',
                 ),
                 severity: InfoBarSeverity.info,
               ),
@@ -1661,7 +1782,7 @@ class _CustomMovementAuthoringScreenState
                       label: 'Previous',
                       expanded: false,
                       variant: ElixButtonVariant.outline,
-                      onPressed: _busy
+                      onPressed: _busy || _recording
                           ? null
                           : () => setState(() {
                               _step--;

@@ -29,6 +29,19 @@ def _template():
     return build_template([_sequence(), _sequence(shift=.1), _sequence(scale=1.1)], ("pose", "hands", "prop_translation"))
 
 
+def _jittered_sequence(amplitude=.01):
+    return tuple(
+        replace(
+            frame,
+            prop=Landmark(
+                frame.prop.x + (amplitude if index % 2 == 0 else -amplitude),
+                frame.prop.y,
+            ),
+        )
+        for index, frame in enumerate(_sequence())
+    )
+
+
 def _release_sequence(*, catch=True, interval=100):
     path = [0, 0, .4, .6, .4, 0, 0, 0] if catch else [0, 0, .4, .6, .5, .4, .4, .4]
     heights = [0, 0, -.04, -.10, -.04, 0, 0, 0] if catch else [0, 0, -.04, -.10, -.04, 0, 0, 0]
@@ -94,9 +107,27 @@ def test_matching_speed_tolerance_and_wrong_order_static_and_prop_trajectory_sco
     ))
     assert good.component_scores["Body technique"] == 3
     assert good.component_scores["Prop path"] == 3
+    assert good.component_scores["Control/stability"] == 3
+    assert compare_sequence(template, _sequence(interval=50)).component_scores[
+        "Control/stability"
+    ] == 3
     assert wrong_order.component_scores["Body technique"] < good.component_scores["Body technique"]
     assert static.component_scores["Prop path"] < good.component_scores["Prop path"]
     assert different_prop.component_scores["Prop path"] < good.component_scores["Prop path"]
+    assert different_prop.component_scores["Control/stability"] > different_prop.component_scores["Prop path"]
+
+
+def test_control_measures_phase_aligned_jitter_independently_from_prop_path():
+    template = _template()
+    smooth = compare_sequence(template, _sequence())
+    jittery = compare_sequence(template, _jittered_sequence())
+
+    assert smooth.component_scores["Prop path"] == 3
+    assert smooth.component_scores["Control/stability"] == 3
+    assert jittery.component_scores["Prop path"] == smooth.component_scores["Prop path"]
+    assert jittery.component_scores["Control/stability"] < smooth.component_scores[
+        "Control/stability"
+    ]
 
 
 def test_missing_modality_and_unrecoverable_track_loss_are_safe_and_not_perfect():
@@ -104,6 +135,7 @@ def test_missing_modality_and_unrecoverable_track_loss_are_safe_and_not_perfect(
     temporary = compare_sequence(template, _sequence(miss=(5,)))
     assert temporary.validation.valid
     assert temporary.component_scores["Prop path"] < 3
+    assert temporary.component_scores["Control/stability"] < 3
     lost = compare_sequence(template, _sequence(miss=(3, 4, 5, 6)))
     assert FailureCode.TRACK_LOSS in lost.validation.codes
     assert lost.total == 0
@@ -204,7 +236,8 @@ def test_movement_evidence_carries_three_quarters_of_custom_total():
     assert result.component_scores["Hand technique"] == 3
     assert result.component_scores["Timing"] == 3
     assert result.component_scores["Prop path"] == 0
-    assert result.total == 9
+    assert result.component_scores["Control/stability"] == 3
+    assert result.total == 10
 
 
 def test_release_catch_capability_is_not_claimed_without_both_events():

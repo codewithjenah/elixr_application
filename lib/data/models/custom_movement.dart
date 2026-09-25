@@ -151,8 +151,16 @@ class CustomMovement {
     if (_bounded(name, nameMaxLength) == null) {
       return 'Enter a movement name (maximum $nameMaxLength characters).';
     }
-    if (_bounded(description, descriptionMaxLength, allowEmpty: true) == null) {
-      return 'Description must be at most $descriptionMaxLength characters.';
+    final executionGuidance = _bounded(
+      description,
+      descriptionMaxLength,
+      allowEmpty: true,
+    );
+    if (executionGuidance == null) {
+      return 'Execution guidance must be at most $descriptionMaxLength characters.';
+    }
+    if (executionGuidance.isEmpty) {
+      return 'Describe how to perform this movement from start to finish.';
     }
     if (!allowedDifficulties.contains(difficulty)) {
       return 'Choose a valid difficulty.';

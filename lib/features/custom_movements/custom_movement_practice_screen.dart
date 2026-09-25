@@ -624,9 +624,10 @@ class _CustomMovementPracticeScreenState
   Widget build(BuildContext context) {
     final result = _result;
     final mirrored = context.watch<SettingsService>().cameraMirrored;
-    final instruction = widget.movement.description.trim().isEmpty
-        ? 'Perform the movement as demonstrated in your saved references.'
-        : widget.movement.description;
+    final savedInstructions = widget.movement.description.trim();
+    final instruction = savedInstructions.isEmpty
+        ? 'Execution instructions are unavailable. If you own this movement, edit it to add guidance; otherwise ask the owner to add them before you practice.'
+        : savedInstructions;
     return ElixScaffoldPage(
       padding: EdgeInsets.zero,
       content: SizedBox.expand(
@@ -678,8 +679,7 @@ class _CustomMovementPracticeScreenState
                           result == null),
                   readyAura: _phase == _CustomPracticePhase.readyToStart,
                   idleTitle: 'Movement Assessment',
-                  idleSubtitle:
-                      'Complete setup, then perform your recorded movement.',
+                  idleSubtitle: 'Complete setup before the timed assessment.',
                   idleCaption:
                       'Keep the required body, hands, and selected prop visible.',
                   errorMessage: _socket.errorMessage,
@@ -770,7 +770,7 @@ class _CustomMovementPracticeScreenState
       _CustomPracticePhase.processing => const TrainingReadyBrief(
         title: 'Analyzing performance…',
         body:
-            'ELIXR is comparing the recorded movement with your saved reference.',
+            'ELIXR is comparing this performance with the learned movement pattern.',
       ),
       _CustomPracticePhase.completed =>
         result == null

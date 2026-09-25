@@ -408,7 +408,7 @@ class _MovementCardState extends State<_MovementCard> {
                     Expanded(
                       child: Text(
                         widget.movement.description.isEmpty
-                            ? 'Personal automatic movement'
+                            ? 'Execution instructions are missing. Edit this movement to add guidance.'
                             : widget.movement.description,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,

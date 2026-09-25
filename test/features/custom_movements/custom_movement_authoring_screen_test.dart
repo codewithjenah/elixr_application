@@ -125,6 +125,10 @@ class _Socket extends Fake implements WebSocketService {
   bool rejectNextReference = false;
   final List<String?> preparedCameraIds = [];
   int stopCalls = 0;
+  int startCustomCaptureCalls = 0;
+  int stopCustomCaptureCalls = 0;
+  int? lastCaptureDurationSeconds;
+  Completer<void>? stopReferenceCompleter;
   String? preparedMode;
   TeacherActivityReadinessSpec? preparedReadiness;
   Map<String, dynamic>? templateOverride;
@@ -210,13 +214,36 @@ class _Socket extends Fake implements WebSocketService {
       stopCalls++;
       return Future<CommandAck>.value(_ack('stop'));
     }
+    if (method == #sendStartCustomCapture) {
+      startCustomCaptureCalls++;
+      lastCaptureDurationSeconds =
+          invocation.namedArguments[#durationSeconds] as int?;
+      return Future<CommandAck>.value(_ack('$method'));
+    }
     if (method == #sendBeginReadiness ||
         method == #sendConfirmReadiness ||
-        method == #sendActivate ||
-        method == #sendStartCustomCapture) {
+        method == #sendActivate) {
       return Future<CommandAck>.value(_ack('$method'));
     }
     if (method == #sendStopCustomCapture) {
+      stopCustomCaptureCalls++;
+      final stopCompleter = stopReferenceCompleter;
+      if (stopCompleter != null) {
+        return stopCompleter.future.then((_) {
+          count++;
+          return _ack(
+            'stop_custom_capture',
+            id: 'reference-$count',
+            start: 0,
+            end: 7000,
+            quality: {
+              'left_hand_coverage': 0.25,
+              'right_hand_coverage': 0.1,
+              'pose_coverage': 0.8,
+            },
+          );
+        });
+      }
       if (rejectNextReference) {
         rejectNextReference = false;
         return Future<CommandAck>.value(
@@ -336,6 +363,15 @@ Widget _host({
 }
 
 Future<void> _record(WidgetTester tester, _Socket socket) async {
+  await _startReferenceRecording(tester, socket);
+  await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+  await tester.pump(const Duration(milliseconds: 100));
+}
+
+Future<void> _startReferenceRecording(
+  WidgetTester tester,
+  _Socket socket,
+) async {
   await tester.ensureVisible(
     find.byKey(const ValueKey('custom-reference-record')),
   );
@@ -347,12 +383,69 @@ Future<void> _record(WidgetTester tester, _Socket socket) async {
   await tester.pump(const Duration(seconds: 1));
   await tester.pump();
   expect(find.text('Finish example'), findsOneWidget);
-  await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+  expect(find.text('● Recording · 00:15 remaining'), findsOneWidget);
+  expect(socket.lastCaptureDurationSeconds, 15);
+}
+
+Future<void> _enterReferenceStudio(WidgetTester tester, _Socket socket) async {
+  await tester.enterText(
+    find.byKey(const ValueKey('custom-movement-name')),
+    'Bottle Loop',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey('custom-movement-description')),
+    'Hold the bottle, loop it once, then catch it.',
+  );
+  await tester.ensureVisible(
+    find.byKey(const ValueKey('custom-movement-next')),
+  );
+  await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
   await tester.pump(const Duration(milliseconds: 100));
+  socket.ready();
+  await tester.pump();
+  final record = find.byKey(const ValueKey('custom-reference-record'));
+  for (var attempt = 0; attempt < 20; attempt++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (tester.widget<ElixPrimaryButton>(record).onPressed != null) break;
+  }
+  expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('execution guidance is required before authoring can continue', (
+    tester,
+  ) async {
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+
+    expect(find.text('How to perform this movement'), findsOneWidget);
+    expect(
+      find.text(
+        'Explain the movement in order. ELIXR shows these instructions during practice.',
+      ),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('custom-movement-name')),
+      'Bottle Loop',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-next')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(
+      find.text('Describe how to perform this movement from start to finish.'),
+      findsOneWidget,
+    );
+    expect(find.text('Set up your movement'), findsWidgets);
+    expect(socket.preparedMode, isNull);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'camera source change closes the old reference session before preparing another',
@@ -477,6 +570,8 @@ void main() {
       );
       await _record(tester, socket);
       expect(socket.count, 1);
+      expect(socket.stopCustomCaptureCalls, 2);
+      expect(find.text('● Recording · 00:15 remaining'), findsNothing);
       expect(find.textContaining('Example 1'), findsWidgets);
       socket.ready(readinessStable: false);
       await tester.pump();
@@ -484,6 +579,82 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('reference recording automatically finalizes at its deadline', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _startReferenceRecording(tester, socket);
+
+    await tester.pump(const Duration(seconds: 15));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(socket.startCustomCaptureCalls, 1);
+    expect(socket.stopCustomCaptureCalls, 1);
+    expect(socket.count, 1);
+    expect(find.text('● Recording · 00:15 remaining'), findsNothing);
+    expect(find.text('Finish example'), findsNothing);
+    expect(find.textContaining('Example 1'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('manual finish cancels timeout and sends one stop command', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _Socket()..stopReferenceCompleter = Completer<void>();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _startReferenceRecording(tester, socket);
+
+    await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+    await tester.pump();
+    expect(socket.stopCustomCaptureCalls, 1);
+    expect(find.text('● Recording · 00:15 remaining'), findsNothing);
+    expect(find.text('Finishing example…'), findsWidgets);
+
+    await tester.pump(const Duration(seconds: 15));
+    expect(socket.stopCustomCaptureCalls, 1);
+    socket.stopReferenceCompleter!.complete();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+
+    expect(socket.stopCustomCaptureCalls, 1);
+    expect(socket.count, 1);
+    expect(find.textContaining('Example 1'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('disposing the authoring page cancels its capture timer', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _startReferenceRecording(tester, socket);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 16));
+
+    expect(socket.stopCustomCaptureCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'full page guides two required references and keeps a third optional',
@@ -753,7 +924,7 @@ void main() {
   );
 
   testWidgets(
-    'existing template remains savable when optional rotation is unavailable',
+    'rotation is automatic optional evidence and review reports learned capability',
     (tester) async {
       tester.view.physicalSize = const Size(1050, 800);
       tester.view.devicePixelRatio = 1;
@@ -780,12 +951,14 @@ void main() {
         ),
       );
       expect(
-        tester
-            .widget<ToggleSwitch>(
-              find.byKey(const ValueKey('custom-movement-require-rotation')),
-            )
-            .checked,
-        isTrue,
+        find.byKey(const ValueKey('custom-movement-require-rotation')),
+        findsNothing,
+      );
+      expect(
+        find.textContaining(
+          'ELIXR may automatically learn visible projected bottle rotation',
+        ),
+        findsOneWidget,
       );
       await tester.ensureVisible(
         find.byKey(const ValueKey('custom-movement-next')),
@@ -816,10 +989,10 @@ void main() {
           revision: revision(MovementTemplate.tryFrom(_templateMap(3))!),
         ),
       );
-      await tester.tap(
+      expect(
         find.byKey(const ValueKey('custom-movement-require-rotation')),
+        findsNothing,
       );
-      await tester.pump(const Duration(milliseconds: 100));
       await tester.ensureVisible(
         find.byKey(const ValueKey('custom-movement-next')),
       );
@@ -838,7 +1011,15 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Rotation could not be learned'), findsOneWidget);
+      expect(
+        find.text('Visible bottle rotation was not learned'),
+        findsOneWidget,
+      );
+      expect(find.text('Visible bottle rotation bonus'), findsNothing);
+      expect(
+        find.textContaining('This movement is still valid and scorable.'),
+        findsOneWidget,
+      );
       expect(
         tester
             .widget<ElixPrimaryButton>(
@@ -849,6 +1030,27 @@ void main() {
       );
     },
   );
+
+  testWidgets('shaker authoring does not claim rotation is supported', (
+    tester,
+  ) async {
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+
+    tester
+        .widget<ComboBox<TrainingProp>>(
+          find.byKey(const ValueKey('custom-movement-prop')),
+        )
+        .onChanged!(TrainingProp.shaker);
+    await tester.pump();
+
+    expect(find.textContaining('rotation'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('custom-movement-require-rotation')),
+      findsNothing,
+    );
+  });
 
   testWidgets('review shows only learned hand and body capabilities', (
     tester,

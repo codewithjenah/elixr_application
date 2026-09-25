@@ -201,6 +201,55 @@ def _template(*, sides=("left",), moving_pose=False):
     )
 
 
+def test_low_control_assessment_feedback_coaches_smooth_prop_motion():
+    template = _template()
+    jittered = tuple(
+        replace(
+            frame,
+            prop=Landmark(
+                frame.prop.x + (0.08 if index % 2 == 0 else -0.08),
+                frame.prop.y,
+            ),
+        )
+        for index, frame in enumerate(_reference())
+    )
+    session = websocket_api.VisionSession(
+        "Custom Movement",
+        session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(jittered)
+
+    result = session.finish_custom_assessment()
+
+    assert result["component_scores"]["Control/stability"] <= 1
+    assert (
+        "Keep the prop movement steady and smooth through each transition."
+        in result["feedback"]
+    )
+    session.close()
+
+
+def test_rejected_short_capture_clears_backend_capture_state():
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_capture"
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    session._custom_person_count = 1
+    session._custom_person_observed_at = time.monotonic()
+    _visible(session)
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    assert session._custom_samples is not None
+
+    accepted, code, _ = session.stop_custom_capture()
+
+    assert accepted is False
+    assert code == "custom_capture_not_recording"
+    assert session._custom_samples is None
+    assert session._custom_capture_deadline is None
+    session.close()
+
+
 def _performer_pose(center_x=0.5, *, hips_only=False):
     left, right = (23, 24) if hips_only else (11, 12)
     return SimpleNamespace(

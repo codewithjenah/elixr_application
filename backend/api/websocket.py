@@ -1280,7 +1280,9 @@ class VisionSession:
             for name, score in result.component_scores.items():
                 if score is not None and score <= 1:
                     payload["feedback"].append(
-                        f"Improve {name.lower()} relative to the recorded examples."
+                        "Keep the prop movement steady and smooth through each transition."
+                        if name == "Control/stability"
+                        else f"Improve {name.lower()} relative to the recorded examples."
                     )
             if self._custom_template.feature_capabilities.get("release_catch"):
                 observed_events = {event.kind for event in detect_prop_events(samples)}

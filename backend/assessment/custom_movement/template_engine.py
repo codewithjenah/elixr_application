@@ -1065,6 +1065,82 @@ def _modality_error(a: FrameSample, b: FrameSample, modality: str) -> float | No
     return sum(usable) / len(usable) if usable else None
 
 
+def _phase_aligned_prop_curve_error(
+    reference: Sequence[FrameSample],
+    candidate: Sequence[FrameSample],
+    path: Sequence[tuple[int, int]],
+) -> tuple[float | None, float]:
+    """Compare local prop-trajectory curvature after DTW phase alignment.
+
+    Neighbor residuals remove absolute position and steady velocity, so this
+    measures local jitter/control without treating a smooth fast execution or
+    a learned sharp turn as unstable. Missing observations remain unknown.
+    """
+    reference_points: list[list[Landmark]] = [[] for _ in candidate]
+    for reference_index, candidate_index in path:
+        point = reference[reference_index].prop
+        if _usable(point):
+            assert point is not None
+            reference_points[candidate_index].append(point)
+    aligned_reference = [
+        _mean_points(points) if points else None for points in reference_points
+    ]
+
+    possible = max(0, len(candidate) - 2)
+    if possible == 0:
+        return None, 0.0
+    errors: list[float] = []
+    for index in range(1, len(candidate) - 1):
+        expected = (
+            aligned_reference[index - 1],
+            aligned_reference[index],
+            aligned_reference[index + 1],
+        )
+        observed = (
+            candidate[index - 1].prop,
+            candidate[index].prop,
+            candidate[index + 1].prop,
+        )
+        if not all(_usable(point) for point in (*expected, *observed)):
+            continue
+        expected_before, expected_center, expected_after = expected
+        observed_before, observed_center, observed_after = observed
+        assert all(
+            point is not None
+            for point in (
+                expected_before,
+                expected_center,
+                expected_after,
+                observed_before,
+                observed_center,
+                observed_after,
+            )
+        )
+        expected_curve_x = expected_center.x - (
+            expected_before.x + expected_after.x
+        ) / 2
+        expected_curve_y = expected_center.y - (
+            expected_before.y + expected_after.y
+        ) / 2
+        observed_curve_x = observed_center.x - (
+            observed_before.x + observed_after.x
+        ) / 2
+        observed_curve_y = observed_center.y - (
+            observed_before.y + observed_after.y
+        ) / 2
+        errors.append(
+            math.hypot(
+                expected_curve_x - observed_curve_x,
+                expected_curve_y - observed_curve_y,
+            )
+        )
+    return (
+        (sum(errors) / len(errors), len(errors) / possible)
+        if errors
+        else (None, 0.0)
+    )
+
+
 def _dtw(reference: Sequence[FrameSample], candidate: Sequence[FrameSample], modalities: Sequence[str]) -> list[tuple[int, int]]:
     rows, cols = len(reference), len(candidate)
     costs = [[float("inf")] * (cols + 1) for _ in range(rows + 1)]
@@ -1245,13 +1321,19 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
             confidence["Timing"] = 1.0
             scores["Timing"] = duration_score
     if "prop_translation" in path_modalities:
-        prop_errors = [_modality_error(template.canonical_sequence[i], candidate[j], "prop_translation") for i, j in path]
-        usable = [value for value in prop_errors if value is not None]
         coverage, _ = _coverage(samples, "prop_translation")
-        if usable:
-            # Path error already captures jitter/velocity through the temporal trace.
-            confidence["Control/stability"] = coverage
-            scores["Control/stability"] = _quality(sum(usable) / len(usable), coverage)
+        control_error, local_coverage = _phase_aligned_prop_curve_error(
+            template.canonical_sequence, candidate, path
+        )
+        if control_error is not None:
+            control_coverage = min(coverage, local_coverage)
+            confidence["Control/stability"] = control_coverage
+            control_score = _quality(control_error, control_coverage)
+            # Even a short valid detector gap is uncertainty, not evidence of
+            # perfectly steady control.
+            if coverage < 1.0:
+                control_score = min(control_score, 2)
+            scores["Control/stability"] = control_score
     if template.rotation_trace is not None:
         rotation = _rotation_trace(samples)
         stable = _rotation_track_stable(samples)
