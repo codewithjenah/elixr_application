@@ -14,7 +14,13 @@ from assessment.freestyle import (
 )
 from assessment.rule_engine import movement_supported_prop_types
 from assessment.rules.base import CriterionCheck, RuleResult
-from vision.types import HandLandmarks, HandsResult, Point2D, PropDetection
+from vision.types import (
+    HandLandmarks,
+    HandsResult,
+    Point2D,
+    PoseLandmarks,
+    PropDetection,
+)
 
 
 def _box(
@@ -177,6 +183,48 @@ def test_endless_target_filters_catalog_and_resets_candidate():
     assert recognizer._target == ("Reverse Grip", "bottle")
     recognizer.clear_target()
     assert recognizer._target is None
+
+
+def test_endless_candidate_survives_brief_landmark_tracking_loss():
+    class LandmarkSensitiveEvaluate:
+        def __call__(
+            self, movement, bottle, pose, hands, prev_hip, state=None, **kwargs
+        ):
+            result = _unknown() if hands is None or pose is None else _valid()
+            return result, prev_hip, state
+
+    evaluate = LandmarkSensitiveEvaluate()
+    allowed = frozenset({("Normal Grip", "bottle")})
+    standard = FreestyleRecognizer(allowed_movements=allowed)
+    recognizer = FreestyleRecognizer(
+        allowed_movements=allowed,
+        targeted=True,
+        evaluate_fn=evaluate,
+        confirm_seconds=0.2,
+        exit_seconds=0.1,
+    )
+    assert standard.unknown_grace_seconds == 0.35
+    assert recognizer.unknown_grace_seconds == 0.5
+    assert recognizer.set_target("movement", "Normal Grip", "bottle")
+    pose = PoseLandmarks(points={11: Point2D(0.4, 0.3)})
+
+    _tick(recognizer, 0.0, pose=pose)
+    for index in range(1, 10):
+        tick = _tick(
+            recognizer,
+            index * 0.05,
+            hands=None,
+            pose=None,
+        )
+        assert tick.recognition_state == "candidate"
+
+    events = [
+        _tick(recognizer, index * 0.05, pose=pose).event
+        for index in range(10, 18)
+    ]
+    confirmed = [event for event in events if event is not None]
+    assert len(confirmed) == 1
+    assert confirmed[0].movement == "Normal Grip"
 
 
 def test_generic_airborne_event_is_named_toss_catch():

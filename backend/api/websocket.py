@@ -2003,7 +2003,7 @@ class VisionSession:
         has_landmark_work = needs_hands or needs_pose
         staged_hands = bool(
             needs_hands
-            and self._is_custom
+            and (self._is_custom or self._is_freestyle)
             and self._hands_bartender_roi
             and self.hands_detector is not None
             and callable(getattr(self.hands_detector, "detect_independent", None))
@@ -2024,8 +2024,8 @@ class VisionSession:
             and run_yolo
             and has_landmark_work
             and hands_can_run_without_prop
-            # Generic custom hands can stage prop-independent inference; the
-            # prop ROI still waits for the current YOLO result below.
+            # Custom and freestyle hands can stage prop-independent inference;
+            # the prop ROI still waits for the current YOLO result below.
             and (not (needs_hands and self._hands_bartender_roi) or staged_hands)
         )
 

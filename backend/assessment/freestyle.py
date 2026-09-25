@@ -32,6 +32,9 @@ FREESTYLE_MOVEMENT_LABEL = "Freestyle"
 CONFIRM_SECONDS = 0.45
 EXIT_SECONDS = 0.30
 UNKNOWN_GRACE_SECONDS = 0.35
+# Endless uses a slightly wider, bounded unknown window so brief landmark
+# tracking losses pause movement confirmation instead of resetting its hold.
+ENDLESS_UNKNOWN_GRACE_SECONDS = 0.50
 PROP_STABLE_FRAMES = 4
 PROP_MISS_GRACE_FRAMES = 6
 AMBIGUITY_MARGIN = 0.15
@@ -550,6 +553,13 @@ class FreestyleRecognizer:
             detected_prop_type=None,
         )
     )
+
+    def __post_init__(self) -> None:
+        # Endless runs use targeted recognition. Preserve an in-progress
+        # candidate slightly longer through transient pose/hand loss without
+        # reusing old landmark coordinates as current evidence.
+        if self.targeted and self.unknown_grace_seconds == UNKNOWN_GRACE_SECONDS:
+            self.unknown_grace_seconds = ENDLESS_UNKNOWN_GRACE_SECONDS
 
     def reset(self) -> None:
         self._prop.reset()

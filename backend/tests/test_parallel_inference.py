@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -380,6 +381,79 @@ def test_failed_custom_hand_stage_still_records_one_timing_sample(monkeypatch):
                 defer_prop_recovery=True,
             )
         assert session.timings.count("hands") == 1
+    finally:
+        session.close()
+
+
+def test_endless_stages_prop_guided_hands_to_overlap_yolo_and_landmarks(monkeypatch):
+    _patch_vision(monkeypatch)
+    barrier = threading.Barrier(2)
+    frame_ids: dict[str, int] = {}
+    prop = PropDetection(10, 10, 30, 50, 0.9, track_id=7)
+    observed_hands = HandsResult(
+        hands=[HandLandmarks(points={0: Point2D(0.2, 0.3)})]
+    )
+    observed_pose = PoseLandmarks(points={11: Point2D(0.4, 0.3)})
+
+    class CoordinatedDualProp:
+        def __init__(self, *, enabled=True, **kwargs):
+            self.enabled = enabled
+
+        def detect(self, frame):
+            frame_ids["prop"] = id(frame)
+            barrier.wait(timeout=2.0)
+            time.sleep(_BRANCH_DELAY_S)
+            return SimpleNamespace(bottles=[prop], shakers=[])
+
+        def reset_cache(self):
+            pass
+
+    class StagedHands(StubHandsDetector):
+        def detect_independent(self, frame, *, captured_at_monotonic=None):
+            self.detect_calls += 1
+            frame_ids["hands"] = id(frame)
+            barrier.wait(timeout=2.0)
+            return "hand-stage"
+
+        def finish_with_prop(self, frame, independent, bottle):
+            assert independent == "hand-stage"
+            assert bottle is prop
+            frame_ids["recovery"] = id(frame)
+            return observed_hands
+
+    class StagedPose(StubPoseDetector):
+        def detect(self, frame):
+            self.detect_calls += 1
+            frame_ids["pose"] = id(frame)
+            return observed_pose
+
+    monkeypatch.setattr(websocket_api, "DualPropDetector", CoordinatedDualProp)
+    monkeypatch.setattr(websocket_api, "HandsDetector", StagedHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", StagedPose)
+    session = websocket_api.VisionSession(
+        "Freestyle", session_mode="endless", endless_selected_prop="bottle",
+    )
+    try:
+        session._sync_landmark_detectors(needs_hands=True, needs_pose=True)
+        frame = object()
+        normalized, hands, pose = session._run_frame_inference(
+            frame,
+            captured_at_monotonic=time.monotonic(),
+            run_yolo=True,
+            needs_hands=True,
+            needs_pose=True,
+        )
+
+        assert frame_ids == {
+            "prop": id(frame), "hands": id(frame), "pose": id(frame),
+            "recovery": id(frame),
+        }
+        assert normalized.primary == (prop,)
+        assert hands is observed_hands and pose is observed_pose
+        assert session.timings.inference_concurrency_summary() == {
+            "parallel_frames": 1,
+            "sequential_frames": 0,
+        }
     finally:
         session.close()
 
