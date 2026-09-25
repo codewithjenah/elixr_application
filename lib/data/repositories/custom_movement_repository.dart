@@ -5,6 +5,11 @@ import '../models/training_prop.dart';
 abstract class CustomMovementRepository {
   Stream<List<CustomMovement>> watchOwnedMovements({required String ownerUid});
 
+  /// Watches append-only personal assessments for the signed-in movement owner.
+  Stream<List<CustomMovementResult>> watchPersonalResults({
+    required String ownerUid,
+  });
+
   Future<CustomMovement?> getOwnedMovement({
     required String movementId,
     required String ownerUid,

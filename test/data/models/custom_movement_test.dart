@@ -201,4 +201,50 @@ void main() {
       );
     });
   });
+
+  group('CustomMovementResult', () {
+    test('parses bounded personal progress records', () {
+      final result = CustomMovementResult.tryFromMap({
+        'owner_uid': 'trainee-1',
+        'movement_id': 'movement-1',
+        'revision_id': 'revision-1',
+        'result_type': 'personal_practice',
+        'total_score': 87.5,
+        'component_scores': {'Timing': 3},
+        'feedback': ['Good timing'],
+      }, id: 'result-1');
+
+      expect(result, isNotNull);
+      expect(result!.totalScore, 87.5);
+      expect(result.componentScores, {'Timing': 3.0});
+      expect(result.feedback, ['Good timing']);
+    });
+
+    test('rejects malformed scores and non-personal result records', () {
+      final valid = {
+        'owner_uid': 'trainee-1',
+        'movement_id': 'movement-1',
+        'revision_id': 'revision-1',
+        'result_type': 'personal_practice',
+        'total_score': 87.5,
+        'component_scores': {'Timing': 3},
+        'feedback': ['Good timing'],
+      };
+
+      expect(
+        CustomMovementResult.tryFromMap({
+          ...valid,
+          'total_score': 101,
+        }, id: 'result-1'),
+        isNull,
+      );
+      expect(
+        CustomMovementResult.tryFromMap({
+          ...valid,
+          'result_type': 'assignment',
+        }, id: 'result-1'),
+        isNull,
+      );
+    });
+  });
 }

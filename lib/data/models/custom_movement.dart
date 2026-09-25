@@ -222,4 +222,48 @@ class CustomMovementResult {
   final Map<String, double> componentScores;
   final List<String> feedback;
   final DateTime? createdAt;
+
+  static CustomMovementResult? tryFromMap(
+    Map<String, dynamic> map, {
+    required String id,
+  }) {
+    final ownerUid = CustomMovement._id(map['owner_uid']);
+    final movementId = CustomMovement._id(map['movement_id']);
+    final revisionId = CustomMovement._id(map['revision_id']);
+    final totalScore = map['total_score'];
+    final rawScores = map['component_scores'];
+    final rawFeedback = map['feedback'];
+    if (ownerUid == null ||
+        movementId == null ||
+        revisionId == null ||
+        totalScore is! num ||
+        !totalScore.isFinite ||
+        totalScore < 0 ||
+        totalScore > 100 ||
+        rawScores is! Map ||
+        rawFeedback is! List ||
+        map['result_type'] != 'personal_practice') {
+      return null;
+    }
+    final scores = <String, double>{};
+    for (final entry in rawScores.entries) {
+      if (entry.key is! String ||
+          entry.value is! num ||
+          !(entry.value as num).isFinite) {
+        return null;
+      }
+      scores[entry.key as String] = (entry.value as num).toDouble();
+    }
+    if (rawFeedback.any((value) => value is! String)) return null;
+    return CustomMovementResult(
+      id: id,
+      ownerUid: ownerUid,
+      movementId: movementId,
+      revisionId: revisionId,
+      totalScore: totalScore.toDouble(),
+      componentScores: Map.unmodifiable(scores),
+      feedback: List.unmodifiable(rawFeedback.cast<String>().take(8)),
+      createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
+    );
+  }
 }

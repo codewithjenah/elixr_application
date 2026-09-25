@@ -35,6 +35,23 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
   });
 
   @override
+  Stream<List<CustomMovementResult>> watchPersonalResults({
+    required String ownerUid,
+  }) => _firestore
+      .collection(FirestoreCollections.customMovementResults)
+      .where('owner_uid', isEqualTo: ownerUid)
+      .snapshots()
+      .map((snapshot) {
+        final results = snapshot.docs
+            .map(
+              (doc) => CustomMovementResult.tryFromMap(doc.data(), id: doc.id),
+            )
+            .whereType<CustomMovementResult>()
+            .toList(growable: false);
+        return results;
+      });
+
+  @override
   Future<CustomMovement?> getOwnedMovement({
     required String movementId,
     required String ownerUid,

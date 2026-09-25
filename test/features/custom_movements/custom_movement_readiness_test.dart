@@ -49,6 +49,7 @@ CommandAck _ack(
   int? referenceCount,
   bool accepted = true,
   String? errorCode,
+  Map<String, dynamic>? customAssessment,
 }) => CommandAck(
   protocolVersion: 1,
   requestId: 'req-$action',
@@ -61,6 +62,7 @@ CommandAck _ack(
       ? _oneHandTemplateMap()
       : null,
   errorCode: accepted ? null : (errorCode ?? 'missing_modality'),
+  customAssessment: customAssessment,
 );
 
 class _CustomSocket extends WebSocketService {
@@ -77,6 +79,7 @@ class _CustomSocket extends WebSocketService {
   int discardCalls = 0;
   int buildCalls = 0;
   int startCustomCaptureCalls = 0;
+  int finishCustomAssessmentCalls = 0;
   bool rejectNextStop = false;
   String? rejectNextStopCode;
   bool rejectNextSessionStop = false;
@@ -159,6 +162,21 @@ class _CustomSocket extends WebSocketService {
   }
 
   @override
+  Future<CommandAck> sendFinishCustomAssessment({String? sessionId}) async {
+    finishCustomAssessmentCalls += 1;
+    return _ack(
+      'finish_custom_assessment',
+      customAssessment: {
+        'score_percent': 83.3,
+        'total': 10,
+        'performance_level': 'proficient',
+        'component_scores': {'Timing': 3, 'Prop path': 2},
+        'feedback': ['Good timing'],
+      },
+    );
+  }
+
+  @override
   Future<CommandAck> sendDiscardCustomReference({String? sessionId}) async {
     discardCalls += 1;
     acceptedReferences -= 1;
@@ -234,6 +252,24 @@ class _CustomSocket extends WebSocketService {
 }
 
 class _UnusedRepository extends Fake implements CustomMovementRepository {}
+
+class _RecordingRepository extends Fake implements CustomMovementRepository {
+  int savePersonalResultCalls = 0;
+  double? savedScore;
+
+  @override
+  Future<void> savePersonalResult({
+    required String ownerUid,
+    required String movementId,
+    required String revisionId,
+    required double totalScore,
+    required Map<String, double> componentScores,
+    required List<String> feedback,
+  }) async {
+    savePersonalResultCalls += 1;
+    savedScore = totalScore;
+  }
+}
 
 class _TestSettings extends SettingsService {
   _TestSettings({this.deviceId});
@@ -437,6 +473,7 @@ void main() {
     (tester) async {
       _useDesktopSurface(tester);
       final socket = _CustomSocket();
+      final repository = _RecordingRepository();
       final template = MovementTemplate.tryFrom(_oneHandTemplateMap())!;
       final movement = CustomMovement(
         id: 'movement-1',
@@ -463,7 +500,7 @@ void main() {
           CustomMovementPracticeScreen(
             movement: movement,
             revision: revision,
-            repository: _UnusedRepository(),
+            repository: repository,
             webSocket: socket,
           ),
         ),
@@ -552,6 +589,25 @@ void main() {
       await tester.pump();
       expect(find.text('Searching for bottle'), findsOne);
       expect(find.text('Bottle detected'), findsNothing);
+
+      expect(repository.savePersonalResultCalls, 0);
+      socket.emitReady();
+      await tester.pump();
+      await tester.tap(find.text('Start Practice'));
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      expect(find.text('Finish Session'), findsOne);
+      expect(socket.finishCustomAssessmentCalls, 0);
+      expect(repository.savePersonalResultCalls, 0);
+
+      await tester.tap(find.text('Finish Session'));
+      await tester.pumpAndSettle();
+      expect(socket.finishCustomAssessmentCalls, 1);
+      expect(repository.savePersonalResultCalls, 1);
+      expect(repository.savedScore, 83.3);
+      expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
 
       await tester.pumpWidget(const SizedBox());
       await socket.closeTestStreams();

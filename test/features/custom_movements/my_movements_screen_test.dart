@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_back_button.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/custom_movement.dart';
 import 'package:elixr_application/data/models/movement_template.dart';
 import 'package:elixr_application/data/models/session.dart';
@@ -30,6 +31,7 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
   }
 
   final List<CustomMovement> movements;
+  List<CustomMovementResult> results = const [];
   late final StreamController<List<CustomMovement>> _controller;
   CustomMovementRevision? revision;
   String? watchedOwnerUid;
@@ -51,6 +53,13 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
     // implementation to leak another owner's or a Teacher-owned movement.
     return _controller.stream;
   }
+
+  @override
+  Stream<List<CustomMovementResult>> watchPersonalResults({
+    required String ownerUid,
+  }) => Stream.value(
+    results.where((result) => result.ownerUid == ownerUid).toList(),
+  );
 
   @override
   Future<CustomMovement?> getOwnedMovement({
@@ -311,20 +320,41 @@ void main() {
       _useDesktopSurface(tester);
       final auth = _auth();
       addTearDown(auth.dispose);
-      final repository = _CustomRepository([
-        _movement(id: 'own', ownerUid: 'trainee-1'),
-        _movement(
-          id: 'other',
-          ownerUid: 'trainee-2',
-          name: 'Another trainee movement',
-        ),
-        _movement(
-          id: 'assigned',
-          ownerUid: 'teacher-1',
-          ownerRole: CustomMovementOwnerRole.teacher,
-          name: 'Teacher assignment movement',
-        ),
-      ]);
+      final repository =
+          _CustomRepository([
+              _movement(id: 'own', ownerUid: 'trainee-1'),
+              _movement(
+                id: 'other',
+                ownerUid: 'trainee-2',
+                name: 'Another trainee movement',
+              ),
+              _movement(
+                id: 'assigned',
+                ownerUid: 'teacher-1',
+                ownerRole: CustomMovementOwnerRole.teacher,
+                name: 'Teacher assignment movement',
+              ),
+            ])
+            ..results = [
+              const CustomMovementResult(
+                id: 'result-1',
+                ownerUid: 'trainee-1',
+                movementId: 'own',
+                revisionId: 'revision-own',
+                totalScore: 83.4,
+                componentScores: {'Timing': 3},
+                feedback: [],
+              ),
+              const CustomMovementResult(
+                id: 'result-2',
+                ownerUid: 'trainee-1',
+                movementId: 'own',
+                revisionId: 'revision-own',
+                totalScore: 91.0,
+                componentScores: {'Timing': 3},
+                feedback: [],
+              ),
+            ];
       addTearDown(repository.dispose);
 
       await tester.pumpWidget(
@@ -345,7 +375,16 @@ void main() {
       expect(find.text('Movements'), findsOneWidget);
       expect(find.byKey(const ValueKey('my-movements-back')), findsNothing);
       expect(find.text('Own Cascade'), findsOneWidget);
-      expect(find.text('Medium · Cocktail Shaker'), findsOneWidget);
+      expect(find.text('CUSTOM'), findsOneWidget);
+      expect(find.text('Medium'), findsOneWidget);
+      expect(find.text('Cocktail Shaker'), findsOneWidget);
+      expect(find.text('2 practices · Best 91%'), findsOneWidget);
+      expect(find.byType(MovementImage), findsOneWidget);
+      expect(find.text('A personal automatic movement.'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('my-movement-practice-own')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const ValueKey('my-movement-delete-own')),
         findsOneWidget,
