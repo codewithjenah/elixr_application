@@ -73,6 +73,9 @@ class FirestoreHelper implements UserProfileStore {
       'evidence_size_bytes': data['evidence_size_bytes'],
       'assignment_context': data['assignment_context'],
       'challenge_context': data['challenge_context'],
+      'custom_movement_id': data['custom_movement_id'],
+      'custom_movement_revision_id': data['custom_movement_revision_id'],
+      'reference_image_storage_path': data['reference_image_storage_path'],
     };
   }
 
@@ -166,6 +169,12 @@ class FirestoreHelper implements UserProfileStore {
         'assignment_context': session.assignmentContext!.toMap(),
       if (session.challengeContext != null)
         'challenge_context': session.challengeContext!.toMap(),
+      if (session.customMovementId != null)
+        'custom_movement_id': session.customMovementId,
+      if (session.customMovementRevisionId != null)
+        'custom_movement_revision_id': session.customMovementRevisionId,
+      if (session.referenceImageStoragePath != null)
+        'reference_image_storage_path': session.referenceImageStoragePath,
     };
     if (session.isRubricAssessed && session.rubric != null) {
       sessionPayload.addAll(session.rubric!.toFirestoreFields());

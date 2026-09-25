@@ -75,6 +75,7 @@ class _CustomMovementPracticeScreenState
   bool _isSetupError = false;
   Map<String, dynamic>? _result;
   String? _sessionToRelease;
+  DateTime? _practiceStartedAt;
 
   @override
   void initState() {
@@ -180,7 +181,12 @@ class _CustomMovementPracticeScreenState
       _requireAccepted(
         await _socket.sendStartCustomCapture(durationSeconds: 30),
       );
-      if (mounted) setState(() => _active = true);
+      if (mounted) {
+        setState(() {
+          _active = true;
+          _practiceStartedAt = DateTime.now();
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _error = 'Could not start practice. Retry.');
     } finally {
@@ -234,6 +240,7 @@ class _CustomMovementPracticeScreenState
           componentScores: scores,
         );
       } else if (percent != null) {
+        final sessionId = widget.repository.allocateSessionId();
         await widget.repository.savePersonalResult(
           ownerUid: widget.movement.ownerUid,
           movementId: widget.movement.id,
@@ -241,7 +248,19 @@ class _CustomMovementPracticeScreenState
           totalScore: percent,
           componentScores: componentScores,
           feedback: feedback,
+          sessionId: sessionId,
+          movementName: widget.movement.name,
+          difficulty: widget.movement.difficulty,
+          propType: widget.movement.propType,
+          durationSeconds: DateTime.now()
+              .difference(_practiceStartedAt ?? DateTime.now())
+              .inSeconds
+              .clamp(0, 86400)
+              .toInt(),
+          referenceImageStoragePath: widget.movement.referenceImageStoragePath,
         );
+      } else if (assignment == null) {
+        throw StateError('Incomplete custom assessment result');
       }
       await _stopSessionBestEffort();
       if (mounted) {

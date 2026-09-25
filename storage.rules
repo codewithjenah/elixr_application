@@ -545,6 +545,20 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    // A custom movement may retain one owner-private JPEG still from its
+    // recorded reference. Revision-specific names preserve old history art.
+    match /users/{userId}/custom_movement_references/{fileName} {
+      allow read: if isOwner(userId)
+        && fileName.matches('^[A-Za-z0-9_-]+_[A-Za-z0-9_-]+[.]jpg$');
+      allow create, update: if isOwner(userId)
+        && fileName.matches('^[A-Za-z0-9_-]+_[A-Za-z0-9_-]+[.]jpg$')
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.size >= 1024
+        && request.resource.size <= 512 * 1024;
+      allow delete: if isOwner(userId)
+        && fileName.matches('^[A-Za-z0-9_-]+_[A-Za-z0-9_-]+[.]jpg$');
+    }
+
     // No other paths are provisioned; deny by default.
     match /{allPaths=**} {
       allow read, write: if false;

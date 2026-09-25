@@ -49,6 +49,7 @@ class CustomMovement {
     required this.activeRevisionId,
     this.createdAt,
     this.updatedAt,
+    this.referenceImageStoragePath,
     this.schemaVersion = currentSchemaVersion,
   });
 
@@ -63,6 +64,7 @@ class CustomMovement {
   final String activeRevisionId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String? referenceImageStoragePath;
   final int schemaVersion;
 
   bool get isActive => status == CustomMovementStatus.active;
@@ -88,6 +90,7 @@ class CustomMovement {
       map['status'] is String ? map['status'] as String : null,
     );
     final revisionId = _id(map['active_revision_id']);
+    final imageStoragePath = map['reference_image_storage_path'];
     final schemaVersion = map['schema_version'];
     if (ownerUid == null ||
         ownerRole == null ||
@@ -99,6 +102,9 @@ class CustomMovement {
         !supportedProps.contains(prop) ||
         status == null ||
         revisionId == null ||
+        (imageStoragePath != null &&
+            (imageStoragePath is! String ||
+                !isValidReferenceImagePath(ownerUid, id, imageStoragePath))) ||
         schemaVersion != currentSchemaVersion) {
       return null;
     }
@@ -114,7 +120,27 @@ class CustomMovement {
       activeRevisionId: revisionId,
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
       updatedAt: TeacherRosterInvite.readDateTime(map['updated_at']),
+      referenceImageStoragePath: imageStoragePath as String?,
     );
+  }
+
+  static String referenceImagePath(
+    String ownerUid,
+    String movementId,
+    String revisionId,
+  ) =>
+      'users/$ownerUid/custom_movement_references/${movementId}_$revisionId.jpg';
+
+  static bool isValidReferenceImagePath(
+    String ownerUid,
+    String movementId,
+    String path,
+  ) {
+    final prefix = 'users/$ownerUid/custom_movement_references/${movementId}_';
+    final suffix = path.startsWith(prefix) ? path.substring(prefix.length) : '';
+    return suffix.endsWith('.jpg') &&
+        suffix.length > '.jpg'.length &&
+        !suffix.contains('/');
   }
 
   static String? validateMetadata({

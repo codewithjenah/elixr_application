@@ -83,6 +83,31 @@ void main() {
     expect(Session.fromMap(session.toMap()).propType, TrainingProp.shaker);
   });
 
+  test('custom movement identity round-trips with shared history sessions', () {
+    const session = Session(
+      id: 'custom-session-1',
+      userId: 'user-1',
+      movementName: 'My custom movement',
+      difficulty: 'Easy',
+      legacyScore: 84,
+      assessmentVersion: 1,
+      durationSeconds: 28,
+      customMovementId: 'movement-1',
+      customMovementRevisionId: 'revision-1',
+      referenceImageStoragePath:
+          'users/user-1/custom_movement_references/movement-1_revision-1.jpg',
+    );
+
+    final roundTrip = Session.fromMap(session.toMap());
+    expect(roundTrip.legacyScore, 84);
+    expect(roundTrip.customMovementId, 'movement-1');
+    expect(roundTrip.customMovementRevisionId, 'revision-1');
+    expect(
+      roundTrip.referenceImageStoragePath,
+      'users/user-1/custom_movement_references/movement-1_revision-1.jpg',
+    );
+  });
+
   test(
     'assignment_context round-trips and stays absent for ordinary practice',
     () {

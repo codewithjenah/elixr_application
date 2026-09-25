@@ -12,7 +12,7 @@ import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_toast.dart';
 import '../../core/widgets/elix_primary_button.dart';
-import '../../core/widgets/movement_image.dart';
+import '../../core/widgets/custom_movement_reference_image.dart';
 import '../../data/models/custom_movement.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../services/auth_service.dart';
@@ -318,10 +318,11 @@ class _MovementCardState extends State<_MovementCard> {
                   ),
                   child: Row(
                     children: [
-                      MovementImage(
+                      CustomMovementReferenceImage(
                         movementName: widget.movement.name,
                         prop: widget.movement.propType,
                         size: 62,
+                        storagePath: widget.movement.referenceImageStoragePath,
                       ),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(

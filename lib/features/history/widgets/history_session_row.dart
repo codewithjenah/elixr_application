@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/utils/date_time_format.dart';
 import '../../../core/widgets/movement_image.dart';
+import '../../../core/widgets/custom_movement_reference_image.dart';
 import '../../../data/models/feedback.dart' as models;
 import '../../../data/models/session.dart';
 import '../../../data/repositories/session_repository.dart';
@@ -212,6 +213,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
                                 constraints.maxWidth >=
                                 HistorySessionColumns.wideBreakpoint;
                             return _SessionSummaryRow(
+                              session: s,
                               movementName: s.movementName,
                               subtitle: subtitle,
                               difficulty: s.difficulty,
@@ -290,6 +292,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
 
 class _SessionSummaryRow extends StatelessWidget {
   const _SessionSummaryRow({
+    required this.session,
     required this.movementName,
     required this.subtitle,
     required this.difficulty,
@@ -304,6 +307,7 @@ class _SessionSummaryRow extends StatelessWidget {
     required this.wide,
   });
 
+  final Session session;
   final String movementName;
   final String? subtitle;
   final String difficulty;
@@ -320,6 +324,7 @@ class _SessionSummaryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final identity = _MovementIdentity(
+      session: session,
       movementName: movementName,
       subtitle: subtitle,
     );
@@ -445,8 +450,13 @@ class _HistoryMetaCell extends StatelessWidget {
 }
 
 class _MovementIdentity extends StatelessWidget {
-  const _MovementIdentity({required this.movementName, required this.subtitle});
+  const _MovementIdentity({
+    required this.session,
+    required this.movementName,
+    required this.subtitle,
+  });
 
+  final Session session;
   final String movementName;
   final String? subtitle;
 
@@ -454,7 +464,7 @@ class _MovementIdentity extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _MovementAvatar(movementName: movementName),
+        _MovementAvatar(session: session, movementName: movementName),
         const SizedBox(width: AppSpacing.sm + 2),
         Expanded(
           child: Column(
@@ -552,8 +562,9 @@ class _ExpandChevron extends StatelessWidget {
 }
 
 class _MovementAvatar extends StatelessWidget {
-  const _MovementAvatar({required this.movementName});
+  const _MovementAvatar({required this.session, required this.movementName});
 
+  final Session session;
   final String movementName;
 
   @override
@@ -570,7 +581,14 @@ class _MovementAvatar extends StatelessWidget {
         ),
         border: Border.all(color: context.elixBorder),
       ),
-      child: MovementImage(movementName: movementName, size: size),
+      child: session.referenceImageStoragePath == null
+          ? MovementImage(movementName: movementName, size: size)
+          : CustomMovementReferenceImage(
+              movementName: movementName,
+              prop: session.propType,
+              size: size,
+              storagePath: session.referenceImageStoragePath,
+            ),
     );
   }
 }

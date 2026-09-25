@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
@@ -96,6 +97,7 @@ class _Repository extends Fake implements CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   }) async {
     expect(template.referenceCount, greaterThanOrEqualTo(2));
     return saved = _movement(ownerRole);
@@ -109,6 +111,7 @@ class _Repository extends Fake implements CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   }) async => saved = current;
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
@@ -85,6 +86,7 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   }) => throw UnimplementedError();
 
   @override
@@ -95,6 +97,7 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   }) => throw UnimplementedError();
 
   @override
@@ -131,6 +134,12 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
     required double totalScore,
     required Map<String, double> componentScores,
     required List<String> feedback,
+    required String sessionId,
+    required String movementName,
+    required String difficulty,
+    required TrainingProp propType,
+    required int durationSeconds,
+    String? referenceImageStoragePath,
   }) async {}
 }
 

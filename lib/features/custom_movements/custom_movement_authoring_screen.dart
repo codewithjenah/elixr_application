@@ -155,6 +155,7 @@ class _CustomMovementAuthoringScreenState
   bool _upperBodyVisible = false;
   DateTime? _captureObservedAt;
   bool _recording = false;
+  Uint8List? _referenceImageJpegBytes;
   bool _busy = false;
   bool _cameraBusy = false;
   bool _resettingProp = false;
@@ -412,6 +413,7 @@ class _CustomMovementAuthoringScreenState
       }
       await _playback.release();
       if (!mounted) return;
+      final referenceFrame = _frame.value;
       setState(() {
         _references.add(
           _ReferenceDraft(
@@ -426,6 +428,12 @@ class _CustomMovementAuthoringScreenState
         _pendingEnd = duration;
         _template = null;
         _recording = false;
+        _referenceImageJpegBytes =
+            referenceFrame != null &&
+                referenceFrame.lengthInBytes >= 1024 &&
+                referenceFrame.lengthInBytes <= 512 * 1024
+            ? Uint8List.fromList(referenceFrame)
+            : _referenceImageJpegBytes;
       });
     } catch (_) {
       if (mounted) {
@@ -591,6 +599,7 @@ class _CustomMovementAuthoringScreenState
               difficulty: _difficulty,
               propType: _prop,
               template: template,
+              referenceImageJpegBytes: _referenceImageJpegBytes,
             )
           : await widget.repository.publishRevision(
               current: widget.existing!,
@@ -599,6 +608,7 @@ class _CustomMovementAuthoringScreenState
               difficulty: _difficulty,
               propType: _prop,
               template: template,
+              referenceImageJpegBytes: _referenceImageJpegBytes,
             );
       await _teardown();
       if (mounted) Navigator.of(context).pop(result);

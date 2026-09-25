@@ -20,6 +20,9 @@ class Session {
     this.evidenceSizeBytes,
     this.assignmentContext,
     this.challengeContext,
+    this.customMovementId,
+    this.customMovementRevisionId,
+    this.referenceImageStoragePath,
   });
 
   final String? id;
@@ -49,6 +52,11 @@ class Session {
   /// Present only for a run reserved from a classroom Class Challenge.
   final ClassChallengeSessionContext? challengeContext;
 
+  /// Present only for personal practice of an owner-created movement.
+  final String? customMovementId;
+  final String? customMovementRevisionId;
+  final String? referenceImageStoragePath;
+
   bool get isRubricAssessed => assessmentVersion == 2 && rubric != null;
 
   /// Convenience: rubric total for V2, else null (never mix with legacyScore).
@@ -74,6 +82,11 @@ class Session {
         'assignment_context': assignmentContext!.toMap(),
       if (challengeContext != null)
         'challenge_context': challengeContext!.toMap(),
+      if (customMovementId != null) 'custom_movement_id': customMovementId,
+      if (customMovementRevisionId != null)
+        'custom_movement_revision_id': customMovementRevisionId,
+      if (referenceImageStoragePath != null)
+        'reference_image_storage_path': referenceImageStoragePath,
     };
     if (isRubricAssessed && rubric != null) {
       map.addAll(rubric!.toFirestoreFields());
@@ -117,6 +130,10 @@ class Session {
         challengeContext: ClassChallengeSessionContext.tryFrom(
           map['challenge_context'],
         ),
+        customMovementId: map['custom_movement_id'] as String?,
+        customMovementRevisionId: map['custom_movement_revision_id'] as String?,
+        referenceImageStoragePath:
+            map['reference_image_storage_path'] as String?,
       );
     }
 
@@ -139,6 +156,9 @@ class Session {
       challengeContext: ClassChallengeSessionContext.tryFrom(
         map['challenge_context'],
       ),
+      customMovementId: map['custom_movement_id'] as String?,
+      customMovementRevisionId: map['custom_movement_revision_id'] as String?,
+      referenceImageStoragePath: map['reference_image_storage_path'] as String?,
     );
   }
 }

@@ -1,8 +1,12 @@
+import 'dart:typed_data';
+
 import '../models/custom_movement.dart';
 import '../models/movement_template.dart';
 import '../models/training_prop.dart';
 
 abstract class CustomMovementRepository {
+  String allocateSessionId();
+
   Stream<List<CustomMovement>> watchOwnedMovements({required String ownerUid});
 
   /// Watches append-only personal assessments for the signed-in movement owner.
@@ -28,6 +32,7 @@ abstract class CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   });
 
   /// Publishes a new immutable revision. Existing revisions are never updated.
@@ -38,6 +43,7 @@ abstract class CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   });
 
   Future<void> archiveMovement({
@@ -62,6 +68,12 @@ abstract class CustomMovementRepository {
     required double totalScore,
     required Map<String, double> componentScores,
     required List<String> feedback,
+    required String sessionId,
+    required String movementName,
+    required String difficulty,
+    required TrainingProp propType,
+    required int durationSeconds,
+    String? referenceImageStoragePath,
   });
 }
 

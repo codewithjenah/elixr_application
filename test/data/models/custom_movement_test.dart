@@ -169,6 +169,40 @@ void main() {
       expect(movement.isOwnedBy('trainee-1'), isTrue);
     });
 
+    test('accepts only the owner and active-revision reference image path', () {
+      final movement = CustomMovement.tryFromMap({
+        'owner_uid': 'trainee-1',
+        'owner_role': 'trainee',
+        'name': 'My Cascade',
+        'description': '',
+        'difficulty': 'Hard',
+        'prop_type': 'shaker',
+        'status': 'active',
+        'active_revision_id': 'rev-1',
+        'reference_image_storage_path':
+            'users/trainee-1/custom_movement_references/movement-1_rev-1.jpg',
+        'schema_version': 1,
+      }, id: 'movement-1');
+
+      expect(movement?.referenceImageStoragePath, contains('rev-1.jpg'));
+      expect(
+        CustomMovement.tryFromMap({
+          'owner_uid': 'trainee-1',
+          'owner_role': 'trainee',
+          'name': 'My Cascade',
+          'description': '',
+          'difficulty': 'Hard',
+          'prop_type': 'shaker',
+          'status': 'active',
+          'active_revision_id': 'rev-1',
+          'reference_image_storage_path':
+              'users/someone-else/custom_movement_references/movement-1_rev-1.jpg',
+          'schema_version': 1,
+        }, id: 'movement-1'),
+        isNull,
+      );
+    });
+
     test('rejects dual-prop templates until two synchronized tracks exist', () {
       expect(
         CustomMovement.tryFromMap({

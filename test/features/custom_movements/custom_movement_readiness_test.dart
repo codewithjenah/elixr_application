@@ -256,6 +256,11 @@ class _UnusedRepository extends Fake implements CustomMovementRepository {}
 class _RecordingRepository extends Fake implements CustomMovementRepository {
   int savePersonalResultCalls = 0;
   double? savedScore;
+  String? savedMovementName;
+  int? savedDurationSeconds;
+
+  @override
+  String allocateSessionId() => 'custom-session';
 
   @override
   Future<void> savePersonalResult({
@@ -265,9 +270,17 @@ class _RecordingRepository extends Fake implements CustomMovementRepository {
     required double totalScore,
     required Map<String, double> componentScores,
     required List<String> feedback,
+    required String sessionId,
+    required String movementName,
+    required String difficulty,
+    required TrainingProp propType,
+    required int durationSeconds,
+    String? referenceImageStoragePath,
   }) async {
     savePersonalResultCalls += 1;
     savedScore = totalScore;
+    savedMovementName = movementName;
+    savedDurationSeconds = durationSeconds;
   }
 }
 
@@ -607,6 +620,8 @@ void main() {
       expect(socket.finishCustomAssessmentCalls, 1);
       expect(repository.savePersonalResultCalls, 1);
       expect(repository.savedScore, 83.3);
+      expect(repository.savedMovementName, 'One-hand toss');
+      expect(repository.savedDurationSeconds, greaterThanOrEqualTo(0));
       expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
 
       await tester.pumpWidget(const SizedBox());

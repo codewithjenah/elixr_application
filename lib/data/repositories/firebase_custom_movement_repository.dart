@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
 
 import '../models/custom_movement.dart';
@@ -7,10 +10,20 @@ import '../models/training_prop.dart';
 import 'custom_movement_repository.dart';
 
 class FirebaseCustomMovementRepository implements CustomMovementRepository {
-  FirebaseCustomMovementRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  FirebaseCustomMovementRepository({
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance;
 
   final FirebaseFirestore _firestore;
+  final FirebaseStorage _storage;
+
+  static const _maxReferenceImageBytes = 512 * 1024;
+
+  @override
+  String allocateSessionId() =>
+      _firestore.collection(FirestoreCollections.sessions).doc().id;
 
   CollectionReference<Map<String, dynamic>> get _movements =>
       _firestore.collection(FirestoreCollections.customMovements);
@@ -87,6 +100,7 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   }) async {
     validateCustomMovementWrite(
       ownerUid: ownerUid,
@@ -100,6 +114,16 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     final revisionRef = movementRef
         .collection(FirestoreCollections.customMovementRevisions)
         .doc();
+    final imagePath = referenceImageJpegBytes == null
+        ? null
+        : CustomMovement.referenceImagePath(
+            ownerUid,
+            movementRef.id,
+            revisionRef.id,
+          );
+    if (referenceImageJpegBytes != null) {
+      await _uploadReferenceImage(imagePath!, referenceImageJpegBytes);
+    }
     final batch = _firestore.batch();
     batch.set(
       revisionRef,
@@ -120,10 +144,16 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
         difficulty: difficulty,
         propType: propType,
         revisionId: revisionRef.id,
+        referenceImageStoragePath: imagePath,
         createdAt: FieldValue.serverTimestamp(),
       ),
     );
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (_) {
+      if (imagePath != null) await _deleteReferenceImageBestEffort(imagePath);
+      rethrow;
+    }
     return CustomMovement(
       id: movementRef.id,
       ownerUid: ownerUid,
@@ -134,6 +164,7 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
       propType: propType,
       status: CustomMovementStatus.active,
       activeRevisionId: revisionRef.id,
+      referenceImageStoragePath: imagePath,
     );
   }
 
@@ -145,6 +176,7 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required MovementTemplate template,
+    Uint8List? referenceImageJpegBytes,
   }) async {
     validateCustomMovementWrite(
       ownerUid: current.ownerUid,
@@ -158,35 +190,53 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     final revisionRef = movementRef
         .collection(FirestoreCollections.customMovementRevisions)
         .doc();
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(movementRef);
-      final persisted = snapshot.exists
-          ? CustomMovement.tryFromMap(snapshot.data()!, id: snapshot.id)
-          : null;
-      if (persisted == null ||
-          persisted.ownerUid != current.ownerUid ||
-          persisted.ownerRole != current.ownerRole ||
-          persisted.activeRevisionId != current.activeRevisionId) {
-        throw StateError('Movement changed or is not owned by this user.');
-      }
-      transaction.set(
-        revisionRef,
-        _revisionPayload(
-          movementId: current.id,
-          ownerUid: current.ownerUid,
-          ownerRole: current.ownerRole,
-          template: template,
-        ),
-      );
-      transaction.update(movementRef, {
-        'name': name.trim(),
-        'description': description.trim(),
-        'difficulty': difficulty,
-        'prop_type': propType.protocolValue,
-        'active_revision_id': revisionRef.id,
-        'updated_at': FieldValue.serverTimestamp(),
+    final imagePath = referenceImageJpegBytes == null
+        ? null
+        : CustomMovement.referenceImagePath(
+            current.ownerUid,
+            current.id,
+            revisionRef.id,
+          );
+    if (referenceImageJpegBytes != null) {
+      await _uploadReferenceImage(imagePath!, referenceImageJpegBytes);
+    }
+    try {
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(movementRef);
+        final persisted = snapshot.exists
+            ? CustomMovement.tryFromMap(snapshot.data()!, id: snapshot.id)
+            : null;
+        if (persisted == null ||
+            persisted.ownerUid != current.ownerUid ||
+            persisted.ownerRole != current.ownerRole ||
+            persisted.activeRevisionId != current.activeRevisionId) {
+          throw StateError('Movement changed or is not owned by this user.');
+        }
+        transaction.set(
+          revisionRef,
+          _revisionPayload(
+            movementId: current.id,
+            ownerUid: current.ownerUid,
+            ownerRole: current.ownerRole,
+            template: template,
+          ),
+        );
+        transaction.update(movementRef, {
+          'name': name.trim(),
+          'description': description.trim(),
+          'difficulty': difficulty,
+          'prop_type': propType.protocolValue,
+          'active_revision_id': revisionRef.id,
+          ...?imagePath == null
+              ? null
+              : {'reference_image_storage_path': imagePath},
+          'updated_at': FieldValue.serverTimestamp(),
+        });
       });
-    });
+    } catch (_) {
+      if (imagePath != null) await _deleteReferenceImageBestEffort(imagePath);
+      rethrow;
+    }
     return CustomMovement(
       id: current.id,
       ownerUid: current.ownerUid,
@@ -198,6 +248,7 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
       status: current.status,
       activeRevisionId: revisionRef.id,
       createdAt: current.createdAt,
+      referenceImageStoragePath: imagePath ?? current.referenceImageStoragePath,
     );
   }
 
@@ -254,23 +305,79 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     required double totalScore,
     required Map<String, double> componentScores,
     required List<String> feedback,
+    required String sessionId,
+    required String movementName,
+    required String difficulty,
+    required TrainingProp propType,
+    required int durationSeconds,
+    String? referenceImageStoragePath,
   }) async {
-    if (!totalScore.isFinite || totalScore < 0 || totalScore > 100) {
+    if (!totalScore.isFinite ||
+        totalScore < 0 ||
+        totalScore > 100 ||
+        durationSeconds < 0 ||
+        durationSeconds > 86400 ||
+        sessionId.trim().isEmpty ||
+        sessionId.length > 128) {
       throw ArgumentError.value(totalScore, 'totalScore');
     }
-    await _firestore
+    final resultRef = _firestore
         .collection(FirestoreCollections.customMovementResults)
-        .add({
-          'owner_uid': ownerUid,
-          'movement_id': movementId,
-          'revision_id': revisionId,
-          'result_type': 'personal_practice',
-          'total_score': totalScore,
-          'component_scores': componentScores,
-          'feedback': feedback.take(8).toList(growable: false),
-          'awards_global_xp': false,
-          'created_at': FieldValue.serverTimestamp(),
-        });
+        .doc(sessionId);
+    final sessionRef = _firestore
+        .collection(FirestoreCollections.sessions)
+        .doc(sessionId);
+    final batch = _firestore.batch();
+    batch.set(resultRef, {
+      'owner_uid': ownerUid,
+      'movement_id': movementId,
+      'revision_id': revisionId,
+      'result_type': 'personal_practice',
+      'total_score': totalScore,
+      'component_scores': componentScores,
+      'feedback': feedback.take(8).toList(growable: false),
+      'awards_global_xp': false,
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    batch.set(sessionRef, {
+      'user_id': ownerUid,
+      'movement_name': movementName,
+      'difficulty': difficulty,
+      'duration_seconds': durationSeconds,
+      'prop_type': propType.protocolValue,
+      'score': totalScore.round(),
+      'assessment_version': 1,
+      'custom_movement_id': movementId,
+      'custom_movement_revision_id': revisionId,
+      ...?referenceImageStoragePath == null
+          ? null
+          : {'reference_image_storage_path': referenceImageStoragePath},
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+  }
+
+  Future<void> _uploadReferenceImage(String path, Uint8List bytes) async {
+    if (bytes.lengthInBytes < 1024 ||
+        bytes.lengthInBytes > _maxReferenceImageBytes) {
+      throw ArgumentError.value(
+        bytes.lengthInBytes,
+        'referenceImageJpegBytes',
+        'Reference JPEG must be 1–512 KiB',
+      );
+    }
+    await _storage
+        .ref(path)
+        .putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+  }
+
+  Future<void> _deleteReferenceImageBestEffort(String path) async {
+    try {
+      await _storage.ref(path).delete();
+    } catch (_) {
+      // The caller preserves the Firestore/upload error; an orphaned JPEG is
+      // safe and owner-private if Storage cleanup is temporarily unavailable.
+    }
   }
 
   Map<String, dynamic> _rootPayload({
@@ -281,6 +388,7 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     required String difficulty,
     required TrainingProp propType,
     required String revisionId,
+    String? referenceImageStoragePath,
     required Object createdAt,
   }) => {
     'owner_uid': ownerUid,
@@ -292,6 +400,9 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     'status': CustomMovementStatus.active.name,
     'active_revision_id': revisionId,
     'schema_version': CustomMovement.currentSchemaVersion,
+    ...?referenceImageStoragePath == null
+        ? null
+        : {'reference_image_storage_path': referenceImageStoragePath},
     'created_at': createdAt,
     'updated_at': FieldValue.serverTimestamp(),
   };

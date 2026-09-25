@@ -362,6 +362,56 @@ service cloud.firestore {
     );
   }
 
+  // A personal custom-movement result is mirrored into the shared session
+  // history using the existing percentage field. Both identifiers must point
+  // to records owned by the authenticated trainee; this path never represents
+  // an official movement or a leaderboard award.
+  function validCustomMovementSession(data, sessionId) {
+   let movementId = data.custom_movement_id;
+   let revisionId = data.custom_movement_revision_id;
+   let movement = get(customMovementPath(movementId)).data;
+   let revision = get(customMovementRevisionPath(movementId, revisionId)).data;
+   let result = getAfter(
+    /databases/$(database)/documents/custom_movement_results/$(sessionId)
+   ).data;
+   return data.keys().hasOnly([
+     'user_id', 'movement_name', 'difficulty', 'duration_seconds',
+     'prop_type', 'score', 'assessment_version', 'custom_movement_id',
+     'custom_movement_revision_id', 'created_at',
+     'reference_image_storage_path'
+    ])
+    && data.keys().hasAll([
+     'user_id', 'movement_name', 'difficulty', 'duration_seconds',
+     'prop_type', 'score', 'assessment_version', 'custom_movement_id',
+     'custom_movement_revision_id', 'created_at'
+    ])
+    && data.assessment_version == 1
+    && isScore(data.score)
+    && data.difficulty in ['Easy', 'Medium', 'Hard']
+    && isNonNegInt(data.duration_seconds)
+    && data.duration_seconds <= 86400
+    && data.prop_type in ['bottle', 'shaker']
+    && movement.owner_uid == request.auth.uid
+    && movement.name == data.movement_name
+    && movement.difficulty == data.difficulty
+    && movement.prop_type == data.prop_type
+    && revision.owner_uid == request.auth.uid
+    && revision.movement_id == movementId
+    && result.owner_uid == request.auth.uid
+    && result.movement_id == movementId
+    && result.revision_id == revisionId
+    && result.result_type == 'personal_practice'
+    && result.awards_global_xp == false
+    && result.total_score is number
+    && result.total_score >= data.score - 0.5
+    && result.total_score < data.score + 0.5
+    && (
+     !data.keys().hasAny(['reference_image_storage_path'])
+     || movement.reference_image_storage_path
+      == data.reference_image_storage_path
+    );
+  }
+
   // Privacy revocation may remove evidence metadata; it may never replace
   // an existing reference or attach one to an old session.
   function sessionEvidenceUnchangedOrRemoved() {
@@ -379,7 +429,9 @@ service cloud.firestore {
   function sessionIdentityUnchanged() {
    return !affectedKeys().hasAny([
     'user_id', 'created_at', 'movement_name', 'difficulty', 'prop_type', 'duration_seconds',
-    'assessment_version', 'assignment_context', 'challenge_context'
+    'assessment_version', 'assignment_context', 'challenge_context',
+    'custom_movement_id', 'custom_movement_revision_id',
+    'reference_image_storage_path'
    ]);
   }
 
@@ -819,6 +871,7 @@ service cloud.firestore {
    return session != null
     && session.data.user_id == request.auth.uid
     && !session.data.keys().hasAny(['challenge_context'])
+    && !session.data.keys().hasAny(['custom_movement_id', 'custom_movement_revision_id'])
     && isOfficialElixrMovementName(session.data.movement_name)
     && validAwardSessionTimestamp(createdAt)
     && request.resource.data.sessions_completed == 1
@@ -877,6 +930,7 @@ service cloud.firestore {
      != resource.data.last_awarded_session_id
     && session.data.user_id == request.auth.uid
     && !session.data.keys().hasAny(['challenge_context'])
+    && !session.data.keys().hasAny(['custom_movement_id', 'custom_movement_revision_id'])
     && isOfficialElixrMovementName(session.data.movement_name)
     && validAwardSessionTimestamp(createdAt)
     && (
@@ -1074,8 +1128,11 @@ service cloud.firestore {
    // Legacy V1 documents remain readable; new creates require V2.
    allow create: if isSignedIn()
     && request.resource.data.user_id == request.auth.uid
-    && validRubricSession(request.resource.data)
-    && isOfficialElixrMovementName(request.resource.data.movement_name)
+    && (
+     (validRubricSession(request.resource.data)
+      && isOfficialElixrMovementName(request.resource.data.movement_name))
+     || validCustomMovementSession(request.resource.data, sessionId)
+    )
     && validSessionEvidence(request.resource.data, sessionId)
     && request.resource.data.created_at is timestamp
     && request.resource.data.created_at == request.time
@@ -2822,7 +2879,11 @@ service cloud.firestore {
   function customMovementRootKeys() {
    return ['owner_uid', 'owner_role', 'name', 'description', 'difficulty',
     'prop_type', 'status', 'active_revision_id', 'schema_version',
-    'created_at', 'updated_at'];
+    'created_at', 'updated_at', 'reference_image_storage_path'];
+  }
+  function customMovementReferenceImagePath(ownerUid, movementId, revisionId) {
+   return 'users/' + ownerUid + '/custom_movement_references/'
+    + movementId + '_' + revisionId + '.jpg';
   }
   function customMovementRevisionKeys() {
    return ['movement_id', 'owner_uid', 'owner_role', 'schema_version',
@@ -2891,6 +2952,13 @@ service cloud.firestore {
     && data.schema_version == 1
     && data.created_at == request.time
     && data.updated_at == request.time
+    && (
+     !data.keys().hasAny(['reference_image_storage_path'])
+     || data.reference_image_storage_path
+      == customMovementReferenceImagePath(
+       data.owner_uid, movementId, data.active_revision_id
+      )
+    )
     && existsAfter(revisionPath);
   }
   function validCustomMovementUpdate(movementId) {
@@ -2911,8 +2979,19 @@ service cloud.firestore {
       && request.resource.data.prop_type in ['bottle', 'shaker']
       && request.resource.data.active_revision_id
        != resource.data.active_revision_id
+      && (
+       !request.resource.data.keys()
+        .hasAny(['reference_image_storage_path'])
+       || !changed.hasAny(['reference_image_storage_path'])
+       || request.resource.data.reference_image_storage_path
+        == customMovementReferenceImagePath(
+         request.resource.data.owner_uid, movementId,
+         request.resource.data.active_revision_id
+        )
+      )
       && changed.hasOnly(['name', 'description', 'difficulty',
-       'prop_type', 'active_revision_id', 'updated_at'])
+       'prop_type', 'active_revision_id', 'updated_at',
+       'reference_image_storage_path'])
       && !exists(revisionPath)
       && existsAfter(revisionPath))
     );
@@ -2955,10 +3034,24 @@ service cloud.firestore {
    allow get, list: if resource.data.owner_uid == request.auth.uid;
    allow create: if request.resource.data.owner_uid == request.auth.uid
     && request.resource.data.awards_global_xp == false
+    && request.resource.data.result_type == 'personal_practice'
+    && request.resource.data.total_score is number
+    && request.resource.data.total_score >= 0
+    && request.resource.data.total_score <= 100
     && get(customMovementRevisionPath(
      request.resource.data.movement_id,
      request.resource.data.revision_id
-    )).data.owner_uid == request.auth.uid;
+    )).data.owner_uid == request.auth.uid
+    && getAfter(sessionPath(resultId)).data.user_id == request.auth.uid
+    && getAfter(sessionPath(resultId)).data.custom_movement_id
+     == request.resource.data.movement_id
+    && getAfter(sessionPath(resultId)).data.custom_movement_revision_id
+     == request.resource.data.revision_id
+    && getAfter(sessionPath(resultId)).data.score is int
+    && request.resource.data.total_score
+     >= getAfter(sessionPath(resultId)).data.score - 0.5
+    && request.resource.data.total_score
+     < getAfter(sessionPath(resultId)).data.score + 0.5;
    allow update, delete: if false;
   }
 
