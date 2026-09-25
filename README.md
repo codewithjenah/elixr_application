@@ -812,8 +812,8 @@ prop loss still follows the required translation coverage and gap limits. The
 marker runtime and optional future learned detector are documented
 in `backend/docs/bottle-orientation.md`. Shaker rotation is unsupported;
 projected 2D Bottle rotation cannot establish hidden turns or 3D
-front-versus-behind depth. The three
-references are normalized, matched to a deterministic DTW medoid, temporally
+front-versus-behind depth. The retained references are normalized, matched to
+a deterministic DTW medoid, temporally
 aligned, and only then aggregated so execution-speed differences do not smear
 the canonical phases. Control/stability compares local curvature in the
 phase-aligned normalized prop path, so it responds to jitter separately from

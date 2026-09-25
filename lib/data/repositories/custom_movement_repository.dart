@@ -100,7 +100,9 @@ void validateCustomMovementWrite({
     );
   }
   if (!template.isReady) {
-    throw ArgumentError('Three valid reference demonstrations are required.');
+    throw ArgumentError(
+      'At least two valid reference demonstrations are required.',
+    );
   }
   if (template.encodedBytes > MovementTemplate.maximumEncodedBytes) {
     throw ArgumentError('Movement template is too large to save safely.');

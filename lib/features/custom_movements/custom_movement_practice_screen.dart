@@ -692,7 +692,11 @@ class _CustomMovementPracticeScreenState
                       ? null
                       : _CustomCountdownOverlay(value: _countdown!),
                 );
-                final panel = _buildSessionPanel(result);
+                final panel = _buildSessionPanel(
+                  result,
+                  instruction: instruction,
+                  desktop: desktop,
+                );
                 final body = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -733,7 +737,17 @@ class _CustomMovementPracticeScreenState
     );
   }
 
-  TrainingSessionPanel _buildSessionPanel(Map<String, dynamic>? result) {
+  TrainingSessionPanel _buildSessionPanel(
+    Map<String, dynamic>? result, {
+    required String instruction,
+    required bool desktop,
+  }) {
+    final showInstructions = switch (_phase) {
+      _CustomPracticePhase.preparing ||
+      _CustomPracticePhase.setupChecking ||
+      _CustomPracticePhase.readyToStart => true,
+      _ => false,
+    };
     final setupPhase =
         _phase == _CustomPracticePhase.setupChecking ||
         _phase == _CustomPracticePhase.readyToStart;
@@ -854,8 +868,17 @@ class _CustomMovementPracticeScreenState
 
     return TrainingSessionPanel(
       phase: _panelPhase,
-      expandVertically: true,
-      metrics: metrics,
+      expandVertically: desktop && !showInstructions,
+      metrics: showInstructions
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildInstructionsSection(context, instruction),
+                const SizedBox(height: AppSpacing.sm),
+                metrics,
+              ],
+            )
+          : metrics,
       statusContent: statusContent,
       supportingContent: Column(
         children: [
@@ -923,6 +946,39 @@ class _CustomMovementPracticeScreenState
             _phase == _CustomPracticePhase.countdown ||
             _cameraSelectionBusy,
         onPressed: action,
+      ),
+    );
+  }
+
+  Widget _buildInstructionsSection(BuildContext context, String instruction) {
+    return Container(
+      key: const ValueKey('custom-movement-instructions'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: AppTheme.practiceSectionSurface(
+        context,
+        accent: AppColors.primary,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'How to perform',
+            style: AppTheme.body.copyWith(
+              color: context.elixTextPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            instruction,
+            key: const ValueKey('custom-movement-instructions-text'),
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }

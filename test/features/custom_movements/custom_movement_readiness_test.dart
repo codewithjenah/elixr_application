@@ -9,6 +9,7 @@ import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/custom_movement_repository.dart';
 import 'package:elixr_application/features/custom_movements/custom_movement_practice_screen.dart';
+import 'package:elixr_application/features/practice/widgets/training_action_area.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
@@ -432,9 +433,28 @@ void main() {
     );
     await tester.pump();
 
+    const fallback =
+        'Execution instructions are unavailable. If you own this movement, edit it to add guidance; otherwise ask the owner to add them before you practice.';
+    final instructionSection = find.byKey(
+      const ValueKey('custom-movement-instructions'),
+    );
+    expect(find.text('How to perform'), findsOneWidget);
     expect(
-      find.text(
-        'Execution instructions are unavailable. If you own this movement, edit it to add guidance; otherwise ask the owner to add them before you practice.',
+      find.descendant(of: instructionSection, matching: find.text(fallback)),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('custom-movement-instructions-text')),
+          )
+          .data,
+      fallback,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('practice-training-header')),
+        matching: find.text(fallback),
       ),
       findsOneWidget,
     );
@@ -443,6 +463,112 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
   });
+
+  testWidgets(
+    'long custom instructions remain complete before practice at compact and desktop widths',
+    (tester) async {
+      const description =
+          'Stand with your feet shoulder width apart and hold the bottle in '
+          'your right hand. Toss it gently above shoulder height while keeping '
+          'your eyes on the bottle. Let it rotate once, then move your left '
+          'hand under its base and catch it securely. Reset your grip, bring '
+          'the bottle back to the starting position, and repeat the same '
+          'controlled toss and catch until the movement is complete.';
+
+      for (final size in [
+        const Size(1400, 1000),
+        const Size(900, 1000),
+        const Size(760, 1000),
+      ]) {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        final socket = _CustomSocket();
+        final movement = CustomMovement(
+          id: 'movement-long-instructions',
+          ownerUid: 'trainee-1',
+          ownerRole: CustomMovementOwnerRole.trainee,
+          name: 'Long instruction toss',
+          description: description,
+          difficulty: 'Easy',
+          propType: TrainingProp.bottle,
+          status: CustomMovementStatus.active,
+          activeRevisionId: 'revision-long-instructions',
+        );
+        final revision = CustomMovementRevision(
+          id: 'revision-long-instructions',
+          movementId: movement.id,
+          ownerUid: movement.ownerUid,
+          ownerRole: movement.ownerRole,
+          template: MovementTemplate.tryFrom(_oneHandTemplateMap())!,
+        );
+
+        await tester.pumpWidget(
+          _withSettings(
+            _TestSettings(),
+            CustomMovementPracticeScreen(
+              movement: movement,
+              revision: revision,
+              repository: _UnusedRepository(),
+              webSocket: socket,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final instructionSection = find.byKey(
+          const ValueKey('custom-movement-instructions'),
+        );
+        expect(find.text('How to perform'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: instructionSection,
+            matching: find.text(description),
+          ),
+          findsOneWidget,
+        );
+        final fullInstructions = tester.widget<Text>(
+          find.byKey(const ValueKey('custom-movement-instructions-text')),
+        );
+        expect(fullInstructions.data, description);
+        expect(fullInstructions.maxLines, isNull);
+        expect(fullInstructions.overflow, isNull);
+        expect(find.text('Start Practice'), findsOneWidget);
+        expect(
+          tester
+              .widget<TrainingActionArea>(find.byType(TrainingActionArea))
+              .onPressed,
+          isNull,
+        );
+
+        final headerInstruction = tester.widget<Text>(
+          find.descendant(
+            of: find.byKey(const ValueKey('practice-training-header')),
+            matching: find.text(description),
+          ),
+        );
+        expect(headerInstruction.maxLines, 2);
+        expect(headerInstruction.overflow, TextOverflow.ellipsis);
+
+        socket.emitReady();
+        await tester.pump();
+        expect(find.text('Start Practice'), findsOneWidget);
+        expect(
+          tester
+              .widget<TrainingActionArea>(find.byType(TrainingActionArea))
+              .onPressed,
+          isNotNull,
+        );
+        expect(
+          find.byKey(const ValueKey('custom-movement-instructions')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpWidget(const SizedBox());
+        await socket.closeTestStreams();
+      }
+    },
+  );
 
   testWidgets(
     'custom assessment releases its session when capture startup fails',
