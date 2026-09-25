@@ -309,6 +309,7 @@ def test_session_accepts_unobserved_rotation_and_returns_coaching_feedback():
         custom_movement_template=template.to_dict(),
     )
     session._custom_samples = list(_sequence(1, gap=range(41)))
+    session._custom_assessment_progress = websocket_api.CUSTOM_ASSESSMENT_COMPLETED
     accepted, code, quality = session.stop_custom_capture()
     assert (accepted, code) == (True, None)
     assert quality["valid"]
@@ -331,6 +332,7 @@ def test_shaker_assessment_has_no_rotation_requirement():
     )
     assert session._orientation_detector is None
     session._custom_samples = list(_sequence(0))
+    session._custom_assessment_progress = websocket_api.CUSTOM_ASSESSMENT_COMPLETED
     assert session.stop_custom_capture()[:2] == (True, None)
     assessment = session.finish_custom_assessment()
     assert assessment["diagnostics"]["rotation_required"] is False

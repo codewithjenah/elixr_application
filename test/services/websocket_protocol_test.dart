@@ -64,6 +64,19 @@ void main() {
       expect(feedback.feedbackCategory, 'technique');
     });
 
+    test('custom assessment progress parses from feedback JSON', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Custom Movement',
+        'feedback': 'Movement completed. Processing score…',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'custom_assessment_progress': 'completed',
+      });
+
+      expect(feedback.customAssessmentProgress, 'completed');
+    });
+
     test('invalid hold_target_ms defaults to zero', () {
       final feedback = PracticeFeedback.fromJson({
         'bottle_detected': true,

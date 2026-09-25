@@ -56,6 +56,13 @@ from assessment.custom_movement import (
     detect_prop_events,
     validate_sequence as validate_custom_movement_sequence,
 )
+from assessment.custom_movement.completion import (
+    MOVEMENT_COMPLETED as CUSTOM_ASSESSMENT_COMPLETED,
+    MOVEMENT_DETECTED as CUSTOM_ASSESSMENT_MOVING,
+    WAITING_FOR_MOVEMENT as CUSTOM_ASSESSMENT_WAITING,
+    evaluate_completion as evaluate_custom_assessment_completion,
+    find_movement_start_index as find_custom_assessment_start_index,
+)
 from config import (
     DETECTION_PRESENTATION_GRACE_S,
     CUSTOM_PRESENTATION_MIN_GRACE_S,
@@ -493,6 +500,8 @@ def _human_error_message(error_code: str) -> str:
         "unexpected_custom_movement_template": "A template is not valid for this capture mode.",
         "custom_capture_already_recording": "A movement reference is already being recorded.",
         "custom_capture_not_recording": "No movement reference is being recorded.",
+        "custom_movement_not_detected": "No movement was detected. Perform the full movement while keeping the required inputs visible, then try again.",
+        "custom_assessment_incomplete": "Movement was detected, but the full saved movement was not completed. Perform the complete sequence before the 30-second limit, then try again.",
         "single_performer_required": "Keep one performer in frame before recording a reference.",
         "multiple_people_detected": "Reference rejected because multiple people were detected. Keep only one performer in frame and record it again.",
         "invalid_reference_count": "Record at least two valid references before building the template.",
@@ -847,6 +856,9 @@ class VisionSession:
         self._custom_samples: list[CustomFrameSample] | None = None
         self._custom_capture_started_at: float | None = None
         self._custom_capture_deadline: float | None = None
+        self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
+        self._custom_assessment_last_evaluated_at: float | None = None
+        self._custom_assessment_movement_start_index: int | None = None
         self._custom_previous_prop: tuple[float, float, int] | None = None
         # Single-person readiness needs two observations. Distinct people need
         # three current-frame observations spanning a short real-time interval.
@@ -1055,6 +1067,10 @@ class VisionSession:
                     self._custom_video_recorder = recorder
             self._custom_samples = []
             self._custom_sample_capture_times = []
+            if self._is_custom_assessment:
+                self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
+                self._custom_assessment_last_evaluated_at = None
+                self._custom_assessment_movement_start_index = None
             self._custom_multiple_invalid = False
             self._custom_awaiting_identity = False
             self._custom_ambiguous_anchors = {}
@@ -1262,9 +1278,24 @@ class VisionSession:
         try:
             if not self._is_custom_assessment or self._custom_template is None:
                 raise ValueError("invalid_session_purpose")
-            samples = tuple(self._custom_samples or ())
+            captured_samples = tuple(self._custom_samples or ())
+            if not captured_samples:
+                raise ValueError("custom_capture_not_recording")
+            if self._custom_assessment_progress != CUSTOM_ASSESSMENT_COMPLETED:
+                raise ValueError(
+                    "custom_movement_not_detected"
+                    if self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
+                    else "custom_assessment_incomplete"
+                )
+            start_index = self._custom_assessment_movement_start_index or 0
+            samples = captured_samples[start_index:]
             if not samples:
                 raise ValueError("custom_capture_not_recording")
+            start_timestamp = samples[0].timestamp_ms
+            samples = tuple(
+                replace(sample, timestamp_ms=sample.timestamp_ms - start_timestamp)
+                for sample in samples
+            )
             result = compare_custom_movement_sequence(self._custom_template, samples)
             if not result.validation.valid:
                 code = result.validation.codes[0].value
@@ -1325,6 +1356,11 @@ class VisionSession:
         samples = self._custom_samples
         started = self._custom_capture_started_at
         if samples is None or started is None:
+            return
+        if (
+            self._is_custom_assessment
+            and self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
+        ):
             return
         if self._custom_capture_deadline is not None and time.monotonic() > self._custom_capture_deadline:
             return
@@ -1401,6 +1437,36 @@ class VisionSession:
             orientation=orientation,
         ))
         self._custom_sample_capture_times.append(captured.captured_at_monotonic)
+        if (
+            self._is_custom_assessment
+            and len(samples) >= 8
+            and 0.0 <= time.monotonic() - captured.captured_at_monotonic
+            <= max(1.0, READINESS_SNAPSHOT_MAX_AGE_S)
+            and (
+                self._custom_assessment_last_evaluated_at is None
+                or time.monotonic() - self._custom_assessment_last_evaluated_at >= 0.5
+            )
+        ):
+            self._custom_assessment_last_evaluated_at = time.monotonic()
+            progress = evaluate_custom_assessment_completion(
+                self._custom_template, tuple(samples)
+            )
+            if (
+                progress != CUSTOM_ASSESSMENT_WAITING
+                and self._custom_assessment_movement_start_index is None
+            ):
+                self._custom_assessment_movement_start_index = (
+                    find_custom_assessment_start_index(
+                        self._custom_template, tuple(samples)
+                    )
+                )
+            if progress == CUSTOM_ASSESSMENT_COMPLETED:
+                self._custom_assessment_progress = progress
+            elif (
+                progress == CUSTOM_ASSESSMENT_MOVING
+                and self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
+            ):
+                self._custom_assessment_progress = progress
 
     @staticmethod
     def _custom_capture_diagnostics(
@@ -3153,11 +3219,23 @@ class VisionSession:
                     yolo_attempted=run_yolo,
                     orientation=orientation,
                 )
-            feedback = (
-                "Recording movement reference…"
-                if self._custom_samples is not None
-                else "Ready to record the full movement"
+            custom_assessment_progress = (
+                self._custom_assessment_progress
+                if self._is_custom_assessment and self._custom_samples is not None
+                else None
             )
+            if self._is_custom_assessment:
+                feedback = {
+                    CUSTOM_ASSESSMENT_WAITING: "Waiting for movement…",
+                    CUSTOM_ASSESSMENT_MOVING: "Movement detected. Keep going through the full sequence.",
+                    CUSTOM_ASSESSMENT_COMPLETED: "Movement completed. Processing score…",
+                }[self._custom_assessment_progress]
+            else:
+                feedback = (
+                    "Recording movement reference…"
+                    if self._custom_samples is not None
+                    else "Ready to record the full movement"
+                )
             multiple_people_warning = self._is_custom_capture and (
                 self._custom_person_count >= 2 or self._custom_multiple_invalid
             )
@@ -3190,6 +3268,7 @@ class VisionSession:
                     capture_hands_visible=self._custom_capture_visible[1] if self._is_custom_capture else None,
                     capture_upper_body_visible=self._custom_capture_visible[2] if self._is_custom_capture else None,
                     reference_invalid=self._custom_multiple_invalid if self._is_custom_capture else None,
+                    custom_assessment_progress=custom_assessment_progress,
                 )
             )
             self.timings.add("processing_total", time.perf_counter() - total_start)

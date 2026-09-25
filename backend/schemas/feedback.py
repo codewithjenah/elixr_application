@@ -121,6 +121,11 @@ class FeedbackMessage(BaseModel):
     readiness_complete: Optional[bool] = None
     readiness_stable: Optional[bool] = None
     readiness_stable_progress: Optional[float] = None
+    # Custom assessment progress only; Flutter uses the terminal value to
+    # request the existing stop-and-score command sequence.
+    custom_assessment_progress: Optional[
+        Literal["waiting_for_movement", "movement_detected", "completed"]
+    ] = None
     # Custom reference capture only: confirmed visible performer count (2 means 2+).
     person_count: Optional[int] = None
     # Custom reference only: this recording has been irreversibly invalidated.

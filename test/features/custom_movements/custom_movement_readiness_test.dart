@@ -233,6 +233,7 @@ class _CustomSocket extends WebSocketService {
   void emitFeedback({
     required bool bottleDetected,
     bool? readinessStable,
+    String? customAssessmentProgress,
     int? personCount = 1,
     bool? referenceInvalid,
     List<ReadinessItemView>? readinessItems,
@@ -243,13 +244,22 @@ class _CustomSocket extends WebSocketService {
       PracticeFeedback(
         bottleDetected: bottleDetected,
         movement: 'Custom Movement',
-        feedback: readinessStable == true ? 'Ready.' : 'Getting into position.',
+        feedback: customAssessmentProgress == 'waiting_for_movement'
+            ? 'Waiting for movement…'
+            : customAssessmentProgress == 'movement_detected'
+            ? 'Movement detected. Keep going through the full sequence.'
+            : customAssessmentProgress == 'completed'
+            ? 'Movement completed. Processing score…'
+            : readinessStable == true
+            ? 'Ready.'
+            : 'Getting into position.',
         feedbackType: 'positive',
         postureStatus: 'unknown',
         readinessStable: readinessStable,
         readinessItems: readinessItems,
         readinessComplete: readinessComplete,
         readinessStableProgress: readinessStableProgress,
+        customAssessmentProgress: customAssessmentProgress,
         personCount: personCount,
         referenceInvalid: referenceInvalid,
       ),
@@ -868,14 +878,14 @@ void main() {
       }
       await tester.pump();
       expect(socket.startCustomCaptureCalls, 1);
-      expect(find.text('Recording · 00:30 remaining'), findsOneWidget);
-      expect(find.text('Finish Session'), findsOne);
+      expect(find.text('Recording · 00:30 max'), findsOneWidget);
+      expect(find.text('Completes automatically'), findsOne);
 
       socket.emitFeedback(bottleDetected: false);
       socket.emitPresentation();
       await tester.pump();
       expect(find.text('Searching for bottle'), findsOne);
-      expect(find.text('Finish Session'), findsOne);
+      expect(find.text('Completes automatically'), findsOne);
 
       socket.emitFeedback(bottleDetected: true);
       socket.emitPresentation(prop: 'confirmed', hands: 'tracking');
@@ -884,7 +894,10 @@ void main() {
 
       socket.rejectNextStop = true;
       socket.rejectNextStopCode = 'track_loss';
-      await tester.tap(find.text('Finish Session'));
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'completed',
+      );
       await tester.pump();
       expect(
         find.text(
@@ -911,13 +924,16 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
       }
       await tester.pump();
-      expect(find.text('Finish Session'), findsOne);
+      expect(find.text('Completes automatically'), findsOne);
       expect(socket.finishCustomAssessmentCalls, 0);
       expect(repository.savePersonalResultCalls, 0);
 
       final finishAssessment = Completer<CommandAck>();
       socket.finishAssessmentCompleter = finishAssessment;
-      await tester.tap(find.text('Finish Session'));
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'completed',
+      );
       await tester.pump();
       expect(socket.finishCustomAssessmentCalls, 1);
       expect(find.text('Finish Session'), findsNothing);
@@ -961,7 +977,10 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
       }
       await tester.pump();
-      await tester.tap(find.text('Finish Session'));
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'completed',
+      );
       await tester.pumpAndSettle();
       expect(repository.savePersonalResultCalls, 2);
       expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);

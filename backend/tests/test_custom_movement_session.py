@@ -8,6 +8,12 @@ import numpy as np
 import pytest
 
 from assessment.custom_movement import FrameSample, Landmark, build_template
+from assessment.custom_movement.completion import (
+    MOVEMENT_COMPLETED,
+    MOVEMENT_DETECTED,
+    WAITING_FOR_MOVEMENT,
+    evaluate_completion,
+)
 from assessment.readiness import ReadinessObservation
 from api import websocket as websocket_api
 from config import YOLO_FRAME_SKIP
@@ -201,6 +207,121 @@ def _template(*, sides=("left",), moving_pose=False):
     )
 
 
+def test_custom_assessment_completion_detects_a_fast_full_sequence():
+    template = _template()
+
+    assert evaluate_completion(template, _reference()) == MOVEMENT_COMPLETED
+
+
+def test_custom_assessment_completion_allows_a_slow_full_sequence():
+    template = _template()
+    slow = tuple(
+        replace(frame, timestamp_ms=frame.timestamp_ms * 4)
+        for frame in _reference()
+    )
+
+    assert evaluate_completion(template, slow) == MOVEMENT_COMPLETED
+
+
+def test_custom_assessment_completion_rejects_stationary_and_final_pose_only():
+    template = _template()
+    reference = _reference()
+    stationary_prop = tuple(
+        replace(frame, prop=reference[0].prop) for frame in reference
+    )
+    final_pose = reference[-1]
+    final_pose_only = tuple(
+        replace(
+            frame,
+            pose=final_pose.pose,
+            hands=final_pose.hands,
+            prop=final_pose.prop,
+        )
+        for frame in reference
+    )
+
+    assert evaluate_completion(template, stationary_prop) == WAITING_FOR_MOVEMENT
+    assert evaluate_completion(template, final_pose_only) == WAITING_FOR_MOVEMENT
+
+
+def test_custom_assessment_completion_waits_for_the_rest_of_a_partial_sequence():
+    template = _template()
+    reference = _reference()
+    partial = tuple(reference[:4]) + tuple(
+        replace(reference[3], timestamp_ms=index * 100)
+        for index in range(4, 8)
+    )
+
+    assert evaluate_completion(template, partial) == MOVEMENT_DETECTED
+
+
+def test_custom_assessment_requires_each_learned_moving_modality_to_complete():
+    template = _template(moving_pose=True)
+    reference = _reference(moving_pose=True)
+    prop_only = tuple(replace(frame, pose=reference[0].pose) for frame in reference)
+
+    assert evaluate_completion(template, prop_only) == MOVEMENT_DETECTED
+
+
+def test_custom_assessment_preserves_short_release_catch_events_in_long_capture():
+    reference = tuple(
+        FrameSample(
+            timestamp_ms=index * 100,
+            pose={"11": Landmark(0.3, 0.3), "12": Landmark(0.7, 0.3)},
+            hands={"left": Landmark(0.0, 0.0)},
+            prop=Landmark(x, y),
+        )
+        for index, (x, y) in enumerate(
+            (
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (0.4, -0.04),
+                (0.6, -0.10),
+                (0.4, -0.04),
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (0.0, 0.0),
+            )
+        )
+    )
+    template = build_template(
+        [reference, reference, reference],
+        ("pose", "hands", "prop_translation"),
+    )
+    tail = tuple(
+        replace(
+            reference[-1],
+            timestamp_ms=reference[-1].timestamp_ms + index * 100,
+        )
+        for index in range(1, 294)
+    )
+
+    assert template.feature_capabilities["release_catch"] is True
+    assert evaluate_completion(template, reference + tail) == MOVEMENT_COMPLETED
+
+
+@pytest.mark.parametrize(
+    ("progress", "error_code"),
+    (
+        (WAITING_FOR_MOVEMENT, "custom_movement_not_detected"),
+        (MOVEMENT_DETECTED, "custom_assessment_incomplete"),
+    ),
+)
+def test_custom_assessment_cannot_score_before_completion(progress, error_code):
+    session = websocket_api.VisionSession(
+        "Custom Movement",
+        session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+    session._custom_samples = list(_reference())
+    session._custom_assessment_progress = progress
+
+    with pytest.raises(ValueError, match=error_code):
+        session.finish_custom_assessment()
+
+    session.close()
+
+
 def test_low_control_assessment_feedback_coaches_smooth_prop_motion():
     template = _template()
     jittered = tuple(
@@ -219,6 +340,7 @@ def test_low_control_assessment_feedback_coaches_smooth_prop_motion():
         custom_movement_template=template.to_dict(),
     )
     session._custom_samples = list(jittered)
+    session._custom_assessment_progress = websocket_api.CUSTOM_ASSESSMENT_COMPLETED
 
     result = session.finish_custom_assessment()
 

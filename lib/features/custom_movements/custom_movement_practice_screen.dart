@@ -106,6 +106,8 @@ class _CustomMovementPracticeScreenState
       ValueNotifier<PreviewFrame?>(null);
   final ValueNotifier<PracticeFeedback?> _readinessFeedback =
       ValueNotifier<PracticeFeedback?>(null);
+  final ValueNotifier<PracticeFeedback?> _assessmentProgress =
+      ValueNotifier<PracticeFeedback?>(null);
   _CustomPracticePhase _phase = _CustomPracticePhase.preparing;
   bool _busy = false;
   bool _cameraSelectionBusy = false;
@@ -149,6 +151,14 @@ class _CustomMovementPracticeScreenState
             : _CustomPracticePhase.setupChecking;
         if (nextPhase != _phase) setState(() => _phase = nextPhase);
       }
+      if (feedback.customAssessmentProgress != null) {
+        _assessmentProgress.value = feedback;
+        if (feedback.customAssessmentProgress == 'completed' &&
+            _phase == _CustomPracticePhase.recording &&
+            !_busy) {
+          unawaited(_finish());
+        }
+      }
     });
     await _prepareSession();
   }
@@ -167,6 +177,7 @@ class _CustomMovementPracticeScreenState
         _recordingTimer?.cancel();
         _recordingTimer = null;
         _readinessFeedback.value = null;
+        _assessmentProgress.value = null;
         _preview.value = null;
         _presentation.value = null;
       });
@@ -265,7 +276,14 @@ class _CustomMovementPracticeScreenState
         });
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+        if (_phase == _CustomPracticePhase.recording &&
+            _assessmentProgress.value?.customAssessmentProgress ==
+                'completed') {
+          unawaited(_finish());
+        }
+      }
     }
   }
 
@@ -410,6 +428,7 @@ class _CustomMovementPracticeScreenState
       _failure = null;
       _resultSaveWarning = null;
       _readinessFeedback.value = null;
+      _assessmentProgress.value = null;
     });
     try {
       await _releaseCamera();
@@ -541,6 +560,10 @@ class _CustomMovementPracticeScreenState
         'Bottle markers were not visible often enough to assess rotation. Improve lighting and keep both ends visible.',
       'custom_capture_not_recording' =>
         'No movement recording was available to assess. Start another practice attempt.',
+      'custom_movement_not_detected' =>
+        'No movement was detected. Move through the saved sequence while keeping the required inputs visible, then try again.',
+      'custom_assessment_incomplete' =>
+        'Movement was detected, but the full saved sequence was not completed within 30 seconds. Try again and continue through the ending.',
       'invalid_schema' =>
         'The saved movement template could not be read. Reopen the movement and try again.',
       'readiness_not_stable' ||
@@ -616,6 +639,7 @@ class _CustomMovementPracticeScreenState
     _preview.dispose();
     _presentation.dispose();
     _readinessFeedback.dispose();
+    _assessmentProgress.dispose();
     if (_ownsSocket) _socket.dispose();
     super.dispose();
   }
@@ -777,9 +801,9 @@ class _CustomMovementPracticeScreenState
         body: 'Practice will begin when the countdown finishes.',
       ),
       _CustomPracticePhase.recording => TrainingReadyBrief(
-        title: 'Recording · ${_formatRemaining()} remaining',
+        title: 'Recording · ${_formatRemaining()} max',
         body:
-            'Perform the full movement and finish before the recording timer reaches zero.',
+            'Move through the full saved pattern. ELIXR will finish when it detects the sequence, or at the 30-second limit.',
       ),
       _CustomPracticePhase.processing => const TrainingReadyBrief(
         title: 'Analyzing performance…',
@@ -821,6 +845,23 @@ class _CustomMovementPracticeScreenState
               ),
             ],
           )
+        : _phase == _CustomPracticePhase.recording
+        ? ValueListenableBuilder<PracticeFeedback?>(
+            valueListenable: _assessmentProgress,
+            builder: (context, progress, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  progress?.feedback ?? 'Waiting for movement…',
+                  style: AppTheme.bodySecondary.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                _buildDetectionStatus(sessionObserving: detectionObserving),
+              ],
+            ),
+          )
         : setupPhase
         ? ValueListenableBuilder<PracticeFeedback?>(
             valueListenable: _readinessFeedback,
@@ -851,7 +892,7 @@ class _CustomMovementPracticeScreenState
       _CustomPracticePhase.setupChecking ||
       _CustomPracticePhase.readyToStart => 'Start Practice',
       _CustomPracticePhase.countdown => 'Get Ready…',
-      _CustomPracticePhase.recording => 'Finish Session',
+      _CustomPracticePhase.recording => 'Completes automatically',
       _CustomPracticePhase.processing => 'Analyzing performance…',
       _CustomPracticePhase.completed => 'Practice Again',
       _CustomPracticePhase.failed =>
@@ -860,7 +901,7 @@ class _CustomMovementPracticeScreenState
     final canRunAction = !_busy && !_cameraSelectionBusy;
     final action = switch (_phase) {
       _CustomPracticePhase.readyToStart => canRunAction ? _start : null,
-      _CustomPracticePhase.recording => canRunAction ? _finish : null,
+      _CustomPracticePhase.recording => null,
       _CustomPracticePhase.completed ||
       _CustomPracticePhase.failed => canRunAction ? _tryAgain : null,
       _ => null,
@@ -940,6 +981,7 @@ class _CustomMovementPracticeScreenState
       actionArea: TrainingActionArea(
         kind: actionKind,
         startLabel: actionLabel,
+        finishLabel: actionLabel,
         isLoading:
             _busy ||
             _phase == _CustomPracticePhase.preparing ||

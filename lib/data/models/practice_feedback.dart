@@ -93,6 +93,7 @@ class PracticeFeedback {
     this.readinessComplete,
     this.readinessStable,
     this.readinessStableProgress,
+    this.customAssessmentProgress,
     this.personCount,
     this.referenceInvalid,
     this.capturePropVisible,
@@ -158,6 +159,10 @@ class PracticeFeedback {
 
   /// Progress toward stable readiness confirmation (0.0–1.0). Absent when not readying.
   final double? readinessStableProgress;
+
+  /// `waiting_for_movement`, `movement_detected`, or `completed` for custom
+  /// movement assessment sessions.
+  final String? customAssessmentProgress;
 
   /// Custom reference capture: confirmed visible performers (2 means 2+).
   final int? personCount;
@@ -240,6 +245,7 @@ class PracticeFeedback {
         readinessComplete == other.readinessComplete &&
         readinessStable == other.readinessStable &&
         readinessStableProgress == other.readinessStableProgress &&
+        customAssessmentProgress == other.customAssessmentProgress &&
         personCount == other.personCount &&
         referenceInvalid == other.referenceInvalid &&
         calibrationScale == other.calibrationScale &&
@@ -286,6 +292,7 @@ class PracticeFeedback {
         propType == other.propType &&
         readinessComplete == other.readinessComplete &&
         readinessStable == other.readinessStable &&
+        customAssessmentProgress == other.customAssessmentProgress &&
         _readinessItemsEqual(readinessItems, other.readinessItems);
   }
 
@@ -342,6 +349,7 @@ class PracticeFeedback {
       readinessComplete: json['readiness_complete'] as bool?,
       readinessStable: json['readiness_stable'] as bool?,
       readinessStableProgress: readinessStableProgress,
+      customAssessmentProgress: json['custom_assessment_progress'] as String?,
       personCount: json['person_count'] is num
           ? (json['person_count'] as num).toInt().clamp(0, 2)
           : null,

@@ -10,6 +10,7 @@ class TrainingActionArea extends StatelessWidget {
     super.key,
     required this.kind,
     required this.startLabel,
+    this.finishLabel = 'Finish Session',
     this.onPressed,
     this.isLoading = false,
   });
@@ -18,6 +19,7 @@ class TrainingActionArea extends StatelessWidget {
 
   /// e.g. "Start Session" or "Start Free Practice"
   final String startLabel;
+  final String finishLabel;
   final VoidCallback? onPressed;
   final bool isLoading;
 
@@ -25,7 +27,7 @@ class TrainingActionArea extends StatelessWidget {
   Widget build(BuildContext context) {
     final button = switch (kind) {
       TrainingActionKind.finish => GameActionButton(
-        label: 'Finish Session',
+        label: finishLabel,
         icon: FluentIcons.stop_solid,
         danger: true,
         onPressed: onPressed,

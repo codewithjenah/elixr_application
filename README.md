@@ -789,9 +789,16 @@ registry:
   `custom_movement_template` on `prepare`. The backend derives readiness from
   that template (legacy version-1 hand templates conservatively retain
   two-hand readiness). After readiness and activation, the same
-  `start_custom_capture` / `stop_custom_capture` pair records the performance,
-  and `finish_custom_assessment` returns `custom_assessment` with five bounded
-  component scores and a derived `0..12` total.
+  `start_custom_capture` / `stop_custom_capture` pair records the performance
+  for up to 30 seconds. Active feedback includes optional
+  `custom_assessment_progress` values `waiting_for_movement`,
+  `movement_detected`, and `completed`. Completion uses fresh captured samples,
+  required-modality validation, learned path progress, and the existing custom
+  template comparison. Flutter then sends the existing stop and finish
+  commands; `finish_custom_assessment` returns `custom_assessment` with five
+  bounded component scores and a derived `0..12` total. At the 30-second limit,
+  attempts without a detected movement or complete sequence are rejected with
+  user-facing feedback.
 
 All custom actions require `protocol_version`, `request_id`, and `session_id`
 and receive correlated `command_ack` responses. Templates are inert data;
