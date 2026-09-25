@@ -168,9 +168,7 @@ class _CustomMovementAuthoringScreenState
   int _pendingStart = 0;
   int _pendingEnd = 0;
 
-  bool get _hasUsableTemplate =>
-      _template?.isReady == true &&
-      (!_trackRotation || _template?.requiresRotation == true);
+  bool get _hasUsableTemplate => _template?.isReady == true;
   bool get _canRecord =>
       _sessionStarted &&
       _previewReady &&
@@ -541,11 +539,6 @@ class _CustomMovementAuthoringScreenState
             'ELIXR could not learn this movement from the current examples.',
           );
         }
-        if (_trackRotation && !template.requiresRotation) {
-          throw StateError(
-            'Visible bottle rotation was not learned. Keep the orange top and yellow base markers in view.',
-          );
-        }
         if (mounted) {
           setState(() {
             _template = template;
@@ -816,13 +809,6 @@ class _CustomMovementAuthoringScreenState
                           if (_references.isEmpty &&
                               widget.existingRevision != null &&
                               _prop == widget.existing?.propType) {
-                            _replacingReferences =
-                                value &&
-                                widget
-                                        .existingRevision!
-                                        .template
-                                        .requiresRotation !=
-                                    true;
                             _template = widget.existingRevision!.template;
                           }
                         }),
@@ -832,8 +818,8 @@ class _CustomMovementAuthoringScreenState
                   const SizedBox(height: AppSpacing.sm),
                   Text(
                     _trackRotation
-                        ? 'Add orange tape near the top and yellow tape near the base so ELIXR can follow the turn.'
-                        : 'Optional. Turn this on only when the bottle makes a visible turn.',
+                        ? 'Optional quality bonus: orange tape near the top and yellow tape near the base can help ELIXR observe the turn. The movement can still be saved and scored without it.'
+                        : 'Rotation is optional. Body, hands, timing, and prop path determine the movement score.',
                     style: ElixTypography.supporting(
                       color: context.elixTextSecondary,
                     ),
@@ -1526,11 +1512,21 @@ class _CustomMovementAuthoringScreenState
                   if (capabilities['hands'] == true) _capability('Hands'),
                   if (capabilities['pose'] == true) _capability('Upper body'),
                   if (capabilities['prop_rotation'] == true)
-                    _capability('Visible bottle rotation'),
+                    _capability('Visible bottle rotation bonus'),
                 ],
               ),
               tinted: true,
             ),
+            if (_trackRotation && capabilities['prop_rotation'] != true) ...[
+              const SizedBox(height: AppSpacing.md),
+              const InfoBar(
+                title: Text('Rotation could not be learned'),
+                content: Text(
+                  'You can save this movement. Rotation will not affect its score; record clearer marked examples later if you want the optional bonus.',
+                ),
+                severity: InfoBarSeverity.info,
+              ),
+            ],
             if (capabilities['hands'] != true ||
                 capabilities['pose'] != true) ...[
               const SizedBox(height: AppSpacing.md),

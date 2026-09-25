@@ -124,6 +124,8 @@ class PrepareCommand(_CommandBase):
             # Reject dual-prop custom capture instead of silently recording only
             # the bottle and misrepresenting the resulting capability.
             raise ValueError("unsupported_custom_prop_type")
+        if self.session_mode == "endless" and self.prop_type == "bottle_and_shaker":
+            raise ValueError("invalid_prop_type")
         if self.session_mode == "custom_assessment":
             if self.custom_movement_template is None:
                 raise ValueError("missing_custom_movement_template")
@@ -158,13 +160,25 @@ class ResumeCommand(_CommandBase):
 class SetEndlessTargetCommand(_CommandBase):
     action: Literal["set_endless_target"]
     target_generation: Annotated[StrictInt, Field(ge=1)]
-    target_type: Literal["movement", "toss_catch"]
+    target_type: Literal["movement", "toss_catch", "custom_movement"]
     movement: Optional[Annotated[str, Field(min_length=1, max_length=MAX_MOVEMENT_LENGTH)]] = None
     prop_type: Literal["bottle", "shaker"]
+    custom_movement_id: Optional[NonEmptyId] = None
+    revision_id: Optional[NonEmptyId] = None
+    custom_movement_template: Optional[dict[str, Any]] = None
 
     @model_validator(mode="after")
     def _validate_target_shape(self) -> "SetEndlessTargetCommand":
-        if (self.target_type == "movement") != (self.movement is not None):
+        custom = self.target_type == "custom_movement"
+        if (self.target_type != "toss_catch") != (self.movement is not None):
+            raise ValueError("invalid_endless_target")
+        if custom != (self.custom_movement_id is not None and
+                       self.revision_id is not None and
+                       self.custom_movement_template is not None):
+            raise ValueError("invalid_endless_target")
+        if not custom and any(value is not None for value in (
+            self.custom_movement_id, self.revision_id, self.custom_movement_template
+        )):
             raise ValueError("invalid_endless_target")
         return self
 

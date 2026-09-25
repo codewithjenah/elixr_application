@@ -1,5 +1,8 @@
 import '../../../data/models/recognition_event.dart';
 import '../../../data/models/training_prop.dart';
+import '../../../data/models/movement_template.dart';
+
+enum EndlessTargetKind { movement, customMovement, tossCatch }
 
 enum FreestyleSessionPhase {
   idle,
@@ -17,17 +20,39 @@ class EndlessTarget {
     required this.movement,
     required this.prop,
     required this.difficulty,
+    this.kind = EndlessTargetKind.movement,
+    this.customMovementId,
+    this.revisionId,
+    this.template,
   });
 
   final String movement;
   final TrainingProp prop;
   final String difficulty;
-  bool get isTossCatch => movement == 'Toss & Catch';
-  int get seconds => switch (difficulty) {
-    'Hard' => 12,
-    'Medium' => 10,
-    _ => 8,
+  final EndlessTargetKind kind;
+  final String? customMovementId;
+  final String? revisionId;
+  final MovementTemplate? template;
+  bool get isTossCatch => kind == EndlessTargetKind.tossCatch;
+  String get identity => switch (kind) {
+    EndlessTargetKind.movement => 'official:${prop.protocolValue}:$movement',
+    EndlessTargetKind.customMovement => 'custom:$customMovementId:$revisionId',
+    EndlessTargetKind.tossCatch => 'toss_catch:${prop.protocolValue}',
   };
+  int get seconds {
+    final base = switch (difficulty) {
+      'Hard' => 12,
+      'Medium' => 10,
+      _ => 8,
+    };
+    if (kind != EndlessTargetKind.customMovement || template == null) {
+      return base;
+    }
+    // Allow the full learned sequence, including moderate speed variation,
+    // before the target expires. Authoring currently records up to 15 seconds.
+    final learned = (template!.durationMs + 799) ~/ 800 + 1;
+    return learned > base ? learned : base;
+  }
 }
 
 class FreestyleFeedEntry {

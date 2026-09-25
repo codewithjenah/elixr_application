@@ -556,46 +556,115 @@ def _canonical_prop_metadata(frames: Sequence[FrameSample]) -> dict[str, Any]:
 
 
 def detect_prop_events(samples: Sequence[FrameSample]) -> tuple[PropEvent, ...]:
-    """Generic, conservative contact lifecycle inferred from detector data.
+    """Infer contact, release, flight and catch from existing tracked centers.
 
-    A one-frame miss retains state; a catch requires two slow, consecutive
-    near-hand observations, preventing a fast pass-by from becoming a catch.
+    Separation alone is a release, not proof of flight. A moving, continuously
+    tracked prop away from the hand supplies airborne evidence. A catch needs
+    two stable near-hand observations; a brief detector miss is inconclusive.
     """
     events: list[PropEvent] = []
     contact_run = 0
-    absent_run = 0
+    held = False
+    released = False
     airborne = False
+    away_run = 0
+    release_y: float | None = None
     prior_prop: Landmark | None = None
+    prior_hands: Mapping[str, Landmark] = {}
+    prior_timestamp: int | None = None
+    prior_track_id: Any = None
     prior_velocity: float | None = None
     for frame in samples:
         prop = frame.prop if _usable(frame.prop) else None
-        hands = [h for h in frame.hands.values() if _usable(h)]
+        hands = {key: hand for key, hand in frame.hands.items() if _usable(hand)}
         if prop is None:
-            absent_run += 1
+            # Unknown prop location cannot establish release, flight, or catch.
+            prior_prop = None
+            prior_velocity = None
             continue
-        absent_run = 0
-        distance = min((math.hypot(prop.x - h.x, prop.y - h.y) for h in hands), default=float("inf"))
+        closest_key = min(
+            hands,
+            key=lambda key: math.hypot(prop.x - hands[key].x, prop.y - hands[key].y),
+            default=None,
+        )
+        distance = (
+            math.hypot(prop.x - hands[closest_key].x, prop.y - hands[closest_key].y)
+            if closest_key is not None else float("inf")
+        )
+        track_id = frame.prop_metadata.get("track_id")
+        previous_prop = prior_prop
+        if (prior_prop is not None and track_id is not None
+                and prior_track_id is not None and track_id != prior_track_id):
+            # An identity switch is not evidence that the held prop moved.
+            held = released = airborne = False
+            contact_run = 0
+            away_run = 0
+            release_y = None
+            prior_velocity = None
+        continuous = (
+            prior_prop is not None
+            and prior_timestamp is not None
+            and 0 < frame.timestamp_ms - prior_timestamp <= 250
+            and (track_id is None or prior_track_id is None or track_id == prior_track_id)
+        )
         speed = 0.0
-        if prior_prop is not None:
-            dt = max(1, frame.timestamp_ms - previous_timestamp)
+        relative_speed = 0.0
+        if continuous:
+            assert prior_prop is not None and prior_timestamp is not None
+            dt = frame.timestamp_ms - prior_timestamp
             speed = math.hypot(prop.x - prior_prop.x, prop.y - prior_prop.y) / dt
             vertical_velocity = (prop.y - prior_prop.y) / dt
             if airborne and prior_velocity is not None and prior_velocity < 0 <= vertical_velocity:
                 events.append(PropEvent(frame.timestamp_ms, "apex"))
             prior_velocity = vertical_velocity
-        previous_timestamp = frame.timestamp_ms
+            if closest_key is not None and closest_key in prior_hands:
+                hand = hands[closest_key]
+                previous_hand = prior_hands[closest_key]
+                relative_speed = math.hypot(
+                    (prop.x - hand.x) - (prior_prop.x - previous_hand.x),
+                    (prop.y - hand.y) - (prior_prop.y - previous_hand.y),
+                ) / dt
+            else:
+                relative_speed = speed
+        else:
+            prior_velocity = None
+        prior_timestamp = frame.timestamp_ms
         prior_prop = prop
-        near_and_slow = distance <= 0.25 and speed <= 0.0015
+        prior_hands = hands
+        prior_track_id = track_id
+        near_and_slow = distance <= 0.25 and relative_speed <= 0.0015
         contact_run = contact_run + 1 if near_and_slow else 0
         if contact_run == 2:
             events.append(PropEvent(frame.timestamp_ms, "stable_contact"))
             if airborne:
                 events.append(PropEvent(frame.timestamp_ms, "catch"))
                 airborne = False
+                released = False
+                held = True
+                away_run = 0
+                release_y = None
+            elif released:
+                # A released prop that never showed flight is simply back in
+                # contact; do not invent an airborne catch.
+                released = False
+                held = True
+                away_run = 0
+                release_y = None
             else:
                 events.append(PropEvent(frame.timestamp_ms, "contact"))
-        if contact_run == 0 and not airborne and events and events[-1].kind in {"contact", "stable_contact"}:
+                held = True
+        if held and closest_key is not None and distance > 0.25:
             events.append(PropEvent(frame.timestamp_ms, "release"))
+            held = False
+            released = True
+            away_run = 1
+            release_y = previous_prop.y if previous_prop is not None else prop.y
+        elif released and closest_key is not None and distance > 0.25:
+            away_run = away_run + 1 if continuous else 1
+        if (released and not airborne and closest_key is not None
+                and distance > 0.25 and continuous and away_run >= 2
+                and release_y is not None and abs(prop.y - release_y) >= 0.02
+                and speed > 0.0015):
             events.append(PropEvent(frame.timestamp_ms, "airborne"))
             airborne = True
     return tuple(events)
@@ -804,7 +873,28 @@ def build_template(
         raise ValueError(
             ",".join(code.value for code in canonical_validation.codes)
         )
-    prop_events = detect_prop_events(canonical)
+    # Phase timing is learned from the original reference clocks. Detecting
+    # contact on interpolated canonical frames shifts event boundaries and can
+    # make a correct catch score like a late one.
+    reference_events = [detect_prop_events(reference) for reference in references]
+    occurrences: dict[str, int] = {}
+    shared_events: list[PropEvent] = []
+    for event in reference_events[medoid_index]:
+        occurrence = occurrences.get(event.kind, 0)
+        occurrences[event.kind] = occurrence + 1
+        matching = [
+            [item for item in events if item.kind == event.kind]
+            for events in reference_events
+        ]
+        if not all(len(items) > occurrence for items in matching):
+            continue
+        relative_times = [
+            (items[occurrence].timestamp_ms - reference[0].timestamp_ms)
+            / max(1, duration)
+            for items, reference, duration in zip(matching, references, durations)
+        ]
+        shared_events.append(PropEvent(round(canonical_duration * sum(relative_times) / len(relative_times)), event.kind))
+    prop_events = tuple(shared_events)
     event_kinds = {event.kind for event in prop_events}
     has_release_catch = {"release", "catch"}.issubset(event_kinds)
     reference_rotation = [_rotation_trace(reference) for reference in references]
@@ -1094,8 +1184,8 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
     """Compare captured measurements with a template using modality-masked DTW.
 
     Missing observations lower coverage and cannot yield a perfect component.
-    ``total`` is a bounded 0..12 projection of five 0..3 components, allowing
-    existing rubric consumers to display it without mixing it with legacy %.
+    ``total`` is a bounded 0..12 rubric: observed movement components carry
+    75%, prop components 25%, with at most one optional rotation bonus point.
     """
     validation = validate_sequence(
         samples,
@@ -1137,7 +1227,10 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
         if template.feature_capabilities.get("release_catch"):
             event_similarity, event_coverage = _release_catch_similarity(
                 template.prop_events,
-                detect_prop_events(candidate),
+                tuple(
+                    PropEvent(event.timestamp_ms - samples[0].timestamp_ms, event.kind)
+                    for event in detect_prop_events(samples)
+                ),
                 template.duration_ms,
                 duration,
             )
@@ -1182,33 +1275,30 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample])
             and alignment_coverage >= MIN_ROTATION_PAIR_COVERAGE
             else "partial" if evidence > 0 else "unverified"
         )
-        if aligned_errors and evidence > 0:
-            # Rotation changes both the prop-path and control components, but
-            # public component names and the 0..12 total remain unchanged.
-            # Total signed angle catches equal-start/end one-vs-two-turn cases;
-            # aligned progression catches opposite direction and timing. Gaps
-            # contribute no invented angle and reduce evidence confidence.
+        rotation_bonus = 0
+        if status == "verified" and aligned_errors:
+            # Observed 2D turns can reward a matching execution but marker
+            # loss never lowers movement or prop-trajectory scores. Signed
+            # angle distinguishes one from two turns with the same endpoints.
             total_error = abs(rotation.total_signed_rad - template.rotation_trace.total_signed_rad)
             progression_error = sum(aligned_errors) / len(aligned_errors)
             similarity = math.exp(-total_error / (0.65 * math.pi) - progression_error / (0.65 * math.pi))
-            rotation_score = min(3, round(3 * similarity * evidence))
-        else:
-            # The other modalities remain assessable, but an unseen or
-            # identity-ambiguous flip cannot earn a high rotation result.
-            rotation_score = 1
-        for name in ("Prop path", "Control/stability"):
-            scores[name] = min(scores[name] if scores[name] is not None else 0, rotation_score)
-            confidence[name] = min(confidence[name], evidence)
+            rotation_bonus = 1 if similarity >= 0.70 else 0
         rotation_diagnostics = {
-            "rotation_required": True,
+            "rotation_required": False,
+            "rotation_available": True,
             "orientation_coverage": round(rotation.coverage, 3),
             "orientation_pair_coverage": round(rotation.pair_coverage, 3),
             "rotation_alignment_coverage": round(alignment_coverage, 3),
             "rotation_track_stable": stable,
             "rotation_evidence": status,
+            "rotation_bonus": rotation_bonus,
         }
     else:
-        rotation_diagnostics = {"rotation_required": False}
-    numeric = [score if score is not None else 0 for score in scores.values()]
-    total = max(0, min(12, round(sum(numeric) * 12 / 15)))
+        rotation_diagnostics = {"rotation_required": False, "rotation_available": False, "rotation_bonus": 0}
+    movement = [scores[name] for name in ("Body technique", "Hand technique", "Timing") if scores[name] is not None]
+    prop = [scores[name] for name in ("Prop path", "Control/stability") if scores[name] is not None]
+    movement_fraction = sum(movement) / (3 * len(movement)) if movement else 0.0
+    prop_fraction = sum(prop) / (3 * len(prop)) if prop else 0.0
+    total = max(0, min(12, round(12 * (0.75 * movement_fraction + 0.25 * prop_fraction)) + rotation_diagnostics["rotation_bonus"]))
     return SequenceComparison(scores, confidence, total, _level(total), validation, rotation_diagnostics)

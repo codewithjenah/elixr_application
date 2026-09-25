@@ -287,6 +287,27 @@ def test_endless_target_command_is_strict_and_generation_scoped():
             raise AssertionError(f"Accepted invalid target: {invalid}")
 
 
+def test_custom_endless_target_requires_identity_and_template():
+    from pydantic import ValidationError
+
+    payload = {
+        "protocol_version": 1, "request_id": "req-custom",
+        "session_id": "session-1", "action": "set_endless_target",
+        "target_generation": 1, "target_type": "custom_movement",
+        "movement": "My Grip", "prop_type": "bottle",
+        "custom_movement_id": "movement-1", "revision_id": "revision-2",
+        "custom_movement_template": {"schema_version": 1},
+    }
+    parsed = parse_v1_command(payload)
+    assert parsed.custom_movement_id == "movement-1"
+    assert parsed.revision_id == "revision-2"
+    for field in ("movement", "custom_movement_id", "revision_id", "custom_movement_template"):
+        with pytest.raises(ValidationError):
+            parse_v1_command({key: value for key, value in payload.items() if key != field})
+    with pytest.raises(ValidationError):
+        parse_v1_command({**payload, "target_type": "invalid"})
+
+
 def test_pause_and_resume_commands_parse():
     pause = parse_v1_command(
         {

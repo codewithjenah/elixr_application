@@ -25,6 +25,8 @@ class RecognitionEvent {
     this.supportingMessage,
     this.captureSequence,
     this.targetGeneration,
+    this.customMovementId,
+    this.revisionId,
   });
 
   final String sessionId;
@@ -38,6 +40,8 @@ class RecognitionEvent {
   final String? supportingMessage;
   final int? captureSequence;
   final int? targetGeneration;
+  final String? customMovementId;
+  final String? revisionId;
 
   bool get countsForCombo =>
       kind == RecognitionKind.movement ||
@@ -81,6 +85,8 @@ class RecognitionEvent {
                 : null),
       captureSequence: (json['capture_sequence'] as num?)?.toInt(),
       targetGeneration: (json['target_generation'] as num?)?.toInt(),
+      customMovementId: json['custom_movement_id'] as String?,
+      revisionId: json['revision_id'] as String?,
     );
   }
 

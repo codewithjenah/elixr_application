@@ -239,9 +239,11 @@ def test_three_references_learn_rotation_and_score_a_plain_toss_lower():
     assert genuine.component_scores["Prop path"] == 3
     assert genuine.component_scores["Control/stability"] == 3
     assert genuine.rotation_diagnostics["rotation_evidence"] == "verified"
-    assert genuine.total > plain.total + 2
-    assert genuine.total > multi.total + 2
-    assert genuine.total > opposite.total + 2
+    assert genuine.rotation_diagnostics["rotation_bonus"] == 1
+    assert plain.rotation_diagnostics["rotation_bonus"] == 0
+    assert multi.rotation_diagnostics["rotation_bonus"] == 0
+    assert opposite.rotation_diagnostics["rotation_bonus"] == 0
+    assert all(result.total >= 11 for result in (plain, multi, opposite))
 
 
 def test_missing_partial_and_changed_identity_rotation_remain_bounded():
@@ -257,21 +259,20 @@ def test_missing_partial_and_changed_identity_rotation_remain_bounded():
     assert missing.rotation_diagnostics["orientation_coverage"] == 0
     assert missing.rotation_diagnostics["orientation_pair_coverage"] == 0
     for name in ("Prop path", "Control/stability"):
-        assert missing.component_scores[name] <= 1
-        assert missing.component_confidence[name] == 0
-        assert partial.component_scores[name] < matching.component_scores[name]
-        assert partial.component_confidence[name] < matching.component_confidence[name]
-        assert changed.component_scores[name] <= 1
-        assert changed.component_confidence[name] == 0
+        assert missing.component_scores[name] == matching.component_scores[name]
+        assert missing.component_confidence[name] == matching.component_confidence[name]
+        assert partial.component_scores[name] == matching.component_scores[name]
+        assert changed.component_scores[name] == matching.component_scores[name]
     assert partial.validation.valid
     assert partial.rotation_diagnostics["rotation_evidence"] == "partial"
     assert 0 < partial.rotation_diagnostics["orientation_pair_coverage"] < 1
     assert changed.validation.valid
     assert changed.rotation_diagnostics["rotation_track_stable"] is False
     assert changed.rotation_diagnostics["rotation_evidence"] == "unverified"
-    assert matching.total > missing.total
-    assert missing.total <= 9
-    assert changed.total <= 9
+    assert matching.rotation_diagnostics["rotation_bonus"] == 1
+    assert missing.rotation_diagnostics["rotation_bonus"] == 0
+    assert changed.rotation_diagnostics["rotation_bonus"] == 0
+    assert missing.total >= 11
 
 
 def test_track_change_during_marker_outage_cannot_verify_rotation():
@@ -283,8 +284,9 @@ def test_track_change_during_marker_outage_cannot_verify_rotation():
     assert attempt.rotation_diagnostics["orientation_coverage"] > 0.8
     assert attempt.rotation_diagnostics["rotation_track_stable"] is False
     assert attempt.rotation_diagnostics["rotation_evidence"] == "unverified"
-    assert attempt.component_scores["Prop path"] <= 1
-    assert attempt.component_scores["Control/stability"] <= 1
+    assert attempt.rotation_diagnostics["rotation_bonus"] == 0
+    assert attempt.component_scores["Prop path"] == 3
+    assert attempt.component_scores["Control/stability"] == 3
 
 
 def test_required_prop_loss_still_invalidates_rotating_assessment():
@@ -311,11 +313,12 @@ def test_session_accepts_unobserved_rotation_and_returns_coaching_feedback():
     assert (accepted, code) == (True, None)
     assert quality["valid"]
     assessment = session.finish_custom_assessment()
-    assert assessment["diagnostics"]["rotation_required"] is True
+    assert assessment["diagnostics"]["rotation_required"] is False
+    assert assessment["diagnostics"]["rotation_available"] is True
     assert assessment["diagnostics"]["rotation_evidence"] == "unverified"
-    assert assessment["component_scores"]["Prop path"] <= 1
-    assert assessment["component_scores"]["Control/stability"] <= 1
-    assert assessment["total"] <= 9
+    assert assessment["component_scores"]["Prop path"] == 3
+    assert assessment["component_scores"]["Control/stability"] == 3
+    assert assessment["total"] >= 11
     assert any("rotation could not be fully verified" in item for item in assessment["feedback"])
     session.close()
 
@@ -332,6 +335,35 @@ def test_shaker_assessment_has_no_rotation_requirement():
     assessment = session.finish_custom_assessment()
     assert assessment["diagnostics"]["rotation_required"] is False
     assert not any("rotation could not" in item for item in assessment["feedback"])
+    session.close()
+
+
+def test_endless_custom_target_recognizes_movement_without_marker_evidence(monkeypatch):
+    template = build_template([_sequence(1)] * 3)
+
+    class UnavailableMarker:
+        available = False
+        provider = None
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(websocket_api, "BottleMarkerDetector", UnavailableMarker)
+    session = websocket_api.VisionSession(
+        "Free Practice", session_mode="endless", prop_type="bottle_and_shaker",
+        endless_selected_prop="bottle", session_id="custom-endless",
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    assert session.set_endless_target(
+        "custom_movement", "Bottle Flip", "bottle", 1,
+        "custom-1", "revision-1", template.to_dict(),
+    ) == (True, None)
+    session._custom_samples = list(_sequence(1, gap=range(41)))
+    session._custom_target_sample_count = 3
+    assert session._evaluate_endless_custom_samples(42) in {"nice", "great", "perfect"}
+    events = session.drain_recognition_events()
+    assert len(events) == 1
+    assert events[0].custom_movement_id == "custom-1"
     session.close()
 
 

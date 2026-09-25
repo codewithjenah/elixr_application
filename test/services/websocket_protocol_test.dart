@@ -363,6 +363,39 @@ void main() {
     );
 
     test(
+      'custom Endless target serializes stable identity and template',
+      () async {
+        final sessionId = service.beginPracticeAttempt();
+        final template = <String, dynamic>{'schema_version': 1};
+        final future = service.sendSetEndlessTarget(
+          targetGeneration: 1,
+          movement: 'My Move',
+          prop: TrainingProp.bottle,
+          customMovementId: 'movement-1',
+          revisionId: 'revision-2',
+          customMovementTemplate: template,
+        );
+        await Future<void>.delayed(Duration.zero);
+        final payload = sent.last;
+        expect(payload['target_type'], 'custom_movement');
+        expect(payload['custom_movement_id'], 'movement-1');
+        expect(payload['revision_id'], 'revision-2');
+        expect(payload['custom_movement_template'], template);
+        expect(payload['session_id'], sessionId);
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': payload['request_id'],
+          'session_id': sessionId,
+          'action': 'set_endless_target',
+          'accepted': true,
+          'session_state': 'active',
+        });
+        expect((await future).accepted, isTrue);
+      },
+    );
+
+    test(
       'version 1 command payloads contain protocol and identifiers',
       () async {
         final prepareFuture = service.sendPrepare(

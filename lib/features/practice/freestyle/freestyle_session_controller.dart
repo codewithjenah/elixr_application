@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import '../../../core/constants/movements.dart';
 import '../../../data/models/recognition_event.dart';
 import '../../../data/models/training_prop.dart';
+import '../../../data/models/custom_movement.dart';
+import '../../../data/models/movement_template.dart';
 import 'freestyle_models.dart';
 
 /// Build the single-prop run pool from the existing personal-ready variants.
@@ -29,8 +31,97 @@ List<EndlessTarget> endlessPoolFromReady(
       movement: 'Toss & Catch',
       prop: selectedProp,
       difficulty: 'Medium',
+      kind: EndlessTargetKind.tossCatch,
     ),
 ];
+
+/// Include only an owned active root paired with its current, parseable revision.
+List<EndlessTarget> eligibleCustomEndlessTargets({
+  required Iterable<CustomMovement> movements,
+  required Iterable<CustomMovementRevision> revisions,
+  required String ownerUid,
+  required TrainingProp selectedProp,
+}) {
+  final byId = {for (final revision in revisions) revision.id: revision};
+  return [
+    for (final movement in movements)
+      if (movement.isOwnedBy(ownerUid) &&
+          movement.isActive &&
+          movement.propType == selectedProp &&
+          movement.activeRevisionId.isNotEmpty &&
+          _validEndlessRevision(
+            movement,
+            byId[movement.activeRevisionId],
+            ownerUid,
+          ))
+        EndlessTarget(
+          movement: movement.name,
+          prop: movement.propType,
+          difficulty: movement.difficulty,
+          kind: EndlessTargetKind.customMovement,
+          customMovementId: movement.id,
+          revisionId: movement.activeRevisionId,
+          template: byId[movement.activeRevisionId]!.template,
+        ),
+  ];
+}
+
+bool _validEndlessRevision(
+  CustomMovement movement,
+  CustomMovementRevision? revision,
+  String ownerUid,
+) =>
+    revision != null &&
+    revision.movementId == movement.id &&
+    revision.ownerUid == ownerUid &&
+    revision.ownerRole == movement.ownerRole &&
+    revision.template.durationMs <= 24000 &&
+    _isEndlessTemplateParseable(revision.template);
+
+bool _isEndlessTemplateParseable(MovementTemplate template) {
+  if (!template.isReady ||
+      template.canonicalSequence.length != 32 ||
+      (template.featureCapabilities['hands'] == true &&
+          template.requiredHandSides.isEmpty)) {
+    return false;
+  }
+  bool validLandmarks(Object? value) =>
+      value is Map &&
+      value.values.every(
+        (point) => point is Map && point['x'] is num && point['y'] is num,
+      );
+  for (final sample in template.canonicalSequence) {
+    if (sample['timestamp_ms'] is! num ||
+        !validLandmarks(sample['pose'] ?? const <String, dynamic>{}) ||
+        !validLandmarks(sample['hands'] ?? const <String, dynamic>{}) ||
+        (sample['prop'] != null && !validLandmarks({'prop': sample['prop']})) ||
+        (sample['prop_metadata'] != null && sample['prop_metadata'] is! Map)) {
+      return false;
+    }
+  }
+  if (template.variabilityMetadata.values.any((value) => value is! num)) {
+    return false;
+  }
+  return template.propEvents.every(
+    (event) =>
+        event['timestamp_ms'] is num &&
+        const {
+          'contact',
+          'release',
+          'airborne',
+          'apex',
+          'catch',
+          'stable_contact',
+        }.contains(event['kind']),
+  );
+}
+
+Map<String, int> endlessDifficultyWeights(int targetOrdinal) =>
+    targetOrdinal < 5
+    ? const {'Easy': 7, 'Medium': 2, 'Hard': 1}
+    : targetOrdinal < 12
+    ? const {'Easy': 3, 'Medium': 5, 'Hard': 2}
+    : const {'Easy': 1, 'Medium': 4, 'Hard': 5};
 
 /// I/O-free Endless session. The screen owns WebSocket commands
 /// and reports results with the matching [generation].
@@ -56,6 +147,7 @@ class FreestyleSessionController extends ChangeNotifier {
   Timer? _advanceTimer;
   int _targetGeneration = 0;
   int _remainingSeconds = 0;
+  int _completedTargets = 0;
   bool _targetReady = false;
   bool _pendingAdvance = false;
   RecognitionQuality? _successQuality;
@@ -91,6 +183,7 @@ class FreestyleSessionController extends ChangeNotifier {
     _cancelTimers();
     _pool = List.unmodifiable(pool ?? const []);
     _queue.clear();
+    _completedTargets = 0;
     if (_pool.isNotEmpty) {
       _fillQueue();
       _targetGeneration = 1;
@@ -222,7 +315,12 @@ class FreestyleSessionController extends ChangeNotifier {
           event.propType != target.prop ||
           !(target.isTossCatch
               ? event.kind == RecognitionKind.flip
+              : target.kind == EndlessTargetKind.customMovement
+              ? event.kind == RecognitionKind.movement &&
+                    event.customMovementId == target.customMovementId &&
+                    event.revisionId == target.revisionId
               : event.kind == RecognitionKind.movement &&
+                    event.customMovementId == null &&
                     event.movement == target.movement)) {
         return false;
       }
@@ -263,7 +361,7 @@ class FreestyleSessionController extends ChangeNotifier {
 
     if (event.kind == RecognitionKind.movement) {
       movements += 1;
-      final name = event.movement;
+      final name = _pool.isNotEmpty ? currentTarget?.identity : event.movement;
       if (name != null && _uniqueMovements.add(name)) {
         unique = _uniqueMovements.length;
       }
@@ -404,6 +502,30 @@ class FreestyleSessionController extends ChangeNotifier {
     return true;
   }
 
+  /// Remove an unavailable custom definition without awarding a miss or score.
+  bool excludeCurrentTarget(int generation, int targetGeneration) {
+    if (!_matches(generation) ||
+        !isActive ||
+        targetGeneration != _targetGeneration ||
+        currentTarget == null) {
+      return false;
+    }
+    final identity = currentTarget!.identity;
+    _targetTimer?.cancel();
+    _advanceTimer?.cancel();
+    _pool = List.unmodifiable(_pool.where((item) => item.identity != identity));
+    _queue.removeWhere((item) => item.identity == identity);
+    _fillQueue();
+    _seenEventIds.clear();
+    _targetGeneration++;
+    _targetReady = false;
+    _pendingAdvance = false;
+    _successQuality = null;
+    _remainingSeconds = currentTarget?.seconds ?? 0;
+    notifyListeners();
+    return true;
+  }
+
   void _startTargetTimer() {
     _targetTimer?.cancel();
     _targetTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -430,26 +552,43 @@ class FreestyleSessionController extends ChangeNotifier {
       final beforePrevious = _queue.length < 2
           ? null
           : _queue[_queue.length - 2];
-      var choices = _pool
+      final stage = _completedTargets + _queue.length;
+      final weights = endlessDifficultyWeights(stage);
+      final available = _pool
+          .where((target) => (weights[target.difficulty] ?? 0) > 0)
+          .toList();
+      var choices = available
           .where(
             (target) =>
-                _pool.length == 1 || target.movement != previous?.movement,
+                available.length == 1 || target.identity != previous?.identity,
           )
           .toList();
       if (choices.length > 1 && beforePrevious != null) {
         final varied = choices
-            .where((target) => target.movement != beforePrevious.movement)
+            .where((target) => target.identity != beforePrevious.identity)
             .toList();
         if (varied.isNotEmpty) choices = varied;
       }
       if (choices.isEmpty) choices = _pool;
-      _queue.add(choices[_randomIndex(choices.length)]);
+      final totalWeight = choices.fold<int>(
+        0,
+        (sum, target) => sum + (weights[target.difficulty] ?? 1),
+      );
+      var pick = _randomIndex(totalWeight);
+      for (final target in choices) {
+        pick -= weights[target.difficulty] ?? 1;
+        if (pick < 0) {
+          _queue.add(target);
+          break;
+        }
+      }
     }
   }
 
   void _advanceTarget() {
     if (_queue.isEmpty) return;
     _queue.removeAt(0);
+    _completedTargets++;
     _fillQueue();
     // Event IDs need only be retained for the active target. The wire target
     // generation rejects delayed events after this boundary.

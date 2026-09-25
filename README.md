@@ -633,7 +633,7 @@ Endless Mode uses the same `prepare` command with optional fields:
 }
 ```
 
-`session_mode: "endless"` keeps one camera and WebSocket session active. The client sends only personally unlocked, tutorial-completed single-prop variants in `allowed_movements`. Before activation and after each target, the client sends a correlated `set_endless_target` command and waits for `command_ack`:
+`session_mode: "endless"` keeps one camera and WebSocket session active. The client sends only personally unlocked, tutorial-completed official single-prop variants in `allowed_movements`. Active, user-owned custom movements with a valid current revision and template join the local target pool; their names are not added to the official allowlist. Before activation and after each target, the client sends a correlated `set_endless_target` command and waits for `command_ack`:
 
 ```json
 {
@@ -648,7 +648,9 @@ Endless Mode uses the same `prepare` command with optional fields:
 }
 ```
 
-For the generic release, airborne, catch technique, use `target_type: "toss_catch"`, omit `movement`, and keep the selected single `prop_type`. This does not verify bottle rotation. The backend rejects locked, unsupported, multi-prop, stale-generation, wrong-session, or wrong-lifecycle targets. While a target is active, it evaluates only that movement; each `recognition_event` includes `target_generation` so an old event cannot complete a later target. Target changes reset candidate and hold state without restarting the camera or models. The prior `session_mode: "freestyle"` remains accepted for protocol compatibility. Omit `session_mode` for official guided practice, Teacher-reviewed assignments, and Free Practice recording; automatically assessed custom movements use the custom modes documented below. Pause and resume freeze or resume recognition without tearing down the camera:
+For a custom target, use `target_type: "custom_movement"` with `movement` as the display label, `custom_movement_id`, `revision_id`, and `custom_movement_template` containing the saved active revision's data-only template. The backend validates the template and compares a bounded live observation window with the existing custom template engine. Custom targets get enough time for the learned duration (up to a 30-second observation window); official and Toss & Catch targets retain Easy 8, Medium 10, and Hard 12 second limits. Templates over 24 seconds are excluded from Endless. Recognition waits for at least 75% of the learned duration and learned release/catch phases when present. A valid comparison at the engine's competent level or above emits a generation-scoped `recognition_event` with the custom IDs; competent maps to Nice, proficient to Great, and mastered to Perfect. Rotation evidence can add a point under the custom rubric but is not required for Endless recognition. The local backend does not authenticate Firebase ownership; the client checks ownership, active status, revision relationship, and selected prop before admitting and activating a custom target.
+
+For the generic release, airborne, catch technique, use `target_type: "toss_catch"`, omit `movement`, and keep the selected single `prop_type`. This does not verify bottle rotation. The backend rejects unsupported official movements, invalid custom templates, multi-prop, stale-generation, wrong-session, or wrong-lifecycle targets. While a target is active, it evaluates only that target; each `recognition_event` includes `target_generation` so an old event cannot complete a later target. Target changes reset official and custom assessment state without restarting the camera. The prior `session_mode: "freestyle"` remains accepted for protocol compatibility. Omit `session_mode` for official guided practice, Teacher-reviewed assignments, and Free Practice recording; ordinary automatically assessed custom movements use the custom modes documented below. Pause and resume freeze or resume recognition without tearing down the camera:
 
 ```json
 {
@@ -796,11 +798,14 @@ provide orientation. For custom Bottle movements, orange top/neck and yellow
 base/bottom markers inside a current YOLO-confirmed Bottle ROI provide observed
 projected rotation for version-2 templates; version-1 non-rotation templates
 remain readable. Reference learning requires sufficiently covered, stable, and
-consistent rotation observations. During assessment, incomplete marker evidence
-reduces confidence and caps Prop path and Control/stability instead of
-invalidating an otherwise observable sequence. Complete prop loss still follows
-the required translation coverage and gap limits. The public `0..12` total is
-unchanged. The marker runtime and optional future learned detector are documented
+consistent rotation observations. During assessment, the observed movement
+pattern (body, hands, timing) carries 75% of the base score and prop path and
+control carry 25%. An observed matching projected turn can add one point within
+the `0..12` rubric; missing or ambiguous rotation does not lower those
+components or prevent assessment. Release, airborne, apex, and catch are
+inferred conservatively from existing prop/hand tracks when visible. Complete
+prop loss still follows the required translation coverage and gap limits. The
+marker runtime and optional future learned detector are documented
 in `backend/docs/bottle-orientation.md`. Shaker rotation is unsupported;
 projected 2D Bottle rotation cannot establish hidden turns or 3D
 front-versus-behind depth. The three

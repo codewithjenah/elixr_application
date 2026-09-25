@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
@@ -20,6 +21,9 @@ import '../../data/models/classroom_exceptions.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/recognition_event.dart';
 import '../../data/models/training_prop.dart';
+import '../../data/models/custom_movement.dart';
+import '../../data/repositories/custom_movement_repository.dart';
+import '../../data/repositories/firebase_custom_movement_repository.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
@@ -193,6 +197,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _freestyleSummaryOpen = false;
   TrainingProp _endlessProp = TrainingProp.bottle;
   int _requestedTargetGeneration = 0;
+  late final CustomMovementRepository _customMovementRepository =
+      FirebaseCustomMovementRepository();
+  List<EndlessTarget> _endlessPoolSnapshot = const [];
   FreestyleSessionPhase _lastRenderedFreestylePhase =
       FreestyleSessionPhase.idle;
 
@@ -315,8 +322,60 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     ];
   }
 
-  List<EndlessTarget> _endlessPool() {
-    return endlessPoolFromReady(_freestyleAllowlist(), _endlessProp);
+  Future<List<EndlessTarget>> _endlessPool() async {
+    final official = endlessPoolFromReady(_freestyleAllowlist(), _endlessProp);
+    final ownerUid = context.read<AuthService>().currentUser?.id;
+    if (ownerUid == null || ownerUid.isEmpty) return official;
+    try {
+      final roots = await _customMovementRepository
+          .watchOwnedMovements(ownerUid: ownerUid)
+          .first
+          .timeout(const Duration(seconds: 5));
+      final eligible = roots.where(
+        (movement) =>
+            movement.isOwnedBy(ownerUid) &&
+            movement.isActive &&
+            movement.propType == _endlessProp &&
+            movement.activeRevisionId.isNotEmpty,
+      );
+      final revisions = (await Future.wait(
+        eligible.map((movement) async {
+          try {
+            return await _customMovementRepository
+                .getRevision(
+                  movementId: movement.id,
+                  revisionId: movement.activeRevisionId,
+                )
+                .timeout(const Duration(seconds: 5));
+          } on Object catch (error) {
+            debugPrint(
+              'Endless excluded custom movement ${movement.id}: $error',
+            );
+            return null;
+          }
+        }),
+      )).whereType<CustomMovementRevision>().toList();
+      final custom = eligibleCustomEndlessTargets(
+        movements: roots,
+        revisions: revisions,
+        ownerUid: ownerUid,
+        selectedProp: _endlessProp,
+      );
+      return [
+        ...official,
+        ...custom,
+        if (custom.isNotEmpty && !official.any((target) => target.isTossCatch))
+          EndlessTarget(
+            movement: 'Toss & Catch',
+            prop: _endlessProp,
+            difficulty: 'Medium',
+            kind: EndlessTargetKind.tossCatch,
+          ),
+      ];
+    } on Object catch (error) {
+      debugPrint('Endless custom movement loading failed: $error');
+      return official;
+    }
   }
 
   bool get _isPlayground => widget.teacherCreatedAssignment == null;
@@ -926,15 +985,17 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     _latestFeedback = null;
     _bottleDetected = false;
     if (assignment == null) {
-      final pool = _endlessPool();
-      if (pool.length < 2) {
+      final pool = await _endlessPool();
+      if (!mounted || _leaving || startGeneration != _startGeneration) return;
+      if (pool.isEmpty) {
         setState(
           () => _startError =
-              'Complete a tutorial for a ${_endlessProp.displayLabel} movement before starting.',
+              'Complete a tutorial or add an active custom ${_endlessProp.displayLabel} movement before starting.',
         );
         return;
       }
       _requestedTargetGeneration = 0;
+      _endlessPoolSnapshot = pool;
       final generation = _freestyle.start(pool: pool);
       if (generation == null) {
         setState(() {
@@ -1082,8 +1143,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
             : null,
         sessionMode: 'endless',
         allowedMovements: [
-          for (final target in _endlessPool())
-            if (!target.isTossCatch)
+          for (final target in _endlessPoolSnapshot)
+            if (target.kind == EndlessTargetKind.movement)
               (movement: target.movement, prop: target.prop),
         ],
       );
@@ -1220,10 +1281,51 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     }
     _requestedTargetGeneration = targetGeneration;
     try {
+      if (target.kind == EndlessTargetKind.customMovement) {
+        final ownerUid = context.read<AuthService>().currentUser?.id;
+        final root = ownerUid == null
+            ? null
+            : await _customMovementRepository
+                  .getOwnedMovement(
+                    movementId: target.customMovementId!,
+                    ownerUid: ownerUid,
+                  )
+                  .timeout(const Duration(seconds: 5));
+        final revision = root == null
+            ? null
+            : await _customMovementRepository
+                  .getRevision(
+                    movementId: root.id,
+                    revisionId: root.activeRevisionId,
+                  )
+                  .timeout(const Duration(seconds: 5));
+        if (root == null ||
+            !root.isActive ||
+            root.activeRevisionId != target.revisionId ||
+            root.propType != target.prop ||
+            revision == null ||
+            revision.movementId != root.id ||
+            revision.ownerUid != ownerUid ||
+            revision.ownerRole != root.ownerRole ||
+            (target.template != null &&
+                jsonEncode(revision.template.toMap()) !=
+                    jsonEncode(target.template!.toMap())) ||
+            target.template == null) {
+          throw StateError('Custom movement is no longer available');
+        }
+      }
+      if (!mounted ||
+          generation != _freestyle.generation ||
+          targetGeneration != _freestyle.targetGeneration) {
+        return false;
+      }
       final ack = await _ws.sendSetEndlessTarget(
         targetGeneration: targetGeneration,
         movement: target.isTossCatch ? null : target.movement,
         prop: target.prop,
+        customMovementId: target.customMovementId,
+        revisionId: target.revisionId,
+        customMovementTemplate: target.template?.toMap(),
       );
       if (!mounted ||
           generation != _freestyle.generation ||
@@ -1238,6 +1340,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     } catch (error) {
       if (mounted && generation == _freestyle.generation) {
         debugPrint('Endless target command failed: $error');
+        if (target.kind == EndlessTargetKind.customMovement &&
+            _freestyle.excludeCurrentTarget(generation, targetGeneration) &&
+            _freestyle.currentTarget != null) {
+          return false;
+        }
         _freestyle.cancelToIdle();
         _run.cancelToIdle();
         unawaited(_stopWebSocketSession());

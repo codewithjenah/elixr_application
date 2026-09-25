@@ -297,14 +297,24 @@ class WebSocketService extends ChangeNotifier {
     required int targetGeneration,
     required String? movement,
     required TrainingProp prop,
+    String? customMovementId,
+    String? revisionId,
+    Map<String, dynamic>? customMovementTemplate,
     String? sessionId,
   }) => _sendCustomCommand(
     action: 'set_endless_target',
     sessionId: sessionId,
     payload: {
       'target_generation': targetGeneration,
-      'target_type': movement == null ? 'toss_catch' : 'movement',
+      'target_type': customMovementId != null
+          ? 'custom_movement'
+          : movement == null
+          ? 'toss_catch'
+          : 'movement',
       'movement': ?movement,
+      'custom_movement_id': ?customMovementId,
+      'revision_id': ?revisionId,
+      'custom_movement_template': ?customMovementTemplate,
       'prop_type': prop.protocolValue,
     },
   );

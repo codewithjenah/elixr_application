@@ -283,6 +283,9 @@ class _RecordingWebSocketService extends WebSocketService {
     required int targetGeneration,
     required String? movement,
     required TrainingProp prop,
+    String? customMovementId,
+    String? revisionId,
+    Map<String, dynamic>? customMovementTemplate,
     String? sessionId,
   }) async {
     targetCalls += 1;

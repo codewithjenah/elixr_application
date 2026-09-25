@@ -1,5 +1,6 @@
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -483,6 +484,135 @@ def test_custom_assessment_readiness_is_derived_from_one_hand_template():
     assert session._pose_needed is False
     assert session._hands_max == 1
     assert session._orientation_detector is None
+
+
+def test_endless_custom_target_validates_template_and_resets_on_official_target():
+    template = _template().to_dict()
+    session = websocket_api.VisionSession(
+        "Free Practice", session_mode="endless", prop_type="bottle_and_shaker",
+        endless_selected_prop="bottle",
+        allowed_movements=[("Normal Grip", "bottle")],
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    assert session.set_endless_target(
+        "custom_movement", "Normal Grip", "bottle", 1,
+        "custom-1", "revision-1", {"invalid": True},
+    ) == (False, "invalid_schema")
+    assert session.set_endless_target(
+        "custom_movement", "Normal Grip", "shaker", 1,
+        "custom-1", "revision-1", template,
+    ) == (False, "invalid_endless_target")
+    assert session.set_endless_target(
+        "custom_movement", "Normal Grip", "bottle", 1,
+        "custom-1", "revision-1", template,
+    ) == (True, None)
+    assert session._custom_template is not None
+    assert session._custom_target_id == "custom-1"
+    assert session.set_endless_target(
+        "movement", "Normal Grip", "bottle", 1,
+    ) == (False, "stale_target_generation")
+    assert session.set_endless_target(
+        "movement", "Normal Grip", "bottle", 2,
+    ) == (True, None)
+    assert session._custom_template is None
+    assert session._custom_samples is None
+    assert session._custom_target_id is None
+    assert session._evaluate_endless_custom_samples(12) is None
+    session.close()
+
+
+def test_endless_custom_sequence_uses_template_comparison_once():
+    session = websocket_api.VisionSession(
+        "Free Practice", session_mode="endless", prop_type="bottle_and_shaker",
+        endless_selected_prop="bottle", session_id="session-custom",
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    template = _template().to_dict()
+    assert session.set_endless_target(
+        "custom_movement", "My Move", "bottle", 1,
+        "custom-1", "revision-1", template,
+    ) == (True, None)
+    session._custom_samples = [replace(sample, prop=None) for sample in _reference()]
+    session._custom_target_sample_count = 3
+    assert session._evaluate_endless_custom_samples(10) is None
+    assert session.drain_recognition_events() == []
+    session._custom_samples = list(_reference())
+    session._custom_target_sample_count = 3
+    assert session._evaluate_endless_custom_samples(11) in {"perfect", "great", "nice"}
+    events = session.drain_recognition_events()
+    assert len(events) == 1
+    assert events[0].target_generation == 1
+    assert events[0].custom_movement_id == "custom-1"
+    assert events[0].revision_id == "revision-1"
+    assert session._evaluate_endless_custom_samples(12) is None
+    assert session.drain_recognition_events() == []
+    session.close()
+
+
+def test_endless_custom_waits_for_learned_duration_before_recognition():
+    session = websocket_api.VisionSession(
+        "Free Practice", session_mode="endless", prop_type="bottle_and_shaker",
+        endless_selected_prop="bottle", session_id="duration-check",
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    template = _template().to_dict()
+    assert session.set_endless_target(
+        "custom_movement", "My Move", "bottle", 1,
+        "custom-1", "revision-1", template,
+    ) == (True, None)
+    short = tuple(
+        replace(sample, timestamp_ms=index * 40)
+        for index, sample in enumerate(_reference()[:8])
+    )
+    session._custom_samples = list(short)
+    session._custom_target_sample_count = 3
+    assert session._evaluate_endless_custom_samples(10) is None
+    assert session.drain_recognition_events() == []
+    session._custom_samples = list(_reference())
+    session._custom_target_sample_count = 3
+    assert session._evaluate_endless_custom_samples(11) is not None
+    session.close()
+
+
+def test_endless_custom_pause_preserves_capture_clock():
+    session = websocket_api.VisionSession(
+        "Free Practice", session_mode="endless", prop_type="bottle_and_shaker",
+        endless_selected_prop="bottle",
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    assert session.set_endless_target(
+        "custom_movement", "My Move", "bottle", 1,
+        "custom-1", "revision-1", _template().to_dict(),
+    ) == (True, None)
+    started = session._custom_capture_started_at
+    assert session.set_recognition_paused(True) == (True, None)
+    assert session._custom_target_paused_at is not None
+    session._custom_target_paused_at -= 2
+    assert session.set_recognition_paused(False) == (True, None)
+    assert session._custom_capture_started_at >= started + 2
+    session.close()
+
+
+@pytest.mark.parametrize("total,quality", ((6, None), (7, "nice"), (10, "great"), (12, "perfect")))
+def test_endless_custom_quality_follows_existing_rubric_levels(monkeypatch, total, quality):
+    session = websocket_api.VisionSession(
+        "Free Practice", session_mode="endless", prop_type="bottle_and_shaker",
+        endless_selected_prop="bottle",
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    assert session.set_endless_target(
+        "custom_movement", "My Move", "bottle", 1,
+        "custom-1", "revision-1", _template().to_dict(),
+    ) == (True, None)
+    session._custom_samples = list(_reference())
+    session._custom_target_sample_count = 3
+    monkeypatch.setattr(websocket_api, "compare_custom_movement_sequence", lambda *_: SimpleNamespace(
+        validation=SimpleNamespace(valid=True), total=total,
+        rotation_diagnostics={"rotation_evidence": "verified"},
+    ))
+    assert session._evaluate_endless_custom_samples(15) == quality
+    assert len(session.drain_recognition_events()) == (1 if quality else 0)
+    session.close()
 
 
 def test_custom_assessment_two_hand_and_pose_requirements_remain_enforced():

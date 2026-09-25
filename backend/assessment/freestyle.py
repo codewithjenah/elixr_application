@@ -541,6 +541,7 @@ class FreestyleRecognizer:
     _paused: bool = False
     _target: tuple[str, str] | None = None
     _target_type: str | None = None
+    toss_props: frozenset[str] | None = None
     _last_timestamp: float | None = None
     _last_tick: FreestyleTick = field(
         default_factory=lambda: FreestyleTick(
@@ -578,8 +579,11 @@ class FreestyleRecognizer:
                 MOVEMENT_CONFIG[movement].get("required_prop_count", 1) != 1):
                 return False
             target = (movement, prop_type)
+        elif target_type == "custom_movement" and prop_type in {"bottle", "shaker"}:
+            target = (movement or "Custom Movement", prop_type)
         elif (target_type == "toss_catch" and prop_type in {"bottle", "shaker"}
-              and any(prop == prop_type for _, prop in self.allowed_movements)):
+              and (prop_type in self.toss_props if self.toss_props is not None else
+                   any(prop == prop_type for _, prop in self.allowed_movements))):
             target = ("Toss & Catch", prop_type)
         else:
             return False

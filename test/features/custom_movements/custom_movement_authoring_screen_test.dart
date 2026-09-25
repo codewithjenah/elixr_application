@@ -750,7 +750,7 @@ void main() {
   );
 
   testWidgets(
-    'existing rotation template remains valid and enabling rotation requires new evidence',
+    'existing template remains savable when optional rotation is unavailable',
     (tester) async {
       tester.view.physicalSize = const Size(1050, 800);
       tester.view.devicePixelRatio = 1;
@@ -828,7 +828,21 @@ void main() {
               find.byKey(const ValueKey('custom-movement-review')),
             )
             .onPressed,
-        isNull,
+        isNotNull,
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-movement-review')),
+      );
+      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Rotation could not be learned'), findsOneWidget);
+      expect(
+        tester
+            .widget<ElixPrimaryButton>(
+              find.byKey(const ValueKey('custom-movement-save')),
+            )
+            .onPressed,
+        isNotNull,
       );
     },
   );

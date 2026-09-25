@@ -31,6 +31,8 @@ class RecognitionEventMessage(BaseModel):
     supporting_message: Optional[str] = None
     capture_sequence: Optional[int] = None
     target_generation: Optional[int] = None
+    custom_movement_id: Optional[str] = None
+    revision_id: Optional[str] = None
 
     @model_validator(mode="after")
     def _hide_locked_identity(self) -> "RecognitionEventMessage":

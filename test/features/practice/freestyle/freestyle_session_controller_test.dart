@@ -1,5 +1,7 @@
 import 'package:elixr_application/data/models/recognition_event.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/data/models/custom_movement.dart';
+import 'package:elixr_application/data/models/movement_template.dart';
 import 'package:elixr_application/features/practice/freestyle/freestyle_models.dart';
 import 'package:elixr_application/features/practice/freestyle/freestyle_session_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +15,8 @@ RecognitionEvent _event({
   TrainingProp prop = TrainingProp.bottle,
   bool identityRevealed = true,
   int? targetGeneration,
+  String? customMovementId,
+  String? revisionId,
 }) {
   return RecognitionEvent(
     sessionId: 'session-1',
@@ -24,10 +28,276 @@ RecognitionEvent _event({
     movement: movement,
     propType: prop,
     targetGeneration: targetGeneration,
+    customMovementId: customMovementId,
+    revisionId: revisionId,
   );
 }
 
+MovementTemplate _template() => MovementTemplate.tryFrom({
+  'schema_version': 1,
+  'capture_version': 1,
+  'duration_ms': 900,
+  'reference_count': 2,
+  'required_modalities': ['prop_translation'],
+  'normalization_metadata': <String, dynamic>{},
+  'feature_capabilities': {
+    'pose': false,
+    'hands': false,
+    'prop_translation': true,
+    'release_catch': false,
+    'prop_rotation': false,
+  },
+  'canonical_sequence': [
+    for (var index = 0; index < 32; index++) {'timestamp_ms': index * 30},
+  ],
+  'variability_metadata': <String, dynamic>{},
+  'prop_events': <Map<String, dynamic>>[],
+})!;
+
+CustomMovement _custom({
+  String id = 'custom-1',
+  String name = 'Normal Grip',
+  CustomMovementStatus status = CustomMovementStatus.active,
+  TrainingProp prop = TrainingProp.bottle,
+  String revisionId = 'rev-1',
+  String difficulty = 'Easy',
+}) => CustomMovement(
+  id: id,
+  ownerUid: 'owner',
+  ownerRole: CustomMovementOwnerRole.trainee,
+  name: name,
+  description: '',
+  difficulty: difficulty,
+  propType: prop,
+  status: status,
+  activeRevisionId: revisionId,
+);
+
+CustomMovementRevision _revision({
+  String id = 'rev-1',
+  String movementId = 'custom-1',
+  String ownerUid = 'owner',
+  MovementTemplate? template,
+}) => CustomMovementRevision(
+  id: id,
+  movementId: movementId,
+  ownerUid: ownerUid,
+  ownerRole: CustomMovementOwnerRole.trainee,
+  template: template ?? _template(),
+);
+
 void main() {
+  test('difficulty weights progress and use available tiers', () {
+    expect(
+      endlessDifficultyWeights(0)['Easy'],
+      greaterThan(endlessDifficultyWeights(0)['Hard']!),
+    );
+    expect(
+      endlessDifficultyWeights(7)['Medium'],
+      greaterThan(endlessDifficultyWeights(7)['Easy']!),
+    );
+    expect(
+      endlessDifficultyWeights(15)['Hard'],
+      greaterThan(endlessDifficultyWeights(15)['Easy']!),
+    );
+    const hardOnly = [
+      EndlessTarget(
+        movement: 'Hard Move',
+        prop: TrainingProp.bottle,
+        difficulty: 'Hard',
+      ),
+    ];
+    final controller = FreestyleSessionController(randomIndex: (_) => 0);
+    addTearDown(controller.dispose);
+    controller.start(pool: hardOnly);
+    expect(controller.currentTarget?.difficulty, 'Hard');
+    expect(controller.upcomingTargets, hasLength(2));
+  });
+  test('custom target timer allows the learned movement to finish', () {
+    final template = MovementTemplate.tryFrom({
+      ..._template().toMap(),
+      'duration_ms': 15000,
+    })!;
+    final target = EndlessTarget(
+      movement: 'Long toss',
+      prop: TrainingProp.bottle,
+      difficulty: 'Easy',
+      kind: EndlessTargetKind.customMovement,
+      template: template,
+    );
+    expect(target.seconds, 20);
+    expect(
+      EndlessTarget(
+        movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
+        difficulty: 'Easy',
+      ).seconds,
+      8,
+    );
+  });
+
+  test('custom pool requires active owned matching revision and prop', () {
+    final pool = eligibleCustomEndlessTargets(
+      movements: [
+        _custom(),
+        _custom(id: 'archived', status: CustomMovementStatus.archived),
+        _custom(id: 'wrong-prop', prop: TrainingProp.shaker),
+        _custom(id: 'missing', revisionId: 'missing-revision'),
+        _custom(id: 'invalid', revisionId: 'invalid-revision'),
+        _custom(id: 'too-long', revisionId: 'long-revision'),
+      ],
+      revisions: [
+        _revision(),
+        _revision(id: 'foreign', movementId: 'missing', ownerUid: 'other'),
+        _revision(
+          id: 'invalid-revision',
+          movementId: 'invalid',
+          template: MovementTemplate.tryFrom({
+            ..._template().toMap(),
+            'canonical_sequence': [
+              {'timestamp_ms': 0},
+              {'timestamp_ms': 900},
+            ],
+          })!,
+        ),
+        _revision(
+          id: 'long-revision',
+          movementId: 'too-long',
+          template: MovementTemplate.tryFrom({
+            ..._template().toMap(),
+            'duration_ms': 30000,
+          })!,
+        ),
+      ],
+      ownerUid: 'owner',
+      selectedProp: TrainingProp.bottle,
+    );
+    expect(pool, hasLength(1));
+    expect(pool.single.identity, 'custom:custom-1:rev-1');
+    expect(pool.single.template, isNotNull);
+  });
+
+  testWidgets('same-name custom success requires stable IDs and scores once', (
+    tester,
+  ) async {
+    final official = const EndlessTarget(
+      movement: 'Normal Grip',
+      prop: TrainingProp.bottle,
+      difficulty: 'Easy',
+    );
+    final custom = EndlessTarget(
+      movement: 'Normal Grip',
+      prop: TrainingProp.bottle,
+      difficulty: 'Easy',
+      kind: EndlessTargetKind.customMovement,
+      customMovementId: 'custom-1',
+      revisionId: 'rev-1',
+      template: _template(),
+    );
+    expect(official.identity, isNot(custom.identity));
+    final controller = FreestyleSessionController(randomIndex: (_) => 0);
+    addTearDown(controller.dispose);
+    final generation = controller.start(pool: [custom])!;
+    controller.markPrepared(generation);
+    controller.markActive(generation);
+    controller.confirmTarget(generation, 1);
+    expect(
+      controller.applyEvent(generation, _event(targetGeneration: 1)),
+      isFalse,
+    );
+    final success = _event(
+      eventId: 'custom-ok',
+      targetGeneration: 1,
+      customMovementId: 'custom-1',
+      revisionId: 'rev-1',
+    );
+    expect(controller.applyEvent(generation, success), isTrue);
+    expect(controller.applyEvent(generation, success), isFalse);
+    expect(controller.stats.runScore, 3);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(
+      controller.applyEvent(
+        generation,
+        _event(
+          eventId: 'late',
+          targetGeneration: 1,
+          customMovementId: 'custom-1',
+          revisionId: 'rev-1',
+        ),
+      ),
+      isFalse,
+    );
+  });
+
+  testWidgets('unavailable custom target is excluded and run continues', (
+    tester,
+  ) async {
+    final custom = EndlessTarget(
+      movement: 'My Move',
+      prop: TrainingProp.bottle,
+      difficulty: 'Easy',
+      kind: EndlessTargetKind.customMovement,
+      customMovementId: 'custom-1',
+      revisionId: 'rev-1',
+      template: _template(),
+    );
+    const official = EndlessTarget(
+      movement: 'Normal Grip',
+      prop: TrainingProp.bottle,
+      difficulty: 'Easy',
+    );
+    final controller = FreestyleSessionController(randomIndex: (_) => 0);
+    addTearDown(controller.dispose);
+    final generation = controller.start(pool: [custom, official])!;
+    controller.markPrepared(generation);
+    controller.markActive(generation);
+    expect(controller.currentTarget?.identity, custom.identity);
+    expect(controller.excludeCurrentTarget(generation, 1), isTrue);
+    expect(controller.currentTarget?.identity, official.identity);
+    expect(controller.targetGeneration, 2);
+    expect(controller.stats.missed, 0);
+    expect(controller.confirmTarget(generation, 2), isTrue);
+    expect(
+      controller.applyEvent(
+        generation,
+        _event(
+          eventId: 'stale-custom',
+          movement: 'My Move',
+          targetGeneration: 1,
+          customMovementId: 'custom-1',
+          revisionId: 'rev-1',
+        ),
+      ),
+      isFalse,
+    );
+    controller.beginEnding(generation);
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('single custom target repeats after timeout without deadlock', (
+    tester,
+  ) async {
+    final custom = EndlessTarget(
+      movement: 'My Move',
+      prop: TrainingProp.bottle,
+      difficulty: 'Hard',
+      kind: EndlessTargetKind.customMovement,
+      customMovementId: 'custom-1',
+      revisionId: 'rev-1',
+      template: _template(),
+    );
+    final controller = FreestyleSessionController(randomIndex: (_) => 0);
+    addTearDown(controller.dispose);
+    final generation = controller.start(pool: [custom])!;
+    controller.markPrepared(generation);
+    controller.markActive(generation);
+    expect(controller.upcomingTargets, hasLength(2));
+    controller.confirmTarget(generation, 1);
+    await tester.pump(const Duration(seconds: 12));
+    expect(controller.stats.missed, 1);
+    expect(controller.currentTarget?.identity, custom.identity);
+    expect(controller.targetGeneration, 2);
+  });
   const endlessPool = [
     EndlessTarget(
       movement: 'Normal Grip',

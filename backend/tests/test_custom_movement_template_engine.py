@@ -31,12 +31,13 @@ def _template():
 
 def _release_sequence(*, catch=True, interval=100):
     path = [0, 0, .4, .6, .4, 0, 0, 0] if catch else [0, 0, .4, .6, .5, .4, .4, .4]
+    heights = [0, 0, -.04, -.10, -.04, 0, 0, 0] if catch else [0, 0, -.04, -.10, -.04, 0, 0, 0]
     return tuple(
         FrameSample(
             i * interval,
             pose={"11": Landmark(.3, .3), "12": Landmark(.7, .3)},
             hands={"left": Landmark(0, 0)},
-            prop=Landmark(x, 0),
+            prop=Landmark(x, heights[i]),
         )
         for i, x in enumerate(path)
     )
@@ -110,8 +111,11 @@ def test_missing_modality_and_unrecoverable_track_loss_are_safe_and_not_perfect(
 
 def test_generic_release_and_catch_require_stable_contact_and_ignore_one_miss():
     frames = []
-    for i, x in enumerate((.0, .0, .0, .4, .6, .4, .0, .0, .0)):
-        prop = None if i == 1 else Landmark(x, 0)
+    for i, (x, y) in enumerate(zip(
+        (.0, .0, .0, .4, .6, .4, .0, .0, .0),
+        (.0, .0, .0, -.04, -.1, -.04, .0, .0, .0),
+    )):
+        prop = None if i == 1 else Landmark(x, y)
         frames.append(FrameSample(i * 100, hands={"left": Landmark(0, 0)}, prop=prop))
     kinds = [event.kind for event in detect_prop_events(frames)]
     assert "release" in kinds and "airborne" in kinds and "catch" in kinds
@@ -120,6 +124,60 @@ def test_generic_release_and_catch_require_stable_contact_and_ignore_one_miss():
     held = [FrameSample(i * 100, hands={"left": Landmark(0, 0)}, prop=None if i == 2 else Landmark(0, 0)) for i in range(6)]
     held_kinds = [event.kind for event in detect_prop_events(held)]
     assert "release" not in held_kinds and "airborne" not in held_kinds
+
+
+def test_prop_phase_evidence_distinguishes_held_released_airborne_and_caught():
+    held = tuple(
+        FrameSample(i * 100, hands={"left": Landmark(i * .04, 0)}, prop=Landmark(i * .04, 0))
+        for i in range(4)
+    )
+    assert {event.kind for event in detect_prop_events(held)} == {"contact", "stable_contact"}
+
+    released = held + (
+        FrameSample(400, hands={"left": Landmark(.16, 0)}, prop=Landmark(.6, -.04)),
+    )
+    released_events = [event.kind for event in detect_prop_events(released)]
+    assert "release" in released_events
+    assert "airborne" not in released_events  # one separated frame is not flight
+
+    airborne = released + (
+        FrameSample(500, hands={"left": Landmark(.16, 0)}, prop=Landmark(.8, -.10)),
+    )
+    assert "airborne" in [event.kind for event in detect_prop_events(airborne)]
+
+    static_away = held + (
+        FrameSample(400, hands={"left": Landmark(-.4, 0)}, prop=Landmark(.12, 0)),
+    )
+    static_events = [event.kind for event in detect_prop_events(static_away)]
+    assert "release" in static_events
+    assert "airborne" not in static_events
+
+    horizontal_slide = held + (
+        FrameSample(400, hands={"left": Landmark(.16, 0)}, prop=Landmark(.6, 0)),
+        FrameSample(500, hands={"left": Landmark(.16, 0)}, prop=Landmark(.8, 0)),
+    )
+    assert "airborne" not in [event.kind for event in detect_prop_events(horizontal_slide)]
+
+    missing_hand = held + (
+        FrameSample(400, hands={}, prop=Landmark(.16, 0)),
+    )
+    assert "release" not in [event.kind for event in detect_prop_events(missing_hand)]
+
+    tracked_hold = tuple(replace(frame, prop_metadata={"track_id": 1}) for frame in held)
+    switched_prop = tracked_hold + (
+        FrameSample(400, hands={"left": Landmark(.16, 0)}, prop=Landmark(.6, 0), prop_metadata={"track_id": 2}),
+        FrameSample(500, hands={"left": Landmark(.16, 0)}, prop=Landmark(.8, 0), prop_metadata={"track_id": 2}),
+    )
+    switched_events = [event.kind for event in detect_prop_events(switched_prop)]
+    assert "release" not in switched_events
+    assert "airborne" not in switched_events
+
+    caught = airborne + (
+        FrameSample(600, hands={"left": Landmark(.16, 0)}, prop=Landmark(.16, 0)),
+        FrameSample(700, hands={"left": Landmark(.16, 0)}, prop=Landmark(.16, 0)),
+        FrameSample(800, hands={"left": Landmark(.16, 0)}, prop=Landmark(.16, 0)),
+    )
+    assert "catch" in [event.kind for event in detect_prop_events(caught)]
 
 
 def test_release_catch_capability_compares_event_lifecycle_and_timing():
@@ -131,6 +189,22 @@ def test_release_catch_capability_compares_event_lifecycle_and_timing():
     missed_catch = compare_sequence(template, _release_sequence(catch=False))
     assert matched.component_scores["Timing"] >= 2
     assert missed_catch.component_scores["Timing"] < matched.component_scores["Timing"]
+
+
+def test_movement_evidence_carries_three_quarters_of_custom_total():
+    template = _template()
+    reference = _sequence()
+    wrong_prop = tuple(
+        FrameSample(frame.timestamp_ms, frame.pose, frame.hands, Landmark(-frame.prop.x, frame.prop.y))
+        for frame in reference
+    )
+    result = compare_sequence(template, wrong_prop)
+    assert result.validation.valid
+    assert result.component_scores["Body technique"] == 3
+    assert result.component_scores["Hand technique"] == 3
+    assert result.component_scores["Timing"] == 3
+    assert result.component_scores["Prop path"] == 0
+    assert result.total == 9
 
 
 def test_release_catch_capability_is_not_claimed_without_both_events():

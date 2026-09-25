@@ -53,6 +53,7 @@ from assessment.custom_movement import (
     MovementTemplate as CustomMovementTemplate,
     build_template as build_custom_movement_template,
     compare_sequence as compare_custom_movement_sequence,
+    detect_prop_events,
     validate_sequence as validate_custom_movement_sequence,
 )
 from config import (
@@ -561,12 +562,14 @@ class VisionSession:
         session_mode: str | None = None,
         allowed_movements: list[tuple[str, str]] | None = None,
         custom_movement_template: dict[str, Any] | None = None,
+        endless_selected_prop: str | None = None,
     ):
         if prop_type not in {"bottle", "shaker", "bottle_and_shaker"}:
             raise ValueError("invalid_prop_type")
 
         self._is_freestyle = session_mode in {"freestyle", "endless"}
         self._is_endless = session_mode == "endless"
+        self._endless_selected_prop = endless_selected_prop if self._is_endless else None
         self._is_custom_capture = session_mode == "custom_capture"
         self._is_custom_assessment = session_mode == "custom_assessment"
         self._is_custom = self._is_custom_capture or self._is_custom_assessment
@@ -600,12 +603,6 @@ class VisionSession:
             self._orientation_detector is not None
             and self._orientation_detector.available
         )
-        if (
-            self._custom_template is not None
-            and self._custom_template.feature_capabilities.get("prop_rotation", False)
-            and not self._orientation_enabled
-        ):
-            raise ValueError("orientation_model_unavailable")
         if self._is_custom_capture:
             # Reference authoring always requires observable technique inputs.
             readiness_spec = {"hands": "one_hand", "body": "upper_body"}
@@ -766,6 +763,8 @@ class VisionSession:
             FreestyleRecognizer(
                 allowed_movements=sanitize_allowed_movements(allowed_movements),
                 targeted=self._is_endless,
+                toss_props=(frozenset({self._endless_selected_prop})
+                            if self._endless_selected_prop is not None else None),
             )
             if self._is_freestyle
             else None
@@ -774,6 +773,13 @@ class VisionSession:
         self._pending_recognition_events: list[RecognitionEventMessage] = []
         self._recognition_event_seq = 0
         self._target_generation = 0
+        self._custom_target_id: str | None = None
+        self._custom_target_name: str | None = None
+        self._custom_target_revision_id: str | None = None
+        self._custom_target_prop: str | None = None
+        self._custom_target_recognized = False
+        self._custom_target_sample_count = 0
+        self._custom_target_paused_at: float | None = None
         self._freestyle_display: str | None = None
 
         # Assessment always uses current-frame landmarks. Only the short-lived
@@ -1271,12 +1277,23 @@ class VisionSession:
                 for name, score in result.component_scores.items()
                 if score is not None
             ]
+            for name, score in result.component_scores.items():
+                if score is not None and score <= 1:
+                    payload["feedback"].append(
+                        f"Improve {name.lower()} relative to the recorded examples."
+                    )
+            if self._custom_template.feature_capabilities.get("release_catch"):
+                observed_events = {event.kind for event in detect_prop_events(samples)}
+                if "airborne" not in observed_events:
+                    payload["feedback"].append("The release and airborne phase was not observed clearly.")
+                if "catch" not in observed_events:
+                    payload["feedback"].append("The catch was not observed clearly; keep the prop and hand visible through recovery.")
             if (
-                result.rotation_diagnostics.get("rotation_required")
+                result.rotation_diagnostics.get("rotation_available")
                 and result.rotation_diagnostics.get("rotation_evidence") != "verified"
             ):
                 payload["feedback"].append(
-                    "Bottle rotation could not be fully verified. Keep the top and base markers visible during the flip."
+                    "Bottle rotation could not be fully verified; the movement score still uses the observed body, hand, timing, and prop path."
                 )
             payload["sequence_duration_ms"] = samples[-1].timestamp_ms
             payload["diagnostics"] = self._custom_capture_diagnostics(
@@ -1301,6 +1318,7 @@ class VisionSession:
         pose,
         yolo_attempted: bool,
         orientation=None,
+        prop_type: str | None = None,
     ) -> None:
         samples = self._custom_samples
         started = self._custom_capture_started_at
@@ -1356,7 +1374,7 @@ class VisionSession:
             prop_metadata = {
                 "yolo_attempted": yolo_attempted,
                 "track_id": detection.track_id,
-                "class": self.prop_type,
+                "class": prop_type or self.prop_type,
                 "bbox_width": (detection.x2 - detection.x1) / max(width, 1),
                 "bbox_height": (detection.y2 - detection.y1) / max(height, 1),
                 "velocity_x": velocity_x,
@@ -2447,6 +2465,13 @@ class VisionSession:
             if self._lifecycle != SESSION_ACTIVE:
                 return False, "session_not_active"
             self._recognition_paused = paused
+            if self._custom_target_id is not None:
+                if paused:
+                    self._custom_target_paused_at = time.monotonic()
+                elif self._custom_target_paused_at is not None:
+                    if self._custom_capture_started_at is not None:
+                        self._custom_capture_started_at += time.monotonic() - self._custom_target_paused_at
+                    self._custom_target_paused_at = None
             if self._recognizer is not None:
                 self._recognizer.set_paused(paused)
             return True, None
@@ -2456,6 +2481,9 @@ class VisionSession:
     def set_endless_target(
         self, target_type: str, movement: str | None, prop_type: str,
         target_generation: int,
+        custom_movement_id: str | None = None,
+        revision_id: str | None = None,
+        custom_movement_template: dict[str, Any] | None = None,
     ) -> tuple[bool, str | None]:
         self._acquire_ai_state(blocking=True)
         try:
@@ -2465,8 +2493,59 @@ class VisionSession:
                 return False, "session_not_prepared"
             if target_generation <= self._target_generation:
                 return False, "stale_target_generation"
+            if self._endless_selected_prop is not None and prop_type != self._endless_selected_prop:
+                return False, "invalid_endless_target"
+            template = None
+            orientation_detector = None
+            if target_type == "custom_movement":
+                if not all((movement, custom_movement_id, revision_id, custom_movement_template)):
+                    return False, "invalid_endless_target"
+                if len(json.dumps(custom_movement_template, separators=(",", ":")).encode("utf-8")) > 700 * 1024:
+                    return False, "invalid_schema"
+                try:
+                    template = CustomMovementTemplate.from_dict(custom_movement_template)
+                except ValueError:
+                    return False, "invalid_schema"
+                # Endless keeps a bounded 30-second comparison window. Longer
+                # templates remain usable in dedicated custom assessment.
+                if template.duration_ms > 24000:
+                    return False, "invalid_custom_movement"
+                if template.feature_capabilities.get("prop_rotation", False) and prop_type != "bottle":
+                    return False, "invalid_custom_movement"
+                if template.feature_capabilities.get("prop_rotation", False):
+                    orientation_detector = self._orientation_detector or BottleMarkerDetector()
+                    if orientation_detector.available:
+                        try:
+                            orientation_detector.ensure_ready()
+                        except Exception:
+                            logger.exception("Endless custom orientation detector failed to initialize")
+                            self._orientation_enabled = False
+                            if orientation_detector is not self._orientation_detector:
+                                orientation_detector.close()
+                            orientation_detector = None
+                    else:
+                        self._orientation_enabled = False
+                        if orientation_detector is not self._orientation_detector:
+                            orientation_detector.close()
+                        orientation_detector = None
             if not self._recognizer.set_target(target_type, movement, prop_type):
                 return False, "invalid_endless_target"
+            self._custom_template = template
+            self._custom_target_id = custom_movement_id if template else None
+            self._custom_target_name = movement if template else None
+            self._custom_target_revision_id = revision_id if template else None
+            self._custom_target_prop = prop_type if template else None
+            self._custom_target_recognized = False
+            self._custom_target_sample_count = 0
+            self._custom_target_paused_at = None
+            self._custom_samples = [] if template else None
+            self._custom_sample_capture_times = []
+            self._custom_capture_started_at = time.monotonic() if template else None
+            self._custom_previous_prop = None
+            self._yolo_frame_skip = 1 if template else YOLO_FRAME_SKIP
+            if orientation_detector is not None:
+                self._orientation_detector = orientation_detector
+                self._orientation_enabled = orientation_detector.available
             self._target_generation = target_generation
             self._pending_recognition_events.clear()
             self._freestyle_display = None
@@ -2516,11 +2595,8 @@ class VisionSession:
                 self._orientation_detector.ensure_ready()
             except Exception:
                 logger.exception("Bottle marker detector failed to initialize")
-                if self._is_custom_capture:
-                    # Capture remains usable for body/hand/translation templates.
-                    self._orientation_enabled = False
-                else:
-                    return self._orientation_failure()
+                # Rotation is optional evidence in every custom mode.
+                self._orientation_enabled = False
 
         return None
 
@@ -3052,10 +3128,7 @@ class VisionSession:
                     self.timings.add("orientation", self._orientation_detector.last_inference_ms / 1000)
                 except Exception:
                     logger.exception("Bottle marker detection failed")
-                    if self._is_custom_capture:
-                        self._orientation_enabled = False
-                    else:
-                        return self._orientation_failure()
+                    self._orientation_enabled = False
             if self._reject_replaced_capture(captured):
                 return None
             if self._is_custom_capture:
@@ -3258,6 +3331,53 @@ class VisionSession:
         self.timings.add("processing_total", time.perf_counter() - total_start)
         return message
 
+    def _evaluate_endless_custom_samples(self, capture_sequence: int | None) -> str | None:
+        """Evaluate one bounded custom window on the existing AI worker."""
+        template = self._custom_template
+        samples = self._custom_samples
+        if (template is None or samples is None or self._custom_target_id is None
+                or self._custom_target_recognized or self._recognition_paused or not samples):
+            return None
+        window_ms = min(30000, max(2500, round(template.duration_ms * 1.25)))
+        while samples and samples[-1].timestamp_ms - samples[0].timestamp_ms > window_ms:
+            samples.pop(0)
+            if self._custom_sample_capture_times:
+                self._custom_sample_capture_times.pop(0)
+        self._custom_target_sample_count += 1
+        # A partial path can score highly before the demonstrated action ends.
+        if (len(samples) < 8 or
+                samples[-1].timestamp_ms - samples[0].timestamp_ms < template.duration_ms * 0.75 or
+                self._custom_target_sample_count % 4 != 0):
+            return None
+        if template.feature_capabilities.get("release_catch"):
+            observed_phases = {event.kind for event in detect_prop_events(samples)}
+            if not {"release", "airborne", "catch"}.issubset(observed_phases):
+                return None
+        comparison = compare_custom_movement_sequence(template, tuple(samples))
+        # Competent (7..9), proficient (10..11), mastered (12) are the
+        # custom engine's existing rubric levels. Validation must also pass.
+        if not comparison.validation.valid or comparison.total < 7:
+            return None
+        quality = ("perfect" if comparison.total == 12 else
+                   "great" if comparison.total >= 10 else "nice")
+        self._custom_target_recognized = True
+        self._recognition_event_seq += 1
+        self._pending_recognition_events.append(
+            RecognitionEventMessage(
+                session_id=self.session_id or "",
+                event_id=f"{self.session_id or 'freestyle'}:{self._recognition_event_seq}",
+                kind="movement", display_label=self._custom_target_name or "Custom Movement",
+                identity_revealed=True, quality=quality,
+                movement=self._custom_target_name,
+                prop_type=self._custom_target_prop,
+                capture_sequence=capture_sequence,
+                target_generation=self._target_generation,
+                custom_movement_id=self._custom_target_id,
+                revision_id=self._custom_target_revision_id,
+            )
+        )
+        return quality
+
     def _finish_freestyle_frame(
         self,
         *,
@@ -3286,7 +3406,42 @@ class VisionSession:
         )
         self.timings.add("evaluate", time.perf_counter() - t0)
 
-        if tick.recognition_state in {"searching", "candidate"}:
+        custom_quality = None
+        if (self._custom_template is not None and self._custom_target_id is not None
+                and not self._recognition_paused and not self._custom_target_recognized):
+            selected = (
+                normalized.bottles if self._custom_target_prop == "bottle"
+                else normalized.shakers
+            )
+            selected_normalized = replace(normalized, primary=selected)
+            orientation = None
+            if (self._custom_template.feature_capabilities.get("prop_rotation", False)
+                    and selected and self._orientation_enabled
+                    and self._orientation_detector is not None):
+                try:
+                    orientation = self._orientation_detector.observe(
+                        frame, max(selected, key=lambda item: item.confidence)
+                    )
+                except Exception:
+                    logger.exception("Endless custom orientation observation failed")
+            self._record_custom_sample(
+                captured=captured, frame=frame, normalized=selected_normalized,
+                hands=hands, pose=pose, yolo_attempted=run_yolo,
+                orientation=orientation, prop_type=self._custom_target_prop,
+            )
+            custom_quality = self._evaluate_endless_custom_samples(captured.sequence)
+            if custom_quality is not None:
+                tick = replace(tick, recognition_state="confirmed",
+                               recognized_display=self._custom_target_name,
+                               detected_prop_type=self._custom_target_prop)
+        elif self._custom_target_recognized and self._custom_target_id is not None:
+            tick = replace(tick, recognition_state="confirmed",
+                           recognized_display=self._custom_target_name,
+                           detected_prop_type=self._custom_target_prop)
+
+        if custom_quality is not None:
+            self._freestyle_display = self._custom_target_name
+        elif tick.recognition_state in {"searching", "candidate"}:
             self._freestyle_display = None
         elif tick.recognized_display:
             self._freestyle_display = tick.recognized_display
@@ -3400,6 +3555,13 @@ class VisionSession:
             self._prev_hip_center = None
             self._pending_recognition_events.clear()
             self._target_generation = 0
+            self._custom_template = None
+            self._custom_target_id = None
+            self._custom_target_name = None
+            self._custom_target_revision_id = None
+            self._custom_target_prop = None
+            self._custom_samples = None
+            self._custom_sample_capture_times = []
             if self._recognizer is not None:
                 self._recognizer.clear_target()
             self._calibration.reset()
@@ -3566,6 +3728,7 @@ async def _cv_session_loop(
     session_mode: str | None = None,
     allowed_movements: list[tuple[str, str]] | None = None,
     custom_movement_template: dict[str, Any] | None = None,
+    endless_selected_prop: str | None = None,
 ):
     async def _send(payload: str) -> None:
         if send_text is not None:
@@ -3585,6 +3748,7 @@ async def _cv_session_loop(
             session_mode=session_mode,
             allowed_movements=allowed_movements,
             custom_movement_template=custom_movement_template,
+            endless_selected_prop=endless_selected_prop,
         )
     except Exception as exc:
         logger.exception("Failed to initialize vision session")
@@ -4298,6 +4462,7 @@ async def websocket_endpoint(websocket: WebSocket):
         session_mode: str | None = None,
         allowed_movements: list[tuple[str, str]] | None = None,
         custom_movement_template: dict[str, Any] | None = None,
+        endless_selected_prop: str | None = None,
     ) -> tuple[bool, str | None, str | None]:
         nonlocal session_task, current_session_id, submission_recording_allowed
 
@@ -4337,6 +4502,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_mode=session_mode,
                 allowed_movements=allowed_movements,
                 custom_movement_template=custom_movement_template,
+                endless_selected_prop=endless_selected_prop,
             )
         )
 
@@ -4459,6 +4625,7 @@ async def websocket_endpoint(websocket: WebSocket):
             custom_movement_template=getattr(
                 command, "custom_movement_template", None
             ),
+            endless_selected_prop=(command.prop_type if session_mode == "endless" else None),
         )
 
         if ok:
@@ -4789,6 +4956,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 command.movement,
                 command.prop_type,
                 command.target_generation,
+                command.custom_movement_id,
+                command.revision_id,
+                command.custom_movement_template,
             )
             if accepted:
                 await send_ack(
