@@ -13,6 +13,7 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elixr_video_player.dart';
 import '../../data/models/custom_movement.dart';
+import '../../data/models/custom_movement_save_diagnostics.dart';
 import '../../data/models/movement_template.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/teacher_activity_assessment.dart';
@@ -168,6 +169,7 @@ class _CustomMovementAuthoringScreenState
   bool _cameraBusy = false;
   bool _resettingProp = false;
   bool _closed = false;
+  CustomMovement? _savedMovement;
   int? _personCount;
   int? _countdown;
   int _step = 0;
@@ -222,34 +224,65 @@ class _CustomMovementAuthoringScreenState
     super.dispose();
   }
 
-  Future<void> _teardown() async {
+  Future<void> _teardown({bool reportFailure = false}) async {
     if (_closed) return;
     _closed = true;
     _cancelReferenceCaptureTimers();
     _recording = false;
     _finishingReference = false;
+    Object? firstFailure;
+    StackTrace? firstFailureStack;
+    void recordFailure(Object error, StackTrace stackTrace) {
+      firstFailure ??= error;
+      firstFailureStack ??= stackTrace;
+    }
+
     try {
       await _playback.release();
-    } catch (_) {
+    } on Object catch (error, stackTrace) {
       // Continue backend teardown if native playback release fails.
+      recordFailure(error, stackTrace);
     }
-    await _previewSubscription?.cancel();
-    await _feedbackSubscription?.cancel();
+    try {
+      await _previewSubscription?.cancel();
+    } on Object catch (error, stackTrace) {
+      recordFailure(error, stackTrace);
+    }
+    try {
+      await _feedbackSubscription?.cancel();
+    } on Object catch (error, stackTrace) {
+      recordFailure(error, stackTrace);
+    }
     final id = _sessionId;
     _sessionId = null;
     if (id != null) {
       try {
         await _socket.stopPracticeSession(sessionId: id);
-      } catch (_) {
+      } on Object catch (error, stackTrace) {
         /* Disconnect closes the backend session. */
+        recordFailure(error, stackTrace);
       }
     }
     try {
       await _socket.disconnect();
-    } catch (_) {
+    } on Object catch (error, stackTrace) {
       // A lost connection already closes its backend session.
+      recordFailure(error, stackTrace);
     }
-    if (_ownsSocket) _socket.dispose();
+    if (_ownsSocket) {
+      try {
+        _socket.dispose();
+      } on Object catch (error, stackTrace) {
+        recordFailure(error, stackTrace);
+      }
+    }
+    if (reportFailure && firstFailure != null) {
+      throw CustomMovementSaveException(
+        stage: CustomMovementSaveStage.teardown,
+        cause: firstFailure!,
+        stackTrace: firstFailureStack ?? StackTrace.current,
+      );
+    }
   }
 
   Future<void> _resetSession() async {
@@ -681,6 +714,11 @@ class _CustomMovementAuthoringScreenState
   }
 
   Future<void> _save() async {
+    final savedMovement = _savedMovement;
+    if (savedMovement != null) {
+      Navigator.of(context).pop(savedMovement);
+      return;
+    }
     final template = _template;
     final metadataError = CustomMovement.validateMetadata(
       name: _name.text,
@@ -720,11 +758,26 @@ class _CustomMovementAuthoringScreenState
               template: template,
               referenceImageJpegBytes: _referenceImageJpegBytes,
             );
-      await _teardown();
+      _savedMovement = result;
+      await _teardown(reportFailure: true);
       if (mounted) Navigator.of(context).pop(result);
-    } catch (_) {
+    } on CustomMovementSaveException catch (error) {
+      emitCustomMovementSaveDiagnostic(
+        stage: error.stage,
+        error: error.cause,
+        stackTrace: error.stackTrace,
+      );
       if (mounted) {
-        setState(() => _error = 'Could not save the movement. Please retry.');
+        setState(() => _error = error.stage.userMessage);
+      }
+    } on Object catch (error, stackTrace) {
+      emitCustomMovementSaveDiagnostic(
+        stage: CustomMovementSaveStage.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        setState(() => _error = CustomMovementSaveStage.unknown.userMessage);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -733,6 +786,11 @@ class _CustomMovementAuthoringScreenState
 
   Future<void> _exit() async {
     if (_busy) return;
+    final savedMovement = _savedMovement;
+    if (savedMovement != null) {
+      Navigator.of(context).pop(savedMovement);
+      return;
+    }
     setState(() => _busy = true);
     await _teardown();
     if (mounted) Navigator.of(context).pop();
@@ -1769,9 +1827,15 @@ class _CustomMovementAuthoringScreenState
               if (_error != null) ...[
                 const SizedBox(height: AppSpacing.md),
                 InfoBar(
-                  title: const Text('Please check this step'),
+                  title: Text(
+                    _savedMovement == null
+                        ? 'Please check this step'
+                        : 'Movement saved',
+                  ),
                   content: Text(_error!),
-                  severity: InfoBarSeverity.error,
+                  severity: _savedMovement == null
+                      ? InfoBarSeverity.error
+                      : InfoBarSeverity.warning,
                 ),
               ],
               const SizedBox(height: AppSpacing.lg),
@@ -1813,7 +1877,11 @@ class _CustomMovementAuthoringScreenState
                     ElixPrimaryButton(
                       key: const ValueKey('custom-movement-save'),
                       onPressed: _busy || !_hasUsableTemplate ? null : _save,
-                      label: _busy ? 'Saving…' : 'Save movement',
+                      label: _busy
+                          ? 'Saving…'
+                          : _savedMovement == null
+                          ? 'Save movement'
+                          : 'Close',
                       expanded: false,
                     ),
                 ],

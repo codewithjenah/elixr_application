@@ -14,6 +14,7 @@ analyzer:
     # Standalone packages with their own pubspec and dedicated CI jobs.
     # Root flutter analyze must not load them under this app's dependencies.
     - packages/elixr_core/**
+    - third_party/firebase_storage/**
     - scripts/legacy_coaching_provenance/**
     - build/**
     - windows/**

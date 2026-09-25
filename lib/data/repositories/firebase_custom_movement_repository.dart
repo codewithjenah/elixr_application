@@ -102,14 +102,22 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     required MovementTemplate template,
     Uint8List? referenceImageJpegBytes,
   }) async {
-    validateCustomMovementWrite(
-      ownerUid: ownerUid,
-      template: template,
-      name: name,
-      description: description,
-      difficulty: difficulty,
-      propType: propType,
-    );
+    try {
+      validateCustomMovementWrite(
+        ownerUid: ownerUid,
+        template: template,
+        name: name,
+        description: description,
+        difficulty: difficulty,
+        propType: propType,
+      );
+    } on Object catch (error, stackTrace) {
+      throw CustomMovementSaveException(
+        stage: CustomMovementSaveStage.validation,
+        cause: error,
+        stackTrace: stackTrace,
+      );
+    }
     final movementRef = _movements.doc();
     final revisionRef = movementRef
         .collection(FirestoreCollections.customMovementRevisions)
@@ -150,9 +158,13 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     );
     try {
       await batch.commit();
-    } catch (_) {
+    } on Object catch (error, stackTrace) {
       if (imagePath != null) await _deleteReferenceImageBestEffort(imagePath);
-      rethrow;
+      throw CustomMovementSaveException(
+        stage: CustomMovementSaveStage.firestoreCommit,
+        cause: error,
+        stackTrace: stackTrace,
+      );
     }
     return CustomMovement(
       id: movementRef.id,
@@ -178,14 +190,22 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
     required MovementTemplate template,
     Uint8List? referenceImageJpegBytes,
   }) async {
-    validateCustomMovementWrite(
-      ownerUid: current.ownerUid,
-      template: template,
-      name: name,
-      description: description,
-      difficulty: difficulty,
-      propType: propType,
-    );
+    try {
+      validateCustomMovementWrite(
+        ownerUid: current.ownerUid,
+        template: template,
+        name: name,
+        description: description,
+        difficulty: difficulty,
+        propType: propType,
+      );
+    } on Object catch (error, stackTrace) {
+      throw CustomMovementSaveException(
+        stage: CustomMovementSaveStage.validation,
+        cause: error,
+        stackTrace: stackTrace,
+      );
+    }
     final movementRef = _movements.doc(current.id);
     final revisionRef = movementRef
         .collection(FirestoreCollections.customMovementRevisions)
@@ -233,9 +253,13 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
           'updated_at': FieldValue.serverTimestamp(),
         });
       });
-    } catch (_) {
+    } on Object catch (error, stackTrace) {
       if (imagePath != null) await _deleteReferenceImageBestEffort(imagePath);
-      rethrow;
+      throw CustomMovementSaveException(
+        stage: CustomMovementSaveStage.firestoreCommit,
+        cause: error,
+        stackTrace: stackTrace,
+      );
     }
     return CustomMovement(
       id: current.id,
@@ -358,17 +382,25 @@ class FirebaseCustomMovementRepository implements CustomMovementRepository {
   }
 
   Future<void> _uploadReferenceImage(String path, Uint8List bytes) async {
-    if (bytes.lengthInBytes < 1024 ||
-        bytes.lengthInBytes > _maxReferenceImageBytes) {
-      throw ArgumentError.value(
-        bytes.lengthInBytes,
-        'referenceImageJpegBytes',
-        'Reference JPEG must be 1–512 KiB',
+    try {
+      if (bytes.lengthInBytes < 1024 ||
+          bytes.lengthInBytes > _maxReferenceImageBytes) {
+        throw ArgumentError.value(
+          bytes.lengthInBytes,
+          'referenceImageJpegBytes',
+          'Reference JPEG must be 1–512 KiB',
+        );
+      }
+      await _storage
+          .ref(path)
+          .putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+    } on Object catch (error, stackTrace) {
+      throw CustomMovementSaveException(
+        stage: CustomMovementSaveStage.referenceImageUpload,
+        cause: error,
+        stackTrace: stackTrace,
       );
     }
-    await _storage
-        .ref(path)
-        .putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
   }
 
   Future<void> _deleteReferenceImageBestEffort(String path) async {

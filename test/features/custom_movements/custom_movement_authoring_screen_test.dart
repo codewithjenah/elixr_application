@@ -87,6 +87,8 @@ CustomMovement _movement(CustomMovementOwnerRole role) => CustomMovement(
 
 class _Repository extends Fake implements CustomMovementRepository {
   CustomMovement? saved;
+  CustomMovementSaveException? saveFailure;
+  int saveCalls = 0;
 
   @override
   Future<CustomMovement> createMovement({
@@ -99,6 +101,8 @@ class _Repository extends Fake implements CustomMovementRepository {
     required MovementTemplate template,
     Uint8List? referenceImageJpegBytes,
   }) async {
+    saveCalls++;
+    if (saveFailure case final failure?) throw failure;
     expect(template.referenceCount, greaterThanOrEqualTo(2));
     return saved = _movement(ownerRole);
   }
@@ -112,7 +116,11 @@ class _Repository extends Fake implements CustomMovementRepository {
     required TrainingProp propType,
     required MovementTemplate template,
     Uint8List? referenceImageJpegBytes,
-  }) async => saved = current;
+  }) async {
+    saveCalls++;
+    if (saveFailure case final failure?) throw failure;
+    return saved = current;
+  }
 }
 
 class _Socket extends Fake implements WebSocketService {
@@ -123,6 +131,7 @@ class _Socket extends Fake implements WebSocketService {
   final List<String> deleted = [];
   final List<String> trimmed = [];
   bool rejectNextReference = false;
+  bool failDisconnect = false;
   final List<String?> preparedCameraIds = [];
   int stopCalls = 0;
   int startCustomCaptureCalls = 0;
@@ -197,6 +206,9 @@ class _Socket extends Fake implements WebSocketService {
     if (method == #isConnected) return true;
     if (method == #beginPracticeAttempt) return 'session-1';
     if (method == #connect || method == #disconnect) {
+      if (method == #disconnect && failDisconnect) {
+        return Future<void>.error(StateError('private teardown detail'));
+      }
       return Future<void>.value();
     }
     if (method == #dispose) return null;
@@ -922,6 +934,130 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('save errors identify the failed persistence step', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(650, 750);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final stage in [
+      CustomMovementSaveStage.referenceImageUpload,
+      CustomMovementSaveStage.firestoreCommit,
+    ]) {
+      final repository = _Repository()
+        ..saveFailure = CustomMovementSaveException(
+          stage: stage,
+          cause: StateError('private test detail'),
+          stackTrace: StackTrace.current,
+        );
+      final socket = _Socket();
+      addTearDown(socket.close);
+      final movement = _movement(CustomMovementOwnerRole.trainee);
+      final revision = CustomMovementRevision(
+        id: 'revision-1',
+        movementId: movement.id,
+        ownerUid: movement.ownerUid,
+        ownerRole: movement.ownerRole,
+        template: MovementTemplate.tryFrom(_templateMap(3))!,
+      );
+      await tester.pumpWidget(
+        _host(
+          repository: repository,
+          socket: socket,
+          existing: movement,
+          revision: revision,
+        ),
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-movement-next')),
+      );
+      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-movement-review')),
+      );
+      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-movement-save')),
+      );
+      await tester.tap(find.byKey(const ValueKey('custom-movement-save')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(stage.userMessage), findsOneWidget);
+      expect(find.text('private test detail'), findsNothing);
+      expect(repository.saved, isNull);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
+  testWidgets('a teardown failure after save cannot submit the save twice', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(650, 750);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = _Repository();
+    final socket = _Socket()..failDisconnect = true;
+    addTearDown(socket.close);
+    final movement = _movement(CustomMovementOwnerRole.trainee);
+    final revision = CustomMovementRevision(
+      id: 'revision-1',
+      movementId: movement.id,
+      ownerUid: movement.ownerUid,
+      ownerRole: movement.ownerRole,
+      template: MovementTemplate.tryFrom(_templateMap(3))!,
+    );
+    await tester.pumpWidget(
+      _host(
+        repository: repository,
+        socket: socket,
+        existing: movement,
+        revision: revision,
+      ),
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-next')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-review')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-save')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-save')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.saved, same(movement));
+    expect(repository.saveCalls, 1);
+    expect(find.text('Movement saved'), findsOneWidget);
+    expect(
+      find.text(CustomMovementSaveStage.teardown.userMessage),
+      findsOneWidget,
+    );
+    expect(find.text('Close'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-save')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-save')));
+    await tester.pump();
+    expect(repository.saveCalls, 1);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'rotation is automatic optional evidence and review reports learned capability',
