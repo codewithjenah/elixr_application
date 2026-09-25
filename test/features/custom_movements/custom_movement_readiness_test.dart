@@ -79,7 +79,9 @@ class _CustomSocket extends WebSocketService {
   int discardCalls = 0;
   int buildCalls = 0;
   int startCustomCaptureCalls = 0;
+  bool rejectStartCustomCapture = false;
   int finishCustomAssessmentCalls = 0;
+  Completer<CommandAck>? finishAssessmentCompleter;
   bool rejectNextStop = false;
   String? rejectNextStopCode;
   bool rejectNextSessionStop = false;
@@ -141,7 +143,13 @@ class _CustomSocket extends WebSocketService {
     int durationSeconds = 15,
   }) async {
     startCustomCaptureCalls += 1;
-    return _ack('start_custom_capture');
+    return _ack(
+      'start_custom_capture',
+      accepted: !rejectStartCustomCapture,
+      errorCode: rejectStartCustomCapture
+          ? 'custom_capture_not_recording'
+          : null,
+    );
   }
 
   @override
@@ -164,6 +172,8 @@ class _CustomSocket extends WebSocketService {
   @override
   Future<CommandAck> sendFinishCustomAssessment({String? sessionId}) async {
     finishCustomAssessmentCalls += 1;
+    final completer = finishAssessmentCompleter;
+    if (completer != null) return completer.future;
     return _ack(
       'finish_custom_assessment',
       customAssessment: {
@@ -203,10 +213,19 @@ class _CustomSocket extends WebSocketService {
     emitReadiness(true);
   }
 
-  void emitReadiness(bool readinessStable, {bool bottleDetected = true}) {
+  void emitReadiness(
+    bool readinessStable, {
+    bool bottleDetected = true,
+    List<ReadinessItemView>? readinessItems,
+    bool? readinessComplete,
+    double? readinessStableProgress,
+  }) {
     emitFeedback(
       bottleDetected: bottleDetected,
       readinessStable: readinessStable,
+      readinessItems: readinessItems,
+      readinessComplete: readinessComplete,
+      readinessStableProgress: readinessStableProgress,
     );
   }
 
@@ -215,6 +234,9 @@ class _CustomSocket extends WebSocketService {
     bool? readinessStable,
     int? personCount = 1,
     bool? referenceInvalid,
+    List<ReadinessItemView>? readinessItems,
+    bool? readinessComplete,
+    double? readinessStableProgress,
   }) {
     _feedback.add(
       PracticeFeedback(
@@ -224,6 +246,9 @@ class _CustomSocket extends WebSocketService {
         feedbackType: 'positive',
         postureStatus: 'unknown',
         readinessStable: readinessStable,
+        readinessItems: readinessItems,
+        readinessComplete: readinessComplete,
+        readinessStableProgress: readinessStableProgress,
         personCount: personCount,
         referenceInvalid: referenceInvalid,
       ),
@@ -255,6 +280,7 @@ class _UnusedRepository extends Fake implements CustomMovementRepository {}
 
 class _RecordingRepository extends Fake implements CustomMovementRepository {
   int savePersonalResultCalls = 0;
+  bool failNextSave = false;
   double? savedScore;
   String? savedMovementName;
   int? savedDurationSeconds;
@@ -281,6 +307,10 @@ class _RecordingRepository extends Fake implements CustomMovementRepository {
     savedScore = totalScore;
     savedMovementName = movementName;
     savedDurationSeconds = durationSeconds;
+    if (failNextSave) {
+      failNextSave = false;
+      throw StateError('offline');
+    }
   }
 }
 
@@ -362,6 +392,62 @@ void main() {
       expect(invalid.referenceInvalid, isTrue);
       expect(one.semanticEquals(invalid), isFalse);
       expect(one.scoredPracticeChromeEquals(invalid), isTrue);
+    },
+  );
+
+  testWidgets(
+    'custom assessment releases its session when capture startup fails',
+    (tester) async {
+      _useDesktopSurface(tester);
+      final socket = _CustomSocket()..rejectStartCustomCapture = true;
+      final movement = CustomMovement(
+        id: 'movement-start-failure',
+        ownerUid: 'trainee-1',
+        ownerRole: CustomMovementOwnerRole.trainee,
+        name: 'Start failure toss',
+        description: 'Follow the saved reference.',
+        difficulty: 'Easy',
+        propType: TrainingProp.bottle,
+        status: CustomMovementStatus.active,
+        activeRevisionId: 'revision-start-failure',
+      );
+      final revision = CustomMovementRevision(
+        id: 'revision-start-failure',
+        movementId: movement.id,
+        ownerUid: movement.ownerUid,
+        ownerRole: movement.ownerRole,
+        template: MovementTemplate.tryFrom(_oneHandTemplateMap())!,
+      );
+
+      await tester.pumpWidget(
+        _withSettings(
+          _TestSettings(),
+          CustomMovementPracticeScreen(
+            movement: movement,
+            revision: revision,
+            repository: _UnusedRepository(),
+            webSocket: socket,
+          ),
+        ),
+      );
+      await tester.pump();
+      socket.emitReady();
+      await tester.pump();
+
+      await tester.tap(find.text('Start Practice'));
+      await tester.pump();
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+
+      expect(socket.startCustomCaptureCalls, 1);
+      expect(socket.stopCalls, 1);
+      expect(find.text('Practice Again'), findsOne);
+      expect(find.text('Finish Session'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
     },
   );
 
@@ -565,17 +651,49 @@ void main() {
       await tester.pump();
       expect(find.text('Bottle detected'), findsOne);
 
+      socket.emitReadiness(
+        false,
+        readinessItems: const [
+          ReadinessItemView(
+            code: 'camera_frame',
+            status: ReadinessItemStatus.ready,
+            message: 'Live camera frame received.',
+          ),
+          ReadinessItemView(
+            code: 'prop_detected',
+            status: ReadinessItemStatus.ready,
+            message: 'Keep the selected prop fully inside the frame.',
+          ),
+          ReadinessItemView(
+            code: 'grip_landmarks_visible',
+            status: ReadinessItemStatus.waiting,
+            message: 'Keep the full gripping hand visible.',
+          ),
+        ],
+        readinessComplete: false,
+        readinessStableProgress: 0.4,
+      );
+      await tester.pump();
+      expect(find.text('Camera'), findsOneWidget);
+      expect(find.text('Selected Prop'), findsOneWidget);
+      expect(find.text('Grip Hand'), findsOneWidget);
+      expect(find.text('2 of 3 ready'), findsOneWidget);
+      expect(find.text('Finish Session'), findsNothing);
+
       socket.emitReady();
       await tester.pump();
-      expect(find.text('Your setup is stable. Start when ready.'), findsOne);
+      expect(find.text('Ready to Practice'), findsOne);
       expect(find.text('Start Practice'), findsOne);
 
       await tester.tap(find.text('Start Practice'));
+      await tester.pump();
+      expect(find.text('Finish Session'), findsNothing);
       for (var second = 0; second < 3; second++) {
         await tester.pump(const Duration(seconds: 1));
       }
       await tester.pump();
       expect(socket.startCustomCaptureCalls, 1);
+      expect(find.text('Recording · 00:30 remaining'), findsOneWidget);
       expect(find.text('Finish Session'), findsOne);
 
       socket.emitFeedback(bottleDetected: false);
@@ -590,13 +708,20 @@ void main() {
       expect(find.text('Bottle detected'), findsOne);
 
       socket.rejectNextStop = true;
+      socket.rejectNextStopCode = 'track_loss';
       await tester.tap(find.text('Finish Session'));
       await tester.pump();
       expect(
         find.text(
-          'The performance could not be assessed. Reposition and retry.',
+          'Required movement tracking was lost during the recording. Keep the selected prop and required hand or body visible throughout the full movement, then try again.',
         ),
         findsOne,
+      );
+      expect(
+        find.text(
+          'The performance could not be assessed. Reposition and retry.',
+        ),
+        findsNothing,
       );
       await tester.tap(find.text('Practice Again'));
       await tester.pump();
@@ -615,7 +740,34 @@ void main() {
       expect(socket.finishCustomAssessmentCalls, 0);
       expect(repository.savePersonalResultCalls, 0);
 
+      final finishAssessment = Completer<CommandAck>();
+      socket.finishAssessmentCompleter = finishAssessment;
       await tester.tap(find.text('Finish Session'));
+      await tester.pump();
+      expect(socket.finishCustomAssessmentCalls, 1);
+      expect(find.text('Finish Session'), findsNothing);
+      expect(find.text('Analyzing performance…'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('custom-assessment-result')),
+        findsNothing,
+      );
+      await tester.tap(find.byKey(const ValueKey('practice-primary-action')));
+      await tester.pump();
+      expect(socket.finishCustomAssessmentCalls, 1);
+
+      finishAssessment.complete(
+        _ack(
+          'finish_custom_assessment',
+          customAssessment: {
+            'score_percent': 83.3,
+            'total': 10,
+            'performance_level': 'proficient',
+            'component_scores': {'Timing': 3, 'Prop path': 2},
+            'feedback': ['Good timing'],
+          },
+        ),
+      );
+      socket.finishAssessmentCompleter = null;
       await tester.pumpAndSettle();
       expect(socket.finishCustomAssessmentCalls, 1);
       expect(repository.savePersonalResultCalls, 1);
@@ -623,6 +775,33 @@ void main() {
       expect(repository.savedMovementName, 'One-hand toss');
       expect(repository.savedDurationSeconds, greaterThanOrEqualTo(0));
       expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
+
+      repository.failNextSave = true;
+      await tester.tap(find.text('Practice Again'));
+      await tester.pump();
+      socket.emitReady();
+      await tester.pump();
+      await tester.tap(find.text('Start Practice'));
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      await tester.tap(find.text('Finish Session'));
+      await tester.pumpAndSettle();
+      expect(repository.savePersonalResultCalls, 2);
+      expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
+      expect(
+        find.text(
+          'Assessment complete, but the personal result could not be saved.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'The performance could not be assessed. Reposition and retry.',
+        ),
+        findsNothing,
+      );
 
       await tester.pumpWidget(const SizedBox());
       await socket.closeTestStreams();

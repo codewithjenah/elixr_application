@@ -14,7 +14,10 @@ enum TrainingSessionPhase {
 
   getReady,
   inProgress,
+  recording,
+  processing,
   completed,
+  failed,
   cameraError,
 }
 
@@ -28,7 +31,10 @@ enum TrainingSessionPhase {
     TrainingSessionPhase.readiness => (AppColors.accent, 'Setup Check'),
     TrainingSessionPhase.getReady => (AppColors.primary, 'Get Ready'),
     TrainingSessionPhase.inProgress => (AppColors.success, 'In Progress'),
+    TrainingSessionPhase.recording => (AppColors.success, 'Recording'),
+    TrainingSessionPhase.processing => (AppColors.accent, 'Analyzing'),
     TrainingSessionPhase.completed => (AppColors.success, 'Completed'),
+    TrainingSessionPhase.failed => (AppColors.error, 'Needs Attention'),
     TrainingSessionPhase.cameraError => (AppColors.error, 'Camera Error'),
   };
 }
@@ -41,7 +47,10 @@ String trainingStatusSectionTitle(TrainingSessionPhase phase) {
     TrainingSessionPhase.getReady ||
     TrainingSessionPhase.cameraError => 'Setup status',
     TrainingSessionPhase.inProgress ||
+    TrainingSessionPhase.recording ||
     TrainingSessionPhase.completed => 'Live status',
+    TrainingSessionPhase.processing => 'Assessment status',
+    TrainingSessionPhase.failed => 'Session status',
   };
 }
 
