@@ -47,7 +47,6 @@ void main() {
       user: user,
       imageBytes: imageBytes,
     );
-
     final template = MovementTemplate.tryFrom({
       'schema_version': 1,
       'capture_version': 1,
@@ -105,14 +104,37 @@ void main() {
     );
     expect(persisted?.activeRevisionId, saved.activeRevisionId);
     expect(saved.referenceImageStoragePath, isNotNull);
+    expect(
+      saved.referenceImageStoragePath,
+      'users/${user.uid}/custom_movement_references/'
+      '${saved.id}_${saved.activeRevisionId}.jpg',
+    );
     final imageMetadata = await storage
         .ref(saved.referenceImageStoragePath!)
         .getMetadata();
     expect(imageMetadata.contentType, 'image/jpeg');
     expect(imageMetadata.size, imageBytes.length);
 
-    await repository.archiveMovement(movementId: saved.id, ownerUid: user.uid);
-    await storage.ref(saved.referenceImageStoragePath!).delete();
+    await repository.deleteOwnedMovement(
+      movementId: saved.id,
+      ownerUid: user.uid,
+    );
+    final archived = await firestore
+        .collection('custom_movements')
+        .doc(saved.id)
+        .get();
+    expect(archived.data()?['status'], 'archived');
+    expect(
+      await repository.getRevision(
+        movementId: saved.id,
+        revisionId: saved.activeRevisionId,
+      ),
+      isNotNull,
+    );
+    expect(
+      await repository.watchOwnedMovements(ownerUid: user.uid).first,
+      isEmpty,
+    );
     await auth.signOut();
   });
 }

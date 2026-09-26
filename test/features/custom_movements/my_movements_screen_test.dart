@@ -19,6 +19,7 @@ import 'package:elixr_application/services/session_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -40,6 +41,7 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
   String? archivedMovementId;
   int deleteCallCount = 0;
   bool failDelete = false;
+  Object? deleteError;
   Completer<void>? deleteCompleter;
 
   void dispose() => _controller.close();
@@ -119,6 +121,8 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
   }) async {
     deleteCallCount++;
     await deleteCompleter?.future;
+    final failure = deleteError;
+    if (failure != null) throw failure;
     if (failDelete) throw StateError('delete failed');
     movements.removeWhere(
       (movement) => movement.id == movementId && movement.ownerUid == ownerUid,
@@ -556,6 +560,45 @@ void main() {
       expect(repository.deleteCallCount, 1);
     },
   );
+
+  testWidgets('delete permission failures explain the likely access issue', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final auth = _auth();
+    addTearDown(auth.dispose);
+    final movement = _movement(id: 'delete-denied', ownerUid: 'trainee-1');
+    final repository = _CustomRepository([movement])
+      ..deleteError = CustomMovementDeleteException(
+        stage: CustomMovementDeleteStage.archive,
+        cause: FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'permission-denied',
+        ),
+        stackTrace: StackTrace.current,
+      );
+    addTearDown(repository.dispose);
+
+    await tester.pumpWidget(_movementsHost(auth: auth, repository: repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('my-movement-delete-delete-denied')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('my-movement-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Firestore denied this change. Your account access or deployed security rules may be out of date.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Own Cascade'), findsOneWidget);
+    expect(repository.deleteCallCount, 1);
+  });
 
   testWidgets(
     'canonical personal practice returns to Movements with My Movements selected',

@@ -12,6 +12,16 @@ enum CustomMovementSaveStage {
   unknown,
 }
 
+enum CustomMovementDeleteStage { movementLookup, archive, unknown }
+
+extension CustomMovementDeleteStageDetails on CustomMovementDeleteStage {
+  String get wireValue => switch (this) {
+    CustomMovementDeleteStage.movementLookup => 'movement_lookup',
+    CustomMovementDeleteStage.archive => 'archive',
+    CustomMovementDeleteStage.unknown => 'unknown',
+  };
+}
+
 extension CustomMovementSaveStageDetails on CustomMovementSaveStage {
   String get wireValue => switch (this) {
     CustomMovementSaveStage.validation => 'validation',
@@ -50,6 +60,23 @@ class CustomMovementSaveException implements Exception {
 
   @override
   String toString() => 'CustomMovementSaveException(${stage.wireValue})';
+}
+
+/// Preserves the failing archive-only delete stage and Firebase cause for
+/// diagnostics while allowing the UI to show safe, actionable copy.
+class CustomMovementDeleteException implements Exception {
+  const CustomMovementDeleteException({
+    required this.stage,
+    required this.cause,
+    required this.stackTrace,
+  });
+
+  final CustomMovementDeleteStage stage;
+  final Object cause;
+  final StackTrace stackTrace;
+
+  @override
+  String toString() => 'CustomMovementDeleteException(${stage.wireValue})';
 }
 
 abstract class CustomMovementRepository {

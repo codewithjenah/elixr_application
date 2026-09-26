@@ -160,6 +160,32 @@ async function seedTeacherActivityDemoAccess({membership = 'approved'} = {}) {
   });
 }
 
+describe('custom movement reference images', () => {
+  test('allows only the owner to upload a canonical JPEG path', async () => {
+    const path =
+      'users/trainee/custom_movement_references/movement_id_revision_id.jpg';
+    await assertSucceeds(uploadBytes(
+      ref(context('trainee').storage(), path),
+      new Uint8Array(1024),
+      { contentType: 'image/jpeg' },
+    ));
+    await assertFails(uploadBytes(
+      ref(context('otherTrainee').storage(), path),
+      new Uint8Array(1024),
+      { contentType: 'image/jpeg' },
+    ));
+    await assertFails(uploadBytes(
+      ref(
+        context('trainee').storage(),
+        'users/trainee/custom_movement_references/not-canonical.jpg',
+      ),
+      new Uint8Array(1024),
+      { contentType: 'image/jpeg' },
+    ));
+    await assertSucceeds(deleteObject(ref(context('trainee').storage(), path)));
+  });
+});
+
 describe('Teacher Activity demonstration storage', () => {
   const demoPath = 'teacher_activity_demos/teacher/demo_1.mp4';
   const demoMetadata = {

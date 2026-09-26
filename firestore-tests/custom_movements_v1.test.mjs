@@ -8,6 +8,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc,
+  deleteDoc,
   getDoc,
   serverTimestamp,
   setDoc,
@@ -140,6 +141,7 @@ async function createMovement({
   name,
   propType = 'bottle',
   movementTemplate = template(),
+  referenceImageStoragePath,
 }) {
   const db = context(uid).firestore();
   const batch = writeBatch(db);
@@ -161,6 +163,9 @@ async function createMovement({
     status: 'active',
     active_revision_id: revisionId,
     schema_version: 1,
+    ...(referenceImageStoragePath
+      ? { reference_image_storage_path: referenceImageStoragePath }
+      : {}),
     created_at: serverTimestamp(),
     updated_at: serverTimestamp(),
   });
@@ -243,6 +248,95 @@ describe('custom movement v1 ownership and revisions', () => {
         { template: template({ duration_ms: 7000 }) },
       ),
     );
+  });
+
+  test('reference image path must match its owner and root revision', async () => {
+    await assertSucceeds(createMovement({
+      uid: 'trainee',
+      ownerRole: 'trainee',
+      movementId: 'image-path-move',
+      revisionId: 'image-path-rev',
+      name: 'Reference image move',
+      referenceImageStoragePath:
+        'users/trainee/custom_movement_references/image-path-move_image-path-rev.jpg',
+    }));
+
+    await assertFails(createMovement({
+      uid: 'trainee',
+      ownerRole: 'trainee',
+      movementId: 'wrong-image-owner-move',
+      revisionId: 'wrong-image-owner-rev',
+      name: 'Wrong image owner',
+      referenceImageStoragePath:
+        'users/other-trainee/custom_movement_references/wrong-image-owner-move_wrong-image-owner-rev.jpg',
+    }));
+    await assertFails(createMovement({
+      uid: 'trainee',
+      ownerRole: 'trainee',
+      movementId: 'wrong-image-revision-move',
+      revisionId: 'right-image-rev',
+      name: 'Wrong image revision',
+      referenceImageStoragePath:
+        'users/trainee/custom_movement_references/wrong-image-revision-move_wrong-image-rev.jpg',
+    }));
+
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = admin.firestore();
+      for (const [movementId, revisionId] of [
+        ['wrong-image-owner-move', 'wrong-image-owner-rev'],
+        ['wrong-image-revision-move', 'right-image-rev'],
+      ]) {
+        const root = await getDoc(doc(db, 'custom_movements', movementId));
+        const revision = await getDoc(doc(
+          db, 'custom_movements', movementId, 'revisions', revisionId,
+        ));
+        if (root.exists() || revision.exists()) {
+          throw new Error('A denied custom movement batch left partial data.');
+        }
+      }
+    });
+  });
+
+  test('owner archives without deleting immutable history', async () => {
+    await createMovement({
+      uid: 'trainee',
+      ownerRole: 'trainee',
+      movementId: 'archive-move',
+      revisionId: 'archive-rev',
+      name: 'Archive this movement',
+    });
+
+    const ownerDb = context('trainee', false).firestore();
+    const otherDb = context('other-trainee', false).firestore();
+    const root = doc(ownerDb, 'custom_movements', 'archive-move');
+    const revision = doc(
+      ownerDb,
+      'custom_movements',
+      'archive-move',
+      'revisions',
+      'archive-rev',
+    );
+    await assertFails(updateDoc(
+      doc(otherDb, 'custom_movements', 'archive-move'),
+      { status: 'archived', updated_at: serverTimestamp() },
+    ));
+    await assertSucceeds(updateDoc(root, {
+      status: 'archived',
+      updated_at: serverTimestamp(),
+    }));
+
+    const archived = await assertSucceeds(getDoc(root));
+    if (archived.data()?.status !== 'archived') {
+      throw new Error('Owner archive did not persist the archived state.');
+    }
+    const historicalRevision = await assertSucceeds(getDoc(revision));
+    if (!historicalRevision.exists()) {
+      throw new Error('Archiving removed the immutable movement revision.');
+    }
+    await assertFails(updateDoc(revision, {
+      template: template({ duration_ms: 7000 }),
+    }));
+    await assertFails(deleteDoc(root));
   });
 
   test('unsupported prop rotation and role spoofing are denied', async () => {

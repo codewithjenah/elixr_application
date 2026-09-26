@@ -14,6 +14,7 @@ import '../../core/widgets/elix_toast.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/custom_movement_reference_image.dart';
 import '../../data/models/custom_movement.dart';
+import '../../data/models/custom_movement_save_diagnostics.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../services/auth_service.dart';
 import 'custom_movement_authoring_screen.dart';
@@ -546,11 +547,12 @@ class _DeleteMovementDialogState extends State<_DeleteMovementDialog> {
       );
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop(true);
-    } catch (_) {
+    } on Object catch (error, stackTrace) {
+      emitCustomMovementDeleteDiagnostic(error: error, stackTrace: stackTrace);
       if (!mounted) return;
       setState(() {
         _deleting = false;
-        _error = 'Could not delete this movement. Try again.';
+        _error = customMovementDeleteFailureMessage(error);
       });
     }
   }

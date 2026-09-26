@@ -799,7 +799,12 @@ class _CustomMovementAuthoringScreenState
         stackTrace: error.stackTrace,
       );
       if (mounted) {
-        setState(() => _error = error.stage.userMessage);
+        setState(
+          () => _error = customMovementSaveFailureMessage(
+            stage: error.stage,
+            cause: error.cause,
+          ),
+        );
       }
     } on Object catch (error, stackTrace) {
       emitCustomMovementSaveDiagnostic(
