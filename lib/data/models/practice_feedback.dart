@@ -160,7 +160,8 @@ class PracticeFeedback {
   /// Progress toward stable readiness confirmation (0.0–1.0). Absent when not readying.
   final double? readinessStableProgress;
 
-  /// `waiting_for_movement`, `movement_detected`, or `completed` for custom
+  /// `waiting_for_movement`, `movement_detected`, `position_detected`, or
+  /// `completed` for custom
   /// movement assessment sessions.
   final String? customAssessmentProgress;
 

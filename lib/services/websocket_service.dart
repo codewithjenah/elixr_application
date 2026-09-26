@@ -234,8 +234,14 @@ class WebSocketService extends ChangeNotifier {
     },
   );
 
-  Future<CommandAck> sendBuildCustomTemplate({String? sessionId}) =>
-      _sendCustomCommand(action: 'build_custom_template', sessionId: sessionId);
+  Future<CommandAck> sendBuildCustomTemplate({
+    String? sessionId,
+    String movementBehavior = 'dynamic',
+  }) => _sendCustomCommand(
+    action: 'build_custom_template',
+    sessionId: sessionId,
+    payload: {'movement_behavior': movementBehavior},
+  );
 
   Future<CommandAck> sendFinishCustomAssessment({String? sessionId}) =>
       _sendCustomCommand(

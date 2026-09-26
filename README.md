@@ -781,7 +781,12 @@ registry:
   in the shared detector; mirrored Flutter preview does not change stored sides.
   `discard_custom_reference` remains a compatibility command for removing the
   most recent draft. `build_custom_template` uses retained trimmed drafts and
-  returns `movement_template` after at least two valid references. The authoring
+  returns `movement_template` after at least two valid references. The optional
+  `movement_behavior` command field is `dynamic` (default) or `static`.
+  Static references must finish with an observable, stable 800 ms hold;
+  the learned template stores that ending hold as schema version 3 with
+  `movement_behavior: "static"`. Existing version-1/2 templates remain dynamic.
+  The authoring
   page recommends three and permits up to five; existing templates with up to
   ten references remain readable. Temporary clips are deleted on draft deletion
   or session close and are never persisted to Firestore.
@@ -792,9 +797,11 @@ registry:
   `start_custom_capture` / `stop_custom_capture` pair records the performance
   for up to 30 seconds. Active feedback includes optional
   `custom_assessment_progress` values `waiting_for_movement`,
-  `movement_detected`, and `completed`. Completion uses fresh captured samples,
-  required-modality validation, learned path progress, and the existing custom
-  template comparison. Flutter then sends the existing stop and finish
+  `movement_detected`, `position_detected`, and `completed`. Dynamic completion
+  uses learned path progress and release/catch evidence where applicable.
+  Static completion requires the learned prop, hand, and body relationship to
+  remain visible and stable for 800 ms; both behaviors use the existing custom
+  template comparison and scoring. Flutter then sends the existing stop and finish
   commands; `finish_custom_assessment` returns `custom_assessment` with five
   bounded component scores and a derived `0..12` total. At the 30-second limit,
   attempts without a detected movement or complete sequence are rejected with

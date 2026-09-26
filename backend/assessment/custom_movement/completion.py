@@ -5,12 +5,15 @@ from typing import Sequence
 
 from .template_engine import (
     POSE_MOTION_THRESHOLD,
+    STATIC_HOLD_MS,
     FrameSample,
     MovementTemplate,
     _modality_error,
     compare_sequence,
     detect_prop_events,
     normalize_sequence,
+    static_frame_matches,
+    trailing_hold_window,
     validate_sequence,
 )
 
@@ -18,6 +21,7 @@ from .template_engine import (
 WAITING_FOR_MOVEMENT = "waiting_for_movement"
 MOVEMENT_DETECTED = "movement_detected"
 MOVEMENT_COMPLETED = "completed"
+POSITION_DETECTED = "position_detected"
 
 _MIN_PATH_RATIO = 0.65
 _ENDPOINT_TOLERANCE = 0.40
@@ -104,6 +108,8 @@ def evaluate_completion(
     a slower execution can still complete while its real duration is scored
     unchanged by ``compare_sequence`` at assessment finish.
     """
+    if template.movement_behavior == "static":
+        return _evaluate_static_completion(template, samples)
     bounded = _bounded_samples(samples)
     if len(bounded) < 2:
         return WAITING_FOR_MOVEMENT
@@ -204,3 +210,39 @@ def evaluate_completion(
     )
     comparison = compare_sequence(template, timed)
     return MOVEMENT_COMPLETED if comparison.total >= 7 else MOVEMENT_DETECTED
+
+
+def _evaluate_static_completion(
+    template: MovementTemplate, samples: Sequence[FrameSample]
+) -> str:
+    if not samples:
+        return WAITING_FOR_MOVEMENT
+    hold = trailing_hold_window(samples)
+    if len(hold) < 8:
+        return WAITING_FOR_MOVEMENT
+    validation = validate_sequence(
+        hold, template.required_modalities,
+        required_hand_sides=template.required_hand_sides,
+    )
+    if not validation.valid:
+        return WAITING_FOR_MOVEMENT
+    normalized = normalize_sequence(
+        hold, use_pose_anchor="pose" in template.required_modalities,
+        required_hand_sides=template.required_hand_sides,
+    )
+    target = template.canonical_sequence[-1]
+    if not all(static_frame_matches(target, frame, template.required_modalities) for frame in normalized):
+        return POSITION_DETECTED if all(
+            static_frame_matches(target, frame, template.required_modalities)
+            for frame in normalized[-3:]
+        ) else WAITING_FOR_MOVEMENT
+    if hold[-1].timestamp_ms - hold[0].timestamp_ms < STATIC_HOLD_MS:
+        return POSITION_DETECTED
+    comparison = compare_sequence(template, hold)
+    if comparison.total < 7:
+        return POSITION_DETECTED
+    if template.feature_capabilities.get("hands") and (comparison.component_scores["Hand technique"] or 0) < 2:
+        return POSITION_DETECTED
+    if (comparison.component_scores["Prop path"] or 0) < 2:
+        return POSITION_DETECTED
+    return MOVEMENT_COMPLETED

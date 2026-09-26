@@ -109,6 +109,31 @@ void main() {
       expect(MovementTemplate.tryFrom(legacyWithTrace), isNull);
     });
 
+    test('accepts static v3 behavior and keeps legacy templates dynamic', () {
+      final staticTemplate = templateMap()
+        ..['schema_version'] = 3
+        ..['movement_behavior'] = 'static'
+        ..['rotation_trace'] = null
+        ..['canonical_sequence'] = List.generate(
+          32,
+          (index) => {'timestamp_ms': index * 25, 'pose': <String, dynamic>{}},
+        );
+      final parsed = MovementTemplate.tryFrom(staticTemplate);
+      expect(parsed?.movementBehavior, 'static');
+      expect(parsed?.toMap(), staticTemplate);
+      expect(
+        MovementTemplate.tryFrom(templateMap())?.movementBehavior,
+        'dynamic',
+      );
+      expect(
+        MovementTemplate.tryFrom(
+          Map<String, dynamic>.from(staticTemplate)
+            ..['movement_behavior'] = 'other',
+        ),
+        isNull,
+      );
+    });
+
     test('requires the exact capability contract', () {
       final missing = templateMap();
       (missing['feature_capabilities'] as Map<String, dynamic>).remove('hands');

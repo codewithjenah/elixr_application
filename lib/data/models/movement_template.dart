@@ -8,7 +8,7 @@ import 'teacher_activity_assessment.dart';
 /// Flutter client validates the envelope before persisting or sending it and
 /// never interprets user-authored values as executable rules or thresholds.
 class MovementTemplate {
-  static const currentSchemaVersion = 2;
+  static const currentSchemaVersion = 3;
   static const currentCaptureVersion = 1;
   static const minimumReferences = 2;
   static const maximumEncodedBytes = 700 * 1024;
@@ -25,6 +25,7 @@ class MovementTemplate {
     required this.variabilityMetadata,
     this.propEvents = const [],
     this.rotationTrace,
+    this.movementBehavior = 'dynamic',
   });
 
   final int schemaVersion;
@@ -38,6 +39,7 @@ class MovementTemplate {
   final Map<String, dynamic> variabilityMetadata;
   final List<Map<String, dynamic>> propEvents;
   final Map<String, dynamic>? rotationTrace;
+  final String movementBehavior;
 
   bool get isReady => referenceCount >= minimumReferences;
 
@@ -102,6 +104,7 @@ class MovementTemplate {
         .map((event) => Map<String, dynamic>.from(event))
         .toList(growable: false),
     if (schemaVersion >= 2) 'rotation_trace': rotationTrace,
+    if (schemaVersion >= 3) 'movement_behavior': movementBehavior,
   };
 
   static MovementTemplate? tryFrom(Object? raw) {
@@ -124,6 +127,7 @@ class MovementTemplate {
       'variability_metadata',
       'prop_events',
       'rotation_trace',
+      'movement_behavior',
     };
     if (map.keys.any((key) => !allowed.contains(key))) return null;
     final schemaVersion = _int(map['schema_version']);
@@ -137,9 +141,17 @@ class MovementTemplate {
     final variability = _map(map['variability_metadata']);
     final propEvents = _maps(map['prop_events'] ?? const []);
     final trace = _map(map['rotation_trace']);
-    if ((schemaVersion != 1 && schemaVersion != currentSchemaVersion) ||
+    final behavior = map['movement_behavior'] ?? 'dynamic';
+    if ((schemaVersion != 1 &&
+            schemaVersion != 2 &&
+            schemaVersion != currentSchemaVersion) ||
+        behavior is! String ||
+        !const {'static', 'dynamic'}.contains(behavior) ||
         (schemaVersion == 1 && map.containsKey('rotation_trace')) ||
         (schemaVersion == 2 && !map.containsKey('rotation_trace')) ||
+        (schemaVersion == 3 &&
+            (!map.containsKey('rotation_trace') || behavior != 'static')) ||
+        (schemaVersion != 3 && map.containsKey('movement_behavior')) ||
         captureVersion != currentCaptureVersion ||
         durationMs == null ||
         durationMs <= 0 ||
@@ -159,7 +171,9 @@ class MovementTemplate {
         sequence == null ||
         sequence.length < 2 ||
         sequence.length > 600 ||
-        (schemaVersion == 2 && sequence.length != 32) ||
+        (schemaVersion != null &&
+            schemaVersion >= 2 &&
+            sequence.length != 32) ||
         variability == null ||
         propEvents == null ||
         propEvents.length > 64 ||
@@ -189,7 +203,7 @@ class MovementTemplate {
             (capabilities['left_hand'] == true ||
                 capabilities['right_hand'] == true)) ||
         (capabilities['prop_rotation'] == true &&
-            (schemaVersion != 2 || !_validRotationTrace(trace))) ||
+            ((schemaVersion ?? 0) < 2 || !_validRotationTrace(trace))) ||
         (schemaVersion == 2 && capabilities['prop_rotation'] != true) ||
         (capabilities['prop_rotation'] != true && trace != null) ||
         (capabilities['prop_rotation'] == true &&
@@ -208,6 +222,7 @@ class MovementTemplate {
       variabilityMetadata: Map.unmodifiable(variability),
       propEvents: List.unmodifiable(propEvents),
       rotationTrace: trace == null ? null : Map.unmodifiable(trace),
+      movementBehavior: behavior,
     );
     return template.encodedBytes <= maximumEncodedBytes ? template : null;
   }

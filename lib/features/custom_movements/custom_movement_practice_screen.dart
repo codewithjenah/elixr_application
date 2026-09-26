@@ -564,6 +564,10 @@ class _CustomMovementPracticeScreenState
         'No movement was detected. Move through the saved sequence while keeping the required inputs visible, then try again.',
       'custom_assessment_incomplete' =>
         'Movement was detected, but the full saved sequence was not completed within 30 seconds. Try again and continue through the ending.',
+      'custom_position_not_detected' =>
+        'The saved position was not detected. Move into the grip or stall and keep the required inputs visible.',
+      'custom_hold_incomplete' =>
+        'The position was detected but not held steadily long enough. Hold it for about one second and try again.',
       'invalid_schema' =>
         'The saved movement template could not be read. Reopen the movement and try again.',
       'readiness_not_stable' ||

@@ -244,6 +244,97 @@ def test_custom_assessment_completion_rejects_stationary_and_final_pose_only():
     assert evaluate_completion(template, final_pose_only) == WAITING_FOR_MOVEMENT
 
 
+def _grip_reference(*, reverse=False):
+    frames = []
+    for index in range(20):
+        in_hold = index >= 8
+        grip_y = 0.58 if reverse else 0.43
+        hand_y = grip_y if in_hold else 0.68
+        frames.append(FrameSample(
+            timestamp_ms=index * 100,
+            pose={"11": Landmark(0.3, 0.3), "12": Landmark(0.7, 0.3),
+                  "13": Landmark(0.35, 0.43), "15": Landmark(0.36, hand_y)},
+            hands={
+                "left:0": Landmark(0.36, hand_y),
+                "left:9": Landmark(0.38, hand_y - 0.04),
+                "left:8": Landmark(0.41 if reverse else 0.34, hand_y - 0.07),
+                "left:4": Landmark(0.32 if reverse else 0.41, hand_y - 0.02),
+            },
+            prop=Landmark(0.38, grip_y if in_hold else 0.68),
+        ))
+    return tuple(frames)
+
+
+@pytest.mark.parametrize("reverse", (False, True))
+def test_static_grip_completes_after_stable_hold_without_movement(reverse):
+    reference = _grip_reference(reverse=reverse)
+    template = build_template([reference, reference], movement_behavior="static")
+    assert template.movement_behavior == "static"
+    assert template.schema_version == 3
+    assert websocket_api.CustomMovementTemplate.from_dict(template.to_dict()) == template
+    hold = tuple(replace(frame, timestamp_ms=index * 100)
+                 for index, frame in enumerate(reference[8:]))
+    assert evaluate_completion(template, hold[:8]) != MOVEMENT_COMPLETED
+    assert evaluate_completion(template, hold) == MOVEMENT_COMPLETED
+
+
+def test_static_grip_rejects_wrong_grip_and_missing_required_landmarks():
+    reference = _grip_reference()
+    template = build_template([reference, reference], movement_behavior="static")
+    reverse = _grip_reference(reverse=True)
+    wrong = tuple(replace(frame, timestamp_ms=index * 100)
+                  for index, frame in enumerate(reverse[8:]))
+    hand_only_wrong = tuple(replace(
+        frame,
+        hands={
+            **frame.hands,
+            "left:8": Landmark(0.41, frame.hands["left:8"].y),
+            "left:4": Landmark(0.32, frame.hands["left:4"].y),
+        },
+    ) for frame in reference[8:])
+    missing = tuple(replace(frame, hands={}) for frame in reference[8:])
+    assert evaluate_completion(template, wrong) != MOVEMENT_COMPLETED
+    assert evaluate_completion(template, hand_only_wrong) != MOVEMENT_COMPLETED
+    assert evaluate_completion(template, missing) != MOVEMENT_COMPLETED
+
+
+def test_static_assessment_scores_only_completed_hold_after_neutral_entry():
+    reference = _grip_reference()
+    template = build_template([reference, reference], movement_behavior="static")
+    session = websocket_api.VisionSession(
+        "Normal Grip", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(reference)
+    session._custom_assessment_progress = MOVEMENT_COMPLETED
+    result = session.finish_custom_assessment()
+    assert result["total"] >= 7
+    assert result["sequence_duration_ms"] == 900
+    session.close()
+
+
+def test_static_hold_completes_at_thirty_fps_without_timestamp_alignment():
+    final = _grip_reference()[-1]
+    hold = tuple(replace(final, timestamp_ms=index * 33) for index in range(40))
+    template = build_template([hold, hold], movement_behavior="static")
+    assert evaluate_completion(template, hold[:24]) != MOVEMENT_COMPLETED
+    assert evaluate_completion(template, hold) == MOVEMENT_COMPLETED
+
+
+def test_static_references_reject_unstable_or_inconsistent_endings():
+    normal = _grip_reference()
+    reverse = _grip_reference(reverse=True)
+    with pytest.raises(ValueError, match="inconsistent_static_references"):
+        build_template([normal, reverse], movement_behavior="static")
+    unstable = tuple(
+        replace(frame, prop=Landmark(0.38 + 0.12 * (index % 2), frame.prop.y))
+        if index >= 11 else frame
+        for index, frame in enumerate(normal)
+    )
+    with pytest.raises(ValueError, match="unstable_static_reference"):
+        build_template([normal, unstable], movement_behavior="static")
+
+
 def test_custom_assessment_completion_waits_for_the_rest_of_a_partial_sequence():
     template = _template()
     reference = _reference()

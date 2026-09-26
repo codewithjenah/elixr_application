@@ -195,7 +195,10 @@ class _CustomSocket extends WebSocketService {
   }
 
   @override
-  Future<CommandAck> sendBuildCustomTemplate({String? sessionId}) async {
+  Future<CommandAck> sendBuildCustomTemplate({
+    String? sessionId,
+    String movementBehavior = 'dynamic',
+  }) async {
     buildCalls += 1;
     return _ack('build_custom_template', referenceCount: acceptedReferences);
   }

@@ -149,6 +149,7 @@ class _CustomMovementAuthoringScreenState
 
   late String _difficulty;
   late TrainingProp _prop;
+  String _movementBehavior = 'dynamic';
   MovementTemplate? _template;
   bool _replacingReferences = false;
   bool _sessionStarted = false;
@@ -209,6 +210,7 @@ class _CustomMovementAuthoringScreenState
     _difficulty = widget.existing?.difficulty ?? 'Easy';
     _prop = widget.existing?.propType ?? TrainingProp.bottle;
     _template = widget.existingRevision?.template;
+    _movementBehavior = _template?.movementBehavior ?? 'dynamic';
     _replacingReferences = widget.existing == null;
   }
 
@@ -677,7 +679,9 @@ class _CustomMovementAuthoringScreenState
     if (_replacingReferences) {
       setState(() => _busy = true);
       try {
-        final ack = await _socket.sendBuildCustomTemplate();
+        final ack = await _socket.sendBuildCustomTemplate(
+          movementBehavior: _movementBehavior,
+        );
         if (!ack.accepted && ack.errorCode == 'insufficient_hand_coverage') {
           throw StateError(
             'Hands were visible but tracking was too intermittent to learn the hand movement. Re-record examples with at least one hand clearly visible throughout.',
@@ -881,6 +885,37 @@ class _CustomMovementAuthoringScreenState
           const SizedBox(height: AppSpacing.xs),
           Text(
             'Explain the movement in order. ELIXR shows these instructions during practice.',
+            style: ElixTypography.caption(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _field(
+            'Movement behavior',
+            ComboBox<String>(
+              key: const ValueKey('custom-movement-behavior'),
+              value: _movementBehavior,
+              isExpanded: true,
+              items: const [
+                ComboBoxItem(value: 'dynamic', child: Text('Dynamic sequence')),
+                ComboBoxItem(value: 'static', child: Text('Static hold')),
+              ],
+              onChanged: _references.isNotEmpty || _recording || _busy
+                  ? null
+                  : (value) {
+                      if (value != null) {
+                        setState(() {
+                          _movementBehavior = value;
+                          _template = null;
+                          _replacingReferences = true;
+                        });
+                      }
+                    },
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            _movementBehavior == 'static'
+                ? 'Record the grip or stall and hold its final position steady for about one second in each example.'
+                : 'Record the complete path, including release and catch when applicable.',
             style: ElixTypography.caption(color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.lg),

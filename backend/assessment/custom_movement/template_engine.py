@@ -16,6 +16,9 @@ from vision.bottle_orientation import BottleOrientation, wrapped_delta
 
 
 SCHEMA_VERSION = 2
+STATIC_SCHEMA_VERSION = 3
+STATIC_HOLD_MS = 800
+STATIC_STABILITY_TOLERANCE = 0.12
 CAPTURE_VERSION = 1
 CANONICAL_FRAMES = 32
 MIN_FRAMES = 8
@@ -122,6 +125,17 @@ class FrameSample:
         )
 
 
+def trailing_hold_window(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...]:
+    """Include the observation crossing the hold boundary at any camera FPS."""
+    if not samples:
+        return ()
+    cutoff = samples[-1].timestamp_ms - STATIC_HOLD_MS
+    start = len(samples) - 1
+    while start > 0 and samples[start - 1].timestamp_ms >= cutoff:
+        start -= 1
+    return tuple(samples[max(0, start - 1):])
+
+
 @dataclass(frozen=True)
 class PropEvent:
     timestamp_ms: int
@@ -202,6 +216,7 @@ class MovementTemplate:
     variability_metadata: Mapping[str, float]
     prop_events: tuple[PropEvent, ...] = ()
     rotation_trace: RotationTrace | None = None
+    movement_behavior: str = "dynamic"
 
     @property
     def required_hand_sides(self) -> tuple[str, ...]:
@@ -232,6 +247,8 @@ class MovementTemplate:
         }
         if self.schema_version >= 2:
             result["rotation_trace"] = self.rotation_trace.to_dict() if self.rotation_trace else None
+        if self.schema_version >= STATIC_SCHEMA_VERSION:
+            result["movement_behavior"] = self.movement_behavior
         return result
 
     @classmethod
@@ -244,12 +261,17 @@ class MovementTemplate:
                 "normalization_metadata", "feature_capabilities",
                 "canonical_sequence", "variability_metadata", "prop_events",
             }
-            if version == 2:
+            if version >= 2:
                 expected.add("rotation_trace")
+            if version == STATIC_SCHEMA_VERSION:
+                expected.add("movement_behavior")
             if set(raw) != expected:
                 raise ValueError("unexpected custom movement template fields")
-            if version not in {1, SCHEMA_VERSION} or int(raw["capture_version"]) != CAPTURE_VERSION:
+            if version not in {1, SCHEMA_VERSION, STATIC_SCHEMA_VERSION} or int(raw["capture_version"]) != CAPTURE_VERSION:
                 raise ValueError("unsupported custom movement template schema")
+            behavior = raw.get("movement_behavior", "dynamic")
+            if behavior not in {"static", "dynamic"} or (version == STATIC_SCHEMA_VERSION and behavior != "static"):
+                raise ValueError("invalid movement behavior")
             raw_capabilities = raw["feature_capabilities"]
             capability_keys = set(raw_capabilities)
             if capability_keys not in {
@@ -262,7 +284,7 @@ class MovementTemplate:
             capabilities = dict(raw_capabilities)
             rotating = capabilities.get("prop_rotation", False)
             if (version == 2 and not rotating) or rotating != (
-                version == 2 and isinstance(raw.get("rotation_trace"), Mapping)
+                version >= 2 and isinstance(raw.get("rotation_trace"), Mapping)
             ):
                 raise ValueError("rotation capability/trace mismatch")
             template = cls(
@@ -275,6 +297,7 @@ class MovementTemplate:
                 variability_metadata={str(k): float(v) for k, v in raw["variability_metadata"].items()},
                 prop_events=tuple(PropEvent.from_dict(v) for v in raw.get("prop_events", [])),
                 rotation_trace=(RotationTrace.from_dict(raw["rotation_trace"]) if rotating else None),
+                movement_behavior=behavior,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(FailureCode.INVALID_SCHEMA.value) from exc
@@ -689,6 +712,7 @@ def _pose_motion(sequence: Sequence[FrameSample]) -> float:
 
 def _infer_requirements(
     references: Sequence[Sequence[FrameSample]],
+    *, movement_behavior: str = "dynamic",
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     hand_sides = tuple(
         side
@@ -711,7 +735,7 @@ def _infer_requirements(
     required = ["prop_translation"]
     if hand_sides:
         required.append("hands")
-    if pose_reliable and meaningful_pose_count >= 2:
+    if pose_reliable and (movement_behavior == "static" or meaningful_pose_count >= 2):
         required.append("pose")
     return tuple(sorted(required)), hand_sides
 
@@ -775,17 +799,30 @@ def _aggregate_frames(
 def build_template(
     references: Sequence[Sequence[FrameSample]],
     required_modalities: Iterable[str] | None = None,
+    *, movement_behavior: str = "dynamic",
 ) -> MovementTemplate:
     """Build a stable canonical template from at least two valid captures."""
     if len(references) < 2:
         raise ValueError(FailureCode.INVALID_REFERENCE_COUNT.value)
+    if movement_behavior not in {"static", "dynamic"}:
+        raise ValueError(FailureCode.INVALID_SCHEMA.value)
+    if movement_behavior == "static":
+        holds = []
+        for reference in references:
+            if not reference or reference[-1].timestamp_ms - reference[0].timestamp_ms < STATIC_HOLD_MS:
+                raise ValueError(FailureCode.INSUFFICIENT_FRAMES.value)
+            hold = trailing_hold_window(reference)
+            if len(hold) < MIN_FRAMES:
+                raise ValueError(FailureCode.INSUFFICIENT_FRAMES.value)
+            holds.append(hold)
+        references = tuple(holds)
     # The caller may require a modality that capture explicitly promised.
     # Its details (including which hand side) are still inferred from samples.
     if required_modalities is not None and not set(required_modalities).issubset(
         SUPPORTED_MODALITIES
     ):
         raise ValueError(FailureCode.INVALID_SCHEMA.value)
-    required, hand_sides = _infer_requirements(references)
+    required, hand_sides = _infer_requirements(references, movement_behavior=movement_behavior)
     # Capture readiness guarantees a hand at the start, but intermittent
     # tracking must not turn a hand-led demonstration into a path-only model.
     # A single reliable side is enough; never impose a two-hand requirement.
@@ -822,6 +859,14 @@ def build_template(
             )
         )
         durations.append(reference[-1].timestamp_ms - reference[0].timestamp_ms)
+        if movement_behavior == "static":
+            final = normalised[-1][-1]
+            if any(not static_frame_matches(final, frame, required) for frame in normalised[-1]):
+                raise ValueError("unstable_static_reference")
+    if movement_behavior == "static":
+        target = normalised[0][-1]
+        if any(not static_frame_matches(target, reference[-1], required) for reference in normalised[1:]):
+            raise ValueError("inconsistent_static_references")
     resampled = [_resample(seq) for seq in normalised]
     medoid_index = min(
         range(len(resampled)),
@@ -918,7 +963,7 @@ def build_template(
                     min(trace.pair_coverage for trace in reference_rotation),
                 )
     return MovementTemplate(
-        schema_version=SCHEMA_VERSION if rotation_trace else 1,
+        schema_version=STATIC_SCHEMA_VERSION if movement_behavior == "static" else SCHEMA_VERSION if rotation_trace else 1,
         capture_version=CAPTURE_VERSION,
         duration_ms=canonical_duration, reference_count=len(references),
         required_modalities=required,
@@ -952,6 +997,7 @@ def build_template(
         variability_metadata={"duration_std_ms": _std(durations), "reference_count": float(len(references))},
         prop_events=prop_events,
         rotation_trace=rotation_trace,
+        movement_behavior=movement_behavior,
     )
 
 
@@ -1063,6 +1109,27 @@ def _modality_error(a: FrameSample, b: FrameSample, modality: str) -> float | No
     distances = [_point_distance(left.get(key), right.get(key)) for key in set(left) & set(right)]
     usable = [item for item in distances if item is not None]
     return sum(usable) / len(usable) if usable else None
+
+
+def static_frame_matches(
+    target: FrameSample, frame: FrameSample, required_modalities: Sequence[str]
+) -> bool:
+    """Check pose/prop relationship and individual hand shape in normalized space."""
+    for modality in required_modalities:
+        if modality in {"hands", "pose"}:
+            expected = target.hands if modality == "hands" else target.pose
+            observed = frame.hands if modality == "hands" else frame.pose
+            if expected and len(expected.keys() & observed.keys()) < len(expected) * 0.9:
+                return False
+            if modality == "hands" and any(
+                math.hypot(point.x - observed[key].x, point.y - observed[key].y) > 0.15
+                for key, point in expected.items() if key in observed
+            ):
+                return False
+        error = _modality_error(target, frame, modality)
+        if error is None or error > STATIC_STABILITY_TOLERANCE:
+            return False
+    return True
 
 
 def _phase_aligned_prop_curve_error(

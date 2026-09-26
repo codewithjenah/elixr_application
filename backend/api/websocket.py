@@ -123,6 +123,7 @@ from vision.prop_inference import (
     yolo_runtime_info,
     yolo_runtime_threads,
 )
+from assessment.custom_movement.template_engine import trailing_hold_window
 from vision.camera import (
     CameraCapture,
     CapturedFrame,
@@ -502,6 +503,10 @@ def _human_error_message(error_code: str) -> str:
         "custom_capture_not_recording": "No movement reference is being recorded.",
         "custom_movement_not_detected": "No movement was detected. Perform the full movement while keeping the required inputs visible, then try again.",
         "custom_assessment_incomplete": "Movement was detected, but the full saved movement was not completed. Perform the complete sequence before the 30-second limit, then try again.",
+        "custom_position_not_detected": "The saved position was not detected. Move into the learned grip or stall and keep the required inputs visible.",
+        "custom_hold_incomplete": "The saved position was detected but not held steadily long enough. Hold it for about one second and try again.",
+        "unstable_static_reference": "The ending position was not held steadily. Record each example with a steady final hold.",
+        "inconsistent_static_references": "The ending positions differ between examples. Record the same grip or stall each time.",
         "single_performer_required": "Keep one performer in frame before recording a reference.",
         "multiple_people_detected": "Reference rejected because multiple people were detected. Keep only one performer in frame and record it again.",
         "invalid_reference_count": "Record at least two valid references before building the template.",
@@ -1260,7 +1265,7 @@ class VisionSession:
         finally:
             self._release_ai_state()
 
-    def build_custom_template(self) -> dict[str, Any]:
+    def build_custom_template(self, movement_behavior: str = "dynamic") -> dict[str, Any]:
         self._acquire_ai_state(blocking=True)
         try:
             if not self._is_custom_capture:
@@ -1268,6 +1273,7 @@ class VisionSession:
             template = build_custom_movement_template(
                 tuple(draft.effective_samples() for draft in self._custom_references),
                 required_modalities=("hands",),
+                movement_behavior=movement_behavior,
             )
             return template.to_dict()
         finally:
@@ -1282,6 +1288,12 @@ class VisionSession:
             if not captured_samples:
                 raise ValueError("custom_capture_not_recording")
             if self._custom_assessment_progress != CUSTOM_ASSESSMENT_COMPLETED:
+                if self._custom_template.movement_behavior == "static":
+                    raise ValueError(
+                        "custom_position_not_detected"
+                        if self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
+                        else "custom_hold_incomplete"
+                    )
                 raise ValueError(
                     "custom_movement_not_detected"
                     if self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
@@ -1289,6 +1301,8 @@ class VisionSession:
                 )
             start_index = self._custom_assessment_movement_start_index or 0
             samples = captured_samples[start_index:]
+            if self._custom_template.movement_behavior == "static":
+                samples = trailing_hold_window(samples)
             if not samples:
                 raise ValueError("custom_capture_not_recording")
             start_timestamp = samples[0].timestamp_ms
@@ -1452,7 +1466,8 @@ class VisionSession:
                 self._custom_template, tuple(samples)
             )
             if (
-                progress != CUSTOM_ASSESSMENT_WAITING
+                self._custom_template.movement_behavior != "static"
+                and progress != CUSTOM_ASSESSMENT_WAITING
                 and self._custom_assessment_movement_start_index is None
             ):
                 self._custom_assessment_movement_start_index = (
@@ -1461,6 +1476,8 @@ class VisionSession:
                     )
                 )
             if progress == CUSTOM_ASSESSMENT_COMPLETED:
+                self._custom_assessment_progress = progress
+            elif self._custom_template.movement_behavior == "static":
                 self._custom_assessment_progress = progress
             elif (
                 progress == CUSTOM_ASSESSMENT_MOVING
@@ -3225,11 +3242,18 @@ class VisionSession:
                 else None
             )
             if self._is_custom_assessment:
-                feedback = {
-                    CUSTOM_ASSESSMENT_WAITING: "Waiting for movement…",
-                    CUSTOM_ASSESSMENT_MOVING: "Movement detected. Keep going through the full sequence.",
-                    CUSTOM_ASSESSMENT_COMPLETED: "Movement completed. Processing score…",
-                }[self._custom_assessment_progress]
+                if self._custom_template.movement_behavior == "static":
+                    feedback = {
+                        CUSTOM_ASSESSMENT_WAITING: "Move into position and keep the prop and required landmarks visible.",
+                        "position_detected": "Position detected. Hold steady.",
+                        CUSTOM_ASSESSMENT_COMPLETED: "Hold completed. Processing score…",
+                    }[self._custom_assessment_progress]
+                else:
+                    feedback = {
+                        CUSTOM_ASSESSMENT_WAITING: "Waiting for movement…",
+                        CUSTOM_ASSESSMENT_MOVING: "Movement detected. Keep going through the full sequence.",
+                        CUSTOM_ASSESSMENT_COMPLETED: "Movement completed. Processing score…",
+                    }[self._custom_assessment_progress]
             else:
                 feedback = (
                     "Recording movement reference…"
@@ -5423,7 +5447,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 return
 
             if isinstance(command, BuildCustomTemplateCommand):
-                template = await asyncio.to_thread(session.build_custom_template)
+                template = await asyncio.to_thread(session.build_custom_template, command.movement_behavior)
                 await send_ack(
                     request_id=command.request_id,
                     session_id=command.session_id,

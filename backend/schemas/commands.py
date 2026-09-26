@@ -223,6 +223,7 @@ class TrimCustomReferenceCommand(_CommandBase):
 
 class BuildCustomTemplateCommand(_CommandBase):
     action: Literal["build_custom_template"]
+    movement_behavior: Literal["static", "dynamic"] = "dynamic"
 
 
 class FinishCustomAssessmentCommand(_CommandBase):
