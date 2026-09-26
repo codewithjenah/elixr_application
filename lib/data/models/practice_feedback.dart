@@ -94,6 +94,8 @@ class PracticeFeedback {
     this.readinessStable,
     this.readinessStableProgress,
     this.customAssessmentProgress,
+    this.customAssessmentCue,
+    this.customAssessmentCueSequence,
     this.personCount,
     this.referenceInvalid,
     this.capturePropVisible,
@@ -164,6 +166,10 @@ class PracticeFeedback {
   /// `completed` for custom
   /// movement assessment sessions.
   final String? customAssessmentProgress;
+
+  /// Backend-observed live coaching event, separate from progress state.
+  final String? customAssessmentCue;
+  final int? customAssessmentCueSequence;
 
   /// Custom reference capture: confirmed visible performers (2 means 2+).
   final int? personCount;
@@ -247,6 +253,8 @@ class PracticeFeedback {
         readinessStable == other.readinessStable &&
         readinessStableProgress == other.readinessStableProgress &&
         customAssessmentProgress == other.customAssessmentProgress &&
+        customAssessmentCue == other.customAssessmentCue &&
+        customAssessmentCueSequence == other.customAssessmentCueSequence &&
         personCount == other.personCount &&
         referenceInvalid == other.referenceInvalid &&
         calibrationScale == other.calibrationScale &&
@@ -351,6 +359,12 @@ class PracticeFeedback {
       readinessStable: json['readiness_stable'] as bool?,
       readinessStableProgress: readinessStableProgress,
       customAssessmentProgress: json['custom_assessment_progress'] as String?,
+      customAssessmentCue: json['custom_assessment_cue'] is String
+          ? json['custom_assessment_cue'] as String
+          : null,
+      customAssessmentCueSequence: json['custom_assessment_cue_sequence'] is int
+          ? json['custom_assessment_cue_sequence'] as int
+          : null,
       personCount: json['person_count'] is num
           ? (json['person_count'] as num).toInt().clamp(0, 2)
           : null,

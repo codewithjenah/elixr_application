@@ -108,6 +108,9 @@ class _CustomMovementPracticeScreenState
       ValueNotifier<PracticeFeedback?>(null);
   final ValueNotifier<PracticeFeedback?> _assessmentProgress =
       ValueNotifier<PracticeFeedback?>(null);
+  final ValueNotifier<_CustomLiveCue?> _liveCue = ValueNotifier(null);
+  Timer? _liveCueTimer;
+  int _lastCueSequence = 0;
   _CustomPracticePhase _phase = _CustomPracticePhase.preparing;
   bool _busy = false;
   bool _cameraSelectionBusy = false;
@@ -153,6 +156,15 @@ class _CustomMovementPracticeScreenState
       }
       if (feedback.customAssessmentProgress != null) {
         _assessmentProgress.value = feedback;
+        final cueSequence = feedback.customAssessmentCueSequence;
+        final cue = feedback.customAssessmentCue;
+        if (_phase == _CustomPracticePhase.recording &&
+            cue != null &&
+            cueSequence != null &&
+            cueSequence > _lastCueSequence) {
+          _lastCueSequence = cueSequence;
+          _showLiveCue(cue, cueSequence);
+        }
         if (feedback.customAssessmentProgress == 'completed' &&
             _phase == _CustomPracticePhase.recording &&
             !_busy) {
@@ -178,6 +190,8 @@ class _CustomMovementPracticeScreenState
         _recordingTimer = null;
         _readinessFeedback.value = null;
         _assessmentProgress.value = null;
+        _clearLiveCue();
+        _lastCueSequence = 0;
         _preview.value = null;
         _presentation.value = null;
       });
@@ -246,6 +260,8 @@ class _CustomMovementPracticeScreenState
       if (!mounted) return;
       setState(() => _countdown = null);
       _requireAccepted(await _socket.sendActivate());
+      _clearLiveCue();
+      _lastCueSequence = 0;
       _requireAccepted(
         await _socket.sendStartCustomCapture(durationSeconds: 30),
       );
@@ -268,6 +284,7 @@ class _CustomMovementPracticeScreenState
       await _stopSessionBestEffort();
       _recordingTimer?.cancel();
       _recordingTimer = null;
+      _clearLiveCue();
       if (mounted) {
         setState(() {
           _phase = _CustomPracticePhase.failed;
@@ -393,6 +410,7 @@ class _CustomMovementPracticeScreenState
       }
       await _stopSessionBestEffort();
       if (mounted) {
+        _clearLiveCue();
         setState(() {
           _phase = _CustomPracticePhase.completed;
           _presentation.value = null;
@@ -403,6 +421,7 @@ class _CustomMovementPracticeScreenState
     } catch (error) {
       await _stopSessionBestEffort();
       if (mounted) {
+        _clearLiveCue();
         setState(() {
           _phase = _CustomPracticePhase.failed;
           _presentation.value = null;
@@ -524,6 +543,22 @@ class _CustomMovementPracticeScreenState
     }
   }
 
+  void _showLiveCue(String cue, int sequence) {
+    _liveCueTimer?.cancel();
+    _liveCue.value = _CustomLiveCue(cue, sequence);
+    _liveCueTimer = Timer(const Duration(milliseconds: 1800), () {
+      if (mounted && _liveCue.value?.sequence == sequence) {
+        _liveCue.value = null;
+      }
+    });
+  }
+
+  void _clearLiveCue() {
+    _liveCueTimer?.cancel();
+    _liveCueTimer = null;
+    _liveCue.value = null;
+  }
+
   String _formatRemaining() {
     final minutes = _remainingSeconds ~/ 60;
     final seconds = _remainingSeconds % 60;
@@ -624,6 +659,7 @@ class _CustomMovementPracticeScreenState
     setState(() => _busy = true);
     _recordingTimer?.cancel();
     _recordingTimer = null;
+    _clearLiveCue();
     await _stopSessionBestEffort();
     if (_ownsSocket) await _socket.disconnect();
     if (!mounted) return;
@@ -640,6 +676,8 @@ class _CustomMovementPracticeScreenState
     unawaited(_previewSubscription?.cancel());
     unawaited(_feedbackSubscription?.cancel());
     _recordingTimer?.cancel();
+    _liveCueTimer?.cancel();
+    _liveCue.dispose();
     _preview.dispose();
     _presentation.dispose();
     _readinessFeedback.dispose();
@@ -717,7 +755,25 @@ class _CustomMovementPracticeScreenState
                   onRetry: _tryAgain,
                   onCountdownComplete: () {},
                   overlays: _countdown == null
-                      ? null
+                      ? ValueListenableBuilder<_CustomLiveCue?>(
+                          valueListenable: _liveCue,
+                          builder: (context, cue, _) => cue == null
+                              ? const SizedBox.shrink()
+                              : Positioned(
+                                  top: AppSpacing.md,
+                                  left: AppSpacing.md,
+                                  right: AppSpacing.md,
+                                  child: _CustomLiveCueBadge(
+                                    cue: cue,
+                                    isStatic:
+                                        widget
+                                            .revision
+                                            .template
+                                            .movementBehavior ==
+                                        'static',
+                                  ),
+                                ),
+                        )
                       : _CustomCountdownOverlay(value: _countdown!),
                 );
                 final panel = _buildSessionPanel(
@@ -806,8 +862,9 @@ class _CustomMovementPracticeScreenState
       ),
       _CustomPracticePhase.recording => TrainingReadyBrief(
         title: 'Recording · ${_formatRemaining()} max',
-        body:
-            'Move through the full saved pattern. ELIXR will finish when it detects the sequence, or at the 30-second limit.',
+        body: widget.revision.template.movementBehavior == 'static'
+            ? 'Move into the saved position and hold steady.'
+            : 'Perform the complete saved sequence. ELIXR will finish when the sequence is observed.',
       ),
       _CustomPracticePhase.processing => const TrainingReadyBrief(
         title: 'Analyzing performance…',
@@ -1100,28 +1157,123 @@ class _CustomCountdownOverlay extends StatelessWidget {
   );
 }
 
+class _CustomLiveCue {
+  const _CustomLiveCue(this.kind, this.sequence);
+  final String kind;
+  final int sequence;
+}
+
+class _CustomLiveCueBadge extends StatelessWidget {
+  const _CustomLiveCueBadge({required this.cue, required this.isStatic});
+  final _CustomLiveCue cue;
+  final bool isStatic;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (cue.kind) {
+      'movement_detected' => 'MOVEMENT DETECTED',
+      'keep_going' => 'KEEP GOING',
+      'finish_sequence' => 'FINISH THE SEQUENCE',
+      'release' => 'RELEASE',
+      'airborne' => 'AIRBORNE',
+      'apex' => 'APEX',
+      'catch' => 'CATCH',
+      'position_detected' => 'POSITION DETECTED',
+      'hold_steady' => 'HOLD STEADY',
+      'completed' => isStatic ? 'HOLD COMPLETE' : 'SEQUENCE COMPLETE',
+      _ => '',
+    };
+    if (label.isEmpty) return const SizedBox.shrink();
+    final color = cue.kind == 'completed'
+        ? AppColors.success
+        : AppColors.primary;
+    final highContrast = context.isHighContrast;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return IgnorePointer(
+      child: Center(
+        child: Semantics(
+          liveRegion: true,
+          label: label,
+          child: TweenAnimationBuilder<double>(
+            key: ValueKey('custom-cue-${cue.sequence}'),
+            tween: Tween(begin: reduceMotion ? 1 : .88, end: 1),
+            duration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 230),
+            curve: Curves.easeOut,
+            builder: (context, scale, child) => Transform.scale(
+              scale: scale,
+              child: Opacity(
+                opacity: reduceMotion ? 1 : scale.clamp(0.0, 1.0),
+                child: child,
+              ),
+            ),
+            child: Container(
+              key: const ValueKey('custom-live-cue'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xE6101018),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: color, width: highContrast ? 2 : 1.5),
+                boxShadow: highContrast
+                    ? const []
+                    : [
+                        BoxShadow(
+                          color: color.withValues(alpha: .25),
+                          blurRadius: 14,
+                        ),
+                      ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(FluentIcons.lightning_bolt, size: 18, color: color),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CustomAssessmentResult extends StatelessWidget {
   const _CustomAssessmentResult({required this.result});
   final Map<String, dynamic> result;
   @override
   Widget build(BuildContext context) {
     final components = result['component_scores'] as Map? ?? const {};
+    final successful = ((result['total'] as num?)?.toInt() ?? 0) >= 7;
+    final accent = successful ? AppColors.success : AppColors.warning;
     final feedback = (result['feedback'] as List? ?? const [])
         .whereType<String>();
     return Container(
       key: const ValueKey('custom-assessment-result'),
       padding: const EdgeInsets.all(AppSpacing.sm + 2),
-      decoration: AppTheme.practiceSectionSurface(
-        context,
-        accent: AppColors.success,
-      ),
+      decoration: AppTheme.practiceSectionSurface(context, accent: accent),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'AUTOMATIC ASSESSMENT',
+            successful
+                ? 'SUCCESS · AUTOMATIC ASSESSMENT'
+                : 'NEEDS IMPROVEMENT · AUTOMATIC ASSESSMENT',
             style: AppTheme.caption.copyWith(
-              color: AppColors.success,
+              color: accent,
               fontWeight: FontWeight.w800,
               letterSpacing: .7,
             ),

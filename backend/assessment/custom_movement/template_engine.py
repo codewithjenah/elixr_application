@@ -24,6 +24,10 @@ CANONICAL_FRAMES = 32
 MIN_FRAMES = 8
 MIN_COVERAGE = 0.70
 MAX_TRACK_GAP = 2
+# Live detector losses are measured in elapsed time. Reference recording keeps
+# the stricter frame-count rule above.
+ASSESSMENT_MAX_TRACK_GAP_MS = 450
+ASSESSMENT_MAX_FRAME_INTERVAL_MS = 700
 POSE_MOTION_THRESHOLD = 0.08
 MEANINGFUL_POSE_KEYS = frozenset(
     {
@@ -423,6 +427,74 @@ def validate_sequence(
     return ValidationResult(not codes, tuple(dict.fromkeys(codes)))
 
 
+def validate_assessment_sequence(
+    samples: Sequence[FrameSample],
+    required_modalities: Iterable[str],
+    *,
+    required_hand_sides: Iterable[str] = (),
+    template: MovementTemplate | None = None,
+) -> ValidationResult:
+    """Validate real live observations without relaxing reference authoring."""
+    required = tuple(sorted(set(required_modalities)))
+    codes: list[FailureCode] = []
+    if not set(required).issubset(SUPPORTED_MODALITIES):
+        codes.append(FailureCode.INVALID_SCHEMA)
+    if len(samples) < MIN_FRAMES:
+        codes.append(FailureCode.INSUFFICIENT_FRAMES)
+    timestamps = [frame.timestamp_ms for frame in samples]
+    if any(not isinstance(ts, int) for ts in timestamps) or any(
+        b <= a for a, b in zip(timestamps, timestamps[1:])
+    ):
+        codes.append(FailureCode.INVALID_TIMESTAMPS)
+    if any(b - a > ASSESSMENT_MAX_FRAME_INTERVAL_MS for a, b in zip(timestamps, timestamps[1:])):
+        codes.append(FailureCode.TRACK_LOSS)
+    for modality in required:
+        sides = tuple(sorted(set(required_hand_sides))) if modality == "hands" else (None,)
+        for side in sides or (None,):
+            expected: Mapping[str, Landmark] = {}
+            if template is not None and modality in {"pose", "hands"}:
+                target = template.canonical_sequence[-1]
+                if modality == "pose":
+                    meaningful = {key: point for key, point in target.pose.items()
+                                  if key in MEANINGFUL_POSE_KEYS}
+                    expected = meaningful or target.pose
+                else:
+                    semantic = _semantic_hands(target.hands)
+                    expected = {key: point for key, point in semantic.items()
+                                if side is None or _hand_side(key) == side}
+            if expected:
+                minimum = max(1, math.ceil(len(expected) * 0.5))
+                present = []
+                for frame in samples:
+                    observed = frame.pose if modality == "pose" else _semantic_hands(frame.hands)
+                    present.append(sum(
+                        _usable(observed.get(key)) for key in expected
+                    ) >= minimum)
+            else:
+                present = [
+                    _coverage((frame,), modality, hand_side=side)[0] == 1.0
+                    for frame in samples
+                ]
+            coverage = sum(present) / len(samples) if samples else 0.0
+            if coverage < MIN_COVERAGE:
+                codes.append(FailureCode.MISSING_MODALITY)
+            last_seen: int | None = None
+            missing = False
+            for frame, observed in zip(samples, present):
+                if observed:
+                    if missing and last_seen is not None and frame.timestamp_ms - last_seen > ASSESSMENT_MAX_TRACK_GAP_MS:
+                        codes.append(FailureCode.TRACK_LOSS)
+                    last_seen = frame.timestamp_ms
+                    missing = False
+                else:
+                    missing = True
+                    if frame.timestamp_ms - (last_seen if last_seen is not None else samples[0].timestamp_ms) > ASSESSMENT_MAX_TRACK_GAP_MS:
+                        codes.append(FailureCode.TRACK_LOSS)
+            if samples and last_seen is None:
+                codes.append(FailureCode.TRACK_LOSS)
+    return ValidationResult(not codes, tuple(dict.fromkeys(codes)))
+
+
 def _anchor_and_scale(
     frame: FrameSample,
     *,
@@ -578,33 +650,36 @@ def _canonical_prop_metadata(frames: Sequence[FrameSample]) -> dict[str, Any]:
     return output
 
 
-def detect_prop_events(samples: Sequence[FrameSample]) -> tuple[PropEvent, ...]:
-    """Infer contact, release, flight and catch from existing tracked centers.
+class PropEventTracker:
+    """Incremental observed-event tracker shared by live cues and batch scoring."""
 
-    Separation alone is a release, not proof of flight. A moving, continuously
-    tracked prop away from the hand supplies airborne evidence. A catch needs
-    two stable near-hand observations; a brief detector miss is inconclusive.
-    """
-    events: list[PropEvent] = []
-    contact_run = 0
-    held = False
-    released = False
-    airborne = False
-    away_run = 0
-    release_y: float | None = None
-    prior_prop: Landmark | None = None
-    prior_hands: Mapping[str, Landmark] = {}
-    prior_timestamp: int | None = None
-    prior_track_id: Any = None
-    prior_velocity: float | None = None
-    for frame in samples:
+    def __init__(self) -> None:
+        self.contact_run = 0
+        self.held = False
+        self.released = False
+        self.airborne = False
+        self.away_run = 0
+        self.release_y: float | None = None
+        self.prior_prop: Landmark | None = None
+        self.prior_hands: Mapping[str, Landmark] = {}
+        self.prior_timestamp: int | None = None
+        self.prior_track_id: Any = None
+        self.prior_velocity: float | None = None
+
+    def update(self, frame: FrameSample) -> tuple[PropEvent, ...]:
+        """Return only events verified by this current detector observation."""
+        events: list[PropEvent] = []
         prop = frame.prop if _usable(frame.prop) else None
         hands = {key: hand for key, hand in frame.hands.items() if _usable(hand)}
         if prop is None:
             # Unknown prop location cannot establish release, flight, or catch.
-            prior_prop = None
-            prior_velocity = None
-            continue
+            self.prior_prop = None
+            self.prior_velocity = None
+            self.held = False
+            # One earlier contact may contribute only if the prop returns
+            # near the hand promptly; reacquisition away cannot be a release.
+            self.contact_run = min(self.contact_run, 1)
+            return ()
         closest_key = min(
             hands,
             key=lambda key: math.hypot(prop.x - hands[key].x, prop.y - hands[key].y),
@@ -615,81 +690,99 @@ def detect_prop_events(samples: Sequence[FrameSample]) -> tuple[PropEvent, ...]:
             if closest_key is not None else float("inf")
         )
         track_id = frame.prop_metadata.get("track_id")
-        previous_prop = prior_prop
-        if (prior_prop is not None and track_id is not None
-                and prior_track_id is not None and track_id != prior_track_id):
+        previous_prop = self.prior_prop
+        if (self.prior_timestamp is not None
+                and frame.timestamp_ms - self.prior_timestamp > 250):
+            # A new visible location after a long unknown interval cannot
+            # establish the transition from the old held/flight state.
+            self.held = self.released = self.airborne = False
+            self.contact_run = 0
+            self.away_run = 0
+            self.release_y = None
+            self.prior_velocity = None
+        if (self.prior_prop is not None and track_id is not None
+                and self.prior_track_id is not None and track_id != self.prior_track_id):
             # An identity switch is not evidence that the held prop moved.
-            held = released = airborne = False
-            contact_run = 0
-            away_run = 0
-            release_y = None
-            prior_velocity = None
+            self.held = self.released = self.airborne = False
+            self.contact_run = 0
+            self.away_run = 0
+            self.release_y = None
+            self.prior_velocity = None
         continuous = (
-            prior_prop is not None
-            and prior_timestamp is not None
-            and 0 < frame.timestamp_ms - prior_timestamp <= 250
-            and (track_id is None or prior_track_id is None or track_id == prior_track_id)
+            self.prior_prop is not None
+            and self.prior_timestamp is not None
+            and 0 < frame.timestamp_ms - self.prior_timestamp <= 250
+            and (track_id is None or self.prior_track_id is None or track_id == self.prior_track_id)
         )
         speed = 0.0
         relative_speed = 0.0
         if continuous:
-            assert prior_prop is not None and prior_timestamp is not None
-            dt = frame.timestamp_ms - prior_timestamp
-            speed = math.hypot(prop.x - prior_prop.x, prop.y - prior_prop.y) / dt
-            vertical_velocity = (prop.y - prior_prop.y) / dt
-            if airborne and prior_velocity is not None and prior_velocity < 0 <= vertical_velocity:
+            assert self.prior_prop is not None and self.prior_timestamp is not None
+            dt = frame.timestamp_ms - self.prior_timestamp
+            speed = math.hypot(prop.x - self.prior_prop.x, prop.y - self.prior_prop.y) / dt
+            vertical_velocity = (prop.y - self.prior_prop.y) / dt
+            if self.airborne and self.prior_velocity is not None and self.prior_velocity < 0 <= vertical_velocity:
                 events.append(PropEvent(frame.timestamp_ms, "apex"))
-            prior_velocity = vertical_velocity
-            if closest_key is not None and closest_key in prior_hands:
+            self.prior_velocity = vertical_velocity
+            if closest_key is not None and closest_key in self.prior_hands:
                 hand = hands[closest_key]
-                previous_hand = prior_hands[closest_key]
+                previous_hand = self.prior_hands[closest_key]
                 relative_speed = math.hypot(
-                    (prop.x - hand.x) - (prior_prop.x - previous_hand.x),
-                    (prop.y - hand.y) - (prior_prop.y - previous_hand.y),
+                    (prop.x - hand.x) - (self.prior_prop.x - previous_hand.x),
+                    (prop.y - hand.y) - (self.prior_prop.y - previous_hand.y),
                 ) / dt
             else:
                 relative_speed = speed
         else:
-            prior_velocity = None
-        prior_timestamp = frame.timestamp_ms
-        prior_prop = prop
-        prior_hands = hands
-        prior_track_id = track_id
+            self.prior_velocity = None
+        self.prior_timestamp = frame.timestamp_ms
+        self.prior_prop = prop
+        self.prior_hands = hands
+        self.prior_track_id = track_id
         near_and_slow = distance <= 0.25 and relative_speed <= 0.0015
-        contact_run = contact_run + 1 if near_and_slow else 0
-        if contact_run == 2:
+        self.contact_run = self.contact_run + 1 if near_and_slow else 0
+        if self.contact_run == 2:
             events.append(PropEvent(frame.timestamp_ms, "stable_contact"))
-            if airborne:
+            if self.airborne:
                 events.append(PropEvent(frame.timestamp_ms, "catch"))
-                airborne = False
-                released = False
-                held = True
-                away_run = 0
-                release_y = None
-            elif released:
+                self.airborne = False
+                self.released = False
+                self.held = True
+                self.away_run = 0
+                self.release_y = None
+            elif self.released:
                 # A released prop that never showed flight is simply back in
                 # contact; do not invent an airborne catch.
-                released = False
-                held = True
-                away_run = 0
-                release_y = None
+                self.released = False
+                self.held = True
+                self.away_run = 0
+                self.release_y = None
             else:
                 events.append(PropEvent(frame.timestamp_ms, "contact"))
-                held = True
-        if held and closest_key is not None and distance > 0.25:
+                self.held = True
+        if self.held and closest_key is not None and distance > 0.25:
             events.append(PropEvent(frame.timestamp_ms, "release"))
-            held = False
-            released = True
-            away_run = 1
-            release_y = previous_prop.y if previous_prop is not None else prop.y
-        elif released and closest_key is not None and distance > 0.25:
-            away_run = away_run + 1 if continuous else 1
-        if (released and not airborne and closest_key is not None
-                and distance > 0.25 and continuous and away_run >= 2
-                and release_y is not None and abs(prop.y - release_y) >= 0.02
+            self.held = False
+            self.released = True
+            self.away_run = 1
+            self.release_y = previous_prop.y if previous_prop is not None else prop.y
+        elif self.released and closest_key is not None and distance > 0.25:
+            self.away_run = self.away_run + 1 if continuous else 1
+        if (self.released and not self.airborne and closest_key is not None
+                and distance > 0.25 and continuous and self.away_run >= 2
+                and self.release_y is not None and abs(prop.y - self.release_y) >= 0.02
                 and speed > 0.0015):
             events.append(PropEvent(frame.timestamp_ms, "airborne"))
-            airborne = True
+            self.airborne = True
+        return tuple(events)
+
+
+def detect_prop_events(samples: Sequence[FrameSample]) -> tuple[PropEvent, ...]:
+    """Infer only observed contact, release, flight and catch evidence."""
+    tracker = PropEventTracker()
+    events: list[PropEvent] = []
+    for frame in samples:
+        events.extend(tracker.update(frame))
     return tuple(events)
 
 
@@ -1323,17 +1416,19 @@ def _release_catch_similarity(
     return coverage * math.exp(-timing_error / 0.20), coverage
 
 
-def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample]) -> SequenceComparison:
+def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample], *, assessment: bool = False) -> SequenceComparison:
     """Compare captured measurements with a template using modality-masked DTW.
 
     Missing observations lower coverage and cannot yield a perfect component.
     ``total`` is a bounded 0..12 rubric: observed movement components carry
     75%, prop components 25%, with at most one optional rotation bonus point.
     """
-    validation = validate_sequence(
+    validator = validate_assessment_sequence if assessment else validate_sequence
+    validation = validator(
         samples,
         template.required_modalities,
         required_hand_sides=template.required_hand_sides,
+        **({"template": template} if assessment else {}),
     )
     names = ("Body technique", "Hand technique", "Prop path", "Timing", "Control/stability")
     scores: dict[str, int | None] = {name: None for name in names}

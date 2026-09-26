@@ -83,6 +83,7 @@ class _CustomSocket extends WebSocketService {
   bool rejectStartCustomCapture = false;
   int finishCustomAssessmentCalls = 0;
   Completer<CommandAck>? finishAssessmentCompleter;
+  Map<String, dynamic>? nextAssessment;
   bool rejectNextStop = false;
   String? rejectNextStopCode;
   bool rejectNextSessionStop = false;
@@ -177,13 +178,15 @@ class _CustomSocket extends WebSocketService {
     if (completer != null) return completer.future;
     return _ack(
       'finish_custom_assessment',
-      customAssessment: {
-        'score_percent': 83.3,
-        'total': 10,
-        'performance_level': 'proficient',
-        'component_scores': {'Timing': 3, 'Prop path': 2},
-        'feedback': ['Good timing'],
-      },
+      customAssessment:
+          nextAssessment ??
+          {
+            'score_percent': 83.3,
+            'total': 10,
+            'performance_level': 'proficient',
+            'component_scores': {'Timing': 3, 'Prop path': 2},
+            'feedback': ['Good timing'],
+          },
     );
   }
 
@@ -237,6 +240,8 @@ class _CustomSocket extends WebSocketService {
     required bool bottleDetected,
     bool? readinessStable,
     String? customAssessmentProgress,
+    String? customAssessmentCue,
+    int? customAssessmentCueSequence,
     int? personCount = 1,
     bool? referenceInvalid,
     List<ReadinessItemView>? readinessItems,
@@ -263,6 +268,8 @@ class _CustomSocket extends WebSocketService {
         readinessComplete: readinessComplete,
         readinessStableProgress: readinessStableProgress,
         customAssessmentProgress: customAssessmentProgress,
+        customAssessmentCue: customAssessmentCue,
+        customAssessmentCueSequence: customAssessmentCueSequence,
         personCount: personCount,
         referenceInvalid: referenceInvalid,
       ),
@@ -883,6 +890,37 @@ void main() {
       expect(socket.startCustomCaptureCalls, 1);
       expect(find.text('Recording · 00:30 max'), findsOneWidget);
       expect(find.text('Completes automatically'), findsOne);
+      expect(
+        find.text(
+          'Perform the complete saved sequence. ELIXR will finish when the sequence is observed.',
+        ),
+        findsOne,
+      );
+
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'movement_detected',
+        customAssessmentCue: 'release',
+        customAssessmentCueSequence: 1,
+      );
+      await tester.pump();
+      expect(find.text('RELEASE'), findsOne);
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'movement_detected',
+        customAssessmentCue: 'release',
+        customAssessmentCueSequence: 1,
+      );
+      await tester.pump(const Duration(milliseconds: 1900));
+      expect(find.byKey(const ValueKey('custom-live-cue')), findsNothing);
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'movement_detected',
+        customAssessmentCue: 'catch',
+        customAssessmentCueSequence: 2,
+      );
+      await tester.pump();
+      expect(find.text('CATCH'), findsOne);
 
       socket.emitFeedback(bottleDetected: false);
       socket.emitPresentation();
@@ -969,8 +1007,17 @@ void main() {
       expect(repository.savedMovementName, 'One-hand toss');
       expect(repository.savedDurationSeconds, greaterThanOrEqualTo(0));
       expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
+      expect(find.text('SUCCESS · AUTOMATIC ASSESSMENT'), findsOne);
+      expect(find.byKey(const ValueKey('custom-live-cue')), findsNothing);
 
       repository.failNextSave = true;
+      socket.nextAssessment = {
+        'score_percent': 33.3,
+        'total': 4,
+        'performance_level': 'developing',
+        'component_scores': {'Timing': 0, 'Prop path': 1},
+        'feedback': ['Improve prop path.'],
+      };
       await tester.tap(find.text('Practice Again'));
       await tester.pump();
       socket.emitReady();
@@ -987,6 +1034,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(repository.savePersonalResultCalls, 2);
       expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
+      expect(find.text('NEEDS IMPROVEMENT · AUTOMATIC ASSESSMENT'), findsOne);
       expect(
         find.text(
           'Assessment complete, but the personal result could not be saved.',
@@ -1004,6 +1052,106 @@ void main() {
       await socket.closeTestStreams();
     },
   );
+
+  testWidgets('static assessment shows hold guidance and observed hold cue', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final socket = _CustomSocket();
+    final staticMap = {
+      ..._oneHandTemplateMap(),
+      'schema_version': 3,
+      'movement_behavior': 'static',
+      'rotation_trace': null,
+      'canonical_sequence': List.generate(
+        32,
+        (index) => {'timestamp_ms': index * 33, 'pose': <String, dynamic>{}},
+      ),
+    };
+    final template = MovementTemplate.tryFrom(staticMap)!;
+    final movement = CustomMovement(
+      id: 'static-grip',
+      ownerUid: 'trainee-1',
+      ownerRole: CustomMovementOwnerRole.trainee,
+      name: 'Normal Grip',
+      description: 'Hold the bottle.',
+      difficulty: 'Easy',
+      propType: TrainingProp.bottle,
+      status: CustomMovementStatus.active,
+      activeRevisionId: 'revision-static',
+    );
+    await tester.pumpWidget(
+      _withSettings(
+        _TestSettings(),
+        CustomMovementPracticeScreen(
+          movement: movement,
+          revision: CustomMovementRevision(
+            id: 'revision-static',
+            movementId: movement.id,
+            ownerUid: movement.ownerUid,
+            ownerRole: movement.ownerRole,
+            template: template,
+          ),
+          repository: _RecordingRepository(),
+          webSocket: socket,
+        ),
+      ),
+    );
+    await tester.pump();
+    socket.emitReady();
+    await tester.pump();
+    await tester.tap(find.text('Start Practice'));
+    for (var second = 0; second < 3; second++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+    await tester.pump();
+    expect(
+      find.text('Move into the saved position and hold steady.'),
+      findsOne,
+    );
+    socket.emitFeedback(
+      bottleDetected: true,
+      customAssessmentProgress: 'position_detected',
+      customAssessmentCue: 'position_detected',
+      customAssessmentCueSequence: 1,
+    );
+    await tester.pump();
+    expect(find.text('POSITION DETECTED'), findsOne);
+    socket.emitFeedback(
+      bottleDetected: true,
+      customAssessmentProgress: 'position_detected',
+      customAssessmentCue: 'hold_steady',
+      customAssessmentCueSequence: 2,
+    );
+    await tester.pump();
+    expect(find.text('HOLD STEADY'), findsOne);
+    final finishAssessment = Completer<CommandAck>();
+    socket.finishAssessmentCompleter = finishAssessment;
+    socket.emitFeedback(
+      bottleDetected: true,
+      customAssessmentProgress: 'completed',
+      customAssessmentCue: 'completed',
+      customAssessmentCueSequence: 3,
+    );
+    await tester.pump();
+    expect(find.text('HOLD COMPLETE'), findsOne);
+    finishAssessment.complete(
+      _ack(
+        'finish_custom_assessment',
+        customAssessment: {
+          'score_percent': 83.3,
+          'total': 10,
+          'performance_level': 'proficient',
+          'component_scores': {'Hand technique': 3, 'Prop path': 3},
+          'feedback': <String>[],
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('custom-live-cue')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
 
   testWidgets('custom assessment uses its route-specific exit callback', (
     tester,

@@ -797,11 +797,17 @@ registry:
   `start_custom_capture` / `stop_custom_capture` pair records the performance
   for up to 30 seconds. Active feedback includes optional
   `custom_assessment_progress` values `waiting_for_movement`,
-  `movement_detected`, `position_detected`, and `completed`. Dynamic completion
-  uses learned path progress and release/catch evidence where applicable.
-  Static completion requires the learned prop, hand, and body relationship to
-  remain visible and stable for 800 ms; both behaviors use the existing custom
-  template comparison and scoring. Flutter then sends the existing stop and finish
+  `movement_detected`, `position_detected`, and `completed`. Optional
+  `custom_assessment_cue` and `custom_assessment_cue_sequence` carry distinct
+  backend-observed live coaching events; older feedback omits them. Dynamic
+  completion uses observed learned path/phase progress and bounded live tracking
+  gaps. Release, airborne, apex, and catch cues require actual prop/hand evidence;
+  missing phases lower scoring confidence without being invented. Completion is
+  independent of the 7/12 competent threshold, so a fully observed but poor
+  attempt receives its real low score and a Needs improvement result. Static
+  completion keeps the 800 ms hold and tolerates isolated matching jitter while
+  requiring recent correct observations. Reference authoring remains stricter
+  than live assessment. Flutter then sends the existing stop and finish
   commands; `finish_custom_assessment` returns `custom_assessment` with five
   bounded component scores and a derived `0..12` total. At the 30-second limit,
   attempts without a detected movement or complete sequence are rejected with

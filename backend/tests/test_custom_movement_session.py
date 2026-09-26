@@ -13,9 +13,12 @@ from assessment.custom_movement.completion import (
     MOVEMENT_DETECTED,
     WAITING_FOR_MOVEMENT,
     evaluate_completion,
+    find_movement_start_index,
 )
+from assessment.custom_movement.template_engine import validate_assessment_sequence
 from assessment.readiness import ReadinessObservation
 from api import websocket as websocket_api
+from schemas.feedback import FeedbackMessage
 from config import YOLO_FRAME_SKIP
 from vision.camera import CapturedFrame
 from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
@@ -309,6 +312,7 @@ def test_static_assessment_scores_only_completed_hold_after_neutral_entry():
     session._custom_assessment_progress = MOVEMENT_COMPLETED
     result = session.finish_custom_assessment()
     assert result["total"] >= 7
+    assert result["assessment_outcome"] == "competent"
     assert result["sequence_duration_ms"] == 900
     session.close()
 
@@ -346,12 +350,258 @@ def test_custom_assessment_completion_waits_for_the_rest_of_a_partial_sequence()
     assert evaluate_completion(template, partial) == MOVEMENT_DETECTED
 
 
-def test_custom_assessment_requires_each_learned_moving_modality_to_complete():
+def test_custom_assessment_uses_observed_motion_quorum_for_noisy_pose():
     template = _template(moving_pose=True)
     reference = _reference(moving_pose=True)
     prop_only = tuple(replace(frame, pose=reference[0].pose) for frame in reference)
 
-    assert evaluate_completion(template, prop_only) == MOVEMENT_DETECTED
+    assert evaluate_completion(template, prop_only) == MOVEMENT_COMPLETED
+
+
+def test_dynamic_completion_rejects_reverse_trajectory_and_near_final_partial():
+    template = _template()
+    reference = _reference()
+    reverse = tuple(replace(frame, prop=reference[-1 - index].prop)
+                    for index, frame in enumerate(reference))
+    near_final = reference[:8]
+    assert evaluate_completion(template, reverse) == MOVEMENT_DETECTED
+    assert evaluate_completion(template, near_final) == MOVEMENT_DETECTED
+
+
+def test_dynamic_completion_tolerates_fast_execution_and_short_detector_losses():
+    template = _template(moving_pose=True)
+    reference = _reference(moving_pose=True)
+    fast = tuple(replace(frame, timestamp_ms=index * 55)
+                 for index, frame in enumerate(reference))
+    assert evaluate_completion(template, fast) == MOVEMENT_COMPLETED
+    for modality in ("pose", "hands", "prop"):
+        dropped = tuple(replace(frame, **{modality: {} if modality != "prop" else None})
+                        if index == 5 else frame
+                        for index, frame in enumerate(reference))
+        assert evaluate_completion(template, dropped) == MOVEMENT_COMPLETED
+    isolated = tuple(replace(frame, prop=None) if index in {2, 6} else frame
+                     for index, frame in enumerate(reference))
+    assert evaluate_completion(template, isolated) == MOVEMENT_COMPLETED
+
+
+def test_assessment_capture_stop_uses_live_observability_policy():
+    template = _template()
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = [
+        replace(frame, timestamp_ms=index * 50, prop=None if index in {3, 4, 5} else frame.prop)
+        for index, frame in enumerate(_reference())
+    ]
+    accepted, code, quality = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+    assert quality["valid"] is True
+    session.close()
+
+
+def test_unobserved_lead_in_does_not_poison_a_fully_observed_attempt():
+    template = _template()
+    lead_in = tuple(FrameSample(index * 100, hands={"left": Landmark(.25, .45)})
+                    for index in range(8))
+    full = tuple(replace(frame, timestamp_ms=frame.timestamp_ms + 800)
+                 for frame in _reference())
+    samples = lead_in + full
+    assert evaluate_completion(template, samples) == MOVEMENT_COMPLETED
+    start = find_movement_start_index(template, samples)
+    assert start is not None and start >= len(lead_in)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(samples)
+    session._custom_assessment_progress = MOVEMENT_COMPLETED
+    session._custom_assessment_movement_start_index = start
+    assert session.stop_custom_capture()[:2] == (True, None)
+    assert session.finish_custom_assessment()["total"] >= 7
+    session.close()
+
+
+@pytest.mark.parametrize("modality", ("prop", "hands", "pose"))
+def test_dynamic_prolonged_required_detector_loss_is_unassessable(modality):
+    template = _template(moving_pose=True)
+    reference = _reference(moving_pose=True)
+    lost = tuple(replace(frame, **{modality: {} if modality != "prop" else None})
+                 if 3 <= index <= 7 else frame
+                 for index, frame in enumerate(reference))
+    assert evaluate_completion(template, lost) != MOVEMENT_COMPLETED
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(lost)
+    session._custom_assessment_progress = MOVEMENT_DETECTED
+    with pytest.raises(ValueError, match="missing_modality|track_loss"):
+        session.finish_custom_assessment()
+    session.close()
+
+
+def test_required_pose_cannot_be_replaced_by_unrelated_visible_landmark():
+    template = _template(moving_pose=True)
+    sparse = tuple(replace(frame, pose={"11": frame.pose["11"]})
+                   for frame in _reference(moving_pose=True))
+    validation = validate_assessment_sequence(
+        sparse, template.required_modalities,
+        required_hand_sides=template.required_hand_sides, template=template,
+    )
+    assert any(code.value == "missing_modality" for code in validation.codes)
+    assert evaluate_completion(template, sparse) != MOVEMENT_COMPLETED
+
+    grip = _grip_reference()
+    static_template = build_template([grip, grip], movement_behavior="static")
+    partial_hand = tuple(replace(frame, hands={"left:0": frame.hands["left:0"]})
+                         for frame in grip[8:])
+    hand_validation = validate_assessment_sequence(
+        partial_hand, static_template.required_modalities,
+        required_hand_sides=static_template.required_hand_sides,
+        template=static_template,
+    )
+    assert any(code.value == "missing_modality" for code in hand_validation.codes)
+
+
+def test_full_low_quality_sequence_completes_and_scores_needs_improvement():
+    template = _template()
+    jittered_slow = tuple(replace(
+        frame,
+        timestamp_ms=frame.timestamp_ms * 4,
+        prop=Landmark(frame.prop.x + (.08 if index % 2 else -.08), frame.prop.y),
+    ) for index, frame in enumerate(_reference()))
+    assert evaluate_completion(template, jittered_slow) == MOVEMENT_COMPLETED
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(jittered_slow)
+    session._custom_assessment_progress = MOVEMENT_COMPLETED
+    assert session.stop_custom_capture()[:2] == (True, None)
+    result = session.finish_custom_assessment()
+    assert result["total"] < 7
+    assert result["assessment_outcome"] == "needs_improvement"
+    assert result["score_percent"] == round(result["total"] * 100 / 12, 1)
+    session.close()
+
+
+def test_static_hold_tolerates_isolated_jitter_but_not_sustained_drift():
+    final = _grip_reference()[-1]
+    hold = tuple(replace(final, timestamp_ms=index * 33) for index in range(40))
+    template = build_template([hold, hold], movement_behavior="static")
+    def with_noise(indices):
+        return tuple(replace(frame, prop=Landmark(frame.prop.x + .2, frame.prop.y))
+                     if index in indices else frame
+                     for index, frame in enumerate(hold))
+    one_noisy = with_noise({19})
+    noisy = with_noise({10, 19})
+    too_many = with_noise({12, 15, 18, 21, 24})
+    drift = tuple(replace(frame, prop=Landmark(frame.prop.x + .2, frame.prop.y))
+                  if index >= 32 else frame
+                  for index, frame in enumerate(hold))
+    assert evaluate_completion(template, one_noisy) == MOVEMENT_COMPLETED
+    assert evaluate_completion(template, noisy) == MOVEMENT_COMPLETED
+    assert evaluate_completion(template, too_many) != MOVEMENT_COMPLETED
+    assert evaluate_completion(template, drift) != MOVEMENT_COMPLETED
+
+
+def test_completed_static_hold_stays_terminal_until_stop():
+    reference = _grip_reference()
+    template = build_template([reference, reference], movement_behavior="static")
+    session = websocket_api.VisionSession(
+        "Normal Grip", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(reference[8:])
+    session._custom_capture_started_at = time.monotonic() - 1
+    session._custom_assessment_progress = MOVEMENT_COMPLETED
+    prior_count = len(session._custom_samples)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    session._record_custom_sample(
+        captured=SimpleNamespace(captured_at_monotonic=time.monotonic()),
+        frame=frame, normalized=SimpleNamespace(primary=[]),
+        hands=None, pose=None, yolo_attempted=True,
+    )
+    assert session._custom_assessment_progress == MOVEMENT_COMPLETED
+    assert len(session._custom_samples) == prior_count
+    session.close()
+
+
+def test_custom_feedback_schema_accepts_static_progress_and_optional_cues():
+    base = dict(
+        bottle_detected=True, movement="Custom Movement", feedback="Hold steady",
+        feedback_type="positive", posture_status="unknown",
+    )
+    legacy = FeedbackMessage(**base)
+    assert legacy.custom_assessment_cue is None
+    message = FeedbackMessage(
+        **base, custom_assessment_progress="position_detected",
+        custom_assessment_cue="hold_steady", custom_assessment_cue_sequence=2,
+    )
+    assert message.model_dump()["custom_assessment_progress"] == "position_detected"
+    assert message.model_dump()["custom_assessment_cue_sequence"] == 2
+
+
+def test_custom_cue_sequence_deduplicates_and_resets_per_attempt():
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    session._set_custom_assessment_cue("release")
+    session._set_custom_assessment_cue("release")
+    assert session._custom_assessment_cue_sequence == 1
+    session._set_custom_assessment_cue("airborne")
+    assert session._custom_assessment_cue_sequence == 2
+    session._custom_samples = None
+    assert session.start_custom_capture(duration_seconds=15) == (True, None)
+    assert session._custom_assessment_cue is None
+    assert session._custom_assessment_cue_sequence == 0
+    session.close()
+
+
+def test_current_confirmed_frames_emit_ordered_release_cues_once():
+    path = ((0, 0), (0, 0), (.4, -.04), (.6, -.10),
+            (.4, -.04), (0, 0), (0, 0), (0, 0))
+    reference = tuple(FrameSample(
+        index * 100, hands={"left": Landmark(0, 0)}, prop=Landmark(x, y),
+    ) for index, (x, y) in enumerate(path))
+    template = build_template(
+        [reference, reference], ("hands", "prop_translation")
+    )
+    assert template.feature_capabilities["release_catch"] is True
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = []
+    session._custom_capture_started_at = time.monotonic() - 1
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    hands = HandsResult(hands=[HandLandmarks(
+        points={0: Point2D(0, 0)}, handedness="left",
+    )])
+    cues = []
+    for index, (x, y) in enumerate(path):
+        detection = PropDetection(
+            x1=x * 100 - 2, y1=y * 100 - 2,
+            x2=x * 100 + 2, y2=y * 100 + 2, confidence=.95,
+            yolo_confirmed=True,
+        )
+        session._record_custom_sample(
+            captured=SimpleNamespace(
+                captured_at_monotonic=session._custom_capture_started_at + index * .1,
+            ),
+            frame=frame,
+            normalized=session._normalize_detections(bottles=[detection], shakers=[]),
+            hands=hands, pose=None, yolo_attempted=True,
+        )
+        if session._custom_assessment_cue_sequence > len(cues):
+            cues.append(session._custom_assessment_cue)
+    assert cues[:4] == ["release", "airborne", "apex", "catch"]
+    assert len(cues) == len(set(cues))
+    session.close()
 
 
 def test_custom_assessment_preserves_short_release_catch_events_in_long_capture():
@@ -389,6 +639,12 @@ def test_custom_assessment_preserves_short_release_catch_events_in_long_capture(
 
     assert template.feature_capabilities["release_catch"] is True
     assert evaluate_completion(template, reference + tail) == MOVEMENT_COMPLETED
+    missed_apex = tuple(replace(frame, prop=None) if index == 3 else frame
+                        for index, frame in enumerate(reference))
+    assert "airborne" not in {
+        event.kind for event in websocket_api.detect_prop_events(missed_apex)
+    }
+    assert evaluate_completion(template, missed_apex) == MOVEMENT_COMPLETED
 
 
 @pytest.mark.parametrize(

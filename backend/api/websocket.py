@@ -61,6 +61,7 @@ from assessment.custom_movement.completion import (
     MOVEMENT_DETECTED as CUSTOM_ASSESSMENT_MOVING,
     WAITING_FOR_MOVEMENT as CUSTOM_ASSESSMENT_WAITING,
     evaluate_completion as evaluate_custom_assessment_completion,
+    estimate_sequence_progress as estimate_custom_sequence_progress,
     find_movement_start_index as find_custom_assessment_start_index,
 )
 from config import (
@@ -123,7 +124,11 @@ from vision.prop_inference import (
     yolo_runtime_info,
     yolo_runtime_threads,
 )
-from assessment.custom_movement.template_engine import trailing_hold_window
+from assessment.custom_movement.template_engine import (
+    PropEventTracker,
+    trailing_hold_window,
+    validate_assessment_sequence,
+)
 from vision.camera import (
     CameraCapture,
     CapturedFrame,
@@ -864,6 +869,9 @@ class VisionSession:
         self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
         self._custom_assessment_last_evaluated_at: float | None = None
         self._custom_assessment_movement_start_index: int | None = None
+        self._custom_event_tracker = PropEventTracker()
+        self._custom_assessment_cue: str | None = None
+        self._custom_assessment_cue_sequence = 0
         self._custom_previous_prop: tuple[float, float, int] | None = None
         # Single-person readiness needs two observations. Distinct people need
         # three current-frame observations spanning a short real-time interval.
@@ -1076,6 +1084,9 @@ class VisionSession:
                 self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
                 self._custom_assessment_last_evaluated_at = None
                 self._custom_assessment_movement_start_index = None
+                self._custom_event_tracker = PropEventTracker()
+                self._custom_assessment_cue = None
+                self._custom_assessment_cue_sequence = 0
             self._custom_multiple_invalid = False
             self._custom_awaiting_identity = False
             self._custom_ambiguous_anchors = {}
@@ -1154,10 +1165,23 @@ class VisionSession:
                 if self._is_custom_assessment and self._custom_template is not None
                 else ()
             )
-            validation = validate_custom_movement_sequence(
-                samples,
+            validator = (
+                validate_assessment_sequence
+                if self._is_custom_assessment
+                else validate_custom_movement_sequence
+            )
+            validation_samples = samples
+            if self._is_custom_assessment and self._custom_template is not None:
+                validation_samples = (
+                    trailing_hold_window(samples)
+                    if self._custom_template.movement_behavior == "static"
+                    else samples[self._custom_assessment_movement_start_index or 0:]
+                )
+            validation = validator(
+                validation_samples,
                 required_modalities,
                 required_hand_sides=required_hand_sides,
+                **({"template": self._custom_template} if self._is_custom_assessment else {}),
             )
             rejected_reason = (
                 validation.codes[0].value if validation.codes else None
@@ -1288,6 +1312,21 @@ class VisionSession:
             if not captured_samples:
                 raise ValueError("custom_capture_not_recording")
             if self._custom_assessment_progress != CUSTOM_ASSESSMENT_COMPLETED:
+                if self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING:
+                    candidate = captured_samples[self._custom_assessment_movement_start_index or 0:]
+                    observability = validate_assessment_sequence(
+                        candidate, self._custom_template.required_modalities,
+                        required_hand_sides=self._custom_template.required_hand_sides,
+                        template=self._custom_template,
+                    )
+                    if not observability.valid and any(
+                        code.value in {"missing_modality", "track_loss"}
+                        for code in observability.codes
+                    ):
+                        raise ValueError(next(
+                            code.value for code in observability.codes
+                            if code.value in {"missing_modality", "track_loss"}
+                        ))
                 if self._custom_template.movement_behavior == "static":
                     raise ValueError(
                         "custom_position_not_detected"
@@ -1310,13 +1349,18 @@ class VisionSession:
                 replace(sample, timestamp_ms=sample.timestamp_ms - start_timestamp)
                 for sample in samples
             )
-            result = compare_custom_movement_sequence(self._custom_template, samples)
+            result = compare_custom_movement_sequence(
+                self._custom_template, samples, assessment=True,
+            )
             if not result.validation.valid:
                 code = result.validation.codes[0].value
                 raise ValueError(code)
             payload = result.to_dict()
             payload["max_total"] = 12
             payload["score_percent"] = round(result.total * 100 / 12, 1)
+            payload["assessment_outcome"] = (
+                "competent" if result.total >= 7 else "needs_improvement"
+            )
             payload["feedback"] = [
                 f"{name}: {score}/3"
                 for name, score in result.component_scores.items()
@@ -1442,18 +1486,27 @@ class VisionSession:
                 "coasted": not bool(detection.yolo_confirmed),
             }
 
-        samples.append(CustomFrameSample(
+        sample = CustomFrameSample(
             timestamp_ms=timestamp_ms,
             pose=pose_points,
             hands=hand_points,
             prop=prop_point,
             prop_metadata=prop_metadata,
             orientation=orientation,
-        ))
+        )
+        samples.append(sample)
+        if (self._is_custom_assessment and self._custom_template is not None
+                and self._custom_template.feature_capabilities.get("release_catch")):
+            for event in self._custom_event_tracker.update(sample):
+                if event.kind in {"release", "airborne", "apex", "catch"}:
+                    self._set_custom_assessment_cue(event.kind, force=True)
+                    # Let the observed phase reach the client before a same-
+                    # frame completion cue replaces it.
+                    self._custom_assessment_last_evaluated_at = time.monotonic()
         self._custom_sample_capture_times.append(captured.captured_at_monotonic)
         if (
             self._is_custom_assessment
-            and len(samples) >= 8
+            and len(samples) >= (3 if self._custom_template.movement_behavior == "static" else 8)
             and 0.0 <= time.monotonic() - captured.captured_at_monotonic
             <= max(1.0, READINESS_SNAPSHOT_MAX_AGE_S)
             and (
@@ -1475,15 +1528,34 @@ class VisionSession:
                         self._custom_template, tuple(samples)
                     )
                 )
+            previous = self._custom_assessment_progress
             if progress == CUSTOM_ASSESSMENT_COMPLETED:
                 self._custom_assessment_progress = progress
+                self._set_custom_assessment_cue("completed")
             elif self._custom_template.movement_behavior == "static":
                 self._custom_assessment_progress = progress
+                if progress == "position_detected":
+                    self._set_custom_assessment_cue(
+                        "position_detected" if previous != progress else "hold_steady"
+                    )
             elif (
                 progress == CUSTOM_ASSESSMENT_MOVING
                 and self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
             ):
                 self._custom_assessment_progress = progress
+                self._set_custom_assessment_cue("movement_detected")
+            elif (progress == CUSTOM_ASSESSMENT_MOVING
+                  and not self._custom_template.feature_capabilities.get("release_catch")
+                  and self._custom_assessment_progress == CUSTOM_ASSESSMENT_MOVING):
+                if estimate_custom_sequence_progress(self._custom_template, samples) >= 0.70:
+                    self._set_custom_assessment_cue("finish_sequence")
+                elif self._custom_assessment_cue == "movement_detected":
+                    self._set_custom_assessment_cue("keep_going")
+
+    def _set_custom_assessment_cue(self, cue: str, *, force: bool = False) -> None:
+        if force or cue != self._custom_assessment_cue:
+            self._custom_assessment_cue = cue
+            self._custom_assessment_cue_sequence += 1
 
     @staticmethod
     def _custom_capture_diagnostics(
@@ -3293,6 +3365,12 @@ class VisionSession:
                     capture_upper_body_visible=self._custom_capture_visible[2] if self._is_custom_capture else None,
                     reference_invalid=self._custom_multiple_invalid if self._is_custom_capture else None,
                     custom_assessment_progress=custom_assessment_progress,
+                    custom_assessment_cue=(
+                        self._custom_assessment_cue if self._is_custom_assessment else None
+                    ),
+                    custom_assessment_cue_sequence=(
+                        self._custom_assessment_cue_sequence if self._is_custom_assessment else None
+                    ),
                 )
             )
             self.timings.add("processing_total", time.perf_counter() - total_start)

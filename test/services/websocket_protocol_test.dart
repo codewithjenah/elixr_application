@@ -75,6 +75,24 @@ void main() {
       });
 
       expect(feedback.customAssessmentProgress, 'completed');
+      expect(feedback.customAssessmentCue, isNull);
+      expect(feedback.customAssessmentCueSequence, isNull);
+    });
+
+    test('static progress and custom event cue parse independently', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Custom Movement',
+        'feedback': 'Hold steady',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'custom_assessment_progress': 'position_detected',
+        'custom_assessment_cue': 'hold_steady',
+        'custom_assessment_cue_sequence': 4,
+      });
+      expect(feedback.customAssessmentProgress, 'position_detected');
+      expect(feedback.customAssessmentCue, 'hold_steady');
+      expect(feedback.customAssessmentCueSequence, 4);
     });
 
     test('invalid hold_target_ms defaults to zero', () {

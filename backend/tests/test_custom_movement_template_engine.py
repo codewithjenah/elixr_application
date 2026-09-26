@@ -4,6 +4,9 @@ from assessment.custom_movement import (
     FailureCode, FrameSample, Landmark, MovementTemplate, build_template,
     compare_sequence, detect_prop_events, normalize_sequence, validate_sequence,
 )
+from assessment.custom_movement.template_engine import (
+    PropEventTracker, validate_assessment_sequence,
+)
 
 
 def _sequence(*, shift=0.0, scale=1.0, count=12, interval=100, reverse=False, prop=True, miss=(), static=False):
@@ -156,6 +159,50 @@ def test_generic_release_and_catch_require_stable_contact_and_ignore_one_miss():
     held = [FrameSample(i * 100, hands={"left": Landmark(0, 0)}, prop=None if i == 2 else Landmark(0, 0)) for i in range(6)]
     held_kinds = [event.kind for event in detect_prop_events(held)]
     assert "release" not in held_kinds and "airborne" not in held_kinds
+
+
+def test_incremental_event_cues_match_batch_and_never_invent_occluded_flight():
+    frames = _release_sequence()
+    tracker = PropEventTracker()
+    streamed = [event for frame in frames for event in tracker.update(frame)]
+    assert tuple(streamed) == detect_prop_events(frames)
+    kinds = [event.kind for event in streamed]
+    assert kinds.index("release") < kinds.index("airborne") < kinds.index("apex") < kinds.index("catch")
+    assert kinds.count("release") == kinds.count("airborne") == kinds.count("catch") == 1
+
+    occluded = tuple(replace(frame, prop=None) if index in {3, 4}
+                     else frame for index, frame in enumerate(frames))
+    assert "airborne" not in [event.kind for event in detect_prop_events(occluded)]
+    assert "catch" not in [event.kind for event in detect_prop_events(occluded)]
+
+
+def test_reacquisition_after_held_prop_loss_or_long_gap_does_not_invent_release():
+    held = tuple(FrameSample(
+        index * 100, hands={"left": Landmark(0, 0)}, prop=Landmark(0, 0),
+    ) for index in range(3))
+    after_loss = held + (
+        FrameSample(300, hands={"left": Landmark(0, 0)}, prop=None),
+        FrameSample(400, hands={"left": Landmark(0, 0)}, prop=Landmark(.5, -.04)),
+        FrameSample(500, hands={"left": Landmark(0, 0)}, prop=Landmark(.7, -.1)),
+    )
+    after_gap = held + (
+        FrameSample(700, hands={"left": Landmark(0, 0)}, prop=Landmark(.5, -.04)),
+        FrameSample(800, hands={"left": Landmark(0, 0)}, prop=Landmark(.7, -.1)),
+    )
+    for frames in (after_loss, after_gap):
+        kinds = [event.kind for event in detect_prop_events(frames)]
+        assert "release" not in kinds
+        assert "airborne" not in kinds
+
+
+def test_assessment_gap_is_time_bounded_while_reference_policy_stays_strict():
+    short = _sequence(count=12, interval=50, miss=(3, 4, 5))
+    assert not validate_sequence(short, ("prop_translation",)).valid
+    assert validate_assessment_sequence(short, ("prop_translation",)).valid
+    long = _sequence(count=12, interval=200, miss=(3, 4, 5))
+    assert FailureCode.TRACK_LOSS in validate_assessment_sequence(
+        long, ("prop_translation",)
+    ).codes
 
 
 def test_prop_phase_evidence_distinguishes_held_released_airborne_and_caught():

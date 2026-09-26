@@ -124,8 +124,16 @@ class FeedbackMessage(BaseModel):
     # Custom assessment progress only; Flutter uses the terminal value to
     # request the existing stop-and-score command sequence.
     custom_assessment_progress: Optional[
-        Literal["waiting_for_movement", "movement_detected", "completed"]
+        Literal["waiting_for_movement", "movement_detected", "position_detected", "completed"]
     ] = None
+    # Transient coaching identity is separate from lifecycle progress. The
+    # sequence changes only for a new observed cue, so clients can deduplicate.
+    custom_assessment_cue: Optional[Literal[
+        "movement_detected", "keep_going", "finish_sequence",
+        "release", "airborne", "apex", "catch",
+        "position_detected", "hold_steady", "completed",
+    ]] = None
+    custom_assessment_cue_sequence: Optional[int] = None
     # Custom reference capture only: confirmed visible performer count (2 means 2+).
     person_count: Optional[int] = None
     # Custom reference only: this recording has been irreversibly invalidated.
