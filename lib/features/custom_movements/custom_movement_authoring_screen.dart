@@ -638,24 +638,7 @@ class _CustomMovementAuthoringScreenState
     if (_busy || _recording) return;
     setState(() => _busy = true);
     try {
-      final ack = await _socket.sendTrimCustomReference(
-        reference.id,
-        startMs: start,
-        endMs: end,
-      );
-      _requireAccepted(ack);
-      if (mounted) {
-        setState(() {
-          reference.startMs = start;
-          reference.endMs = end;
-          if (_previewId == reference.id) {
-            _pendingStart = start;
-            _pendingEnd = end;
-          }
-          _template = null;
-          _error = null;
-        });
-      }
+      await _commitTrim(reference, start, end);
     } catch (_) {
       if (mounted) {
         setState(
@@ -665,6 +648,31 @@ class _CustomMovementAuthoringScreenState
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _commitTrim(
+    _ReferenceDraft reference,
+    int start,
+    int end,
+  ) async {
+    final ack = await _socket.sendTrimCustomReference(
+      reference.id,
+      startMs: start,
+      endMs: end,
+    );
+    _requireAccepted(ack);
+    if (mounted) {
+      setState(() {
+        reference.startMs = start;
+        reference.endMs = end;
+        if (_previewId == reference.id) {
+          _pendingStart = start;
+          _pendingEnd = end;
+        }
+        _template = null;
+        _error = null;
+      });
     }
   }
 
@@ -679,12 +687,31 @@ class _CustomMovementAuthoringScreenState
     if (_replacingReferences) {
       setState(() => _busy = true);
       try {
+        final selectedReference = _references
+            .where((reference) => reference.id == _previewId)
+            .firstOrNull;
+        if (selectedReference != null &&
+            (_pendingStart != selectedReference.startMs ||
+                _pendingEnd != selectedReference.endMs)) {
+          try {
+            await _commitTrim(selectedReference, _pendingStart, _pendingEnd);
+          } catch (_) {
+            throw StateError(
+              'Could not apply the trim. Keep more of the full movement in the clip, then try reviewing again. Your previous trim is still saved.',
+            );
+          }
+        }
         final ack = await _socket.sendBuildCustomTemplate(
           movementBehavior: _movementBehavior,
         );
         if (!ack.accepted && ack.errorCode == 'insufficient_hand_coverage') {
           throw StateError(
             'Hands were visible but tracking was too intermittent to learn the hand movement. Re-record examples with at least one hand clearly visible throughout.',
+          );
+        }
+        if (!ack.accepted && ack.errorCode == 'insufficient_frames') {
+          throw StateError(
+            'The selected clip is too short or does not contain enough of the full movement. Adjust the trim to include the complete movement, then review again.',
           );
         }
         _requireAccepted(ack);

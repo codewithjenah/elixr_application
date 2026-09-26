@@ -130,6 +130,12 @@ class _Socket extends Fake implements WebSocketService {
   int count = 0;
   final List<String> deleted = [];
   final List<String> trimmed = [];
+  final List<String> commandOrder = [];
+  final List<(String, int, int)> trimRanges = [];
+  final Map<String, (int, int)> committedTrims = {};
+  bool rejectNextTrim = false;
+  String? rejectBuildCode;
+  int buildCalls = 0;
   bool rejectNextReference = false;
   bool failDisconnect = false;
   final List<String?> preparedCameraIds = [];
@@ -270,6 +276,7 @@ class _Socket extends Fake implements WebSocketService {
         );
       }
       count++;
+      committedTrims['reference-$count'] = (0, 7000);
       return Future<CommandAck>.value(
         _ack(
           'stop_custom_capture',
@@ -293,16 +300,43 @@ class _Socket extends Fake implements WebSocketService {
     if (method == #sendTrimCustomReference) {
       final id = invocation.positionalArguments.first as String;
       trimmed.add(id);
+      final start = invocation.namedArguments[#startMs] as int;
+      final end = invocation.namedArguments[#endMs] as int;
+      trimRanges.add((id, start, end));
+      commandOrder.add('trim');
+      if (rejectNextTrim) {
+        rejectNextTrim = false;
+        return Future<CommandAck>.value(
+          CommandAck(
+            protocolVersion: 1,
+            requestId: 'request-trim_custom_reference',
+            sessionId: 'session-1',
+            action: 'trim_custom_reference',
+            accepted: false,
+            errorCode: 'insufficient_frames',
+          ),
+        );
+      }
+      committedTrims[id] = (start, end);
       return Future<CommandAck>.value(
-        _ack(
-          'trim_custom_reference',
-          id: id,
-          start: invocation.namedArguments[#startMs] as int,
-          end: invocation.namedArguments[#endMs] as int,
-        ),
+        _ack('trim_custom_reference', id: id, start: start, end: end),
       );
     }
     if (method == #sendBuildCustomTemplate) {
+      buildCalls++;
+      commandOrder.add('build');
+      if (rejectBuildCode case final code?) {
+        return Future<CommandAck>.value(
+          CommandAck(
+            protocolVersion: 1,
+            requestId: 'request-build_custom_template',
+            sessionId: 'session-1',
+            action: 'build_custom_template',
+            accepted: false,
+            errorCode: code,
+          ),
+        );
+      }
       return Future<CommandAck>.value(
         _ack(
           'build_custom_template',
@@ -423,8 +457,135 @@ Future<void> _enterReferenceStudio(WidgetTester tester, _Socket socket) async {
   expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
 }
 
+Future<void> _recordTwoReferences(WidgetTester tester, _Socket socket) async {
+  await tester.enterText(
+    find.byKey(const ValueKey('custom-movement-name')),
+    'Bottle Loop',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey('custom-movement-description')),
+    'A complete bottle loop.',
+  );
+  await tester.ensureVisible(
+    find.byKey(const ValueKey('custom-movement-next')),
+  );
+  await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+  await tester.pump(const Duration(milliseconds: 100));
+  socket.ready();
+  for (var attempt = 0; attempt < 20; attempt++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (tester
+            .widget<ElixPrimaryButton>(
+              find.byKey(const ValueKey('custom-reference-record')),
+            )
+            .onPressed !=
+        null) {
+      break;
+    }
+  }
+  await _record(tester, socket);
+  await _record(tester, socket);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('Review commits a dirty trim before building the template', (
+    tester,
+  ) async {
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _recordTwoReferences(tester, socket);
+    final preview = find.text('Preview / edit').first;
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.ensureVisible(find.text('Apply changes'));
+    tester.widget<Slider>(find.byType(Slider).first).onChanged!(1000);
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-review')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(socket.trimRanges, [('reference-1', 1000, 7000)]);
+    expect(socket.commandOrder, ['trim', 'build']);
+    expect(socket.buildCalls, 1);
+    expect(find.text('Only prop movement was learned'), findsOneWidget);
+  });
+
+  testWidgets('Review skips trim when the selected range is unchanged', (
+    tester,
+  ) async {
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _recordTwoReferences(tester, socket);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-review')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(socket.trimRanges, isEmpty);
+    expect(socket.commandOrder, ['build']);
+    expect(find.text('Only prop movement was learned'), findsOneWidget);
+  });
+
+  testWidgets(
+    'failed automatic trim preserves committed range and skips build',
+    (tester) async {
+      final socket = _Socket()..rejectNextTrim = true;
+      addTearDown(socket.close);
+      await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+      await _recordTwoReferences(tester, socket);
+      final preview = find.text('Preview / edit').first;
+      await tester.ensureVisible(preview);
+      await tester.tap(preview);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.ensureVisible(find.text('Apply changes'));
+      tester.widget<Slider>(find.byType(Slider).first).onChanged!(1000);
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('custom-movement-review')),
+      );
+      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(socket.commandOrder, ['trim']);
+      expect(socket.buildCalls, 0);
+      expect(socket.committedTrims['reference-1'], (0, 7000));
+      expect(find.textContaining('Could not apply the trim'), findsOneWidget);
+      expect(find.text('Apply changes'), findsOneWidget);
+      expect(find.text('Review movement'), findsOneWidget);
+    },
+  );
+
+  testWidgets('insufficient template frames show guidance rather than a code', (
+    tester,
+  ) async {
+    final socket = _Socket()..rejectBuildCode = 'insufficient_frames';
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _recordTwoReferences(tester, socket);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-review')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('insufficient_frames'), findsNothing);
+    expect(
+      find.textContaining(
+        'The selected clip is too short or does not contain enough of the full movement.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Review movement'), findsOneWidget);
+  });
 
   testWidgets('execution guidance is required before authoring can continue', (
     tester,
