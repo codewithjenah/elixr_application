@@ -4415,40 +4415,87 @@ service cloud.firestore {
    // non-Activity review submissions retain their established client flow.
    allow create: if request.resource.data.attempt_kind != 'practice_pointer'
     && validAssignmentAttemptCreate(request.resource.data, attemptId);
+   // Dispatch by the existing and requested states before entering each
+   // transition's document reads, key checks, and immutable-field checks.
+   // Each validator still owns its full authorization and payload contract.
    allow update: if isSignedIn()
-    && (
-     // Gate the cleanup paths before their full predicates. This keeps
-     // ordinary submission transitions from evaluating recovery-only
-     // rules, while letting abandoned drafts avoid the later, expensive
-     // review-transition predicate chain.
-     (request.resource.data.keys().hasAny(['abandoned_at'])
-      && validTeacherReviewSubmissionAbandon(attemptId))
-     || (resource.data.keys().hasAny(['abandoned_at'])
-      && validAbandonedTeacherReviewCleanup(attemptId))
-     || (resource.data.attempt_kind == 'teacher_review_submission'
-      && resource.data.status == 'draft'
-      && request.resource.data.status == 'in_progress'
-      && validCanonicalTeacherReviewSubmissionPromote(attemptId))
-     || (resource.data.attempt_kind == 'teacher_review_submission'
-      && request.resource.data.status == 'submitted'
-      && validTeacherReviewSubmissionTraineeSubmit(attemptId))
-     || (affectedKeys()
-        .hasAny(['video_deleted_at'])
-      && validTeacherReviewSubmissionCleanup(attemptId))
-     || validTeacherDraftAttemptUpdate()
-     || validTeacherReviewSubmissionTraineeSubmit(attemptId)
-     || validCanonicalTeacherReviewSubmissionAttachDraft(attemptId)
-     || validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId)
-     || validCanonicalTeacherReviewSubmissionCompleteDraftRemoval(attemptId)
-     || validCanonicalTeacherReviewSubmissionPromote(attemptId)
-     || validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId)
-     || validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId)
-     || validCanonicalTeacherReviewSubmissionDeletionFailure(attemptId)
-     || validCanonicalTeacherReviewSubmissionCheckedReview()
-     || validTeacherReviewResultSent()
-     || validTeacherReviewSubmissionTeacherReview(attemptId)
-     || validTeacherReviewSubmissionCleanup(attemptId)
-    );
+    && resource.data.attempt_kind == 'teacher_review_draft'
+    && resource.data.status == 'draft'
+    && request.resource.data.status == 'in_progress'
+    && validTeacherDraftAttemptUpdate();
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'draft'
+    && request.resource.data.status == 'in_progress'
+    && validCanonicalTeacherReviewSubmissionPromote(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && request.resource.data.status == 'submitted'
+    && validTeacherReviewSubmissionTraineeSubmit(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'in_progress'
+    && request.resource.data.status == 'in_progress'
+    && request.resource.data.keys().hasAny(['draft_saved_at'])
+    && validCanonicalTeacherReviewSubmissionAttachDraft(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'in_progress'
+    && request.resource.data.status == 'in_progress'
+    && request.resource.data.keys().hasAny(['draft_cleanup_started_at'])
+    && validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'in_progress'
+    && request.resource.data.status == 'in_progress'
+    && validCanonicalTeacherReviewSubmissionCompleteDraftRemoval(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'submitted'
+    && request.resource.data.status == 'unsubmitting'
+    && validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'unsubmitting'
+    && request.resource.data.status == 'in_progress'
+    && validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'unsubmitting'
+    && request.resource.data.status == 'unsubmitting'
+    && validCanonicalTeacherReviewSubmissionDeletionFailure(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && request.resource.data.status == 'checked'
+    && validCanonicalTeacherReviewSubmissionCheckedReview();
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'checked'
+    && request.resource.data.status == 'checked'
+    && request.resource.data.keys().hasAny(['result_sent_revision'])
+    && validTeacherReviewResultSent();
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'submitted'
+    && request.resource.data.status in ['approved', 'needs_retry']
+    && validTeacherReviewSubmissionTeacherReview(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status in ['submitted', 'approved', 'needs_retry', 'checked']
+    && request.resource.data.status == resource.data.status
+    && validTeacherReviewSubmissionCleanup(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'draft'
+    && request.resource.data.status == 'draft'
+    && request.resource.data.keys().hasAny(['abandoned_at'])
+    && validTeacherReviewSubmissionAbandon(attemptId);
+   allow update: if isSignedIn()
+    && resource.data.attempt_kind == 'teacher_review_submission'
+    && resource.data.status == 'draft'
+    && request.resource.data.status == 'draft'
+    && resource.data.keys().hasAny(['abandoned_at'])
+    && validAbandonedTeacherReviewCleanup(attemptId);
    allow delete: if isSignedIn()
     && !exists(userPath(request.auth.uid))
     && (

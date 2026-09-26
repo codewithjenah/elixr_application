@@ -30,6 +30,8 @@ const ATTEMPT = 'review_sub_clip1';
 const CANONICAL_ATTEMPT = `review_sub_${ASG}_trainee`;
 const PATH =
   `assignment_submissions/teacher/${GROUP_ID}/${ASG}/trainee/${ATTEMPT}.mp4`;
+const CANONICAL_PATH =
+  `assignment_submissions/teacher/${GROUP_ID}/${ASG}/trainee/${CANONICAL_ATTEMPT}.mp4`;
 
 let testEnv;
 
@@ -270,6 +272,122 @@ describe('Phase 6 teacher_review_submission', () => {
         status: 'in_progress',
       }),
     );
+  });
+
+  test('canonical draft attach, removal, and reattach stay trainee-owned', async () => {
+    await seedClassroom();
+    const traineeRef = doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT);
+    const teacherRef = doc(context('teacher').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT);
+    await assertSucceeds(setDoc(traineeRef, canonicalInProgressDoc()));
+    const clip = {
+      video_storage_path: CANONICAL_PATH,
+      video_content_type: 'video/mp4',
+      video_size_bytes: 2048,
+      video_duration_ms: 4000,
+    };
+    await assertFails(updateDoc(teacherRef, { ...clip, draft_saved_at: serverTimestamp() }));
+    await assertSucceeds(updateDoc(traineeRef, { ...clip, draft_saved_at: serverTimestamp() }));
+    await assertFails(updateDoc(traineeRef, { video_storage_path: 'other/path.mp4' }));
+    await assertSucceeds(updateDoc(traineeRef, { draft_cleanup_started_at: serverTimestamp() }));
+    await assertSucceeds(updateDoc(traineeRef, {
+      video_storage_path: deleteField(),
+      video_content_type: deleteField(),
+      video_size_bytes: deleteField(),
+      video_duration_ms: deleteField(),
+      draft_saved_at: deleteField(),
+      draft_cleanup_started_at: deleteField(),
+    }));
+    await assertSucceeds(updateDoc(traineeRef, { ...clip, draft_saved_at: serverTimestamp() }));
+  });
+
+  test('canonical unsubmit and deletion-failure recovery preserve identity', async () => {
+    await seedClassroom();
+    const ref = doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT);
+    await assertSucceeds(setDoc(ref, canonicalInProgressDoc()));
+    await assertSucceeds(updateDoc(ref, {
+      status: 'submitted',
+      video_storage_path: CANONICAL_PATH,
+      video_content_type: 'video/mp4',
+      video_size_bytes: 2048,
+      video_duration_ms: 4000,
+      submitted_at: serverTimestamp(),
+      video_expires_at: expiryUnreviewed(),
+    }));
+    await assertFails(updateDoc(ref, { status: 'in_progress' }));
+    await assertSucceeds(updateDoc(ref, { status: 'unsubmitting', deletion_failed: false }));
+    await assertSucceeds(updateDoc(ref, {
+      deletion_failed: true,
+      deletion_failed_at: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(ref, { trainee_id: 'otherTrainee' }));
+    await assertSucceeds(updateDoc(ref, {
+      status: 'in_progress',
+      video_storage_path: deleteField(),
+      video_content_type: deleteField(),
+      video_size_bytes: deleteField(),
+      video_duration_ms: deleteField(),
+      submitted_at: deleteField(),
+      video_expires_at: deleteField(),
+      deletion_failed: false,
+      deletion_failed_at: deleteField(),
+    }));
+    const anchor = await assertSucceeds(getDoc(ref));
+    assert.equal(anchor.data().status, 'in_progress');
+    assert.equal(anchor.data().deletion_failed, false);
+    assert.equal(anchor.data().video_storage_path, undefined);
+  });
+
+  test('canonical checked review and result delivery require assigning Teacher', async () => {
+    await seedClassroom();
+    const traineeRef = doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT);
+    const teacherRef = doc(context('teacher').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT);
+    const otherTeacherRef = doc(context('other').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT);
+    await assertSucceeds(setDoc(traineeRef, canonicalInProgressDoc()));
+    await assertSucceeds(updateDoc(traineeRef, {
+      status: 'submitted',
+      video_storage_path: CANONICAL_PATH,
+      video_content_type: 'video/mp4',
+      video_size_bytes: 2048,
+      video_duration_ms: 4000,
+      submitted_at: serverTimestamp(),
+      video_expires_at: expiryUnreviewed(),
+    }));
+    const review = {
+      status: 'checked', grade_score: 85, grade_max_score: 100,
+      checked_at: serverTimestamp(), review_updated_at: serverTimestamp(),
+      review_revision: 1, video_expires_at: expiryReviewed(),
+    };
+    await assertFails(updateDoc(traineeRef, review));
+    await assertFails(updateDoc(otherTeacherRef, review));
+    await assertFails(updateDoc(teacherRef, { ...review, video_storage_path: 'other/path.mp4' }));
+    await assertSucceeds(updateDoc(teacherRef, review));
+    await assertFails(updateDoc(traineeRef, {
+      result_sent_revision: 1, result_sent_at: serverTimestamp(), result_message_id: 'msg-1',
+    }));
+    await assertSucceeds(updateDoc(teacherRef, {
+      result_sent_revision: 1, result_sent_at: serverTimestamp(), result_message_id: 'msg-1',
+    }));
+    await assertFails(updateDoc(teacherRef, { result_message_id: 'msg-2' }));
+  });
+
+  test('trainee cannot submit after the assignment deadline', async () => {
+    await seedClassroom();
+    const ref = doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT);
+    await assertSucceeds(setDoc(ref, draftDoc()));
+    await seedBypassingRules(async (admin) => {
+      await updateDoc(doc(admin, 'group_assignments', ASG), {
+        due_at: Timestamp.fromMillis(Date.now() - 60_000),
+      });
+    });
+    await assertFails(updateDoc(ref, {
+      status: 'submitted',
+      video_storage_path: PATH,
+      video_content_type: 'video/mp4',
+      video_size_bytes: 2048,
+      video_duration_ms: 4000,
+      submitted_at: serverTimestamp(),
+      video_expires_at: expiryUnreviewed(),
+    }));
   });
 
   test('canonical creation is denied without approved membership', async () => {
