@@ -1700,6 +1700,30 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         progression: context.watch<TraineeProgressionService>(),
                       )
                     : null;
+                final headerSection = assignment == null
+                    ? Container(
+                        key: const ValueKey('endless-mode-header-surface'),
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                        decoration: BoxDecoration(
+                          color: context.elixCardSurface,
+                          borderRadius: BorderRadius.circular(
+                            AppSpacing.practiceSurfaceRadius,
+                          ),
+                          border: Border.all(color: context.elixBorder),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            header,
+                            if (progressionHud != null) ...[
+                              const SizedBox(height: AppSpacing.sm),
+                              progressionHud,
+                            ],
+                          ],
+                        ),
+                      )
+                    : header;
                 final camera = TrainingCameraWorkspace(
                   frameListenable: _frameBytes,
                   mirrored: context.watch<SettingsService>().cameraMirrored,
@@ -1964,11 +1988,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 final body = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    header,
-                    if (progressionHud != null) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      progressionHud,
-                    ],
+                    headerSection,
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, workspaceConstraints) {
