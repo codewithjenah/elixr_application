@@ -7,7 +7,7 @@ import '../models/training_prop.dart';
 enum CustomMovementSaveStage {
   validation,
   referenceImageUpload,
-  firestoreCommit,
+  databaseCommit,
   teardown,
   unknown,
 }
@@ -26,7 +26,7 @@ extension CustomMovementSaveStageDetails on CustomMovementSaveStage {
   String get wireValue => switch (this) {
     CustomMovementSaveStage.validation => 'validation',
     CustomMovementSaveStage.referenceImageUpload => 'reference_image_upload',
-    CustomMovementSaveStage.firestoreCommit => 'firestore_commit',
+    CustomMovementSaveStage.databaseCommit => 'database_commit',
     CustomMovementSaveStage.teardown => 'teardown',
     CustomMovementSaveStage.unknown => 'unknown',
   };
@@ -36,8 +36,8 @@ extension CustomMovementSaveStageDetails on CustomMovementSaveStage {
       'Movement details failed validation. Review the name, description, difficulty, and examples.',
     CustomMovementSaveStage.referenceImageUpload =>
       'The reference image upload failed. Check your connection and Storage access, then retry.',
-    CustomMovementSaveStage.firestoreCommit =>
-      'The movement data could not be committed to Firestore. Check your connection and account access, then retry.',
+    CustomMovementSaveStage.databaseCommit =>
+      'The movement data could not be saved to the ELIXR server. Check your connection and account access, then retry.',
     CustomMovementSaveStage.teardown =>
       'The movement was saved, but the recording session did not close cleanly. Check My Movements before trying again.',
     CustomMovementSaveStage.unknown =>
@@ -62,7 +62,7 @@ class CustomMovementSaveException implements Exception {
   String toString() => 'CustomMovementSaveException(${stage.wireValue})';
 }
 
-/// Preserves the failing archive-only delete stage and Firebase cause for
+/// Preserves the failing archive-only delete stage and backend cause for
 /// diagnostics while allowing the UI to show safe, actionable copy.
 class CustomMovementDeleteException implements Exception {
   const CustomMovementDeleteException({

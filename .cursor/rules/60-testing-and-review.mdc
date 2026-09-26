@@ -12,7 +12,7 @@ Test priorities:
 - Scoring changes: classification weights, rolling-window behavior, reset, lower/upper bounds.
 - WebSocket changes: schema serialization, Dart parsing, missing/null fields, error frames.
 - Flutter state changes: connect/start/stop/disconnect, async disposal, duplicate feedback, save flow.
-- Firestore changes: mapping compatibility, ownership, empty collections, indexes, pending timestamps.
+- Database changes: mapping compatibility, ownership, RLS denial paths, indexes, RPC error codes.
 - UI changes: loading, empty, error, narrow/wide layout, active session, navigation teardown.
 
 Before completion, inspect the diff for:
@@ -26,4 +26,4 @@ Before completion, inspect the diff for:
 - Event-loop blocking or frame backlog.
 - Configuration/documentation that does not match executable code.
 
-Do not call work complete solely because generated code compiles. State `Not verified` for camera hardware, model accuracy, Firebase deployment, Windows packaging, or any check that was not performed.
+Do not call work complete solely because generated code compiles. State `Not verified` for camera hardware, model accuracy, Supabase deployment, Windows packaging, or any check that was not performed.

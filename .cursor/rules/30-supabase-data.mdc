@@ -1,0 +1,32 @@
+---
+description: Supabase Auth, Postgres schema, RLS, RPCs, Storage, and persisted data compatibility
+globs: ["lib/data/**/*.dart", "lib/services/auth_service.dart", "packages/elixr_core/lib/**/*.dart", "supabase/**"]
+alwaysApply: false
+---
+# Supabase and persisted data
+
+- The Supabase Auth user ID (`auth.uid()`) is the user identity. Legacy Firebase UIDs are mapped only through `legacy_firebase_identities`; never assume they equal Supabase UUIDs.
+- The client gets only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (`--dart-define`). Secret/service-role keys live only in the `elixr-admin` Edge Function environment.
+- Keep data access behind repositories. Privileged or multi-row writes go through security-definer RPCs (`set search_path = ''`) that authorize with `auth.uid()`, never user metadata. Private helpers stay in the `private` schema and are not granted as APIs.
+- Every table has RLS enabled; there are no allow-all policies. Clients mostly get SELECT only; writes are RPCs.
+- RPC failures raise stable codes via `private.fail(code)` (message = code). Map them in Dart; never show raw backend text.
+- Preserve snake_case column and payload names (`full_name`, `user_id`, `movement_name`, `duration_seconds`, `created_at`, ...). Null columns are compacted away when mapping rows so models keep "absent field" semantics.
+- Manila day/month keys and timestamps are computed server-side (`now()`, `Asia/Manila`); never trust client clocks for awards or quests.
+- A model change must consider Dart models, row mapping, repository queries, migrations (policies, RPCs, indexes), existing data, tests, and documentation. Add a new migration; never edit an applied one.
+- Storage buckets are private with size/MIME limits; object names keep the former paths. Use authenticated downloads or short-lived signed URLs deliberately.
+- Do not deploy migrations or functions without explicit user intent and human review.
+
+## Leaderboard
+
+- `leaderboard.user_id` is the authenticated user ID.
+- `award_session_xp` inserts `leaderboard_processed_sessions` first; the unique marker makes awards idempotent. Do not weaken marker immutability.
+- Awards read score/assessment from the stored session; Assessment V2 freezes percentage aggregates (never mix 0–12 rubric totals into 0–100 fields). Challenge and custom-movement sessions never earn global XP.
+- Ordering: period XP desc, best score desc, `user_id` asc (keyset pagination and `leaderboard_rank` share it).
+- The capstone leaderboard is not hostile-client-proof for client-evaluated achievements; do not describe it otherwise.
+
+## Public profiles
+
+- `public_profiles` roots are readable by signed-in users; summary/sessions/achievements projections only when the owner or `visibility = 'public'` (or an authorized Teacher link).
+- New accounts get a public root at sign-up; repair paths create private roots. Projections are derived server-side from authoritative rows.
+
+For data changes, run `supabase/tests/rls/elixr_security_test.sql` and verify mapping round trips, denial paths, and query/index alignment.

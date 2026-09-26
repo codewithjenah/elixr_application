@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Material, MaterialType;
@@ -305,8 +305,9 @@ class SessionSummarySheet extends StatelessWidget {
   }
 
   static String _formatSaveError(Object error) {
-    if (error is FirebaseException) {
-      return 'Could not save your session (${error.code}). '
+    final code = backendErrorCode(error);
+    if (code != null) {
+      return 'Could not save your session ($code). '
           'Check your connection and try again.';
     }
     return 'Could not save your session. Check your connection and try again.';

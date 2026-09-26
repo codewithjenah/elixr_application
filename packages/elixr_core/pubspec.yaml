@@ -1,5 +1,5 @@
 name: elixr_core
-description: Shared ELIXR user model and Firebase auth repository.
+description: Shared ELIXR user model and Supabase-backed repositories.
 publish_to: "none"
 version: 0.0.1
 
@@ -11,13 +11,9 @@ dependencies:
     sdk: flutter
 
   characters: ^1.4.1
-  cloud_firestore: ^6.6.0
-  firebase_auth: ^6.5.4
-  firebase_core: ^4.11.0
-  firebase_storage: ^13.4.3
+  supabase: ^2.16.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  fake_cloud_firestore: ^4.2.0

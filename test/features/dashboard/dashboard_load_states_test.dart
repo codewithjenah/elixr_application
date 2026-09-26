@@ -23,10 +23,10 @@ import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_core/repositories/in_memory_classroom_announcement_repository.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
+import 'package:elixr_core/database/supabase_support.dart';
 // Test-only Firebase bootstrap; not part of app dependencies.
 // ignore: depend_on_referenced_packages
-import 'package:firebase_core_platform_interface/test.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -70,8 +70,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    setupFirebaseCoreMocks();
-    await Firebase.initializeApp();
+    ElixrSupabase.configure(SupabaseClient('http://localhost:1', 'test-key'));
   });
 
   testWidgets('first-load failure shows dashboard unavailable with Retry', (

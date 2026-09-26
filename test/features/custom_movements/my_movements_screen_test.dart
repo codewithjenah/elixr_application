@@ -19,7 +19,7 @@ import 'package:elixr_application/services/session_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -571,9 +571,10 @@ void main() {
     final repository = _CustomRepository([movement])
       ..deleteError = CustomMovementDeleteException(
         stage: CustomMovementDeleteStage.archive,
-        cause: FirebaseException(
-          plugin: 'cloud_firestore',
-          code: 'permission-denied',
+        cause: const PostgrestException(
+          message: 'forbidden',
+          code: '42501',
+          details: 'permission-denied',
         ),
         stackTrace: StackTrace.current,
       );
@@ -592,7 +593,7 @@ void main() {
 
     expect(
       find.text(
-        'Firestore denied this change. Your account access or deployed security rules may be out of date.',
+        'The server denied this change. Your account access may have changed.',
       ),
       findsOneWidget,
     );

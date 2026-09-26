@@ -203,7 +203,9 @@ void main() {
 
       expect(repository.registerCallCount, 1);
       expect(repository.lastDefaultRole, User.roleTeacher);
-      expect(repository.ensureTeacherRoleClaimCalls, 1);
+      // No auth session exists before email confirmation; the claim is
+      // verified once the confirmed session is restored.
+      expect(repository.ensureTeacherRoleClaimCalls, 0);
       expect(repository.verificationRequested, isTrue);
       expect(auth.currentUser?.isTeacher, isTrue);
       expect(auth.needsEmailVerification, isTrue);
@@ -252,7 +254,7 @@ void main() {
     final auth = AuthService(
       repository: repository,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'tr1',
+      currentAuthUid: () => 'tr1',
     );
     await auth.initialize();
 
@@ -297,7 +299,7 @@ void main() {
     final auth = AuthService(
       repository: repository,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'tr1',
+      currentAuthUid: () => 'tr1',
     );
     await auth.initialize();
 
@@ -357,7 +359,7 @@ void main() {
       final auth = AuthService(
         repository: repository,
         awaitInitialAuthState: () async {},
-        currentFirebaseAuthUid: () => 'legacy-teacher',
+        currentAuthUid: () => 'legacy-teacher',
       );
       addTearDown(auth.dispose);
 
@@ -553,7 +555,7 @@ void main() {
       final auth = AuthService(
         repository: repository,
         awaitInitialAuthState: () async {},
-        currentFirebaseAuthUid: () => 'admin-1',
+        currentAuthUid: () => 'admin-1',
       );
       await auth.initialize();
 

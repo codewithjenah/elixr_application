@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'training_prop.dart';
 
 enum ClassChallengeStatus { upcoming, active, ended, archived }
@@ -291,7 +289,6 @@ List<ClassChallengeLeaderboardEntry> rankClassChallengeEntries(
 }
 
 DateTime? _date(Object? value) {
-  if (value is Timestamp) return value.toDate().toUtc();
   if (value is DateTime) return value.toUtc();
   if (value is String) return DateTime.tryParse(value)?.toUtc();
   return null;

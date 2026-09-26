@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:firebase_core/firebase_core.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
@@ -23,7 +23,7 @@ import '../../data/models/recognition_event.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/custom_movement.dart';
 import '../../data/repositories/custom_movement_repository.dart';
-import '../../data/repositories/firebase_custom_movement_repository.dart';
+import '../../data/repositories/supabase_custom_movement_repository.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
@@ -110,7 +110,7 @@ String livePracticePrepareFailureMessage(Object error) {
   return 'Camera preparation failed. Check the backend and try again.';
 }
 
-/// Keeps assignment-start failures actionable without exposing Firestore rule
+/// Keeps assignment-start failures actionable without exposing database policy
 /// details or classroom data in the UI.
 @visibleForTesting
 String livePracticeAssignmentStartFailureMessage(Object error) {
@@ -129,14 +129,14 @@ String livePracticeAssignmentStartFailureMessage(Object error) {
       _ => 'Could not start this classroom assignment. Try again.',
     };
   }
-  if (error is FirebaseException && error.code == 'permission-denied') {
+  if (isPermissionDeniedError(error)) {
     return 'You no longer have permission to start this classroom assignment.';
   }
   return 'Could not start this classroom assignment. Try again.';
 }
 
 bool _isTerminalAssignmentStartFailure(Object error) {
-  if (error is FirebaseException && error.code == 'permission-denied') {
+  if (isPermissionDeniedError(error)) {
     return true;
   }
   if (error is! ClassroomException) return false;
@@ -198,7 +198,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   TrainingProp _endlessProp = TrainingProp.bottle;
   int _requestedTargetGeneration = 0;
   late final CustomMovementRepository _customMovementRepository =
-      FirebaseCustomMovementRepository();
+      SupabaseCustomMovementRepository();
   List<EndlessTarget> _endlessPoolSnapshot = const [];
   FreestyleSessionPhase _lastRenderedFreestylePhase =
       FreestyleSessionPhase.idle;
@@ -954,12 +954,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
           'assignment=${assignment.assignment.id} trainee=$traineeId '
           'error_type=${error.runtimeType} error=$error',
         );
-        if (error is FirebaseException && error.code == 'permission-denied') {
+        if (isPermissionDeniedError(error)) {
           debugPrint(
             'LivePractice assignment start permission-denied: verify the '
             'trainee has an approved membership and the assignment is active; '
-            'if both are valid, deploy the current Firestore rules that allow '
-            'canonical teacher_review_submission in_progress creation.',
+            'if both are valid, apply the current database migrations that '
+            'allow canonical teacher_review_submission in_progress creation.',
           );
         }
         debugPrintStack(stackTrace: stackTrace);

@@ -14,8 +14,24 @@ class _TrackingCallbackServer extends MemoryAuthEmailCallbackServer {
   }
 }
 
-class _TrackingPasswordResetRepository implements AuthRepositoryBase {
+class _TrackingPasswordResetRepository
+    implements AuthRepositoryBase, EmailLinkAuthRepositoryBase {
   int sendPasswordResetEmailCallCount = 0;
+  String? lastResetCode;
+  String? lastNewPassword;
+
+  @override
+  Future<void> completeEmailVerificationLink(String code) async {}
+
+  @override
+  Future<void> completePasswordReset({
+    required String code,
+    required String newPassword,
+  }) async {
+    lastResetCode = code;
+    lastNewPassword = newPassword;
+  }
+
   String? lastEmail;
   Object? errorToThrow;
 
@@ -138,29 +154,38 @@ void main() {
       expect(repository.lastEmail, 'user@example.com');
     });
 
-    test('marks the reset complete after the continue URL callback', () async {
+    test('a bare reset redirect does not confirm the reset', () async {
       await authService.sendPasswordResetEmail(email: 'user@example.com');
       expect(authService.hasConfirmedPasswordResetLink, isFalse);
 
       authService.handleEmailActionCallback(
-        Uri.parse('http://localhost:1/elixr-auth?mode=reset'),
+        Uri.parse('http://localhost:1/elixr-auth?elixr_action=reset'),
       );
 
+      expect(authService.hasConfirmedPasswordResetLink, isFalse);
+    });
+
+    test('the local new-password form completes the reset', () async {
+      await authService.sendPasswordResetEmail(email: 'user@example.com');
+
+      final error = await callbackServer.passwordResetHandler!(
+        'recovery-code',
+        'NewPassw0rd',
+      );
+
+      expect(error, isNull);
+      expect(repository.lastResetCode, 'recovery-code');
+      expect(repository.lastNewPassword, 'NewPassw0rd');
       expect(authService.hasConfirmedPasswordResetLink, isTrue);
     });
 
-    test(
-      'marks the reset complete after Firebase resetPassword redirect',
-      () async {
-        await authService.sendPasswordResetEmail(email: 'user@example.com');
+    test('weak passwords are rejected before reaching the server', () async {
+      final error = await callbackServer.passwordResetHandler!('c', 'short');
 
-        authService.handleEmailActionCallback(
-          Uri.parse('http://localhost:1/elixr-auth?mode=resetPassword'),
-        );
-
-        expect(authService.hasConfirmedPasswordResetLink, isTrue);
-      },
-    );
+      expect(error, isNotNull);
+      expect(repository.lastResetCode, isNull);
+      expect(authService.hasConfirmedPasswordResetLink, isFalse);
+    });
 
     test('propagates repository failures', () async {
       repository.errorToThrow = Exception('Too many attempts. Try again later');

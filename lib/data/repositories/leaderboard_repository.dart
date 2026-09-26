@@ -1,14 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:elixr_core/constants/coaching_movement_names.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show PostgrestException, SupabaseClient;
 
-import '../../core/constants/gamification_rules.dart';
-import '../database/firestore_helper.dart';
 import '../models/leaderboard_award_plan.dart';
 import '../models/leaderboard_entry.dart';
 import '../models/leaderboard_period.dart';
-import '../models/rubric_assessment.dart';
 
 /// Opaque pagination cursor. UI stores and returns it; never unwraps it.
 abstract class LeaderboardPageCursor {
@@ -33,19 +30,33 @@ class FakeLeaderboardPageCursor implements LeaderboardPageCursor {
   final String? periodKey;
 }
 
-class _FirestoreLeaderboardPageCursor implements LeaderboardPageCursor {
-  _FirestoreLeaderboardPageCursor({
-    required this.document,
+/// Keyset cursor over the shared order: period XP desc, best desc, UID asc.
+class _KeysetLeaderboardPageCursor implements LeaderboardPageCursor {
+  _KeysetLeaderboardPageCursor({
+    required this.xp,
+    required this.bestScore,
+    required this.userId,
     required this.period,
     required this.periodKey,
   });
 
-  final DocumentSnapshot<Map<String, dynamic>> document;
+  final int xp;
+  final int bestScore;
+  final String userId;
+
   @override
   final LeaderboardPeriod period;
 
   @override
   final String? periodKey;
+
+  String get keysetFilter {
+    final xpField = period.xpField;
+    final bestField = period.bestScoreField;
+    return '$xpField.lt.$xp,'
+        'and($xpField.eq.$xp,$bestField.lt.$bestScore),'
+        'and($xpField.eq.$xp,$bestField.eq.$bestScore,user_id.gt.$userId)';
+  }
 }
 
 /// Signals that a pagination cursor belongs to a different resolved period.
@@ -84,20 +95,15 @@ class LeaderboardPage {
 
 class LeaderboardRepository {
   LeaderboardRepository({
-    FirebaseFirestore? firestore,
-    FirebaseAuth? auth,
+    SupabaseClient? client,
     String? Function()? productUserId,
-  }) : _firestoreOverride = firestore,
-       _authOverride = auth,
+  }) : _clientOverride = client,
        _productUserId = productUserId;
 
-  final FirebaseFirestore? _firestoreOverride;
-  final FirebaseAuth? _authOverride;
+  final SupabaseClient? _clientOverride;
   final String? Function()? _productUserId;
 
-  FirebaseFirestore get _firestore =>
-      _firestoreOverride ?? FirebaseFirestore.instance;
-  FirebaseAuth get _auth => _authOverride ?? FirebaseAuth.instance;
+  SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
 
   /// In-flight sync futures keyed by userId to prevent duplicate concurrent runs.
   static final Map<String, Future<LeaderboardSyncResult>> _syncInFlight = {};
@@ -114,17 +120,16 @@ class LeaderboardRepository {
     _lastActiveInFlight.clear();
   }
 
-  /// Updates `last_active_at` on the caller's existing leaderboard document.
+  /// Updates `last_active_at` on the caller's existing leaderboard row.
   ///
-  /// No-ops when the document does not exist, so login never creates a
-  /// zero-XP ranking row. Rate-limited to at most one successful write per
-  /// user per [LeaderboardPresencePolicy.minInterval]. Never mutates XP,
-  /// session, period, quest, identity, or cosmetic fields, and does not
-  /// touch `updated_at`.
+  /// Never creates a zero-XP ranking row. The server enforces at most one
+  /// write per [LeaderboardPresencePolicy.minInterval]; the client also
+  /// rate-limits requests. Never mutates XP, session, period, quest,
+  /// identity, or cosmetic fields, and does not touch `updated_at`.
   Future<bool> touchLastActive({required String userId, DateTime? nowUtc}) {
     final trimmed = userId.trim();
     if (trimmed.isEmpty) return Future<bool>.value(false);
-    if (!_isCurrentFirebaseOwner(trimmed)) return Future<bool>.value(false);
+    if (!_isCurrentOwner(trimmed)) return Future<bool>.value(false);
 
     final existing = _lastActiveInFlight[trimmed];
     if (existing != null) return existing;
@@ -141,94 +146,37 @@ class LeaderboardRepository {
     required String userId,
     DateTime? nowUtc,
   }) async {
-    if (!_isCurrentFirebaseOwner(userId)) return false;
     final now = (nowUtc ?? DateTime.now()).toUtc();
-    final lastWrite = _lastActiveWriteAt[userId];
-    final ref = _firestore
-        .collection(FirestoreCollections.leaderboard)
-        .doc(userId);
     if (!LeaderboardPresencePolicy.shouldWrite(
       documentExists: true,
       nowUtc: now,
-      lastWriteUtc: lastWrite,
+      lastWriteUtc: _lastActiveWriteAt[userId],
     )) {
       return false;
     }
-
     try {
-      final snap = await ref.get();
-      if (!_isCurrentFirebaseOwner(userId)) return false;
-      final data = snap.data();
-      final exists = snap.exists && data != null;
-      final persistedLastActiveAt =
-          LeaderboardPresencePolicy.persistedLastActiveAt(
-            data?['last_active_at'],
-          );
-      if (!LeaderboardPresencePolicy.shouldWrite(
-        documentExists: exists,
-        nowUtc: now,
-        lastWriteUtc: lastWrite,
-        persistedLastActiveAt: persistedLastActiveAt,
-      )) {
-        // Rate-limit missing-document gets as well as successful writes so
-        // login/resume cannot poll Firestore every foreground event.
-        _lastActiveWriteAt[userId] = now;
-        return false;
-      }
-
-      if (!_isCurrentFirebaseOwner(userId)) return false;
-      await ref.update(
-        LeaderboardPresencePolicy.buildUpdate(FieldValue.serverTimestamp()),
-      );
+      if (!_isCurrentOwner(userId)) return false;
+      final wrote = await _client.rpc<dynamic>('touch_leaderboard_presence');
+      // Rate-limit missing-row and too-recent outcomes as well as writes so
+      // login/resume cannot poll the server every foreground event.
       _lastActiveWriteAt[userId] = now;
-      return true;
-    } on FirebaseException catch (error, stackTrace) {
-      if (error.code == 'not-found') {
-        _lastActiveWriteAt[userId] = now;
-        return false;
-      }
-      if (error.code == 'permission-denied') {
-        if (!_isCurrentFirebaseOwner(userId)) return false;
-        // A second process can update last_active_at after our document read
-        // and before update(). Suppress only that expected timing race; other
-        // permission failures still surface through the repository diagnostic.
-        try {
-          final afterDenied = await ref.get();
-          final persistedLastActiveAt =
-              LeaderboardPresencePolicy.persistedLastActiveAt(
-                afterDenied.data()?['last_active_at'],
-              );
-          if (LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
-            documentExists: afterDenied.exists,
-            nowUtc: now,
-            persistedLastActiveAt: persistedLastActiveAt,
-          )) {
-            _lastActiveWriteAt[userId] = now;
-            return false;
-          }
-        } on FirebaseException {
-          // Preserve the original denial below when its confirmation read is
-          // also rejected or unavailable.
-        }
-      }
-      _logError('touchLastActive', error, stackTrace, userId: userId);
-      return false;
+      return wrote == true;
     } catch (error, stackTrace) {
       _logError('touchLastActive', error, stackTrace, userId: userId);
       return false;
     }
   }
 
-  bool _isCurrentFirebaseOwner(String requestedUserId) {
+  bool _isCurrentOwner(String requestedUserId) {
     return LeaderboardPresencePolicy.isAuthenticatedOwner(
       requestedUserId: requestedUserId,
-      currentFirebaseUid: _currentFirebaseUid,
+      currentAuthUid: _currentAuthUid,
     );
   }
 
-  String? get _currentFirebaseUid {
+  String? get _currentAuthUid {
     try {
-      return _auth.currentUser?.uid;
+      return _client.auth.currentUser?.id;
     } catch (_) {
       return null;
     }
@@ -240,41 +188,44 @@ class LeaderboardRepository {
     DateTime? nowUtc,
   }) {
     final periodKey = period.keyFor((nowUtc ?? DateTime.now()).toUtc());
-    Query<Map<String, dynamic>> query = _firestore.collection(
-      FirestoreCollections.leaderboard,
-    );
-    if (periodKey != null) {
-      query = query.where(period.keyField!, isEqualTo: periodKey);
-    }
-    return query
-        .orderBy(period.xpField, descending: true)
-        .orderBy(period.bestScoreField, descending: true)
-        .orderBy(FieldPath.documentId)
-        .limit(limit)
-        .snapshots()
-        .map((snapshot) {
-          final entries = snapshot.docs
-              .map((doc) => LeaderboardEntry.tryFromMap(doc.data(), id: doc.id))
-              .whereType<LeaderboardEntry>()
-              .toList(growable: true);
-          sortLeaderboardEntries(entries, period: period);
-          return List<LeaderboardEntry>.unmodifiable(entries);
-        });
+    // Realtime streams support one filter; the period key (when any) is it.
+    // Rows are fetched with a small overfetch so best-score/UID tie-breaks
+    // at the boundary resolve the same way as the paged query.
+    final fetchLimit = limit * 2;
+    final table = _client.from('leaderboard');
+    final stream = periodKey == null
+        ? table
+              .stream(primaryKey: ['user_id'])
+              .order(period.xpField)
+              .limit(fetchLimit)
+        : table
+              .stream(primaryKey: ['user_id'])
+              .eq(period.keyField!, periodKey)
+              .order(period.xpField)
+              .limit(fetchLimit);
+    return stream.map((rows) {
+      final entries = _entries(rows);
+      sortLeaderboardEntries(entries, period: period);
+      return List<LeaderboardEntry>.unmodifiable(entries.take(limit));
+    });
   }
 
   Stream<LeaderboardEntry?> watchPlayer(String userId) {
-    return _firestore
-        .collection(FirestoreCollections.leaderboard)
-        .doc(userId)
-        .snapshots()
-        .map((doc) {
-          if (!doc.exists || doc.data() == null) return null;
-          final entry = LeaderboardEntry.tryFromMap(doc.data()!, id: doc.id);
+    return _client
+        .from('leaderboard')
+        .stream(primaryKey: ['user_id'])
+        .eq('user_id', userId)
+        .map((rows) {
+          if (rows.isEmpty) return null;
+          final entry = LeaderboardEntry.tryFromMap(
+            compactRow(rows.first),
+            id: userId,
+          );
           if (entry == null) {
-            // A malformed existing document is not an authoritative zero-XP
+            // A malformed existing row is not an authoritative zero-XP
             // absence. Let personal progression retain its last trusted
             // snapshot and otherwise fail closed.
-            throw FormatException('Invalid leaderboard entry: ${doc.id}');
+            throw FormatException('Invalid leaderboard entry: $userId');
           }
           return entry;
         });
@@ -287,19 +238,11 @@ class LeaderboardRepository {
     DateTime? nowUtc,
   }) async {
     final periodKey = period.keyFor((nowUtc ?? DateTime.now()).toUtc());
-    Query<Map<String, dynamic>> query = _firestore.collection(
-      FirestoreCollections.leaderboard,
-    );
+    var query = _client.from('leaderboard').select();
     if (periodKey != null) {
-      query = query.where(period.keyField!, isEqualTo: periodKey);
+      query = query.eq(period.keyField!, periodKey);
     }
-    query = query
-        .orderBy(period.xpField, descending: true)
-        .orderBy(period.bestScoreField, descending: true)
-        .orderBy(FieldPath.documentId)
-        .limit(limit);
-
-    if (startAfter is _FirestoreLeaderboardPageCursor) {
+    if (startAfter is _KeysetLeaderboardPageCursor) {
       if (!isCursorCompatible(
         cursor: startAfter,
         period: period,
@@ -312,32 +255,35 @@ class LeaderboardRepository {
           requestedPeriodKey: periodKey,
         );
       }
-      query = query.startAfterDocument(startAfter.document);
+      query = query.or(startAfter.keysetFilter);
     } else if (startAfter != null) {
       throw ArgumentError(
-        'startAfter must be a Firestore-backed LeaderboardPageCursor',
+        'startAfter must be a LeaderboardRepository-issued cursor',
       );
     }
 
-    final snapshot = await query.get();
-    final docs = snapshot.docs;
-    final entries = docs
-        .map((doc) => LeaderboardEntry.tryFromMap(doc.data(), id: doc.id))
-        .whereType<LeaderboardEntry>()
-        .toList(growable: true);
+    final rows = await query
+        .order(period.xpField, ascending: false)
+        .order(period.bestScoreField, ascending: false)
+        .order('user_id', ascending: true)
+        .limit(limit);
+    final entries = _entries(rows);
     sortLeaderboardEntries(entries, period: period);
 
-    final cursor = docs.isEmpty
+    final last = rows.isEmpty ? null : rows.last;
+    final cursor = last == null
         ? null
-        : _FirestoreLeaderboardPageCursor(
-            document: docs.last,
+        : _KeysetLeaderboardPageCursor(
+            xp: (last[period.xpField] as num?)?.toInt() ?? 0,
+            bestScore: (last[period.bestScoreField] as num?)?.toInt() ?? 0,
+            userId: last['user_id'] as String,
             period: period,
             periodKey: periodKey,
           );
 
     return buildPage(
       entries: entries,
-      returnedDocumentCount: docs.length,
+      returnedDocumentCount: rows.length,
       limit: limit,
       cursorFromLastDoc: cursor,
     );
@@ -374,110 +320,50 @@ class LeaderboardRepository {
 
   /// Idempotently awards XP for a completed session owned by [userId].
   ///
-  /// Reads score and ownership from `sessions/{sessionId}`. If a processed
-  /// marker already exists, returns without awarding again.
+  /// The server reads score, ownership, official-movement eligibility and
+  /// Manila period keys from the stored session. The processed-session marker
+  /// insert decides idempotency atomically; a repeated call awards nothing.
   Future<void> recordCompletedSession({
     required String sessionId,
     required String userId,
     required String displayName,
     String? profilePictureUrl,
   }) async {
-    final trimmedName = displayName.trim().isEmpty
-        ? 'Trainee'
-        : displayName.trim();
-    final sessionRef = _firestore
-        .collection(FirestoreCollections.sessions)
-        .doc(sessionId);
-    final markerRef = _firestore
-        .collection(FirestoreCollections.leaderboardProcessedSessions)
-        .doc(sessionId);
-    final leaderboardRef = _firestore
-        .collection(FirestoreCollections.leaderboard)
-        .doc(userId);
-
     try {
-      await _firestore.runTransaction((tx) async {
-        final sessionSnap = await tx.get(sessionRef);
-        if (!sessionSnap.exists || sessionSnap.data() == null) {
-          throw LeaderboardAwardException(
-            'Session not found for leaderboard award',
-            sessionId: sessionId,
-            userId: userId,
-          );
-        }
-
-        final sessionData = sessionSnap.data()!;
-        final sessionOwner = sessionData['user_id'];
-        if (sessionOwner != userId) {
-          throw LeaderboardAwardException(
-            'Session owner mismatch for leaderboard award',
-            sessionId: sessionId,
-            userId: userId,
-          );
-        }
-
-        ensureOfficialMovementForGlobalXp(
-          sessionData,
+      if (!_isCurrentOwner(userId)) {
+        throw LeaderboardAwardException(
+          'Session owner mismatch for leaderboard award',
           sessionId: sessionId,
           userId: userId,
         );
-
-        final assessment = readSessionAssessment(
-          sessionData,
-          sessionId: sessionId,
-          userId: userId,
+      }
+      final trimmedName = displayName.trim().isEmpty
+          ? 'Trainee'
+          : displayName.trim();
+      try {
+        await _client.rpc<dynamic>(
+          'award_session_xp',
+          params: {
+            'p_session_id': sessionId,
+            'p_display_name': trimmedName,
+            'p_profile_picture_url': profilePictureUrl?.trim(),
+          },
         );
-        final markerSnap = await tx.get(markerRef);
-        final leaderboardSnap = await tx.get(leaderboardRef);
-        if (markerSnap.exists) {
-          return;
-        }
-
-        final sessionCreatedAtUtc = _readSessionCreatedAtUtc(
-          sessionData['created_at'],
-          sessionId: sessionId,
-          userId: userId,
-        );
-        final plan = LeaderboardAwardPlan.fromExisting(
-          markerExists: false,
-          existing: leaderboardSnap.data(),
-          score: assessment.legacyScore,
-          sessionCreatedAtUtc: sessionCreatedAtUtc,
-        );
-
-        if (plan.alreadyProcessed) {
-          return;
-        }
-
-        final lastSessionAt = sessionData['created_at'];
-
-        tx.set(markerRef, {
-          'session_id': sessionId,
-          'user_id': userId,
-          ...assessment.markerScoreField,
-          'xp_awarded': GamificationRules.xpPerSession,
-          'processed_at': FieldValue.serverTimestamp(),
-        });
-
-        // Write whole scores as ints so rules that compare against session.score
-        // succeed even when Dart double math produced .0 values for averages.
-        final leaderboardData = <String, dynamic>{
-          'user_id': userId,
-          'display_name': trimmedName,
-          'total_xp': plan.totalXp,
-          'quest_xp': plan.questXp,
-          'sessions_completed': plan.sessionsCompleted,
-          'score_sum': plan.scoreSum,
-          'average_score': plan.averageScore,
-          'best_score': plan.bestScore,
-          'last_session_at': lastSessionAt,
-          'updated_at': FieldValue.serverTimestamp(),
-          'last_awarded_session_id': sessionId,
-          ...plan.periodFields,
-          ...buildPublicProfileFields(profilePictureUrl: profilePictureUrl),
+      } on PostgrestException catch (error) {
+        final message = switch (error.message) {
+          'session_not_found' => 'Session not found for leaderboard award',
+          'forbidden' => 'Session owner mismatch for leaderboard award',
+          'not_awardable' =>
+            'Session movement is not an official ELIXR movement',
+          _ => null,
         };
-        tx.set(leaderboardRef, leaderboardData, SetOptions(merge: true));
-      });
+        if (message == null) rethrow;
+        throw LeaderboardAwardException(
+          message,
+          sessionId: sessionId,
+          userId: userId,
+        );
+      }
     } catch (error, stackTrace) {
       _logError(
         'recordCompletedSession',
@@ -529,24 +415,32 @@ class LeaderboardRepository {
     String? profilePictureUrl,
   }) async {
     try {
-      final sessionsSnap = await _firestore
-          .collection(FirestoreCollections.sessions)
-          .where('user_id', isEqualTo: userId)
-          .get();
+      // Challenge and custom-movement sessions never earn global XP; the
+      // server rejects them too, so they are excluded from the award plan.
+      final sessionRows = await _client
+          .from('sessions')
+          .select('id, created_at, movement_name')
+          .eq('user_id', userId)
+          .isFilter('challenge_context', null)
+          .isFilter('custom_movement_id', null);
+      final markerRows = await _client
+          .from('leaderboard_processed_sessions')
+          .select('session_id')
+          .eq('user_id', userId);
 
-      final markersSnap = await _firestore
-          .collection(FirestoreCollections.leaderboardProcessedSessions)
-          .where('user_id', isEqualTo: userId)
-          .get();
-
-      final processedIds = markersSnap.docs.map((doc) => doc.id).toSet();
-      final refs = sessionsSnap.docs.map((doc) {
-        final data = doc.data();
-        final movementName = data['movement_name'];
+      final processedIds = markerRows
+          .map((row) => row['session_id'])
+          .whereType<String>()
+          .toSet();
+      final refs = sessionRows.map((row) {
+        final movementName = row['movement_name'];
+        final createdAt = row['created_at'];
         return SessionRef(
-          id: doc.id,
+          id: row['id'] as String,
           userId: userId,
-          createdAtMs: _createdAtMs(data['created_at']),
+          createdAtMs: createdAt is String
+              ? DateTime.tryParse(createdAt)?.millisecondsSinceEpoch
+              : null,
           movementName: movementName is String ? movementName : null,
         );
       }).toList();
@@ -617,11 +511,12 @@ class LeaderboardRepository {
     }
   }
 
-  /// Updates public display metadata on an existing leaderboard document.
+  /// Updates public display metadata on an existing leaderboard row.
   ///
   /// Does not create a zero-session entry. Preserves XP and session aggregates.
   /// Returns true only when leaderboard-visible profile fields actually changed
-  /// and a write was performed. Identical metadata skips the write.
+  /// and a write was performed. Empty incoming picture values do not clear an
+  /// existing URL unless [clearProfilePicture] is set.
   Future<bool> syncPublicProfile({
     required String userId,
     required String displayName,
@@ -630,34 +525,17 @@ class LeaderboardRepository {
   }) async {
     final trimmed = displayName.trim();
     if (trimmed.isEmpty) return false;
-
-    final ref = _firestore
-        .collection(FirestoreCollections.leaderboard)
-        .doc(userId);
-
+    if (!_isCurrentOwner(userId)) return false;
     try {
-      final snap = await ref.get();
-      if (!snap.exists || snap.data() == null) return false;
-
-      final existing = snap.data()!;
-      if (!publicProfileNeedsUpdate(
-        existing: existing,
-        displayName: trimmed,
-        profilePictureUrl: profilePictureUrl,
-        clearProfilePicture: clearProfilePicture,
-      )) {
-        return false;
-      }
-
-      await ref.set({
-        ...buildPublicProfileFields(
-          displayName: trimmed,
-          profilePictureUrl: profilePictureUrl,
-          clearProfilePicture: clearProfilePicture,
-        ),
-        'updated_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      return true;
+      final changed = await _client.rpc<dynamic>(
+        'sync_leaderboard_public_profile',
+        params: {
+          'p_display_name': trimmed,
+          'p_profile_picture_url': profilePictureUrl?.trim(),
+          'p_clear_picture': clearProfilePicture,
+        },
+      );
+      return changed == true;
     } catch (error, stackTrace) {
       _logError('syncPublicProfile', error, stackTrace, userId: userId);
       rethrow;
@@ -665,58 +543,26 @@ class LeaderboardRepository {
   }
 
   /// Deterministic rank for [userId] using the same ordering as leaderboard
-  /// queries. Returns null when no leaderboard document exists.
+  /// queries. Returns null when no (current-period) leaderboard row exists.
+  /// The server resolves the Manila period, so [nowUtc] is not sent.
   Future<int?> computeRankForUser(
     String userId, {
     LeaderboardPeriod period = LeaderboardPeriod.allTime,
     DateTime? nowUtc,
   }) async {
-    final ref = _firestore
-        .collection(FirestoreCollections.leaderboard)
-        .doc(userId);
-    final snap = await ref.get();
-    if (!snap.exists || snap.data() == null) return null;
-
-    final data = snap.data()!;
-    final periodKey = period.keyFor((nowUtc ?? DateTime.now()).toUtc());
-    if (periodKey != null && data[period.keyField] != periodKey) return null;
-
-    final xp = _readInt(data[period.xpField]) ?? 0;
-    final best = _readInt(data[period.bestScoreField]) ?? 0;
-    Query<Map<String, dynamic>> ranked = _firestore.collection(
-      FirestoreCollections.leaderboard,
+    final rank = await _client.rpc<dynamic>(
+      'leaderboard_rank',
+      params: {'p_user_id': userId, 'p_period': period.name},
     );
-    if (periodKey != null) {
-      ranked = ranked.where(period.keyField!, isEqualTo: periodKey);
-    }
-
-    final aheadByXp = await ranked
-        .where(period.xpField, isGreaterThan: xp)
-        .count()
-        .get();
-    final tiedOnXp = ranked.where(period.xpField, isEqualTo: xp);
-    final aheadByBest = await tiedOnXp
-        .where(period.bestScoreField, isGreaterThan: best)
-        .count()
-        .get();
-    final aheadByDocumentId = await tiedOnXp
-        .where(period.bestScoreField, isEqualTo: best)
-        .where(FieldPath.documentId, isLessThan: userId)
-        .count()
-        .get();
-
-    return 1 +
-        (aheadByXp.count ?? 0) +
-        (aheadByBest.count ?? 0) +
-        (aheadByDocumentId.count ?? 0);
+    return (rank as num?)?.toInt();
   }
 
-  /// Firestore `whereIn` chunk size used when loading known member UIDs.
+  /// Chunk size used when loading known member UIDs.
   static const int userIdQueryChunkSize = 30;
 
-  /// Loads leaderboard documents for [userIds] in bounded identity chunks.
+  /// Loads leaderboard rows for [userIds] in bounded identity chunks.
   ///
-  /// Missing documents are omitted; callers that need 0-XP roster rows must
+  /// Missing rows are omitted; callers that need 0-XP roster rows must
   /// merge their own membership fallbacks.
   Future<Map<String, LeaderboardEntry>> fetchEntriesByUserIds(
     Iterable<String> userIds,
@@ -726,18 +572,27 @@ class LeaderboardRepository {
     for (var offset = 0; offset < ids.length; offset += userIdQueryChunkSize) {
       final chunk = ids.skip(offset).take(userIdQueryChunkSize).toList();
       if (chunk.isEmpty) continue;
-      final snapshot = await _firestore
-          .collection(FirestoreCollections.leaderboard)
-          .where(FieldPath.documentId, whereIn: chunk)
-          .get();
-      for (final doc in snapshot.docs) {
-        final entry = LeaderboardEntry.tryFromMap(doc.data(), id: doc.id);
-        if (entry != null) {
-          result[entry.userId] = entry;
-        }
+      final rows = await _client
+          .from('leaderboard')
+          .select()
+          .inFilter('user_id', chunk);
+      for (final entry in _entries(rows)) {
+        result[entry.userId] = entry;
       }
     }
     return result;
+  }
+
+  static List<LeaderboardEntry> _entries(List<Map<String, dynamic>> rows) {
+    return rows
+        .map(
+          (row) => LeaderboardEntry.tryFromMap(
+            compactRow(row),
+            id: row['user_id'] as String,
+          ),
+        )
+        .whereType<LeaderboardEntry>()
+        .toList(growable: true);
   }
 
   /// Stable ordering for leaderboard rows when XP and best score tie.
@@ -762,157 +617,12 @@ class LeaderboardRepository {
     entries.sort((a, b) => compareLeaderboardEntries(a, b, period: period));
   }
 
-  static int? _readInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return null;
-  }
-
   /// Compatibility delegate for callers that only synchronize display_name.
   Future<bool> syncDisplayName({
     required String userId,
     required String displayName,
   }) {
     return syncPublicProfile(userId: userId, displayName: displayName);
-  }
-
-  /// Builds merge fields for public profile metadata on leaderboard documents.
-  @visibleForTesting
-  static Map<String, dynamic> buildPublicProfileFields({
-    String? displayName,
-    String? profilePictureUrl,
-    bool clearProfilePicture = false,
-  }) {
-    final fields = <String, dynamic>{};
-    final trimmedName = displayName?.trim();
-    if (trimmedName != null && trimmedName.isNotEmpty) {
-      fields['display_name'] = trimmedName;
-    }
-    final trimmedUrl = profilePictureUrl?.trim();
-    if (clearProfilePicture) {
-      fields['profile_picture_url'] = FieldValue.delete();
-    } else if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
-      fields['profile_picture_url'] = trimmedUrl;
-    }
-    return fields;
-  }
-
-  /// Whether [existing] leaderboard doc needs a public-profile write for the
-  /// normalized [displayName] / [profilePictureUrl]. Empty incoming picture
-  /// values are omitted (same as [buildPublicProfileFields]) and do not clear
-  /// an existing URL.
-  @visibleForTesting
-  static bool publicProfileNeedsUpdate({
-    required Map<String, dynamic> existing,
-    required String displayName,
-    String? profilePictureUrl,
-    bool clearProfilePicture = false,
-  }) {
-    final desired = buildPublicProfileFields(
-      displayName: displayName,
-      profilePictureUrl: profilePictureUrl,
-      clearProfilePicture: clearProfilePicture,
-    );
-    if (desired.isEmpty) return false;
-
-    if (clearProfilePicture && existing.containsKey('profile_picture_url')) {
-      return true;
-    }
-
-    for (final entry in desired.entries) {
-      if (entry.value is FieldValue) continue;
-      final raw = existing[entry.key];
-      final current = raw is String ? raw.trim() : raw;
-      if (current != entry.value) return true;
-    }
-    return false;
-  }
-
-  /// Whether a stored session may create a processed marker and session XP.
-  @visibleForTesting
-  static void ensureOfficialMovementForGlobalXp(
-    Map<String, dynamic> sessionData, {
-    String? sessionId,
-    String? userId,
-  }) {
-    final name = sessionData['movement_name'];
-    if (name is! String || !isOfficialElixrMovementName(name)) {
-      throw LeaderboardAwardException(
-        'Session movement is not an official ELIXR movement',
-        sessionId: sessionId,
-        userId: userId,
-      );
-    }
-  }
-
-  /// Resolves which assessment a stored session carries, so the award path can
-  /// choose between the legacy percentage aggregates (V1) and the frozen
-  /// aggregates plus `rubric_total` marker (V2).
-  ///
-  /// A session that declares `assessment_version: 2` must carry a rubric that
-  /// re-derives to its stored total; a malformed one is rejected rather than
-  /// silently falling back to a legacy `score`.
-  @visibleForTesting
-  static SessionAwardAssessment readSessionAssessment(
-    Map<String, dynamic> sessionData, {
-    String? sessionId,
-    String? userId,
-  }) {
-    final rawVersion = sessionData['assessment_version'];
-    final version = rawVersion is num ? rawVersion.toInt() : 1;
-    if (version == 2) {
-      final rubric = RubricAssessment.tryFromFirestore(sessionData);
-      if (rubric == null) {
-        throw LeaderboardAwardException(
-          'Session rubric is missing or invalid',
-          sessionId: sessionId,
-          userId: userId,
-        );
-      }
-      return SessionAwardAssessment.rubric(rubric.total);
-    }
-    return SessionAwardAssessment.legacy(
-      _readScore(sessionData['score'], sessionId: sessionId, userId: userId),
-    );
-  }
-
-  static int _readScore(dynamic value, {String? sessionId, String? userId}) {
-    if (value is int) return value;
-    if (value is num) return value.round();
-    throw LeaderboardAwardException(
-      'Session score is missing or invalid',
-      sessionId: sessionId,
-      userId: userId,
-    );
-  }
-
-  static DateTime _readSessionCreatedAtUtc(
-    dynamic value, {
-    required String sessionId,
-    required String userId,
-  }) {
-    final createdAt = switch (value) {
-      Timestamp timestamp => timestamp.toDate(),
-      DateTime dateTime => dateTime,
-      _ => null,
-    };
-    if (createdAt == null) {
-      throw LeaderboardAwardException(
-        'Session created_at is missing or is not a server timestamp',
-        sessionId: sessionId,
-        userId: userId,
-      );
-    }
-    return createdAt.toUtc();
-  }
-
-  static int? _createdAtMs(dynamic value) {
-    if (value is Timestamp) return value.millisecondsSinceEpoch;
-    if (value is DateTime) return value.millisecondsSinceEpoch;
-    if (value is String) {
-      return DateTime.tryParse(value)?.millisecondsSinceEpoch;
-    }
-    return null;
   }
 
   void _logError(
@@ -923,14 +633,14 @@ class LeaderboardRepository {
     String? sessionId,
   }) {
     if (!kDebugMode) return;
-    final code = error is FirebaseException ? error.code : null;
-    final message = error is FirebaseException ? error.message : null;
+    final code = error is PostgrestException ? error.code : null;
+    final message = error is PostgrestException ? error.message : null;
     debugPrint(
       'Leaderboard error: op=$operation'
       '${code != null ? ' code=$code' : ''}'
       '${message != null ? ' message=$message' : ''}'
       '${userId != null ? ' userId=$userId' : ''}'
-      ' currentFirebaseUid=$_currentFirebaseUid'
+      ' currentAuthUid=$_currentAuthUid'
       ' currentProductUserId=${_productUserId?.call()}'
       '${sessionId != null ? ' sessionId=$sessionId' : ''}'
       ' error=$error',
@@ -939,16 +649,17 @@ class LeaderboardRepository {
   }
 }
 
-/// Client-side last-active write policy. Ranking fields are never included.
+/// Client-side last-active request policy. Ranking fields are never included;
+/// the server applies the same interval authoritatively.
 abstract final class LeaderboardPresencePolicy {
   static const Duration minInterval = Duration(minutes: 10);
 
   static bool isAuthenticatedOwner({
     required String requestedUserId,
-    required String? currentFirebaseUid,
+    required String? currentAuthUid,
   }) {
     final requested = requestedUserId.trim();
-    final current = currentFirebaseUid?.trim();
+    final current = currentAuthUid?.trim();
     return requested.isNotEmpty && current != null && current == requested;
   }
 
@@ -964,30 +675,6 @@ abstract final class LeaderboardPresencePolicy {
     return nowUtc.toUtc().difference(last.toUtc()) >= minInterval;
   }
 
-  static DateTime? persistedLastActiveAt(Object? value) {
-    if (value == null) return null;
-    if (value is DateTime) return value.toUtc();
-    if (value is Timestamp) return value.toDate().toUtc();
-    return null;
-  }
-
-  static Map<String, dynamic> buildUpdate(Object serverTimestamp) {
-    return {'last_active_at': serverTimestamp};
-  }
-
-  /// A presence update can race a valid update from another app instance. Once
-  /// the follow-up read observes a server timestamp inside the same interval,
-  /// the denial is expected. Other denials must remain diagnosable.
-  static bool shouldSuppressPermissionDenied({
-    required bool documentExists,
-    required DateTime nowUtc,
-    required DateTime? persistedLastActiveAt,
-  }) {
-    return documentExists &&
-        persistedLastActiveAt != null &&
-        nowUtc.toUtc().difference(persistedLastActiveAt.toUtc()) < minInterval;
-  }
-
   static DateTime? _mostRecent(DateTime? left, DateTime? right) {
     if (left == null) return right?.toUtc();
     if (right == null) return left.toUtc();
@@ -995,31 +682,6 @@ abstract final class LeaderboardPresencePolicy {
     final rightUtc = right.toUtc();
     return leftUtc.isAfter(rightUtc) ? leftUtc : rightUtc;
   }
-}
-
-/// Which assessment an awarded session carries.
-///
-/// Exactly one of [legacyScore] (Assessment V1, 0..100) and [rubricTotal]
-/// (Assessment V2, 0..12) is non-null. The two are never mixed: a V2 award
-/// freezes every percentage aggregate and records `rubric_total` on the
-/// processed-session marker instead of `score`.
-class SessionAwardAssessment {
-  const SessionAwardAssessment.legacy(int score)
-    : legacyScore = score,
-      rubricTotal = null;
-
-  const SessionAwardAssessment.rubric(int total)
-    : legacyScore = null,
-      rubricTotal = total;
-
-  final int? legacyScore;
-  final int? rubricTotal;
-
-  bool get isRubric => rubricTotal != null;
-
-  /// The single score-like field written to the processed-session marker.
-  Map<String, dynamic> get markerScoreField =>
-      isRubric ? {'rubric_total': rubricTotal} : {'score': legacyScore};
 }
 
 class LeaderboardAwardException implements Exception {

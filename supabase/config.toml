@@ -1,0 +1,50 @@
+# Local development and deploy settings for the ELIXR Supabase project.
+# Project-specific secrets (Google OAuth client secret, SMTP) are read from
+# the environment and must never be committed.
+project_id = "elixr"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+file_size_limit = "100MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost"
+# The Windows client receives email and OAuth redirects on ephemeral
+# loopback ports.
+additional_redirect_urls = ["http://localhost:*/**", "http://127.0.0.1:*/**"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+enable_signup = true
+minimum_password_length = 8
+password_requirements = "letters_digits"
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+double_confirm_changes = true
+secure_password_change = true
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false
+
+[functions.elixr-admin]
+# The function verifies the caller's JWT itself so it can return JSON errors.
+verify_jwt = true

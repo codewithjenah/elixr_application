@@ -1,7 +1,40 @@
-import 'package:firebase_core/firebase_core.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show AuthException, PostgrestException, StorageException;
 
 import '../repositories/custom_movement_repository.dart';
+
+/// Safe `(code, message)` details of a backend error, or null for others.
+(String code, String? message)? _backendErrorDetails(Object error) {
+  return switch (error) {
+    PostgrestException(:final code, :final message) => (
+      code ?? 'database',
+      message,
+    ),
+    StorageException(:final statusCode, :final message) => (
+      statusCode ?? 'storage',
+      message,
+    ),
+    AuthException(:final code, :final statusCode, :final message) => (
+      code ?? statusCode ?? 'auth',
+      message,
+    ),
+    _ => null,
+  };
+}
+
+void _writeDiagnosticDetails(StringBuffer buffer, Object error) {
+  final details = _backendErrorDetails(error);
+  if (details == null) return;
+  buffer.write(' code=${_safeDiagnosticIdentifier(details.$1)}');
+  final safeMessage = sanitizeCustomMovementDiagnosticText(
+    details.$2 ?? '',
+  ).replaceAll(RegExp(r'[\r\n\t]+'), ' ').trim();
+  if (safeMessage.isNotEmpty) {
+    buffer.write(' message="${safeMessage.replaceAll('"', "'")}"');
+  }
+}
 
 String formatCustomMovementSaveDiagnostic({
   required CustomMovementSaveStage stage,
@@ -10,18 +43,7 @@ String formatCustomMovementSaveDiagnostic({
   final buffer = StringBuffer()
     ..write('[CustomMovementSave] stage=${stage.wireValue}')
     ..write(' error_type=${error.runtimeType}');
-  if (error is FirebaseException) {
-    buffer
-      ..write(' plugin=${_safeDiagnosticIdentifier(error.plugin)}')
-      ..write(' code=${_safeDiagnosticIdentifier(error.code)}');
-  }
-  final message = error is FirebaseException ? error.message : null;
-  final safeMessage = sanitizeCustomMovementDiagnosticText(
-    message ?? '',
-  ).replaceAll(RegExp(r'[\r\n\t]+'), ' ').trim();
-  if (safeMessage.isNotEmpty) {
-    buffer.write(' message="${safeMessage.replaceAll('"', "'")}"');
-  }
+  _writeDiagnosticDetails(buffer, error);
   return buffer.toString();
 }
 
@@ -29,34 +51,30 @@ String customMovementSaveFailureMessage({
   required CustomMovementSaveStage stage,
   required Object cause,
 }) {
-  if (cause is! FirebaseException) return stage.userMessage;
-  return switch (cause.code) {
-    'permission-denied' when stage == CustomMovementSaveStage.firestoreCommit =>
-      'Firestore denied this change. Your account access or deployed security rules may be out of date.',
-    'permission-denied'
-        when stage == CustomMovementSaveStage.referenceImageUpload =>
-      'Storage denied the reference image upload. Check your account access and retry.',
-    'unauthorized' when stage == CustomMovementSaveStage.referenceImageUpload =>
-      'Storage denied the reference image upload. Check your account access and retry.',
-    'unavailable' =>
-      'Firebase is temporarily unavailable. Check your connection and try again.',
-    'unauthenticated' => 'Your sign-in has expired. Sign in again, then retry.',
-    _ => stage.userMessage,
-  };
+  if (isBackendUnavailableError(cause)) {
+    return 'The ELIXR server is temporarily unavailable. Check your connection and try again.';
+  }
+  if (cause is AuthException) {
+    return 'Your sign-in has expired. Sign in again, then retry.';
+  }
+  if (isPermissionDeniedError(cause)) {
+    return stage == CustomMovementSaveStage.referenceImageUpload
+        ? 'Storage denied the reference image upload. Check your account access and retry.'
+        : 'The server denied this change. Your account access may have changed.';
+  }
+  return stage.userMessage;
 }
 
 String customMovementDeleteFailureMessage(Object error) {
   final cause = error is CustomMovementDeleteException ? error.cause : error;
-  if (cause is FirebaseException) {
-    return switch (cause.code) {
-      'permission-denied' =>
-        'Firestore denied this change. Your account access or deployed security rules may be out of date.',
-      'unavailable' =>
-        'Firebase is temporarily unavailable. Check your connection and try again.',
-      'unauthenticated' =>
-        'Your sign-in has expired. Sign in again, then retry.',
-      _ => 'Could not delete this movement. Try again.',
-    };
+  if (isBackendUnavailableError(cause)) {
+    return 'The ELIXR server is temporarily unavailable. Check your connection and try again.';
+  }
+  if (cause is AuthException) {
+    return 'Your sign-in has expired. Sign in again, then retry.';
+  }
+  if (isPermissionDeniedError(cause)) {
+    return 'The server denied this change. Your account access may have changed.';
   }
   return 'Could not delete this movement. Try again.';
 }
@@ -69,18 +87,7 @@ String formatCustomMovementDeleteDiagnostic({required Object error}) {
   final buffer = StringBuffer()
     ..write('[CustomMovementDelete] stage=${stage.wireValue}')
     ..write(' error_type=${cause.runtimeType}');
-  if (cause is FirebaseException) {
-    buffer
-      ..write(' plugin=${_safeDiagnosticIdentifier(cause.plugin)}')
-      ..write(' code=${_safeDiagnosticIdentifier(cause.code)}');
-  }
-  final message = cause is FirebaseException ? cause.message : null;
-  final safeMessage = sanitizeCustomMovementDiagnosticText(
-    message ?? '',
-  ).replaceAll(RegExp(r'[\r\n\t]+'), ' ').trim();
-  if (safeMessage.isNotEmpty) {
-    buffer.write(' message="${safeMessage.replaceAll('"', "'")}"');
-  }
+  _writeDiagnosticDetails(buffer, cause);
   return buffer.toString();
 }
 

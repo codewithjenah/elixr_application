@@ -151,9 +151,8 @@ Future<SubmissionPlaybackFile> materializeAuthenticatedSubmissionClip({
 
 /// Downloads an authenticated clip straight into an ELIXR review cache file.
 ///
-/// The Firebase Storage Windows SDK has a native file-download path. Using
-/// that path avoids allocating a full playback buffer in Dart and gives the
-/// native player a completed file only after the download has finished.
+/// The native player only receives a completed file after the download has
+/// finished and passed the size limit.
 Future<SubmissionPlaybackFile> materializeAuthenticatedSubmissionClipToFile({
   required AssignmentAttempt attempt,
   required SubmissionDownloadFile downloadFile,
@@ -262,7 +261,7 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
   var stage = Phase6SubmissionStage.storageUpload;
   try {
     await uploadObject(draft: draft, storagePath: path);
-    stage = Phase6SubmissionStage.firestoreSubmit;
+    stage = Phase6SubmissionStage.databaseSubmit;
     final submitted = await classroom.markTeacherReviewSubmitted(
       traineeId: traineeId,
       attempt: draft,
@@ -299,9 +298,8 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
       error: error,
       log: diagnosticLog,
     );
-    // Firebase C++ desktop can CREATE the object and still complete the
-    // caller Future with unauthorized after the metadata PATCH. Always
-    // attempt exactly one canonical-path delete before abandoning.
+    // An upload can create the object and still surface a transport error.
+    // Always attempt exactly one canonical-path delete before abandoning.
     await _abandonDraftAfterFailedUpload(
       classroom: classroom,
       traineeId: traineeId,
@@ -385,7 +383,7 @@ Future<AssignmentAttempt> submitCanonicalLocalClipWithCleanup({
   var stage = Phase6SubmissionStage.storageUpload;
   try {
     await uploadObject(draft: draft, storagePath: path);
-    stage = Phase6SubmissionStage.firestoreSubmit;
+    stage = Phase6SubmissionStage.databaseSubmit;
     final submitted = await classroom.markTeacherReviewSubmitted(
       traineeId: traineeId,
       attempt: draft,

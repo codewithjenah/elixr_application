@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -24,7 +24,6 @@ import '../../../data/models/user_cosmetics.dart';
 import '../../../data/repositories/achievement_repository.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../data/repositories/profile_image_repository.dart';
-import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
 import '../models/pending_profile_crop.dart';
 import '../settings_section.dart';
@@ -62,7 +61,7 @@ typedef AccountProfileEquipBorder =
 typedef AccountProfileUpdateTeacherBorder =
     Future<void> Function({required String userId, required String? borderId});
 
-/// Optional Account & Profile Firestore stand-ins for overlay Settings.
+/// Optional Account & Profile persistence stand-ins for overlay Settings.
 class SettingsAccountHooks {
   const SettingsAccountHooks({
     this.watchPlayer,
@@ -102,7 +101,7 @@ class AccountProfileSection extends StatefulWidget {
   /// Selects the entitlement/persistence mode for the frame UI.
   final SettingsAudience audience;
 
-  /// Optional override for tests (avoids constructing Firestore).
+  /// Optional override for tests (avoids constructing a database client).
   final AccountProfileWatchPlayer? watchPlayer;
 
   /// Optional cosmetics stream override for tests.
@@ -310,9 +309,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         widget.watchUserCosmetics ??
         _hooksFromContext()?.watchUserCosmetics ??
         ((id) {
-          _achievementRepo ??= AchievementRepository(
-            publicProfileRepository: context.read<PublicProfileRepository>(),
-          );
+          _achievementRepo ??= AchievementRepository();
           return _achievementRepo!.watchUserCosmetics(id);
         });
     _cosmeticsSub = watchCosmetics(userId).listen((cosmetics) {
@@ -341,9 +338,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       final equip =
           widget.equipBorder ??
           (({required String userId, required String borderId}) {
-            _achievementRepo ??= AchievementRepository(
-              publicProfileRepository: context.read<PublicProfileRepository>(),
-            );
+            _achievementRepo ??= AchievementRepository();
             return _achievementRepo!.equipBorder(
               userId: userId,
               borderId: borderId,
@@ -418,11 +413,11 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         _frameError = null;
       });
     } catch (error) {
-      if (kDebugMode && error is FirebaseException) {
+      final code = backendErrorCode(error);
+      if (kDebugMode && code != null) {
         debugPrint(
           '[TeacherProfileBorder] update failed: '
-          'plugin=${error.plugin} code=${error.code} '
-          'message=${error.message ?? '(none)'}',
+          'type=${error.runtimeType} code=$code',
         );
       }
       if (!mounted) return;
@@ -832,7 +827,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           context,
           title: 'Verification still pending',
           message:
-              'Firebase still reports your current sign-in email as '
+              'Your account still reports your current sign-in email as '
               '$confirmedEmail. Open the verification link, then try again.',
           icon: FluentIcons.mail,
         );
@@ -904,7 +899,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Firebase sent a verification link to $pendingEmail. '
+            'We sent a verification link to $pendingEmail. '
             'Check Spam or Promotions, open the link, then tap Check status. '
             'Your current sign-in email stays active until verification completes.',
           ),

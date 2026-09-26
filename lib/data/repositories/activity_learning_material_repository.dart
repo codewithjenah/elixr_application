@@ -38,12 +38,12 @@ abstract class ActivityLearningMaterialRepository {
   });
 
   /// Returns only materials the authenticated caller can access. File paths
-  /// are consumed through authenticated Firebase Storage, never public URLs.
+  /// are consumed through authenticated Storage, never public URLs.
   Future<List<ActivityLearningMaterial>> list({required String assignmentId});
 
   /// Returns ready materials across assignments currently visible to the
   /// authenticated Trainee. The server derives the Trainee identity from the
-  /// Firebase token and enforces classroom and assignment audience access.
+  /// session token and enforces classroom and assignment audience access.
   Future<List<ActivityLearningMaterial>> listForTrainee();
 
   /// Downloads an authorized file material into ELIXR-managed cache storage.

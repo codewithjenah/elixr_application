@@ -1,21 +1,21 @@
 import 'dart:async';
 
-import 'package:elixr_core/repositories/firebase_teacher_access_code_repository.dart';
+import 'package:elixr_core/repositories/supabase_teacher_access_code_repository.dart';
 import 'package:elixr_core/repositories/teacher_access_code_repository.dart';
 import 'package:elixr_core/repositories/faculty_directory_repository.dart';
-import 'package:elixr_core/repositories/firebase_faculty_directory_repository.dart';
-import 'package:elixr_core/repositories/firebase_group_repository.dart';
-import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/supabase_faculty_directory_repository.dart';
+import 'package:elixr_core/repositories/supabase_group_repository.dart';
+import 'package:elixr_core/repositories/supabase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
-import 'package:elixr_core/repositories/firebase_teacher_progress_repository.dart';
+import 'package:elixr_core/repositories/supabase_teacher_progress_repository.dart';
 import 'package:elixr_core/repositories/teacher_progress_repository.dart';
-import 'package:elixr_core/repositories/firebase_teacher_evidence_repository.dart';
+import 'package:elixr_core/repositories/supabase_teacher_evidence_repository.dart';
 import 'package:elixr_core/repositories/teacher_evidence_repository.dart';
 import 'package:elixr_core/repositories/chat_repository.dart';
-import 'package:elixr_core/repositories/firebase_chat_repository.dart';
+import 'package:elixr_core/repositories/supabase_chat_repository.dart';
 import 'package:elixr_core/repositories/classroom_announcement_repository.dart';
-import 'package:elixr_core/repositories/firebase_classroom_announcement_repository.dart';
+import 'package:elixr_core/repositories/supabase_classroom_announcement_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
@@ -30,16 +30,16 @@ import 'data/repositories/leaderboard_repository.dart';
 import 'data/repositories/public_profile_repository.dart';
 import 'data/repositories/classroom_assignment_repository.dart';
 import 'data/repositories/activity_learning_material_repository.dart';
-import 'data/repositories/firebase_activity_learning_material_repository.dart';
+import 'data/repositories/supabase_activity_learning_material_repository.dart';
 import 'data/repositories/assignment_submission_repository.dart';
-import 'data/repositories/firebase_assignment_submission_repository.dart';
-import 'data/repositories/firebase_classroom_assignment_repository.dart';
+import 'data/repositories/supabase_assignment_submission_repository.dart';
+import 'data/repositories/supabase_classroom_assignment_repository.dart';
 import 'data/repositories/class_challenge_repository.dart';
-import 'data/repositories/firebase_class_challenge_repository.dart';
-import 'data/repositories/firebase_teacher_movement_repository.dart';
+import 'data/repositories/supabase_class_challenge_repository.dart';
+import 'data/repositories/supabase_teacher_movement_repository.dart';
 import 'data/repositories/teacher_movement_repository.dart';
 import 'data/repositories/custom_movement_repository.dart';
-import 'data/repositories/firebase_custom_movement_repository.dart';
+import 'data/repositories/supabase_custom_movement_repository.dart';
 import 'features/teacher/activity_center/activity_read_store.dart';
 import 'features/teacher/activity_center/teacher_activity_controller.dart';
 import 'features/trainee/activity_center/trainee_activity_controller.dart';
@@ -67,9 +67,9 @@ class ElixrApp extends StatefulWidget {
     TeacherAccessCodeRepository? teacherAccessCodeRepository,
     FacultyDirectoryRepository? facultyDirectoryRepository,
   }) : teacherAccessCodeRepository =
-           teacherAccessCodeRepository ?? FirebaseTeacherAccessCodeRepository(),
+           teacherAccessCodeRepository ?? SupabaseTeacherAccessCodeRepository(),
        facultyDirectoryRepository =
-           facultyDirectoryRepository ?? FirebaseFacultyDirectoryRepository();
+           facultyDirectoryRepository ?? SupabaseFacultyDirectoryRepository();
 
   final TeacherAccessCodeRepository teacherAccessCodeRepository;
   final FacultyDirectoryRepository facultyDirectoryRepository;
@@ -112,12 +112,12 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
     _leaderboardRepository = LeaderboardRepository(
       productUserId: () => _authService.currentUser?.id,
     );
-    _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
-    _groupRepository = FirebaseGroupRepository();
-    _teacherEvidenceRepository = FirebaseTeacherEvidenceRepository();
+    _teacherRelationshipRepository = SupabaseTeacherRelationshipRepository();
+    _groupRepository = SupabaseGroupRepository();
+    _teacherEvidenceRepository = SupabaseTeacherEvidenceRepository();
     _joinCodeResolver = JoinCodeResolver(groupRepository: _groupRepository);
     _joinLinkService = JoinLinkService();
-    _chatRepository = FirebaseChatRepository();
+    _chatRepository = SupabaseChatRepository();
     _pendingSessionStore = PendingSessionStore();
     _traineeProgressionSnapshotStore = TraineeProgressionSnapshotStore();
     _sessionService = SessionService(
@@ -224,7 +224,7 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
         ChangeNotifierProvider.value(value: _joinLinkService),
         Provider<ChatRepository>.value(value: _chatRepository),
         Provider<ClassroomAnnouncementRepository>(
-          create: (_) => FirebaseClassroomAnnouncementRepository(),
+          create: (_) => SupabaseClassroomAnnouncementRepository(),
         ),
         Provider<ActivityReadStore>(create: (_) => FileActivityReadStore()),
         ChangeNotifierProxyProvider<AuthService, MessageUnreadService>(
@@ -287,19 +287,19 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
         Provider<GroupRepository>.value(value: _groupRepository),
         Provider<JoinCodeResolver>.value(value: _joinCodeResolver),
         Provider<TeacherMovementRepository>(
-          create: (_) => FirebaseTeacherMovementRepository(),
+          create: (_) => SupabaseTeacherMovementRepository(),
         ),
         Provider<CustomMovementRepository>(
-          create: (_) => FirebaseCustomMovementRepository(),
+          create: (_) => SupabaseCustomMovementRepository(),
         ),
         Provider<ClassroomAssignmentRepository>(
-          create: (_) => FirebaseClassroomAssignmentRepository(),
+          create: (_) => SupabaseClassroomAssignmentRepository(),
         ),
         Provider<ClassChallengeRepository>(
-          create: (_) => FirebaseClassChallengeRepository(),
+          create: (_) => SupabaseClassChallengeRepository(),
         ),
         Provider<ActivityLearningMaterialRepository>(
-          create: (_) => FirebaseActivityLearningMaterialRepository(),
+          create: (_) => SupabaseActivityLearningMaterialRepository(),
         ),
         ChangeNotifierProxyProvider<AuthService, TeacherActivityController>(
           create: (context) => TeacherActivityController(
@@ -365,10 +365,10 @@ class _ElixrAppState extends State<ElixrApp> with WidgetsBindingObserver {
         >(
           update: (_, classroom, previous) =>
               previous ??
-              FirebaseAssignmentSubmissionRepository(classroom: classroom),
+              SupabaseAssignmentSubmissionRepository(classroom: classroom),
         ),
         Provider<TeacherProgressRepository>(
-          create: (_) => FirebaseTeacherProgressRepository(),
+          create: (_) => SupabaseTeacherProgressRepository(),
         ),
         Provider<LeaderboardRepository>.value(value: _leaderboardRepository),
         Provider<TeacherEvidenceRepository>.value(

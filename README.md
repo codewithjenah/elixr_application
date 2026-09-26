@@ -6,11 +6,11 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
 
 ## What the application currently does
 
-- Email/password and Google authentication with Firebase Authentication.
-- User profiles, completed sessions, and feedback history stored in Cloud Firestore.
+- Email/password and Google authentication with Supabase Auth (email confirmation required).
+- User profiles, completed sessions, feedback history, classrooms, and chat stored in Supabase Postgres behind row-level security; media in private Supabase Storage buckets.
 - Guided practice with a pre-practice readiness check, countdown, live annotated video, movement feedback, Assessment V2 rubric, combo tracking, hold confirmation, music, and an optional session save flow.
 - Free-practice camera mode with live detection overlays and no rubric assessment or saved session.
-- Dashboard, session history, and progress statistics derived from Firestore data.
+- Dashboard, session history, and progress statistics derived from the database.
 - Global leaderboard with XP awards for completed sessions, live top-player rankings, and paginated player lists.
 - Local computer vision for fifteen movements:
   - Easy: Normal Grip, Bartender's Grip, Reverse Grip, Claw Grip, Body Grip
@@ -32,8 +32,8 @@ Flutter Windows client
   ├─ Fluent UI screens and reusable widgets
   ├─ Provider ChangeNotifier services
   ├─ GoRouter navigation and authentication redirects
-  ├─ Firebase Authentication
-  ├─ Cloud Firestore repositories
+  ├─ Supabase Auth (PKCE email links and loopback Google OAuth)
+  ├─ Supabase Postgres/Storage/Realtime repositories
   └─ WebSocket client
            │ ws://127.0.0.1:8000/ws
            ▼
@@ -61,13 +61,13 @@ Camera labels shown in Settings come from backend discovery metadata (`display_n
 ├─ lib/
 │  ├─ core/                  # Routing, theme, constants, shared widgets
 │  ├─ data/
-│  │  ├─ database/          # Firestore adapter
+│  │  ├─ database/          # Session/profile database adapter
 │  │  ├─ models/            # Client/domain data models
 │  │  └─ repositories/      # Auth, session, progress, and leaderboard persistence
 │  ├─ features/             # Feature-oriented Flutter screens
 │  ├─ services/             # App state and runtime orchestration
 │  ├─ app.dart              # Providers, theme, router, splash gate
-│  └─ main.dart             # Firebase bootstrap and runApp
+│  └─ main.dart             # Supabase bootstrap and runApp
 ├─ backend/
 │  ├─ api/                   # Health, camera discovery, and WebSocket endpoints
 │  ├─ assessment/
@@ -82,9 +82,11 @@ Camera labels shown in Settings come from backend discovery metadata (`display_n
 │  ├─ main.py               # FastAPI application factory
 │  ├─ requirements.txt
 │  └─ run.ps1
-├─ firestore.rules
-├─ firestore.indexes.json
-├─ firebase.json
+├─ supabase/
+│  ├─ migrations/           # Schema, RLS, grants, Storage policies, RPCs
+│  ├─ functions/elixr-admin # Service-role erasure, deletes, material validation
+│  ├─ tests/                # SQL/RLS security tests
+│  └─ config.toml
 ├─ AGENTS.md                # Repository-wide agent instructions
 └─ .cursor/rules/           # Scoped Cursor project rules
 ```
@@ -96,8 +98,8 @@ Camera labels shown in Settings come from backend discovery metadata (`display_n
 - Visual Studio with the **Desktop development with C++** workload required by Flutter Windows builds.
 - Python 3.11. It is the common supported version for the current NumPy 2.4.6 and MediaPipe 0.10.9 pins.
 - A webcam.
-- Access to the configured Firebase project, or your own Firebase project configured for the app.
-- Firebase CLI only when deploying Firestore rules or indexes.
+- A Supabase project (URL and publishable key), or a local stack from the Supabase CLI.
+- Supabase CLI only when applying migrations or deploying the Edge Function.
 
 Confirm the Flutter toolchain:
 
@@ -160,44 +162,41 @@ The repository already contains:
 
 The current implementation does not rely on an automatic YOLO model download during normal startup.
 
-### 4. Configure Firebase
+### 4. Configure Supabase
 
-The repository is currently configured for the Firebase project `elixr-app-2026` through `firebase.json` and `lib/firebase_options.dart`.
+1. Apply the migrations and deploy the admin Edge Function (after review):
 
-For the existing project:
+   ```powershell
+   supabase link --project-ref <project-ref>
+   supabase db push
+   supabase functions deploy elixr-admin
+   ```
 
-1. Enable Firebase Authentication with Email/Password and Google.
-2. Configure the Google provider support email and keep Firebase Authentication
-   on the one-account-per-email setting. ELIXR relies on the Firebase UID to
-   preserve an existing Trainee or Teacher profile when Google verifies the
-   same email address.
-   Trainee registration can complete with Google after legal consent. Teacher
-   registration first checks the Teacher access-code format, then offers
-   **Continue with Google** or the existing email/password path. Google must
-   return a verified email, but no school-domain restriction is applied. The
-   Teacher code is consumed only in the same Firestore transaction that creates
-   the `users/{uid}` Teacher profile, so cancelling Google or failing before
-   that transaction does not consume the code. An interrupted Google
-   onboarding is restored as role `unspecified` and requires an explicit role
-   choice; choosing Teacher requires entering the code again.
-   New profiles record both `privacy_consent_at` / `privacy_policy_version: v6`
-   and `terms_consent_at` / `terms_of_service_version: v3`. Existing profiles
-   without the Terms fields remain compatible and are not bulk-backfilled.
-3. Keep `localhost` in Authentication > Settings > Authorized domains. The
-   Windows Google flow uses a short-lived, nonce-protected localhost callback
-   opened in Microsoft Edge when available. Privacy-hardened browsers can block
-   Firebase's cross-origin authentication helper; the system default is used
-   only when Edge is unavailable.
-4. Create Cloud Firestore.
-5. Deploy the repository's rules and indexes when they change:
+2. In Authentication, keep **Confirm email** on, enable Email/Password and
+   Google, and add `http://localhost:*/**` to the redirect allow list. Email
+   links and the Windows Google flow return a one-time PKCE code to a
+   short-lived loopback callback on this computer; recovery links open a local
+   new-password form served by the app.
+3. Teacher registration consumes the one-time access code in the same
+   database transaction that creates the Teacher profile (sign-up trigger or
+   `create_own_profile`). Cancelling before that transaction does not consume
+   the code. New profiles record the current Privacy Policy (`v6`) and Terms
+   (`v3`) consent versions.
+4. Legacy Firebase accounts are mapped explicitly through
+   `legacy_firebase_identities`; a Firebase UID is never assumed to equal a
+   Supabase user ID.
+
+The client receives only the public project URL and publishable key at build
+time. The app refuses to start (with an in-app message) when they are missing
+or when a secret key is supplied:
 
 ```powershell
-firebase deploy --only firestore
+flutter run -d windows `
+  --dart-define=SUPABASE_URL=https://<project-ref>.supabase.co `
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 ```
 
-For a different Firebase project, run FlutterFire configuration for Windows and review `firebase.json`, `.firebaserc`, Firestore rules, and generated options before committing changes.
-
-Never commit service-account keys, private credentials, or local secret files.
+Never commit Supabase secret/service-role keys, OAuth client secrets, private credentials, or local secret files.
 
 ## Run the application
 
@@ -246,8 +245,11 @@ fallback when no packaged backend sidecar is present.
 ### Terminal 2 — Flutter client
 
 ```powershell
-flutter run -d windows
+flutter run -d windows --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_PUBLISHABLE_KEY=...
 ```
+
+The pilot build script reads the same values from the `SUPABASE_URL` and
+`SUPABASE_PUBLISHABLE_KEY` environment variables.
 
 The Flutter client connects to:
 
@@ -266,7 +268,7 @@ Those URLs are defined in `lib/core/constants/app_constants.dart`.
 
 ## Camera discovery and selection
 
-The backend is the only webcam owner. Flutter discovers cameras through the backend and persists the user's choice locally (not in Firestore).
+The backend is the only webcam owner. Flutter discovers cameras through the backend and persists the user's choice locally (not in the database).
 
 ### Discovery endpoint
 
@@ -346,34 +348,33 @@ Other values such as `TARGET_FPS`, `YOLO_FRAME_SKIP`, JPEG quality, model confid
 
 ## Data model
 
-Firestore uses these primary top-level collections (plus the classroom,
-assignment, public-profile, and other feature collections described below):
+The Postgres schema lives in `supabase/migrations/`. Every table has RLS
+enabled; clients mostly read under policies and write through
+security-definer RPCs that authorize with `auth.uid()`. Row IDs keep the
+former document-ID shapes (for example `{userId}_{dayKey}` quest boards and
+`review_sub_*` attempts), and Storage object names keep the former paths.
 
-- `users` — per-user profile documents keyed by Firebase UID.
-- `sessions` — completed practice sessions owned by the authenticated user.
-- `feedbacks` — feedback messages linked to a session.
-- `leaderboard` — public aggregate ranking entries keyed by Firebase UID (`leaderboard/{userId}`).
-- `leaderboard_processed_sessions` — idempotency markers keyed by session ID (`leaderboard_processed_sessions/{sessionId}`).
-- `daily_quest_boards` — persisted per-user, per-Manila-day daily quest board (`daily_quest_boards/{userId}_{dayKey}`).
-- `daily_quest_claims` — idempotency markers for quest-XP claims (`daily_quest_claims/{userId}_{dayKey}_{questId}`).
-- `achievement_claims` — immutable achievement claim markers (`achievement_claims/{userId}_{achievementId}`).
-- `user_cosmetics` — private unlock inventory for profile borders (`user_cosmetics/{userId}`).
-- `chat_user_directory` — Function-owned sanitized name/role/avatar search rows; verified Teachers may list Teacher rows only. Clients cannot list Trainee rows or write the collection.
-- `chat_conversations` — deterministic one-to-one conversation summaries, unread counters, read timestamps, and participant snapshots.
-- `chat_blocks/{blockerId}/blocked_users` — one-way block records checked in both directions before a send.
-- `teacher_coaching_notes` — immutable legacy migration/audit input; the app no longer creates or displays coaching notes.
-- `classroom_teacher_access` — private, repairable Teacher/Trainee-to-group
-  pointers written with approved classroom membership. Protected progress and
-  saved-image reads re-check the current group owner and membership; this
-  pointer is not trusted by itself.
-- `groups/{groupId}/announcements` — Teacher-authored classroom broadcasts.
-  Approved current members of an active class can read its history; posts are
-  not direct messages and do not create unread counters or read receipts.
-- `groups/{groupId}/lifecycle/status` — lifecycle-only status projection used
-  by approved Trainee class views; it contains no archived group metadata and
-  is updated atomically with Teacher archive/unarchive changes.
+- `profiles` — per-user profile (role, names, consent versions, preferences).
+  The Teacher role is set only by access-code-consuming server functions.
+- `sessions` / `feedbacks` — completed practice sessions and their feedback,
+  written atomically by `save_session`.
+- `leaderboard` / `leaderboard_processed_sessions` — ranking aggregates and the
+  per-session idempotency marker.
+- `daily_quest_boards` / `daily_quest_claims` — one board per user per Manila
+  day and the claim markers.
+- `achievement_claims` / `user_cosmetics` — cosmetic unlocks.
+- `public_profiles` and its summary/session/achievement projections.
+- Classroom tables (`groups`, `group_memberships`, `teacher_student_links`,
+  announcements, assignments, attempts, class challenges, custom and Teacher
+  movements, learning materials) and chat tables (`chat_conversations`,
+  `chat_messages`, `chat_blocks`).
+- Private Storage buckets: `profile-images`, `session-evidence`,
+  `custom-movement-references`, `assignment-submissions`,
+  `teacher-activity-demos`, `activity-learning-materials`.
 
-The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
+Columns use snake_case names such as `user_id`, `movement_name`, `created_at`,
+and `feedback_type`. Null columns are dropped when mapping rows so models keep
+their "absent field" semantics.
 
 Approved classroom membership automatically gives the owning Teacher
 read-only access to the Trainee's sanitized practice summary/history and
@@ -389,7 +390,7 @@ summary derive read-only metrics from the current authorized classroom context;
 they do not create an analytics collection or persist aggregate values. The
 page watches the existing groups, memberships, assignments, and attempts, then
 fetches each unique approved Trainee's sanitized
-`public_profiles/{traineeId}/sessions` projection for the selected and prior
+`public_profile_sessions` projection for the selected and prior
 periods with `created_at >= start` and `created_at < end`, ordered by
 `created_at` and paged in batches of 50. Reads are bounded to five concurrent
 Trainees and are best-effort snapshots rather than live session listeners.
@@ -407,7 +408,7 @@ future-due assignment is expected yet.
 Analytics represent the current roster, not a historical class snapshot, and
 there is no per-student ranking or export. Missing or denied individual
 projections are shown as partial data with a refresh/last-updated state. The
-underlying client-written public-profile projections remain suitable for the
+underlying public-profile projections remain suitable for the
 controlled capstone environment but are not a server-authoritative ranking or
 tamper-proof analytics source against a hostile modified client.
 
@@ -416,91 +417,50 @@ tamper-proof analytics source against a hostile modified client.
 Both Teachers and Trainees use Messages (`/messages` and
 `/teacher/messages`). Teachers also have a unified Notifications feed at
 `/teacher/activity-center`, which combines classroom events with local,
-account-scoped read state. `/coaching` redirects to `/messages`. Search calls the
-authenticated `searchChatUsers` HTTPS Function; email-shaped queries are exact
-and results never return an email address. Configure the production or emulator
-Functions root at build time without adding a Windows-incompatible Functions
-client plugin:
+account-scoped read state. `/coaching` redirects to `/messages`. Search calls
+the rate-limited `search_chat_users` RPC; email-shaped queries are exact and
+results never return an email address.
 
-```powershell
-flutter run -d windows --dart-define=ELIXR_CHAT_API_BASE_URL=http://127.0.0.1:5001/elixr-app-2026/asia-southeast1/
-```
+`send_chat_message` creates the deterministic conversation on first send from
+both canonical profiles, stores immutable participant snapshots, updates the
+last-message summary, and increments only the recipient's unread count. Sends
+are idempotent per client message key. Opening a thread advances only the
+caller's read timestamp; a participant may mark a conversation unread or clear
+it from only their own inbox (`cleared_at` is a per-participant cutoff).
+Authors may edit or soft-delete their messages; blocks preserve readable
+history but prevent either participant from sending. New messages arrive over
+Realtime.
 
-The first send calls the authenticated `sendFirstChatMessage` HTTPS Function,
-which atomically creates the deterministic conversation and message from both
-canonical `users` profiles. This keeps profile-directory synchronization lag
-from producing a stale participant snapshot, while the client still never reads
-another account's private `users` document. Participant snapshots are validated
-at creation and remain immutable afterward. Existing conversations remain
-readable only by their participants.
-Later sends update the last-message summary, increment only the recipient's
-unread count, and keep the sender count at zero. Opening a thread advances only
-the caller's read timestamp. A participant may mark a conversation unread or
-clear it from only their own inbox; `cleared_at` is a per-participant cutoff, so
-the other participant retains their history and a later message restores the
-conversation without exposing messages at or before the caller's cutoff.
-Authors may edit or soft-delete their messages;
-blocks preserve readable history but prevent either participant from sending.
-`participant_ids` remains the canonical sorted pair; `participant_a` and
-`participant_b` mirror its two positions so Firestore rules can authorize the
-OR-filtered inbox query. Client creation, migration, and account-erasure
-archival keep all three fields synchronized.
-The sanitized directory is maintained by `projectChatUserDirectory` and is
-never listed directly by the client.
-
-Account deletion first calls the trusted `archiveChatForAccountErasure`
-Function. It replaces the deleted UID/name/avatar and authored `sender_id`
-values with `Deleted user`, retains message bodies for the remaining
-participant under a deterministic hashed archive ID, removes block/directory
-data, and removes the archive if no active participant remains. A failed chat
-archival stops account erasure before the user profile is deleted.
-
-Legacy migration is privileged and dry-run by default:
-
-```powershell
-cd functions
-npm run migrate:chat
-npm run migrate:chat -- --write
-```
-
-Review dry-run counts before authorizing `--write`. Production rollout order is
-Functions, reviewed dry-run/backfill, Firestore rules/indexes, then the Windows
-app. Do not deploy Functions/rules or run `--write` without explicit approval.
+Account deletion runs in the `elixr-admin` Edge Function after a recent
+sign-in: it archives the account's chat identity as `Deleted user` for the
+remaining participant, removes the account's Storage objects, then deletes the
+auth user (owned rows cascade). A failure before the auth user is deleted
+leaves the account intact so the user can retry.
 
 Current session persistence stores Assessment V2 rubric fields
 (`assessment_version`, `rubric`, `rubric_total`, `performance_level`), duration,
 selected movement, difficulty, selected prop (`prop_type`, defaulting to
 `bottle` for old records), and deduplicated feedback messages. Legacy sessions
 may still contain a percentage `score` (0–100) and are displayed as
-"Legacy Score" without inventing rubric criteria. Camera frames are not written
-to Firestore by the current implementation.
+"Legacy Score" without inventing rubric criteria. Camera frames are not
+persisted.
 
 ### Leaderboard
 
-Each eligible completed session awards **25 XP** (`GamificationRules.xpPerSession`). Awards run in a Firestore transaction (`LeaderboardRepository.recordCompletedSession`):
+Each eligible completed session awards **25 XP** (`GamificationRules.xpPerSession`) through the `award_session_xp` RPC, called by `LeaderboardRepository.recordCompletedSession`:
 
-1. Read the source `sessions/{sessionId}` document and verify `user_id` matches the authenticated user.
-2. Check `leaderboard_processed_sessions/{sessionId}`; if a marker already exists, skip the award.
-3. Create the processed-session marker with `session_id`, `user_id`, `xp_awarded` (25), `processed_at`, and either legacy `score` or Assessment V2 `rubric_total`.
-4. Merge aggregate fields into `leaderboard/{userId}`. Assessment V2 awards advance XP and session counts while freezing the legacy percentage aggregates (`score_sum` / `average_score` / `best_score` and period mirrors).
+1. Read the stored session and verify it belongs to the caller and is an official movement (challenge and custom-movement sessions never earn global XP).
+2. Insert `leaderboard_processed_sessions(session_id)`; the unique marker makes the award idempotent — a repeat returns `already_processed`.
+3. Update the caller's `leaderboard` row. Assessment V2 awards advance XP and session counts while freezing the legacy percentage aggregates (`score_sum` / `average_score` / `best_score` and period mirrors).
 
-Leaderboard documents store `user_id`, `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at` (last completed practice session), optional `last_active_at` (last authenticated app open/foreground; not a live heartbeat), `updated_at`, `last_awarded_session_id`, (since the daily quest system) `quest_xp` and `last_claim_id`, and (since Phase 2 achievements) optional `equipped_border_id`. They may also contain the latest Asia/Manila daily aggregate (`daily_key`, `daily_xp`, `daily_sessions_completed`, `daily_score_sum`, `daily_average_score`, `daily_best_score`) and monthly aggregate (`monthly_key`, `monthly_xp`, `monthly_sessions_completed`, `monthly_score_sum`, `monthly_average_score`, `monthly_best_score`). Display-name-only updates do not change XP or score aggregates. A last-active presence write updates only `last_active_at` with a server timestamp on an existing document, never creates a zero-XP row, and is rate-limited to at most once per 10 minutes by the client and by `validLastActiveUpdate`. Session awards and quest claims preserve `equipped_border_id`. **`total_xp == sessions_completed * 25 + quest_xp`**; legacy documents without optional quest, cosmetic, period, or last-active fields remain valid and require no schema migration for continued operation.
+Leaderboard rows store `display_name`, `total_xp`, `quest_xp`, `sessions_completed`, legacy score aggregates, `last_session_at`, optional `last_active_at`, `last_awarded_session_id`, `last_claim_id`, optional `equipped_border_id`, and the latest Asia/Manila daily (`daily_*`) and monthly (`monthly_*`) aggregates. A table constraint keeps **`total_xp == sessions_completed * 25 + quest_xp`**. Session XP is assigned to the Manila day and month of the session's server-stamped `created_at`. Presence (`touch_leaderboard_presence`) updates only `last_active_at`, never creates a row, and writes at most once per 10 minutes.
 
-For a legacy leaderboard document, the first validated post-upgrade session or quest initializes the period block from that event. Already-processed historical events are deliberately not replayed by the untrusted client, so a deployment made mid-day or mid-month does not retroactively reconstruct those partial launch periods. Exact pre-deployment period totals require a one-time trusted administrative backfill; normal periods after rollout accumulate completely.
+The full leaderboard defaults to Current Season (`LeaderboardPeriod.thisMonth`), with Today and All time available. Every view orders by period XP descending, period best score descending, then user ID ascending; pagination uses a period-bound keyset cursor and `leaderboard_rank` computes a user's rank with the same ordering. Previous-month rows simply drop out of Current Season at the Manila month boundary — there is no bulk reset.
 
-Session XP is assigned to the Manila day and month derived from the source session's server-stamped `created_at`, never from the later synchronization time. Daily quest XP uses the verified board's Manila period and does not change period session counts or score metrics. A newer event key resets that period aggregate, an equal key accumulates it, and an older/backfilled event preserves the newer period aggregate.
-
-The full leaderboard defaults to Current Season (`LeaderboardPeriod.thisMonth`), with Today and All time still available. Current Season and Today filter by the current Manila `monthly_key` / `daily_key`, then order by period XP descending, period best score descending, and document ID ascending. Previous-month documents keep their last `monthly_*` values and simply drop out of the Current Season query at the Asia/Manila month boundary — there is no bulk reset and lifetime `total_xp` is never zeroed. All time retains `total_xp`, `best_score`, and document-ID ordering. The dashboard Top Players preview uses the same Current Season query (`watchTopPlayers(period: thisMonth)`). Paginated fetches default to 50 entries per page and use a period-bound Firestore document cursor for `startAfter`. The compound indexes in `firestore.indexes.json` match these queries.
-
-Access model (`firestore.rules`):
-
-- `leaderboard`: authenticated read; create/update only on the caller's own document (`userId == request.auth.uid`). An update is valid if it is a session award, a public-profile-metadata update, a quest-XP claim (`validQuestClaimUpdate`), an equipped-border update (`validEquippedBorderUpdate`), or a last-active presence update (`validLastActiveUpdate`, existing document, `last_active_at == request.time`, and at least 10 minutes since the previous `last_active_at` or first write when the field is absent) — each preserves every field it doesn't own. Equipping a non-empty border requires that id to exist in the caller's `user_cosmetics.unlocked_border_ids`. Owner deletion is allowed only for account erasure; cross-user deletion is denied.
-- `leaderboard_processed_sessions`: authenticated get/list constrained to the caller's markers; create allowed for own sessions; update denied. Owner deletion is allowed only for account erasure; cross-user deletion is denied.
-
-Leaderboard data is **not** globally writable. The current client-written transaction model is appropriate for a controlled capstone environment but is **not** a trusted server-authoritative ranking system against a hostile modified client.
+Leaderboard rows are readable by signed-in users and writable only through the RPCs above. The capstone leaderboard is **not** a hostile-client-proof ranking system: session rubric values still originate from the client.
 
 Teacher profile borders are separate from leaderboard cosmetics. The canonical
-`users/{uid}` Teacher profile may contain an optional `profile_border_id`; the
+Teacher profile may contain an optional `profile_border_id`; the
 Teacher Settings selector writes only this field, accepts a known catalog ID or
 an empty/deleted value for no frame, and does not create or update a leaderboard
 or `user_cosmetics` document.
@@ -531,38 +491,21 @@ Initial catalog (`lib/data/models/achievement.dart` / `profile_border.dart`):
 | `week_warrior`             | 7 consecutive days                    | `week_warrior`   |
 | `bottle_in_tin_specialist` | 5× Bottle in a Tin with bottle+shaker | `tin_specialist` |
 
-Claims (`AchievementRepository.claimAchievement`) create `achievement_claims/{userId}_{achievementId}` and update `user_cosmetics/{userId}` atomically; they never write XP or leaderboard aggregates. Trainee equipping is done in **Settings → Account & Profile** and writes only `leaderboard/{userId}.equipped_border_id` (empty string to unequip). Teacher selection uses the separate canonical `users/{userId}.profile_border_id` preference and does not require trainee achievements, XP, sessions, or cosmetics. The selected border is shown on the owning avatar surfaces, while leaderboard entries continue to use the trainee `equipped_border_id` field.
+Claims (`AchievementRepository.claimAchievement` → `claim_achievement`) create the achievement claim, update `user_cosmetics`, and project the public achievement atomically; they never write XP or leaderboard aggregates. Trainee equipping is done in **Settings → Account & Profile** and writes only the caller's `leaderboard.equipped_border_id` through `equip_border` (empty string to unequip). Teacher selection uses the separate canonical profile `profile_border_id` preference and does not require trainee achievements, XP, sessions, or cosmetics. The selected border is shown on the owning avatar surfaces, while leaderboard entries continue to use the trainee `equipped_border_id` field.
 
-Security rules enforce ownership, fixed achievement→border rewards, append-only unlock lists, atomic claim↔cosmetics linkage, and equip-only-if-unlocked. They do **not** verify achievement completion. Because rewards grant no XP, modified-client impact is limited to the attacker's own cosmetics. Trusted callable-function evaluation remains the future hostile-client hardening path.
-
-Deploy rules/indexes after review:
-
-```powershell
-firebase deploy --only firestore
-```
+The database enforces ownership, fixed achievement→border rewards, idempotent claims, and equip-only-if-unlocked. It does **not** verify achievement completion. Because rewards grant no XP, modified-client impact is limited to the attacker's own cosmetics.
 
 ### Daily quest board
 
 `GamificationRepository` persists exactly one 5-quest board per authenticated user per **Asia/Manila** calendar day (`ManilaDay`, `lib/core/utils/manila_day.dart`), drawn from an 18-quest catalog (`lib/data/models/daily_quest.dart`; 6 easy/10 XP, 7 medium/15 XP, 5 hard/20 XP). Every board has exactly 2 easy + 2 medium + 1 hard quest (max 70 XP/day), with the first 3 quest ids always exactly one easy + one medium + one hard ("active"); the remaining 2 are a reserve queue promoted as active quests are claimed. New boards are progression-aware: content-dependent quests enter generation only when the trainee's personally unlocked practice variants leave reasonable choice (`DailyQuestUnlockPool`, from the canonical 20-level catalog — not teacher assignment access). Generic session, duration, and rubric quests stay available at every level so a valid board always exists. Board selection is deterministic (`generateDailyQuestIds`, a 32-bit-masked hash of `userId|dayKey|effectiveLevel`) — the same user, day, and personal level always produce the same board, and different users typically differ. Already-persisted boards keep their original quest ids, including the legacy Bottle + Shaker combo quest if it was issued before generation excluded it.
 
-Dashboard progress is evaluated locally for immediate UX, but `GamificationRepository.claimQuest` sends only `quest_id` to the authenticated `claimDailyQuest` HTTPS Function. The Function derives the UID from the verified Firebase ID token and the Manila day from server time, reads the persisted deterministic board and eligible persisted sessions, evaluates the catalog server-side, and atomically writes the deterministic marker plus fixed catalog XP and leaderboard aggregates. Replays return `already_claimed` without an additional award; an unavailable Function never falls back to a client Firestore award.
+Dashboard progress is evaluated locally for immediate UX, but `GamificationRepository.claimQuest` sends only `quest_id` to the `claim_daily_quest` RPC. The server derives the user from the session and the Manila day from server time, reads the persisted board and the day's persisted sessions, evaluates the catalog server-side, and atomically writes the deterministic claim marker plus fixed catalog XP and leaderboard aggregates. Replays return `already_claimed` without another award. `get_or_create_daily_quest_board` validates the proposed quest set's tier/category shape and fixes the board's day from server time, so a spoofed device clock cannot create a second board.
 
-Firestore rules retain the board/session/leaderboard invariants and deliberately reject direct client quest-claim creation:
+**Capstone security note:** claim completion and quest XP are server-verified from persisted sessions, but an authenticated modified client can still save structurally valid V2 session values. This prevents direct quest-award forgery but does not attest CV/session evidence.
 
-- `daily_quest_boards`: immutable after creation (no `update`); `create` requires the exact catalog/tier/category-conflict shape _and_ requires `day_key`/`day_start` **and the document id itself** to equal the canonical value derived from the Firestore server's own `request.time` via Asia/Manila arithmetic (`manilaDayStart`/`manilaDayKey`) — never a client-supplied clock. This makes a second board for the same user on the same real day structurally impossible (a duplicate id collides with an immutable document), which is what actually prevents XP farming via a spoofed device clock or fabricated `day_key`.
-- `daily_quest_claims`: owner-readable deterministic markers (`{userId}_{dayKey}_{questId}`), written only by Firebase Admin in `claimDailyQuest`; modified clients cannot directly create, modify, delete, or pair them with a leaderboard quest-XP update.
+The SQL security tests in `supabase/tests/rls/` cover quest claims, awards, and ownership (see Verification).
 
-**Capstone security note:** claim completion and quest XP are server-verified from persisted sessions, but the current session-create rules still let an authenticated modified client create structurally valid V2 session values (including duration, rubric, difficulty, and prop). This change prevents direct quest-award forgery but does not provide cryptographic CV/session attestation; hostile-client evidence forgery remains a separate architecture/security limitation.
-
-Firestore Emulator rules tests for this surface live in `firestore-tests/` (Node, `@firebase/rules-unit-testing`; not a Flutter/pubspec dependency). Run with:
-
-```powershell
-cd firestore-tests
-npm install
-npm test
-```
-
-Camera preferences are stored locally (`%APPDATA%\Elixr\settings.json` on Windows), not in Firestore.
+Camera preferences are stored locally (`%APPDATA%\Elixr\settings.json` on Windows), not in the database.
 
 ## Practice session lifecycle
 
@@ -648,7 +591,7 @@ Endless Mode uses the same `prepare` command with optional fields:
 }
 ```
 
-For a custom target, use `target_type: "custom_movement"` with `movement` as the display label, `custom_movement_id`, `revision_id`, and `custom_movement_template` containing the saved active revision's data-only template. The backend validates the template and compares a bounded live observation window with the existing custom template engine. Custom targets get enough time for the learned duration (up to a 30-second observation window); official and Toss & Catch targets retain Easy 8, Medium 10, and Hard 12 second limits. Templates over 24 seconds are excluded from Endless. Recognition waits for at least 75% of the learned duration and learned release/catch phases when present. A valid comparison at the engine's competent level or above emits a generation-scoped `recognition_event` with the custom IDs; competent maps to Nice, proficient to Great, and mastered to Perfect. Rotation evidence can add a point under the custom rubric but is not required for Endless recognition. The local backend does not authenticate Firebase ownership; the client checks ownership, active status, revision relationship, and selected prop before admitting and activating a custom target.
+For a custom target, use `target_type: "custom_movement"` with `movement` as the display label, `custom_movement_id`, `revision_id`, and `custom_movement_template` containing the saved active revision's data-only template. The backend validates the template and compares a bounded live observation window with the existing custom template engine. Custom targets get enough time for the learned duration (up to a 30-second observation window); official and Toss & Catch targets retain Easy 8, Medium 10, and Hard 12 second limits. Templates over 24 seconds are excluded from Endless. Recognition waits for at least 75% of the learned duration and learned release/catch phases when present. A valid comparison at the engine's competent level or above emits a generation-scoped `recognition_event` with the custom IDs; competent maps to Nice, proficient to Great, and mastered to Perfect. Rotation evidence can add a point under the custom rubric but is not required for Endless recognition. The local backend does not authenticate database ownership; the client checks ownership, active status, revision relationship, and selected prop before admitting and activating a custom target.
 
 For the generic release, airborne, catch technique, use `target_type: "toss_catch"`, omit `movement`, and keep the selected single `prop_type`. This does not verify bottle rotation. The backend rejects unsupported official movements, invalid custom templates, multi-prop, stale-generation, wrong-session, or wrong-lifecycle targets. While a target is active, it evaluates only that target; each `recognition_event` includes `target_generation` so an old event cannot complete a later target. Target changes reset official and custom assessment state without restarting the camera. The prior `session_mode: "freestyle"` remains accepted for protocol compatibility. Omit `session_mode` for official guided practice, Teacher-reviewed assignments, and Free Practice recording; ordinary automatically assessed custom movements use the custom modes documented below. Pause and resume freeze or resume recognition without tearing down the camera:
 
@@ -789,7 +732,7 @@ registry:
   The authoring
   page recommends three and permits up to five; existing templates with up to
   ten references remain readable. Temporary clips are deleted on draft deletion
-  or session close and are never persisted to Firestore.
+  or session close and are never persisted to the database.
 - `session_mode: "custom_assessment"` requires a versioned
   `custom_movement_template` on `prepare`. The backend derives readiness from
   that template (legacy version-1 hand templates conservatively retain
@@ -983,16 +926,20 @@ For changes affecting Windows integration or startup:
 flutter build windows
 ```
 
-### Firestore rules (daily quests, achievements, leaderboard XP)
+### Database security (RLS, RPCs, Storage policies)
 
-Requires Node.js and the Firebase Emulator Suite (Java on `PATH`):
+`supabase/tests/rls/elixr_security_test.sql` runs in one rolled-back
+transaction. With the Supabase CLI:
 
 ```powershell
-cd firestore-tests
-npm ci
-npm test
-cd ..
+supabase start
+supabase db reset
+psql "$env:SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/rls/elixr_security_test.sql
 ```
+
+On a plain disposable Postgres 15+, apply
+`supabase/tests/support/local_supabase_stub.sql`, then every migration in
+order, then the test file.
 
 ### Python backend
 
@@ -1032,11 +979,11 @@ Computer-vision unit tests should prefer synthetic landmarks and detections. A r
   bottle/shaker class IDs from its declared class names at load time.
 - Reinstall the pinned Python requirements in the active virtual environment.
 
-### Firebase permission or index error
+### Permission denied or missing RPC
 
-- Confirm the signed-in user is authorized by `firestore.rules`.
-- Deploy current rules and indexes.
-- Follow any Firestore console link shown for a missing composite index, then reconcile it with `firestore.indexes.json`.
+- Confirm the signed-in user is authorized by the RLS policy or RPC in `supabase/migrations/`.
+- Apply all migrations (`supabase db push`) and redeploy `elixr-admin` when it changed.
+- Confirm the build used the right `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY`.
 
 ### Flutter package or Windows build failure
 
@@ -1075,20 +1022,20 @@ This repository is intended for thesis defense and a supervised classroom pilot.
 
 **What the current mainline can claim when verification is green**
 
-- Critical trainee and teacher desktop workflows have automated coverage for protocol correlation, duplicate commands, stale-session frames, and Firestore/Storage authorization denials.
+- Critical trainee and teacher desktop workflows have automated coverage for protocol correlation, duplicate commands, stale-session frames, and database/Storage authorization denials (SQL RLS tests).
 - Every currently enabled catalog movement is listed in [`docs/session_coaching_phase_c_validation.md`](docs/session_coaching_phase_c_validation.md). Physical camera/movement rows stay unchecked until a human with a webcam marks them. CI must never be treated as a passing camera result.
-- Teacher access to trainee progress, evidence, assignments, and classroom data is enforced in `firestore.rules` / `storage.rules` using current authorized relationships (`isTeacherClaim`, approved membership, progress/evidence grants). UI hiding is not the security boundary.
-- Daily quest XP is awarded only by the trusted `claimDailyQuest` Function. Session XP uses an idempotent processed-session marker.
+- Teacher access to trainee progress, evidence, assignments, and classroom data is enforced by RLS policies, Storage policies, and security-definer RPCs using current authorized relationships (server-owned Teacher role, approved membership, progress/evidence grants). UI hiding is not the security boundary.
+- Daily quest XP is awarded only by the `claim_daily_quest` RPC. Session XP uses an idempotent processed-session marker.
 
 **Honest limitations that remain in-scope for a capstone, not a hostile-client product**
 
-- Authenticated clients still create Assessment V2 session documents. Personal session creates now also require catalog `prop_type` (`officialMovementSupportsProp`), `Easy`/`Medium`/`Hard`, and `duration_seconds` in `0..86400`. Assignment and class-challenge session creates keep the cheaper duration/difficulty/prop-enum bounds because those writes already evaluate a larger rules graph (Firestore's 1000-expression limit). Rules still cannot attest that a webcam produced the rubric values. A modified client can fabricate a structurally valid official session and thereby gain session XP and quest evidence. This is **not** solved by adding Firebase App Check: FlutterFire App Check does not support Windows desktop, and App Check would not make client-written assessment values server-authoritative.
-- Leaderboard aggregates remain client-written transactions appropriate for a controlled lab, not a trusted ranking service.
+- Authenticated clients still submit Assessment V2 session values. `save_session` validates the catalog movement/prop pair, difficulty, duration (`0..86400`), and rubric bounds, but cannot attest that a webcam produced the rubric values. A modified client can fabricate a structurally valid official session and thereby gain session XP and quest evidence.
+- Leaderboard aggregates are server-computed from client-submitted sessions; appropriate for a controlled lab, not a trusted ranking service.
 - Achievement completion is client-evaluated; rewards are cosmetic borders with no XP.
 - MediaPipe Hands uses a synthetic `+= 33` VIDEO timestamp only to keep landmarker timestamps strictly increasing. Hold duration, rubric timing, and the on-screen elapsed timer use `time.monotonic()` in the vision session, not that helper.
 - The standalone Android `teacher_app` was removed after Windows Teacher-shell parity (Phase 8). Do not restore it. Teacher workflows live in this Windows client.
 
-Manual camera characterization, Firebase production deployment, and Windows installer signing remain **Not verified** unless a human has actually performed those checks.
+Manual camera characterization, Supabase production deployment, and Windows installer signing remain **Not verified** unless a human has actually performed those checks.
 
 ## License
 

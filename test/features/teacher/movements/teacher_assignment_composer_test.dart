@@ -21,7 +21,7 @@ import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show StorageException;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
@@ -336,10 +336,9 @@ class _MaterialRepository implements ActivityLearningMaterialRepository {
     uploadStagedFileCalls++;
     if (remainingUploadFailures > 0) {
       remainingUploadFailures--;
-      throw FirebaseException(
-        plugin: 'firebase_storage',
-        code: 'unauthorized',
-        message: 'User is not authorized to perform the desired action.',
+      throw const StorageException(
+        'User is not authorized to perform the desired action.',
+        statusCode: '403',
       );
     }
   }

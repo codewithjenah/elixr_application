@@ -8,7 +8,7 @@ These instructions apply to `lib/**` and supplement the repository root `AGENTS.
 - `fluent_ui` for visual components.
 - `provider` and `ChangeNotifier` for shared state.
 - `go_router` for navigation and auth redirects.
-- Firebase Authentication and Cloud Firestore.
+- Supabase Auth, Postgres (RLS + RPCs), Storage, and Realtime via `supabase_flutter`.
 - `web_socket_channel` for the local vision backend.
 - `audioplayers` for practice music.
 
@@ -19,7 +19,7 @@ Do not replace these technologies or introduce a second state-management, routin
 - Keep feature-specific presentation in `lib/features/<feature>/`.
 - Put reusable visual primitives in `lib/core/widgets/` only after genuine reuse is established.
 - Put app-wide runtime state and orchestration in focused services.
-- Put Firebase and persistence operations behind repositories or the existing Firestore adapter.
+- Put Supabase and persistence operations behind repositories or `SessionDatabase`; never use a secret key in the client.
 - Keep data parsing and serialization in models or explicit adapters, not scattered through widgets.
 - Existing screens sometimes instantiate repositories directly. Improve locally when it clarifies testability, but do not launch a repository-wide architecture rewrite during an unrelated task.
 
@@ -61,14 +61,14 @@ Malformed or unknown inbound messages must remain non-fatal and observable via
 `lastProtocolError` / `protocolErrorStream` (not silent swallow, not modal spam).
 Legacy feedback frames without `message_type` still parse as feedback.
 
-## Firebase and models
+## Supabase and models
 
-- Keep Firestore field names snake_case to match existing documents.
-- Treat `FieldValue.serverTimestamp()` as eventually nullable on immediate reads.
-- Preserve Firebase UID as the user document ID.
+- Keep database column and RPC payload names snake_case.
+- Server timestamps are assigned by the database; read them back rather than assuming client time.
+- The Supabase auth user ID (`auth.uid()`) is the profile key; legacy Firebase UIDs map only via `legacy_firebase_identities`.
 - Do not store raw passwords or authentication tokens.
-- Do not make profile/session data globally readable in security rules.
-- Coordinate model changes with repository mappings, Firestore rules, indexes, and existing documents.
+- Do not make profile/session data globally readable in RLS policies.
+- Coordinate model changes with repository mappings, SQL migrations (policies, RPCs, indexes), and existing rows.
 
 ## Camera and media
 
@@ -105,4 +105,4 @@ flutter analyze
 flutter test
 ```
 
-Also run `flutter build windows` for changes involving startup, assets, packages, generated Firebase configuration, Windows lifecycle, or native integration.
+Also run `flutter build windows` for changes involving startup, assets, packages, Supabase configuration (`--dart-define`), Windows lifecycle, or native integration.

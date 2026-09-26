@@ -153,7 +153,7 @@ void main() {
         pendingEmailPollInterval: const Duration(milliseconds: 50),
         pendingEmailTimeout: const Duration(milliseconds: 200),
         verificationResendCooldown: const Duration(milliseconds: 50),
-        currentFirebaseAuthUid: () => 'uid-1',
+        currentAuthUid: () => 'uid-1',
       );
       authService.seedAuthenticatedUser(_testUser());
     });

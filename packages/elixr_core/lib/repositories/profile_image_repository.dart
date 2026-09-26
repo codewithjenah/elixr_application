@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:supabase/supabase.dart';
+
+import '../database/supabase_support.dart';
 
 /// Thrown when a profile image operation cannot proceed for a reason the
 /// caller should surface to the user (validation failure, ownership
-/// mismatch, or an underlying Firebase Storage error).
+/// mismatch, or an underlying Storage error).
 class ProfileImageException implements Exception {
   ProfileImageException(this.message);
 
@@ -37,17 +39,20 @@ abstract class ProfileImageRepositoryBase {
   });
 }
 
-/// Persists the authenticated user's profile avatar in Firebase Cloud
-/// Storage under `users/{uid}/profile/`, replacing the previous
-/// local-file-path-only approach so avatars follow the account across
-/// Windows machines.
+/// Persists the authenticated user's avatar in the private `profile-images`
+/// bucket under `users/{uid}/profile/`. The stored URL is a long-lived signed
+/// URL: like the former Storage download token it is an unguessable bearer
+/// URL that stops working when the object is deleted.
 class ProfileImageRepository implements ProfileImageRepositoryBase {
-  ProfileImageRepository({FirebaseStorage? storage})
-    : _storage = storage ?? FirebaseStorage.instance;
+  ProfileImageRepository({SupabaseClient? client}) : _clientOverride = client;
 
-  final FirebaseStorage _storage;
+  final SupabaseClient? _clientOverride;
+
+  SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
 
   static const int maxUploadBytes = 5 * 1024 * 1024;
+  static const bucket = 'profile-images';
+  static const signedUrlLifetimeSeconds = 10 * 365 * 24 * 60 * 60;
 
   static const Map<String, String> _allowedContentTypeExtensions = {
     'image/jpeg': 'jpg',
@@ -93,16 +98,23 @@ class ProfileImageRepository implements ProfileImageRepositoryBase {
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final path = '${profilePrefixForUser(userId)}avatar_$timestamp.$extension';
-    final ref = _storage.ref().child(path);
+    final storage = _client.storage.from(bucket);
 
     try {
-      await ref.putData(bytes, SettableMetadata(contentType: normalizedType));
-      final downloadUrl = await ref.getDownloadURL();
+      await storage.uploadBinary(
+        path,
+        bytes,
+        fileOptions: FileOptions(contentType: normalizedType, upsert: false),
+      );
+      final downloadUrl = await storage.createSignedUrl(
+        path,
+        signedUrlLifetimeSeconds,
+      );
       return ProfileImageUploadResult(
         downloadUrl: downloadUrl,
         storagePath: path,
       );
-    } on FirebaseException catch (e) {
+    } on StorageException catch (e) {
       throw ProfileImageException(_messageForStorageError(e));
     }
   }
@@ -126,9 +138,10 @@ class ProfileImageRepository implements ProfileImageRepositoryBase {
     }
 
     try {
-      await _storage.ref().child(storagePath).delete();
-    } on FirebaseException catch (e) {
-      if (e.code == 'object-not-found') return;
+      // remove() succeeds for already-missing objects.
+      await _client.storage.from(bucket).remove([storagePath]);
+    } on StorageException catch (e) {
+      if (isStorageObjectNotFound(e)) return;
       throw ProfileImageException(_messageForStorageError(e));
     }
   }
@@ -142,19 +155,18 @@ class ProfileImageRepository implements ProfileImageRepositoryBase {
     return storagePath.startsWith(profilePrefixForUser(userId));
   }
 
-  String _messageForStorageError(FirebaseException error) {
-    switch (error.code) {
-      case 'unauthorized':
-        return 'You do not have permission to update this profile image.';
-      case 'canceled':
-        return 'Image upload was canceled.';
-      case 'retry-limit-exceeded':
-      case 'unknown':
-        return 'Network error while uploading the image. Try again.';
-      case 'object-not-found':
-        return 'The profile image could not be found.';
-      default:
-        return error.message ?? 'Profile image operation failed.';
+  String _messageForStorageError(StorageException error) {
+    if (isPermissionDeniedError(error)) {
+      return 'You do not have permission to update this profile image.';
     }
+    if (isStorageObjectNotFound(error)) {
+      return 'The profile image could not be found.';
+    }
+    if (error.statusCode == '413') {
+      return 'Image is too large. Choose a file smaller than 5 MB.';
+    }
+    return error.message.isEmpty
+        ? 'Profile image operation failed.'
+        : 'Network error while uploading the image. Try again.';
   }
 }

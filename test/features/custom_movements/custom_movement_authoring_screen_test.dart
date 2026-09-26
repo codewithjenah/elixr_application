@@ -1106,7 +1106,7 @@ void main() {
 
     for (final stage in [
       CustomMovementSaveStage.referenceImageUpload,
-      CustomMovementSaveStage.firestoreCommit,
+      CustomMovementSaveStage.databaseCommit,
     ]) {
       final repository = _Repository()
         ..saveFailure = CustomMovementSaveException(

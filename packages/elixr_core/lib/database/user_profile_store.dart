@@ -1,16 +1,18 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase/supabase.dart' hide User;
 
 import '../models/user.dart';
 import '../privacy/privacy_consent.dart';
-import 'firestore_collections.dart';
+import 'supabase_support.dart';
 
-/// Persistence for `users/{uid}` profile documents.
+/// Persistence for the caller's `profiles` row.
 abstract class UserProfileStore {
   Future<void> upsertUserProfile(
     User user, {
     RegistrationLegalConsent? legalConsent,
   });
 
+  /// Updates allow-listed fields of the caller's own profile. A `null` value
+  /// removes an optional field.
   Future<void> updateUserProfileField(
     String userId,
     Map<String, dynamic> fields,
@@ -19,78 +21,37 @@ abstract class UserProfileStore {
   Future<User?> getUserById(String id);
 }
 
-/// Firestore-backed [UserProfileStore] shared by ELIXR clients.
-class FirebaseUserProfileStore implements UserProfileStore {
-  FirebaseUserProfileStore({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+/// Supabase-backed [UserProfileStore] shared by ELIXR clients. Role, consent
+/// timestamps and access-code consumption are server-controlled.
+class SupabaseUserProfileStore implements UserProfileStore {
+  SupabaseUserProfileStore({SupabaseClient? client}) : _clientOverride = client;
 
-  final FirebaseFirestore _firestore;
+  final SupabaseClient? _clientOverride;
 
-  static String? readCreatedAt(dynamic value) {
-    if (value == null) return null;
-    if (value is Timestamp) return value.toDate().toIso8601String();
-    if (value is String) return value;
-    return null;
-  }
+  SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
 
-  /// Builds the Firestore payload for [upsertUserProfile].
-  ///
-  /// Consent markers are included only when an explicit [legalConsent]
-  /// contract is supplied. [serverTimestamp] defaults to a server timestamp.
-  static Map<String, dynamic> userProfileWriteData(
+  /// Parameters for `create_own_profile`. Consent is recorded server-side
+  /// with the database clock; only the accepted document versions are sent.
+  static Map<String, dynamic> createProfileParams(
     User user, {
-    RegistrationLegalConsent? legalConsent,
-    Object Function()? serverTimestamp,
+    required RegistrationLegalConsent legalConsent,
   }) {
-    final timestamp = serverTimestamp ?? () => FieldValue.serverTimestamp();
+    if (!legalConsent.isCurrent) {
+      throw ArgumentError('Current registration legal consent is required.');
+    }
     return {
-      'first_name': user.firstName,
-      if (user.middleName != null && user.middleName!.isNotEmpty)
-        'middle_name': user.middleName,
-      'last_name': user.lastName,
-      'full_name': user.fullName,
-      'email': user.email,
-      'role': user.role,
-      if (user.teacherAccessCode != null)
-        'teacher_access_code': user.teacherAccessCode,
-      'created_at': timestamp(),
-      if (user.profilePictureUrl != null)
-        'profile_picture_url': user.profilePictureUrl,
-      if (user.profilePictureStoragePath != null)
-        'profile_picture_storage_path': user.profilePictureStoragePath,
-      if (user.profilePictureUrl == null && user.profilePicturePath != null)
-        'profile_picture_path': user.profilePicturePath,
-      if (user.profileBorderId != null &&
-          user.profileBorderId!.trim().isNotEmpty)
-        'profile_border_id': user.profileBorderId!.trim(),
-      if (legalConsent != null)
-        ...legalConsent.documentFields(consentTimestamp: timestamp()),
+      'p_role': user.role,
+      'p_first_name': user.firstName,
+      'p_middle_name': user.middleName,
+      'p_last_name': user.lastName,
+      'p_privacy_policy_version': legalConsent.privacyPolicyVersion,
+      'p_terms_of_service_version': legalConsent.termsOfServiceVersion,
+      'p_teacher_access_code': user.teacherAccessCode,
     };
   }
 
-  Map<String, dynamic> userFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
-    return {
-      'id': doc.id,
-      'first_name': data['first_name'],
-      'middle_name': data['middle_name'],
-      'last_name': data['last_name'],
-      'full_name': data['full_name'],
-      'email': data['email'],
-      'role': data['role'],
-      'teacher_access_code': data['teacher_access_code'],
-      'created_at': readCreatedAt(data['created_at']),
-      'profile_picture_path': data['profile_picture_path'],
-      'profile_picture_url': data['profile_picture_url'],
-      'profile_picture_storage_path': data['profile_picture_storage_path'],
-      'profile_border_id': data['profile_border_id'],
-      'privacy_consent_at': readCreatedAt(data['privacy_consent_at']),
-      'privacy_policy_version': data['privacy_policy_version'],
-      'terms_consent_at': readCreatedAt(data['terms_consent_at']),
-      'terms_of_service_version': data['terms_of_service_version'],
-      'session_evidence_enabled': data['session_evidence_enabled'],
-    };
-  }
+  static User userFromRow(Map<String, dynamic> row) =>
+      User.fromMap(compactRow(row));
 
   @override
   Future<void> upsertUserProfile(
@@ -100,13 +61,22 @@ class FirebaseUserProfileStore implements UserProfileStore {
     if (user.id == null) {
       throw ArgumentError('User id is required');
     }
-    await _firestore
-        .collection(FirestoreCollections.users)
-        .doc(user.id)
-        .set(
-          userProfileWriteData(user, legalConsent: legalConsent),
-          SetOptions(merge: true),
-        );
+    final existing = await getUserById(user.id!);
+    if (existing == null) {
+      if (legalConsent == null) {
+        throw ArgumentError('Legal consent is required to create a profile.');
+      }
+      await _client.rpc<dynamic>(
+        'create_own_profile',
+        params: createProfileParams(user, legalConsent: legalConsent),
+      );
+      return;
+    }
+    await updateUserProfileField(user.id!, {
+      'first_name': user.firstName,
+      'middle_name': user.middleName,
+      'last_name': user.lastName,
+    });
   }
 
   @override
@@ -114,19 +84,24 @@ class FirebaseUserProfileStore implements UserProfileStore {
     String userId,
     Map<String, dynamic> fields,
   ) async {
-    await _firestore
-        .collection(FirestoreCollections.users)
-        .doc(userId)
-        .update(fields);
+    final current = _client.auth.currentUser?.id;
+    if (current == null || current != userId) {
+      throw StateError('Profiles can only be updated by their owner.');
+    }
+    await _client.rpc<dynamic>(
+      'update_own_profile',
+      params: {'p_fields': fields},
+    );
   }
 
   @override
   Future<User?> getUserById(String id) async {
-    final doc = await _firestore
-        .collection(FirestoreCollections.users)
-        .doc(id)
-        .get();
-    if (!doc.exists) return null;
-    return User.fromMap(userFromDoc(doc));
+    final row = await _client
+        .from('profiles')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+    if (row == null) return null;
+    return userFromRow(row);
   }
 }

@@ -14,7 +14,7 @@ import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show StorageException;
 import 'package:flutter_test/flutter_test.dart';
 
 GroupAssignment _legacyTeacherAssignment(
@@ -480,13 +480,12 @@ void main() {
     expect(cache.listSync(), isEmpty);
   });
 
-  test('firebase submission repository does not mint download URLs', () {
+  test('submission repository does not mint download URLs', () {
     final source = File(
-      'lib/data/repositories/firebase_assignment_submission_repository.dart',
+      'lib/data/repositories/supabase_assignment_submission_repository.dart',
     ).readAsStringSync();
-    expect(source.contains('getDownloadURL'), isFalse);
-    expect(source.contains('writeToFile'), isTrue);
-    expect(source.contains('getData'), isFalse);
+    expect(source.contains('createSignedUrl'), isFalse);
+    expect(source.contains('getPublicUrl'), isFalse);
   });
 
   test('object-not-found reconcile is not fatal', () async {
@@ -595,12 +594,9 @@ void main() {
         classroom: assignments,
         now: () => DateTime.utc(2026, 8, 20),
         diagnosticLog: logs.add,
-        uploadException: FirebaseException(
-          plugin: 'firebase_storage',
-          code: 'unauthorized',
-          message:
-              'Bearer ya29.secret token=abc https://example.com/o?token=1 '
-              r'C:\Temp\elixr_submissions\clip.mp4 user@example.com',
+        uploadException: const StorageException(
+          'Bearer ya29.secret token=abc https://example.com/o?token=1 ',
+          statusCode: '403',
         ),
       );
 
@@ -628,7 +624,7 @@ void main() {
 
       expect(
         logs.singleWhere((line) => line.contains('stage=storage_upload')),
-        contains('plugin=firebase_storage'),
+        contains('source=storage'),
       );
       expect(logs.join('\n'), isNot(contains('ya29')));
       expect(logs.join('\n'), isNot(contains(r'C:\Temp')));
@@ -656,7 +652,7 @@ void main() {
   );
 
   test(
-    'Firestore submit failure is distinguished from Storage upload failure',
+    'database submit failure is distinguished from Storage upload failure',
     () async {
       final assignments = InMemoryClassroomAssignmentRepository(
         now: () => DateTime.utc(2026, 8, 20),
@@ -699,7 +695,7 @@ void main() {
         isEmpty,
       );
       expect(
-        logs.singleWhere((line) => line.contains('stage=firestore_submit')),
+        logs.singleWhere((line) => line.contains('stage=database_submit')),
         contains('classroom_code=uploadFailed'),
       );
       expect(deleted, isNotEmpty);
@@ -717,17 +713,13 @@ void main() {
   test('diagnostic formatter redacts tokens and local paths', () {
     final line = formatPhase6SubmissionDiagnostic(
       stage: Phase6SubmissionStage.storageUpload,
-      error: FirebaseException(
-        plugin: 'firebase_storage',
-        code: 'unknown',
-        message:
-            'Authorization: Bearer ya29.secret token=abc '
-            'https://firebasestorage.googleapis.com/v0/b/x/o?token=y '
-            r'C:\Users\Jiro\clip.mp4 ada@example.com',
+      error: const StorageException(
+        'Authorization: Bearer ya29.secret token=abc https://firebasestorage.googleapis.com/v0/b/x/o?token=y ',
+        statusCode: 'unknown',
       ),
     );
     expect(line, contains('stage=storage_upload'));
-    expect(line, contains('plugin=firebase_storage'));
+    expect(line, contains('source=storage'));
     expect(line, contains('code=unknown'));
     expect(line, isNot(contains('ya29')));
     expect(line, isNot(contains('Bearer ya29')));
@@ -745,19 +737,22 @@ void main() {
         runPhase6StorageUpload(
           log: logs.add,
           upload: () async {
-            throw FirebaseException(
-              plugin: 'firebase_storage',
-              code: 'canceled',
-              message: 'upload canceled',
+            throw const StorageException(
+              'upload canceled',
+              statusCode: 'canceled',
             );
           },
         ),
         throwsA(
-          isA<FirebaseException>().having((e) => e.code, 'code', 'canceled'),
+          isA<StorageException>().having(
+            (e) => e.statusCode,
+            'statusCode',
+            'canceled',
+          ),
         ),
       );
       expect(logs.single, contains('stage=storage_upload'));
-      expect(logs.single, contains('plugin=firebase_storage'));
+      expect(logs.single, contains('source=storage'));
       expect(logs.single, contains('code=canceled'));
     },
   );

@@ -24,7 +24,6 @@ import '../../data/models/session.dart';
 import '../../data/repositories/achievement_repository.dart';
 import '../../data/repositories/gamification_repository.dart';
 import '../../data/repositories/leaderboard_repository.dart';
-import '../../data/repositories/public_profile_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/trainee_progression_service.dart';
@@ -151,12 +150,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     super.didChangeDependencies();
     if (!_reposInitialized) {
       _reposInitialized = true;
-      final publicProfileRepository = context.read<PublicProfileRepository>();
       _achievementRepo =
-          widget._achievementRepository ??
-          AchievementRepository(
-            publicProfileRepository: publicProfileRepository,
-          );
+          widget._achievementRepository ?? AchievementRepository();
       _gamificationRepo =
           widget._gamificationRepository ?? GamificationRepository();
       _leaderboardRepo =

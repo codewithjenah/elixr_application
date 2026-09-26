@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
@@ -316,10 +316,9 @@ class PrivacySectionState extends State<PrivacySection> {
 
   void _logFailure(String operation, Object error, StackTrace stackTrace) {
     if (!kDebugMode) return;
-    if (error is FirebaseException) {
-      debugPrint(
-        '[Privacy] $operation failed: ${error.code}: ${error.message}',
-      );
+    final code = backendErrorCode(error);
+    if (code != null) {
+      debugPrint('[Privacy] $operation failed: ${error.runtimeType}: $code');
     } else {
       debugPrint('[Privacy] $operation failed: $error');
     }

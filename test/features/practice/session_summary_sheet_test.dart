@@ -1,7 +1,8 @@
+import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
@@ -997,10 +998,7 @@ void main() {
           movementName: 'Shoulder Stall',
         ),
         onSave: (_) async {
-          throw FirebaseException(
-            plugin: 'cloud_firestore',
-            code: 'unavailable',
-          );
+          throw const SocketException('unavailable');
         },
       );
 
@@ -1061,7 +1059,11 @@ void main() {
       onSave: (sessionId) async {
         receivedIds.add(sessionId);
         if (receivedIds.length == 1) {
-          throw FirebaseException(plugin: 'cloud_firestore', code: 'unknown');
+          throw const PostgrestException(
+            message: 'unknown',
+            code: 'unknown',
+            details: 'unknown',
+          );
         }
         return sessionId!;
       },
@@ -1084,7 +1086,7 @@ void main() {
         improvements: [_improvement('Keep your wrist steady')],
       ),
       onSave: (_) async {
-        throw FirebaseException(plugin: 'cloud_firestore', code: 'unavailable');
+        throw const SocketException('unavailable');
       },
     );
 
@@ -1162,10 +1164,7 @@ void main() {
                     onSave: (existingSessionId) async {
                       saveCalls++;
                       if (saveCalls == 1) {
-                        throw FirebaseException(
-                          plugin: 'cloud_firestore',
-                          code: 'unavailable',
-                        );
+                        throw const SocketException('unavailable');
                       }
                       return existingSessionId ?? 'session-retry';
                     },
@@ -1505,10 +1504,7 @@ void main() {
                       onSave: (existingSessionId) async {
                         saveCalls++;
                         if (saveCalls == 1) {
-                          throw FirebaseException(
-                            plugin: 'cloud_firestore',
-                            code: 'unavailable',
-                          );
+                          throw const SocketException('unavailable');
                         }
                         return existingSessionId ?? 'session-next-retry';
                       },

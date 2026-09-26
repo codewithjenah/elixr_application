@@ -185,7 +185,7 @@ void main() {
       repository: _FakeAuthRepository(persisted: _user()),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u1',
+      currentAuthUid: () => 'u1',
     );
 
     await auth.initialize();
@@ -204,7 +204,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u1',
+      currentAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -223,7 +223,7 @@ void main() {
       ),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u2',
+      currentAuthUid: () => 'u2',
     );
 
     await auth.register(
@@ -251,7 +251,7 @@ void main() {
       ),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u2',
+      currentAuthUid: () => 'u2',
     );
 
     await auth.register(
@@ -278,7 +278,7 @@ void main() {
       ),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u2',
+      currentAuthUid: () => 'u2',
     );
 
     await auth.register(
@@ -302,7 +302,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u1',
+      currentAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -348,7 +348,7 @@ void main() {
       repository: _FakeAuthRepository(persisted: _user()),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u1',
+      currentAuthUid: () => 'u1',
     );
 
     await auth.initialize();
@@ -365,7 +365,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u1',
+      currentAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -382,7 +382,7 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user()),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u1',
+      currentAuthUid: () => 'u1',
     );
 
     await auth.login(email: 'ada@example.com', password: 'secret');
@@ -414,13 +414,13 @@ void main() {
       repository: _FakeAuthRepository(),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => firebaseUid,
+      currentAuthUid: () => firebaseUid,
     );
     auth.seedAuthenticatedUser(_user(id: 'trainee-a'));
 
     auth.touchLeaderboardPresence();
     firebaseUid = 'teacher-b';
-    auth.handleFirebaseAuthIdentityChanged(firebaseUid);
+    auth.handleAuthIdentityChanged(firebaseUid);
     await Future<void>.delayed(Duration.zero);
 
     expect(auth.currentUser, isNull);
@@ -434,13 +434,13 @@ void main() {
       repository: _FakeAuthRepository(),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => firebaseUid,
+      currentAuthUid: () => firebaseUid,
     );
     auth.seedAuthenticatedUser(_user(id: 'teacher-a'));
 
     auth.touchLeaderboardPresence();
     firebaseUid = null;
-    auth.handleFirebaseAuthIdentityChanged(null);
+    auth.handleAuthIdentityChanged(null);
     await Future<void>.delayed(Duration.zero);
 
     expect(auth.currentUser, isNull);
@@ -453,7 +453,7 @@ void main() {
       repository: _FakeAuthRepository(),
       leaderboardRepository: leaderboard,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => 'u1',
+      currentAuthUid: () => 'u1',
     );
     auth.seedAuthenticatedUser(_user());
 
@@ -472,12 +472,12 @@ void main() {
       repository: _FakeAuthRepository(loginUser: _user(id: 'account-a')),
       publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
-      currentFirebaseAuthUid: () => firebaseUid,
+      currentAuthUid: () => firebaseUid,
     );
     await auth.login(email: 'a@example.com', password: 'secret');
     await Future<void>.delayed(Duration.zero);
     firebaseUid = 'account-b';
-    auth.handleFirebaseAuthIdentityChanged(firebaseUid);
+    auth.handleAuthIdentityChanged(firebaseUid);
     gate.complete();
     await pumpEventQueue();
 
@@ -493,8 +493,8 @@ void main() {
     addTearDown(authStates.close);
     final auth = AuthService(
       repository: _FakeAuthRepository(persisted: _user(id: 'account-a')),
-      firebaseAuthUidChanges: authStates.stream,
-      currentFirebaseAuthUid: () => firebaseUid,
+      authUidChanges: authStates.stream,
+      currentAuthUid: () => firebaseUid,
     );
     addTearDown(auth.dispose);
 

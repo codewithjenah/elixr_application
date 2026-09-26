@@ -319,7 +319,7 @@ void main() {
     expect(repository.lastDefaultRole, User.roleTeacher);
     expect(repository.lastTeacherAccessCode, '7KPMXR4DQ2WT');
     expect(repository.accessCodeChecks, 0);
-    expect(repository.ensureTeacherRoleClaimCalls, 1);
+    expect(repository.ensureTeacherRoleClaimCalls, 0);
     expect(repository.verificationRequested, isTrue);
     expect(auth.currentUser?.isTeacher, isTrue);
   });

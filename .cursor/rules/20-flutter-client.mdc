@@ -29,4 +29,4 @@ flutter analyze
 flutter test
 ```
 
-Run `flutter build windows` for startup, asset, dependency, Firebase configuration, native, or Windows lifecycle changes.
+Run `flutter build windows` for startup, asset, dependency, Supabase configuration, native, or Windows lifecycle changes.

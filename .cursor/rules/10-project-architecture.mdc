@@ -6,7 +6,7 @@ alwaysApply: false
 
 ELIXR has two runtime processes:
 
-1. Flutter Windows client for UI, Firebase auth/data, navigation, audio, and WebSocket consumption.
+1. Flutter Windows client for UI, Supabase auth/data, navigation, audio, and WebSocket consumption.
 2. Local FastAPI backend for webcam ownership, CV inference, movement assessment, scoring, annotation, and WebSocket production.
 
 Preserve these boundaries:
@@ -24,7 +24,7 @@ Critical invariants:
 
 - Python owns the webcam; never add a competing Flutter camera owner.
 - Movement names must remain aligned across Flutter catalog, Python config, and rule registry.
-- WebSocket and Firestore schema changes require coordinated updates to every producer, parser, mapper, index/rule, test, and relevant documentation.
+- WebSocket and database schema changes require coordinated updates to every producer, parser, mapper, index/policy, test, and relevant documentation.
 - Preserve deterministic cleanup for cameras, detectors, sockets, timers, subscriptions, controllers, and audio.
 - Keep blocking CV work off the asyncio event loop.
 - Do not introduce a second router, state-management framework, persistence layer, or backend transport without an explicit migration requirement.

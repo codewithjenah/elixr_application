@@ -1,9 +1,9 @@
 import 'dart:async';
 
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../students/teacher_student_models.dart';
@@ -189,14 +189,11 @@ class TeacherDashboardController extends ChangeNotifier {
     final buffer = StringBuffer(
       '[TeacherDashboard] $label: ${error.runtimeType}: $error',
     );
-    if (error is FirebaseException) {
+    final code = backendErrorCode(error);
+    if (code != null) {
       buffer
         ..writeln()
-        ..write('plugin=${error.plugin} code=${error.code}');
-      final message = error.message;
-      if (message != null && message.isNotEmpty) {
-        buffer.write(' message=$message');
-      }
+        ..write('code=$code');
     }
     debugPrint('$buffer\n$stackTrace');
   }

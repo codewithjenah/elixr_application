@@ -73,33 +73,6 @@ void main() {
       );
     });
 
-    test('suppresses only a permission denial explained by a recent write', () {
-      expect(
-        LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
-          documentExists: true,
-          nowUtc: now,
-          persistedLastActiveAt: now.subtract(const Duration(minutes: 1)),
-        ),
-        isTrue,
-      );
-      expect(
-        LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
-          documentExists: true,
-          nowUtc: now,
-          persistedLastActiveAt: now.subtract(const Duration(minutes: 10)),
-        ),
-        isFalse,
-      );
-      expect(
-        LeaderboardPresencePolicy.shouldSuppressPermissionDenied(
-          documentExists: false,
-          nowUtc: now,
-          persistedLastActiveAt: now.subtract(const Duration(minutes: 1)),
-        ),
-        isFalse,
-      );
-    });
-
     test('rate-limits repeated touches within 10 minutes', () {
       expect(
         LeaderboardPresencePolicy.shouldWrite(
@@ -119,52 +92,28 @@ void main() {
       );
     });
 
-    test('permits presence only for the current Firebase owner', () {
+    test('permits presence only for the current auth owner', () {
       expect(
         LeaderboardPresencePolicy.isAuthenticatedOwner(
           requestedUserId: 'user-a',
-          currentFirebaseUid: 'user-a',
+          currentAuthUid: 'user-a',
         ),
         isTrue,
       );
       expect(
         LeaderboardPresencePolicy.isAuthenticatedOwner(
           requestedUserId: 'user-a',
-          currentFirebaseUid: 'user-b',
+          currentAuthUid: 'user-b',
         ),
         isFalse,
       );
       expect(
         LeaderboardPresencePolicy.isAuthenticatedOwner(
           requestedUserId: 'user-a',
-          currentFirebaseUid: null,
+          currentAuthUid: null,
         ),
         isFalse,
       );
-    });
-
-    test('update payload only contains last_active_at', () {
-      const sentinel = 'server-timestamp';
-      expect(LeaderboardPresencePolicy.buildUpdate(sentinel), {
-        'last_active_at': sentinel,
-      });
-    });
-
-    test('missing leaderboard document still does not create a row', () {
-      expect(
-        LeaderboardPresencePolicy.shouldWrite(
-          documentExists: false,
-          nowUtc: now,
-          persistedLastActiveAt: now.subtract(const Duration(hours: 1)),
-        ),
-        isFalse,
-      );
-    });
-
-    test('malformed persisted last_active_at is ignored', () {
-      expect(LeaderboardPresencePolicy.persistedLastActiveAt(null), isNull);
-      expect(LeaderboardPresencePolicy.persistedLastActiveAt(42), isNull);
-      expect(LeaderboardPresencePolicy.persistedLastActiveAt(now), now);
     });
   });
 }

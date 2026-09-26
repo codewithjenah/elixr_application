@@ -11,6 +11,6 @@ alwaysApply: true
 - Debug with reproduction, hypotheses, evidence, root cause, targeted fix, and regression coverage.
 - Review generated changes as untrusted code before finishing.
 - Run relevant verification and distinguish passed checks from unverified behavior.
-- Never claim a command, test, build, camera check, or Firebase check succeeded unless it was actually executed and observed.
+- Never claim a command, test, build, camera check, or Supabase check succeeded unless it was actually executed and observed.
 - Do not deploy, publish, mutate production data, or add secrets without an explicit user request.
 - Finish substantial tasks with behavior changed, files changed, commands/results, assumptions, risks, and `Not verified` items.

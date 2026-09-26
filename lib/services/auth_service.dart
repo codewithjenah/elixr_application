@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:elixr_core/models/coach_code.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
-import 'package:firebase_core/firebase_core.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as sb;
 
 import '../core/auth/teacher_auth_messages.dart';
 import '../core/constants/app_constants.dart';
@@ -14,7 +14,7 @@ import '../data/models/profile_border.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/profile_image_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
-import '../firebase_options.dart';
+import '../features/auth/auth_validators.dart';
 import 'auth_email_callback_server.dart';
 import 'join_link_service.dart';
 import 'trainee_profile_snapshot_store.dart';
@@ -23,7 +23,7 @@ import 'windows_google_oauth_flow.dart';
 
 /// Account-scoped phrase used as a deliberate-action safeguard in the UI.
 ///
-/// This is not authentication; Firebase password reauthentication remains the
+/// This is not authentication; password reauthentication remains the
 /// security boundary for account deletion.
 String accountDeletionConfirmationPhraseFor(String email) {
   return 'delete ${email.trim().toLowerCase()}';
@@ -40,7 +40,7 @@ enum AuthInitializationFailureKind {
 /// Presentation-safe details for a failed initial auth restoration attempt.
 ///
 /// The underlying exception is intentionally not retained here. Startup
-/// failures can contain Firebase, HTTP, or token details that must stay out of
+/// failures can contain backend, HTTP, or token details that must stay out of
 /// the production UI.
 class AuthInitializationFailure {
   const AuthInitializationFailure({required this.kind, required this.message});
@@ -84,26 +84,14 @@ class AuthService extends ChangeNotifier {
     Duration? verificationResendCooldown,
     JoinLinkService? joinLinkService,
     @visibleForTesting Future<void> Function()? awaitInitialAuthState,
-    @visibleForTesting Stream<String?>? firebaseAuthUidChanges,
-    @visibleForTesting String? Function()? currentFirebaseAuthUid,
+    @visibleForTesting Stream<String?>? authUidChanges,
+    @visibleForTesting String? Function()? currentAuthUid,
     Future<void> Function()? accountScopeTeardownBarrier,
     Future<void> Function(String userId)? purgePendingSessions,
     TraineeProfileSnapshotStore? traineeProfileSnapshotStore,
     TraineeProgressionSnapshotStore? traineeProgressionSnapshotStore,
     Duration? profileRestorationTimeout,
-  }) : _repository =
-           repository ??
-           AuthRepository(
-             createMissingProfile: false,
-             // Firebase's native Windows app options do not preserve the
-             // web-only authDomain needed by the browser OAuth page. Use the
-             // generated source configuration directly instead of reading the
-             // options back through Firebase.app().
-             googleOAuthFlow: WindowsGoogleOAuthFlow(
-               firebaseOptions: DefaultFirebaseOptions.currentPlatform,
-             ),
-           ),
-       _leaderboardRepository = leaderboardRepository,
+  }) : _leaderboardRepository = leaderboardRepository,
        _publicProfileRepository = publicProfileRepository,
        _explicitProfileImageRepository = profileImageRepository,
        _pendingEmailPollInterval =
@@ -117,8 +105,8 @@ class AuthService extends ChangeNotifier {
            verificationResendCooldown ?? const Duration(seconds: 60),
        _joinLinkService = joinLinkService,
        _awaitInitialAuthState = awaitInitialAuthState,
-       _firebaseAuthUidChangesOverride = firebaseAuthUidChanges,
-       _currentFirebaseAuthUidOverride = currentFirebaseAuthUid,
+       _authUidChangesOverride = authUidChanges,
+       _currentAuthUidOverride = currentAuthUid,
        _accountScopeTeardownBarrier = accountScopeTeardownBarrier,
        _purgePendingSessions = purgePendingSessions,
        _traineeProfileSnapshotStore =
@@ -127,10 +115,24 @@ class AuthService extends ChangeNotifier {
            traineeProgressionSnapshotStore ?? TraineeProgressionSnapshotStore(),
        _profileRestorationTimeout =
            profileRestorationTimeout ?? const Duration(seconds: 8) {
+    _repository =
+        repository ??
+        AuthRepository(
+          createMissingProfile: false,
+          googleOAuthFlow: WindowsGoogleOAuthFlow(),
+          // Confirmation links return to the loopback callback, which hands
+          // the PKCE code back to this app.
+          emailRedirectUrl: _verificationRedirectUrl,
+        );
+    _emailCallbackServer.passwordResetHandler = _completePasswordResetFromLink;
     _joinLinkService?.authCallbackHandler = handleEmailActionCallback;
   }
 
-  final AuthRepositoryBase _repository;
+  late final AuthRepositoryBase _repository;
+  EmailLinkAuthRepositoryBase? get _emailLinkRepository =>
+      _repository is EmailLinkAuthRepositoryBase
+      ? _repository as EmailLinkAuthRepositoryBase
+      : null;
   GoogleAuthRepositoryBase? get _googleRepository =>
       _repository is GoogleAuthRepositoryBase
       ? _repository as GoogleAuthRepositoryBase
@@ -156,8 +158,8 @@ class AuthService extends ChangeNotifier {
   final Duration _verificationResendCooldown;
   final JoinLinkService? _joinLinkService;
   final Future<void> Function()? _awaitInitialAuthState;
-  final Stream<String?>? _firebaseAuthUidChangesOverride;
-  final String? Function()? _currentFirebaseAuthUidOverride;
+  final Stream<String?>? _authUidChangesOverride;
+  final String? Function()? _currentAuthUidOverride;
   final Future<void> Function()? _accountScopeTeardownBarrier;
   final Future<void> Function(String userId)? _purgePendingSessions;
   final TraineeProfileSnapshotStore _traineeProfileSnapshotStore;
@@ -165,7 +167,7 @@ class AuthService extends ChangeNotifier {
   final Duration _profileRestorationTimeout;
 
   // Lazily constructed so tests that never touch profile-image upload do not
-  // need Firebase Storage initialized.
+  // need Storage initialized.
   ProfileImageRepositoryBase? _explicitProfileImageRepository;
   ProfileImageRepositoryBase get _profileImageRepository =>
       _explicitProfileImageRepository ??= ProfileImageRepository();
@@ -191,8 +193,8 @@ class AuthService extends ChangeNotifier {
   String? _teacherAuthErrorMessage;
   Future<void>? _pendingEmailCheckInFlight;
   StreamSubscription<Uri>? _emailCallbackSubscription;
-  StreamSubscription<String?>? _firebaseAuthUidSubscription;
-  Completer<void>? _firstFirebaseAuthState;
+  StreamSubscription<String?>? _authUidSubscription;
+  Completer<void>? _firstAuthState;
   int _accountSessionGeneration = 0;
   Uri? _emailCallbackBaseUri;
   Timer? _emailVerificationPollTimer;
@@ -283,7 +285,7 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Restores Firebase-backed auth state and always reaches a terminal state.
+  /// Restores the persisted auth session and always reaches a terminal state.
   ///
   /// The in-flight future is installed before the first notification so a
   /// listener-triggered retry cannot start a second restoration attempt.
@@ -305,11 +307,11 @@ class AuthService extends ChangeNotifier {
       if (awaitInitialAuthState != null) {
         await awaitInitialAuthState();
       } else {
-        await _waitForInitialFirebaseAuthState();
+        await _waitForInitialAuthState();
       }
 
-      final firebaseUid = _readCurrentFirebaseAuthUid();
-      if (firebaseUid == null || firebaseUid.isEmpty) {
+      final authUid = _readCurrentAuthUid();
+      if (authUid == null || authUid.isEmpty) {
         final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
         if (restoredGoogle is PendingGoogleSignIn) {
           // The access code is deliberately not durable. A restored incomplete
@@ -338,18 +340,18 @@ class AuthService extends ChangeNotifier {
           }
           await _completeAuthoritativeInitialization(
             restoredGoogle.user,
-            firebaseUid: null,
+            authUid: null,
           );
           return;
         }
       }
-      final restoration = await _restorePersistedProfile(firebaseUid);
+      final restoration = await _restorePersistedProfile(authUid);
       if (restoration.status == PersistedProfileRestorationStatus.unavailable) {
-        final offlineSnapshot = firebaseUid == null
+        final offlineSnapshot = authUid == null
             ? null
-            : await _traineeProfileSnapshotStore.load(firebaseUid);
+            : await _traineeProfileSnapshotStore.load(authUid);
         if (offlineSnapshot != null &&
-            offlineSnapshot.userId == firebaseUid &&
+            offlineSnapshot.userId == authUid &&
             offlineSnapshot.user.isTrainee) {
           _isOfflineRestoredTrainee = true;
           _completeInitialization(
@@ -359,7 +361,7 @@ class AuthService extends ChangeNotifier {
           );
           return;
         }
-        // A locally restored Firebase identity without a matching,
+        // A locally restored auth identity without a matching,
         // authoritative Trainee snapshot cannot enter the product offline.
         _completeInitialization(
           currentUser: null,
@@ -384,7 +386,7 @@ class AuthService extends ChangeNotifier {
       if (loadedUser != null && !_hasSupportedProductRole(loadedUser)) {
         // Preserve the existing fail-closed unsupported-role behavior without
         // publishing the malformed profile or emitting an intermediate ready
-        // state while the persisted Firebase session is being cleared.
+        // state while the persisted auth session is being cleared.
         await _repository.clearCurrentUser();
         _completeInitialization(
           currentUser: null,
@@ -396,10 +398,7 @@ class AuthService extends ChangeNotifier {
 
       // Teacher claim finalization remains mandatory. Nothing is published to
       // currentUser until this and the remaining restoration reads succeed.
-      await _completeAuthoritativeInitialization(
-        loadedUser,
-        firebaseUid: firebaseUid,
-      );
+      await _completeAuthoritativeInitialization(loadedUser, authUid: authUid);
     } catch (error, stackTrace) {
       _failInitialization(error, stackTrace);
     } finally {
@@ -411,17 +410,17 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<PersistedProfileRestoration> _restorePersistedProfile(
-    String? firebaseUid,
+    String? authUid,
   ) async {
     // The production repository exposes a typed outcome. The legacy path is
     // retained for existing focused test doubles, but it never permits a
-    // cached offline fallback because it cannot prove the Firebase identity.
+    // cached offline fallback because it cannot prove the auth identity.
     final restorationRepository =
         _repository is PersistedProfileRestorationRepository
         ? _repository as PersistedProfileRestorationRepository
         : null;
     if (restorationRepository == null) {
-      if (firebaseUid == null || firebaseUid.isEmpty) {
+      if (authUid == null || authUid.isEmpty) {
         return const PersistedProfileRestoration.signedOut();
       }
       final user = await _repository.loadPersistedUser().timeout(
@@ -432,7 +431,7 @@ class AuthService extends ChangeNotifier {
           ? const PersistedProfileRestoration.signedOut()
           : PersistedProfileRestoration.authoritative(user);
     }
-    if (firebaseUid == null || firebaseUid.isEmpty) {
+    if (authUid == null || authUid.isEmpty) {
       return const PersistedProfileRestoration.signedOut();
     }
     return restorationRepository.restorePersistedProfile().timeout(
@@ -443,7 +442,7 @@ class AuthService extends ChangeNotifier {
 
   Future<void> _completeAuthoritativeInitialization(
     User? user, {
-    required String? firebaseUid,
+    required String? authUid,
   }) async {
     if (user != null) await _ensureTeacherRoleClaim(user);
     final providerKinds = await _loadProviderKinds(user);
@@ -451,7 +450,7 @@ class AuthService extends ChangeNotifier {
     await _cacheAuthoritativeTraineeSnapshot(
       user,
       emailVerified: emailVerified == true,
-      expectedFirebaseUid: firebaseUid,
+      expectedAuthUid: authUid,
     );
     _completeInitialization(
       currentUser: user,
@@ -460,25 +459,27 @@ class AuthService extends ChangeNotifier {
     );
   }
 
-  Future<void> _waitForInitialFirebaseAuthState() {
-    final existing = _firstFirebaseAuthState;
+  Future<void> _waitForInitialAuthState() {
+    final existing = _firstAuthState;
     if (existing != null) return existing.future;
 
     final firstState = Completer<void>();
-    _firstFirebaseAuthState = firstState;
+    _firstAuthState = firstState;
     final stream =
-        _firebaseAuthUidChangesOverride ??
-        fb.FirebaseAuth.instance.authStateChanges().map((user) => user?.uid);
-    _firebaseAuthUidSubscription = stream.listen(
-      (firebaseUid) {
+        _authUidChangesOverride ??
+        ElixrSupabase.client.auth.onAuthStateChange.map(
+          (state) => state.session?.user.id,
+        );
+    _authUidSubscription = stream.listen(
+      (authUid) {
         if (!firstState.isCompleted) firstState.complete();
-        _handleFirebaseAuthIdentityChanged(firebaseUid);
+        _handleAuthIdentityChanged(authUid);
       },
       onError: (Object error, StackTrace stackTrace) {
         if (!firstState.isCompleted) {
           firstState.completeError(error, stackTrace);
         } else if (kDebugMode) {
-          debugPrint('Firebase Auth state listener failed: $error');
+          debugPrint('Auth state listener failed: $error');
           debugPrint('$stackTrace');
         }
       },
@@ -487,23 +488,23 @@ class AuthService extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void handleFirebaseAuthIdentityChanged(String? firebaseUid) {
-    _handleFirebaseAuthIdentityChanged(firebaseUid);
+  void handleAuthIdentityChanged(String? authUid) {
+    _handleAuthIdentityChanged(authUid);
   }
 
-  void _handleFirebaseAuthIdentityChanged(String? firebaseUid) {
+  void _handleAuthIdentityChanged(String? authUid) {
     if (_disposed) return;
     final productUid = _currentUser?.id?.trim();
-    final normalizedFirebaseUid = firebaseUid?.trim();
+    final normalizedAuthUid = authUid?.trim();
     if (productUid == null || productUid.isEmpty) return;
-    if (normalizedFirebaseUid == productUid) return;
+    if (normalizedAuthUid == productUid) return;
 
     _clearPendingEmailChange(clearError: true);
     _invalidatePublishedAccount();
     notifyListeners();
   }
 
-  Future<void> _beginFirebaseAuthTransition() async {
+  Future<void> _beginAuthTransition() async {
     if (_disposed) return;
     final hadPublishedAccount = _currentUser != null;
     final hadPendingProfile = _pendingGoogleProfile != null;
@@ -548,10 +549,10 @@ class AuthService extends ChangeNotifier {
     _isLoading = false;
   }
 
-  String? _readCurrentFirebaseAuthUid() {
+  String? _readCurrentAuthUid() {
     try {
-      return (_currentFirebaseAuthUidOverride?.call() ??
-              fb.FirebaseAuth.instance.currentUser?.uid)
+      return (_currentAuthUidOverride?.call() ??
+              ElixrSupabase.client.auth.currentUser?.id)
           ?.trim();
     } catch (_) {
       return null;
@@ -566,7 +567,7 @@ class AuthService extends ChangeNotifier {
         generation == _accountSessionGeneration &&
         isAuthenticatedSessionReady &&
         _currentUser?.id?.trim() == userId &&
-        _readCurrentFirebaseAuthUid() == userId;
+        _readCurrentAuthUid() == userId;
   }
 
   void _beginInitialization() {
@@ -660,7 +661,7 @@ class AuthService extends ChangeNotifier {
     required String password,
     required RegistrationLegalConsent legalConsent,
   }) async {
-    await _beginFirebaseAuthTransition();
+    await _beginAuthTransition();
     _clearTeacherAuthMessages();
     final user = await _repository.register(
       firstName: firstName,
@@ -722,7 +723,7 @@ class AuthService extends ChangeNotifier {
     required String teacherAccessCode,
     required RegistrationLegalConsent legalConsent,
   }) async {
-    await _beginFirebaseAuthTransition();
+    await _beginAuthTransition();
     _clearTeacherAuthMessages();
     final user = await _repository.register(
       firstName: firstName,
@@ -738,7 +739,12 @@ class AuthService extends ChangeNotifier {
       await logout();
       throw Exception(TeacherAuthMessages.notATeacher);
     }
-    await _ensureTeacherRoleClaim(user);
+    // Until the email is confirmed there is no auth session to verify; the
+    // sign-up transaction already consumed the access code atomically, and
+    // the claim is re-verified when the confirmed session is restored.
+    if (_readCurrentAuthUid() == user.id?.trim()) {
+      await _ensureTeacherRoleClaim(user);
+    }
     _currentUser = user;
     _markAuthenticatedSessionReady();
     try {
@@ -755,7 +761,7 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> login({required String email, required String password}) async {
-    await _beginFirebaseAuthTransition();
+    await _beginAuthTransition();
     _clearTeacherAuthMessages();
     User user;
     try {
@@ -792,20 +798,20 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Re-enters a previously authenticated Trainee session after an online
-  /// password sign-in cannot reach Firebase.
+  /// password sign-in cannot reach the auth server.
   ///
   /// The password is deliberately not checked or retained locally. The
-  /// security boundary is the Firebase identity already persisted on this
+  /// security boundary is the auth identity already persisted on this
   /// device, and both its UID and the entered email must match the locally
   /// cached authoritative profile. Explicit logout removes that profile and
-  /// clears the Firebase identity, so it cannot use this path.
+  /// clears the auth identity, so it cannot use this path.
   Future<bool> _restoreOfflineTraineeForLogin(String email) async {
     if (_repository is! PersistedProfileRestorationRepository) return false;
-    final firebaseUid = _readCurrentFirebaseAuthUid();
-    if (firebaseUid == null || firebaseUid.isEmpty) return false;
-    final snapshot = await _traineeProfileSnapshotStore.load(firebaseUid);
+    final authUid = _readCurrentAuthUid();
+    if (authUid == null || authUid.isEmpty) return false;
+    final snapshot = await _traineeProfileSnapshotStore.load(authUid);
     if (snapshot == null ||
-        snapshot.userId != firebaseUid ||
+        snapshot.userId != authUid ||
         !snapshot.user.isTrainee ||
         snapshot.user.email.trim().toLowerCase() !=
             email.trim().toLowerCase()) {
@@ -837,19 +843,12 @@ class AuthService extends ChangeNotifier {
         error is HandshakeException) {
       return true;
     }
-    if (error is fb.FirebaseAuthException || error is FirebaseException) {
-      final code = error is fb.FirebaseAuthException
-          ? error.code
-          : (error as FirebaseException).code;
-      return code == 'network-request-failed' ||
-          code == 'unavailable' ||
-          code == 'deadline-exceeded';
-    }
-    return false;
+    return isBackendUnavailableError(error) ||
+        error is sb.AuthRetryableFetchException;
   }
 
   Future<void> signInWithGoogle() async {
-    await _beginFirebaseAuthTransition();
+    await _beginAuthTransition();
     _clearTeacherAuthMessages();
     final googleRepository = _googleRepository;
     if (googleRepository == null) {
@@ -903,7 +902,7 @@ class AuthService extends ChangeNotifier {
   Future<void> signInWithGoogleTeacher({
     required String teacherAccessCode,
   }) async {
-    await _beginFirebaseAuthTransition();
+    await _beginAuthTransition();
     _clearTeacherAuthMessages();
     final normalizedCode = CoachCode.tryNormalize(teacherAccessCode);
     if (normalizedCode == null) {
@@ -1048,7 +1047,7 @@ class AuthService extends ChangeNotifier {
 
   Future<void> cancelGoogleOnboarding() async {
     final pending = _pendingGoogleProfile;
-    await _beginFirebaseAuthTransition();
+    await _beginAuthTransition();
     try {
       if (pending != null) {
         final googleRepository = _googleRepository;
@@ -1094,7 +1093,7 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Requests a Firebase Auth password-reset email for [email].
+  /// Requests a password-reset email for [email].
   ///
   /// Does not change [currentUser]. Callers should show a generic success
   /// message so account existence is not revealed. After the user completes
@@ -1159,7 +1158,7 @@ class AuthService extends ChangeNotifier {
             debugPrint(
               'Leaderboard last-active touch failed: '
               'requestedUserId=$userId '
-              'firebaseUserId=${_readCurrentFirebaseAuthUid()} '
+              'authUserId=${_readCurrentAuthUid()} '
               'productUserId=${_currentUser?.id?.trim()} error=$error',
             );
             debugPrint('$stackTrace');
@@ -1212,7 +1211,7 @@ class AuthService extends ChangeNotifier {
 
   Future<void> logout() async {
     final userId = _currentUser?.id?.trim();
-    await _beginFirebaseAuthTransition();
+    await _beginAuthTransition();
     _clearPendingEmailChange(clearError: true);
     _clearTeacherAuthMessages();
     _emailVerified = null;
@@ -1283,14 +1282,12 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Ensures a Teacher session has fresh canonical `role` and
-  /// `email_verified` ID-token claims before privileged Firestore writes.
+  /// Ensures a Teacher session has a server-verified Teacher role and a
+  /// confirmed email before privileged writes.
   ///
   /// Reuses [AuthRepositoryBase.isCurrentEmailVerified], which reloads the
-  /// Firebase User and force-refreshes a stale cached token. Does not mint a
-  /// new token when the claim is already verified. Trainee sessions and
-  /// missing users fail closed. Transient repository errors fail closed
-  /// without signing the Teacher out.
+  /// auth user. Trainee sessions and missing users fail closed. Transient
+  /// repository errors fail closed without signing the Teacher out.
   Future<bool> ensureTeacherAuthorizationFresh() async {
     final user = _currentUser;
     if (user == null || !user.isTeacher) {
@@ -1338,7 +1335,7 @@ class AuthService extends ChangeNotifier {
     await _cacheAuthoritativeTraineeSnapshot(
       _currentUser,
       emailVerified: _emailVerified == true,
-      expectedFirebaseUid: _readCurrentFirebaseAuthUid(),
+      expectedAuthUid: _readCurrentAuthUid(),
     );
   }
 
@@ -1354,7 +1351,7 @@ class AuthService extends ChangeNotifier {
   Future<void> _cacheAuthoritativeTraineeSnapshot(
     User? user, {
     required bool emailVerified,
-    required String? expectedFirebaseUid,
+    required String? expectedAuthUid,
   }) async {
     // Only the production typed restoration capability proves the semantics
     // required for an offline-auth cache. Legacy repositories remain online
@@ -1363,12 +1360,12 @@ class AuthService extends ChangeNotifier {
     if (user == null || !user.isTrainee) return;
     final userId = user.id?.trim();
     // An explicit expected UID is supplied on production cold start. Never
-    // write a cache entry until the Firebase and ELIXR identities agree.
+    // write a cache entry until the auth and ELIXR identities agree.
     if (userId == null || userId.isEmpty) return;
-    if (expectedFirebaseUid != null && expectedFirebaseUid != userId) return;
-    if (expectedFirebaseUid == null &&
-        _currentFirebaseAuthUidOverride == null &&
-        _readCurrentFirebaseAuthUid() != userId) {
+    if (expectedAuthUid != null && expectedAuthUid != userId) return;
+    if (expectedAuthUid == null &&
+        _currentAuthUidOverride == null &&
+        _readCurrentAuthUid() != userId) {
       return;
     }
     final snapshot = TraineeProfileSnapshot.fromAuthoritativeUser(
@@ -1381,7 +1378,7 @@ class AuthService extends ChangeNotifier {
     } catch (error) {
       // Snapshot persistence is an availability enhancement, never an
       // authorization dependency. A local-storage failure must not invalidate
-      // an otherwise authoritative Firebase session.
+      // an otherwise authoritative auth session.
       if (kDebugMode) {
         debugPrint('Trainee profile snapshot write failed: $error');
       }
@@ -1393,7 +1390,7 @@ class AuthService extends ChangeNotifier {
     try {
       await _traineeProfileSnapshotStore.purge(userId);
     } catch (error) {
-      // Account deletion/sign-out has already changed Firebase state; local
+      // Account deletion/sign-out has already changed auth state; local
       // cache cleanup remains best effort and cannot resurrect that identity.
       if (kDebugMode) {
         debugPrint('Trainee profile snapshot purge failed: $error');
@@ -1446,11 +1443,11 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Updates the display name and, optionally, uploads a new profile
-  /// avatar to Firebase Cloud Storage.
+  /// avatar to private Storage.
   ///
   /// When [newProfileImageBytes] and [newProfileImageContentType] are both
-  /// provided, the image is uploaded first; Firestore is only updated after
-  /// the upload succeeds. A name-only update never touches Cloud Storage.
+  /// provided, the image is uploaded first; the profile is only updated after
+  /// the upload succeeds. A name-only update never touches Storage.
   ///
   /// Prefer [updateProfilePicture] for image-only updates so unsaved name or
   /// email edits are never written as a side effect.
@@ -1486,7 +1483,7 @@ class AuthService extends ChangeNotifier {
       );
     } catch (error) {
       if (pictureUpdate != null) {
-        // Firestore did not accept the new image reference; do not leave an
+        // The database did not accept the new image reference; do not leave an
         // orphaned object in Storage, and keep the previous profile intact.
         await _bestEffortDeleteImage(userId, pictureUpdate.storagePath!);
       }
@@ -1544,7 +1541,7 @@ class AuthService extends ChangeNotifier {
   /// trainee leaderboard and achievement cosmetics.
   ///
   /// A missing or blank value clears the preference. The catalog check here is
-  /// defense in depth; Firestore rules remain the authoritative boundary for
+  /// defense in depth; database policies remain the authoritative boundary for
   /// modified clients.
   Future<void> updateTeacherProfileBorder({String? profileBorderId}) async {
     final current = _currentUser;
@@ -1589,7 +1586,7 @@ class AuthService extends ChangeNotifier {
 
   /// Removes the current profile avatar without touching name or email edits.
   ///
-  /// The Firestore references are cleared first. The previous Cloud Storage
+  /// The database references are cleared first. The previous Storage
   /// object is then deleted using only its recorded, owner-scoped path.
   Future<void> removeProfilePicture() async {
     if (_currentUser?.id == null) {
@@ -1765,7 +1762,7 @@ class AuthService extends ChangeNotifier {
     );
   }
 
-  /// Starts polling Firebase and listening for the email continue URL so
+  /// Starts polling the auth server and listening for the email link so
   /// register verification completes when the user clicks the link.
   Future<void> beginEmailVerificationWatch() async {
     if (_disposed || _emailVerificationWatchActive) return;
@@ -1788,7 +1785,7 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Reloads Firebase email-verified state after the window is focused again.
+  /// Reloads email-verified state after the window is focused again.
   Future<void> refreshEmailVerificationOnForeground() {
     return _refreshEmailVerificationQuietly();
   }
@@ -1803,7 +1800,11 @@ class AuthService extends ChangeNotifier {
                 uri.queryParameters['mode'] ??
                 '')
             .toLowerCase();
-    final token = uri.queryParameters['token'] ?? '';
+    final code = uri.queryParameters['code']?.trim() ?? '';
+    if (code.isNotEmpty && !action.startsWith('reset')) {
+      unawaited(_completeEmailLink(code));
+      return;
+    }
     final isReset =
         action == 'reset' ||
         action == 'resetpassword' ||
@@ -1813,11 +1814,9 @@ class AuthService extends ChangeNotifier {
       unawaited(checkPendingEmailChange());
       return;
     }
-    if (_awaitingPasswordResetCallback &&
-        (token.isEmpty || isReset || action.isEmpty)) {
-      _passwordResetConfirmed = true;
-      _awaitingPasswordResetCallback = false;
-      if (!_disposed) notifyListeners();
+    if (isReset) {
+      // The loopback new-password form completes the reset through
+      // [_completePasswordResetFromLink]; a bare redirect proves nothing.
       return;
     }
 
@@ -1826,6 +1825,58 @@ class AuthService extends ChangeNotifier {
         _emailVerificationWatchActive) {
       unawaited(_refreshEmailVerificationQuietly());
     }
+  }
+
+  /// Exchanges an email-link PKCE code (sign-up confirmation or email change)
+  /// for a session, then refreshes verification or pending-change state.
+  Future<void> _completeEmailLink(String code) async {
+    final repository = _emailLinkRepository;
+    if (repository == null) return;
+    try {
+      await repository.completeEmailVerificationLink(code);
+    } catch (error) {
+      // The link may have been opened in another browser profile (missing
+      // verifier) or already used; polling still observes the outcome.
+      if (kDebugMode) debugPrint('Email link exchange failed: $error');
+    }
+    if (_disposed) return;
+    if (hasPendingEmailChange) {
+      await checkPendingEmailChange();
+    } else {
+      await _refreshEmailVerificationQuietly();
+    }
+  }
+
+  Future<String?> _verificationRedirectUrl() async {
+    final base = await _ensureEmailCallbackServer();
+    return _continueUri(base, mode: 'verify').toString();
+  }
+
+  /// Completes a recovery link from the loopback new-password form. Returns
+  /// a presentation-safe error, or null on success.
+  Future<String?> _completePasswordResetFromLink(
+    String code,
+    String newPassword,
+  ) async {
+    final repository = _emailLinkRepository;
+    if (repository == null) return 'Password reset is unavailable.';
+    final invalid = validateRegistrationPassword(newPassword);
+    if (invalid != null) return invalid;
+    try {
+      await repository.completePasswordReset(
+        code: code,
+        newPassword: newPassword,
+      );
+    } catch (error) {
+      final message = error.toString().replaceFirst('Exception: ', '');
+      return message.trim().isEmpty
+          ? 'This reset link is invalid or has expired. Request a new one.'
+          : message;
+    }
+    _passwordResetConfirmed = true;
+    _awaitingPasswordResetCallback = false;
+    if (!_disposed) notifyListeners();
+    return null;
   }
 
   Future<Uri> _ensureEmailCallbackServer() async {
@@ -1941,14 +1992,14 @@ class AuthService extends ChangeNotifier {
     final refreshed = await _repository.refreshAuthenticatedUser().timeout(
       _profileRestorationTimeout,
     );
-    final firebaseUid = _readCurrentFirebaseAuthUid();
-    final mustValidateFirebaseIdentity =
+    final authUid = _readCurrentAuthUid();
+    final mustValidateAuthIdentity =
         _repository is PersistedProfileRestorationRepository;
     if (refreshed != null &&
         (previousUserId == null ||
             previousUserId.isEmpty ||
             refreshed.id?.trim() != previousUserId ||
-            (mustValidateFirebaseIdentity && firebaseUid != previousUserId))) {
+            (mustValidateAuthIdentity && authUid != previousUserId))) {
       _invalidatePublishedAccount();
       notifyListeners();
       return null;
@@ -2077,7 +2128,7 @@ class AuthService extends ChangeNotifier {
     await _repository.clearCurrentUser();
     notifyListeners();
     // Normal sign-out intentionally retains account-scoped pending attempts:
-    // the same Firebase UID may authenticate later and finish their replay.
+    // the same auth UID may authenticate later and finish their replay.
     // Permanent deletion is different: remove this UID's local outbox and
     // temporary evidence only after the authoritative account deletion wins.
     await _purgePendingSessions?.call(userId);
@@ -2148,10 +2199,9 @@ class AuthService extends ChangeNotifier {
           _disposed ||
           generation != _accountSessionGeneration ||
           _pendingEmailChange?.originalUid != pending.originalUid ||
-          _readCurrentFirebaseAuthUid() != pending.originalUid;
+          _readCurrentAuthUid() != pending.originalUid;
       if (stale) {
-        if (!_disposed &&
-            _readCurrentFirebaseAuthUid() == pending.originalUid) {
+        if (!_disposed && _readCurrentAuthUid() == pending.originalUid) {
           try {
             await _repository.clearCurrentUser();
           } catch (error, stackTrace) {
@@ -2258,8 +2308,8 @@ class AuthService extends ChangeNotifier {
     _clearVerificationResendCooldown();
     _emailVerificationWatchActive = false;
     _awaitingPasswordResetCallback = false;
-    unawaited(_firebaseAuthUidSubscription?.cancel());
-    _firebaseAuthUidSubscription = null;
+    unawaited(_authUidSubscription?.cancel());
+    _authUidSubscription = null;
     unawaited(_stopEmailCallbackServer());
     super.dispose();
   }

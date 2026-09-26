@@ -1,11 +1,10 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
-import '../data/database/firestore_helper.dart';
+import '../data/database/session_database.dart';
 import '../data/models/assessment_mode.dart';
 import '../data/models/assignment_attempt.dart';
 import '../data/models/assignment_attempt_ids.dart';
@@ -133,7 +132,7 @@ class SessionService extends ChangeNotifier {
   SessionEvidenceRepository get _evidenceRepository =>
       _evidenceRepositoryOrNull ??= SessionEvidenceRepository();
 
-  /// Reserves a Firestore document ID for one logical completed attempt.
+  /// Reserves a database row ID for one logical completed attempt.
   ///
   /// The ID is deliberately allocated without writing so a caller can retain
   /// it across an ambiguous persistence failure and retry the same atomic
@@ -146,9 +145,9 @@ class SessionService extends ChangeNotifier {
     final cached = await _evidencePreferenceStore.read(userId);
     if (cached != null) return cached;
     final revision = _evidenceRevisions[userId] ?? 0;
-    final remote = FirestoreHelper.instance.getUserById(userId);
+    final remote = SessionDatabase.instance.getUserById(userId);
     // A profile read is not the local durability boundary. Do not leave the
-    // completion flow waiting indefinitely when Firebase is unreachable.
+    // completion flow waiting indefinitely when the server is unreachable.
     try {
       final user = await remote.timeout(const Duration(seconds: 2));
       final enabled = user?.sessionEvidenceEnabled;
@@ -167,7 +166,7 @@ class SessionService extends ChangeNotifier {
   }) async {
     // This local account-scoped value is the practice-flow durability
     // boundary. In particular an offline first decision must not hold the
-    // session summary or local outbox behind a Firestore write.
+    // session summary or local outbox behind a database write.
     await _setLocalSessionEvidencePreference(userId: userId, enabled: enabled);
     _scheduleSessionEvidencePreferenceSync(userId: userId, enabled: enabled);
   }
@@ -208,8 +207,8 @@ class SessionService extends ChangeNotifier {
           );
         } catch (_) {
           // The latest desired value remains locally durable. A timed-out
-          // Firestore write cannot hold session completion hostage, but it also
-          // cannot leave the Storage-rule consent field absent until the next
+          // database write cannot hold session completion hostage, but it also
+          // cannot leave the Storage-policy consent field absent until the next
           // app resume.
           completedWithoutFailure = false;
           return;
@@ -243,10 +242,9 @@ class SessionService extends ChangeNotifier {
     final writer = _evidencePreferenceRemoteWriter;
     final write = writer != null
         ? writer(userId: userId, enabled: enabled)
-        : FirestoreHelper.instance.updateUserProfileField(userId, {
+        // The server stamps the policy version and decision time.
+        : SessionDatabase.instance.updateUserProfileField(userId, {
             'session_evidence_enabled': enabled,
-            'session_evidence_policy_version': 'v1',
-            'session_evidence_decision_at': FieldValue.serverTimestamp(),
           });
     var timedOut = false;
     try {
@@ -256,7 +254,7 @@ class SessionService extends ChangeNotifier {
       rethrow;
     } finally {
       if (timedOut) {
-        // The original client write can still reach Firestore after its timeout.
+        // The original client write can still reach the server after its timeout.
         // Re-project the latest locally durable value when it settles so an old
         // opt-in can never win over a newer opt-out.
         unawaited(
@@ -472,7 +470,7 @@ class SessionService extends ChangeNotifier {
 
     // Authoritative persistence already succeeded. Leaderboard XP and public
     // profile projection are idempotent side effects and must not keep the
-    // Session Complete UI pending if a Firestore Future never resolves.
+    // Session Complete UI pending if a database Future never resolves.
     // Challenge sessions are classroom-scoped competitive results. They must
     // never award global XP or appear in the global leaderboard projection.
     if (challengeContext == null) {
@@ -596,7 +594,7 @@ class SessionService extends ChangeNotifier {
       final item = sessionImprovements[index];
       feedbacks.add(
         Feedback(
-          id: FirestoreHelper.feedbackDocumentId(sessionId, index),
+          id: SessionDatabase.feedbackDocumentId(sessionId, index),
           sessionId: sessionId,
           message: item.feedback,
           feedbackType: item.feedbackType,

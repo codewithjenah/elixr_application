@@ -265,7 +265,7 @@ void main() {
       expect(find.text('Account One Class'), findsNothing);
       expect(find.text('Account Two Class'), findsOneWidget);
 
-      auth.handleFirebaseAuthIdentityChanged(null);
+      auth.handleAuthIdentityChanged(null);
       await tester.pump();
 
       expect(find.text('Account Two Class'), findsNothing);

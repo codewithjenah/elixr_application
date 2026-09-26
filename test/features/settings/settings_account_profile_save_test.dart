@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
@@ -78,7 +77,7 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
     lastPictureUpdate = profilePictureUpdate;
     lastUpdateFields = {
       'first_name': firstName,
-      'middle_name': middleName ?? FieldValue.delete(),
+      'middle_name': middleName,
       'last_name': lastName,
     };
     _user = User(

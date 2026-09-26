@@ -1,9 +1,10 @@
+import 'dart:io';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_submission_limits.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/phase6_submission_diagnostics.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:flutter_test/flutter_test.dart';
 
 AssignmentAttempt draftAttempt({
@@ -138,18 +139,18 @@ void main() {
     await emitPhase6DurableDraftAnchor(
       draft: draftAttempt(),
       readAttempt: ({required attemptId}) async {
-        throw FirebaseException(
-          plugin: 'cloud_firestore',
-          code: 'permission-denied',
-          message: 'Missing or insufficient permissions.',
+        throw const PostgrestException(
+          message: 'forbidden',
+          code: '42501',
+          details: 'Missing or insufficient permissions.',
         );
       },
       diagnosticLog: logs.add,
     );
     expect(logs, hasLength(1));
     expect(logs.single, contains('[Phase6StorageAnchor] read_failed'));
-    expect(logs.single, contains('plugin=cloud_firestore'));
-    expect(logs.single, contains('code=permission-denied'));
+    expect(logs.single, contains('source=database'));
+    expect(logs.single, contains('code=42501'));
     expect(logs.single, isNot(contains('token')));
   });
 
@@ -189,10 +190,8 @@ void main() {
         auth: Phase6StorageAuthProbe(
           uid: 'OeflNaVfBkZ93BLOsGhRyOv6WAD3',
           forceRefreshIdToken: () async {
-            throw FirebaseException(
-              plugin: 'firebase_auth',
-              code: 'network-request-failed',
-              message: 'id_token=abc.secret refresh_token=xyz',
+            throw const SocketException(
+              'id_token=abc.secret refresh_token=xyz',
             );
           },
         ),
@@ -200,7 +199,7 @@ void main() {
       );
       expect(
         logs.singleWhere((line) => line.contains('token_refresh_failed')),
-        contains('code=network-request-failed'),
+        contains('error_type=SocketException'),
       );
       expect(logs.join('\n'), isNot(contains('abc.secret')));
       expect(logs.join('\n'), isNot(contains('xyz')));

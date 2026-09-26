@@ -31,7 +31,7 @@ import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 /// Test double: every exact lesson is already complete.
 class _ReadyTutorials extends TutorialProgressService {
@@ -979,10 +979,10 @@ void main() {
   testWidgets(
     'assignment initialization permission denial does not prepare the camera',
     (tester) async {
-      assignments.startError = FirebaseException(
-        plugin: 'cloud_firestore',
-        code: 'permission-denied',
-        message: 'Missing or insufficient permissions.',
+      assignments.startError = const PostgrestException(
+        message: 'forbidden',
+        code: '42501',
+        details: 'Missing or insufficient permissions.',
       );
       await pumpScreen(
         tester,

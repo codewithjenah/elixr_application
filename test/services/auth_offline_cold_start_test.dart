@@ -148,7 +148,7 @@ void main() {
     repository: repository,
     traineeProfileSnapshotStore: store,
     traineeProgressionSnapshotStore: progressionStore,
-    currentFirebaseAuthUid: firebaseUid,
+    currentAuthUid: firebaseUid,
     awaitInitialAuthState: () async {},
   );
 

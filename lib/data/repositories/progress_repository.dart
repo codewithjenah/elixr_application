@@ -1,6 +1,6 @@
 import 'package:elixr_core/utils/comparable_rubric_progress.dart';
 
-import '../database/firestore_helper.dart';
+import '../database/session_database.dart';
 import '../models/session.dart';
 
 class ProgressStats {
@@ -95,10 +95,10 @@ class ProgressStats {
 }
 
 class ProgressRepository {
-  ProgressRepository({FirestoreHelper? db}) : _dbOverride = db;
+  ProgressRepository({SessionDatabase? db}) : _dbOverride = db;
 
-  final FirestoreHelper? _dbOverride;
-  FirestoreHelper get _db => _dbOverride ?? FirestoreHelper.instance;
+  final SessionDatabase? _dbOverride;
+  SessionDatabase get _db => _dbOverride ?? SessionDatabase.instance;
 
   Future<ProgressStats> getStatsForUser(String userId) async {
     final total = await _db.countSessionsForUser(userId);

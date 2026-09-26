@@ -6,7 +6,7 @@ import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/services/websocket_service.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -118,7 +118,11 @@ void main() {
     );
     expect(
       livePracticeAssignmentStartFailureMessage(
-        FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied'),
+        const PostgrestException(
+          message: 'forbidden',
+          code: '42501',
+          details: 'permission-denied',
+        ),
       ),
       contains('permission'),
     );

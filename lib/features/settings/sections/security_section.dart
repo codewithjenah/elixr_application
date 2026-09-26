@@ -3,6 +3,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show FunctionException, PostgrestException, StorageException;
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
@@ -146,23 +148,15 @@ class SecuritySectionState extends State<SecuritySection> {
 
   /// Maps delete-account failures for the dialog.
   ///
-  /// Auth/re-auth messages stay specific. Raw Firebase plugin errors are
-  /// replaced with a clean erasure failure message.
+  /// Auth/re-auth messages stay specific. Raw database, storage and function
+  /// errors are replaced with a clean erasure failure message.
   static String _messageForDeleteAccountFailure(Object error) {
-    final message = error.toString().replaceFirst('Exception: ', '');
-    if (_looksLikeRawFirebaseError(message)) {
+    if (error is PostgrestException ||
+        error is StorageException ||
+        error is FunctionException) {
       return accountErasurePurgeFailedMessage;
     }
-    return message;
-  }
-
-  static bool _looksLikeRawFirebaseError(String message) {
-    return message.contains('[cloud_firestore/') ||
-        message.contains('[firebase_storage/') ||
-        message.contains('cloud_firestore/') ||
-        message.contains('firebase_storage/') ||
-        (message.contains('permission-denied') &&
-            (message.contains('firestore') || message.contains('storage')));
+    return error.toString().replaceFirst('Exception: ', '');
   }
 
   @override

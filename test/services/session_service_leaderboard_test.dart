@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:elixr_application/data/database/firestore_helper.dart';
+import 'package:elixr_application/data/database/session_database.dart';
 import 'package:elixr_application/data/models/feedback.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
@@ -77,7 +77,7 @@ void main() {
       expect(capturedFeedbacks, hasLength(2));
       expect(
         capturedFeedbacks!.first.id,
-        FirestoreHelper.feedbackDocumentId(id, 0),
+        SessionDatabase.feedbackDocumentId(id, 0),
       );
       expect(capturedFeedbacks!.last.message, 'Keep your wrist steady');
     },

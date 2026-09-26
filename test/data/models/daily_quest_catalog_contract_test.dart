@@ -4,111 +4,54 @@ import 'package:elixr_application/data/models/daily_quest.dart';
 import 'package:elixr_application/data/models/daily_quest_eligibility.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Guards against `lib/data/models/daily_quest.dart` and `firestore.rules`
-/// drifting apart. Security rules cannot import Dart source, so the quest
-/// catalog's ids, XP-tier partition, and category-conflict partition are
-/// deliberately duplicated as literal lists in `firestore.rules`. This test
-/// parses those literals straight out of the rules file and asserts they
-/// match the Dart catalog exactly, so an edit to one side without the other
-/// fails loudly here instead of silently diverging in production.
-List<String> _extractIdList(String rulesSource, String functionName) {
-  final pattern = RegExp('function $functionName\\(\\)\\s*\\{([\\s\\S]*?)\\}');
-  final match = pattern.firstMatch(rulesSource);
-  if (match == null) {
-    fail('Could not find function $functionName() in firestore.rules');
-  }
-  final body = match.group(1)!;
-  final idPattern = RegExp("'([a-zA-Z0-9_]+)'");
-  return idPattern.allMatches(body).map((m) => m.group(1)!).toList();
+/// Guards against `lib/data/models/daily_quest.dart` and the server-side
+/// quest catalog (`private.quest_definition` in the core migration) drifting
+/// apart. The database cannot import Dart, so claim evaluation duplicates the
+/// ids, XP tiers, and categories; an edit to one side without the other fails
+/// here instead of silently diverging in production.
+Map<String, (int xp, String kind)> _sqlQuestCatalog() {
+  final source = File(
+    'supabase/migrations/20260926000100_elixr_core.sql',
+  ).readAsStringSync();
+  final start = source.indexOf('function private.quest_definition(');
+  if (start < 0) fail('Could not find private.quest_definition()');
+  final block = source.substring(start, source.indexOf(r'$$;', start));
+  return {
+    for (final m in RegExp(
+      r'''when '([a-z0-9_]+)' then '\[(\d+), "([a-z]+)"''',
+    ).allMatches(block))
+      m.group(1)!: (int.parse(m.group(2)!), m.group(3)!),
+  };
 }
 
 void main() {
-  late String rulesSource;
+  late Map<String, (int xp, String kind)> sql;
 
-  setUpAll(() {
-    // `flutter test` runs with the repository root as the working
-    // directory, so this relative path resolves to the real ruleset.
-    final file = File('firestore.rules');
-    if (!file.existsSync()) {
-      fail(
-        'Could not find firestore.rules relative to the test working directory',
-      );
+  setUpAll(() => sql = _sqlQuestCatalog());
+
+  test('the database quest catalog lists exactly the Dart catalog ids', () {
+    expect(sql.keys.toSet(), questCatalog.map((q) => q.id).toSet());
+  });
+
+  test('database XP matches the Dart tier of every quest', () {
+    for (final quest in questCatalog) {
+      expect(sql[quest.id]!.$1, quest.tier.xp, reason: quest.id);
     }
-    rulesSource = file.readAsStringSync();
   });
 
-  test('questCatalogIds() lists exactly the Dart catalog ids', () {
-    final ruleIds = _extractIdList(rulesSource, 'questCatalogIds').toSet();
-    final dartIds = questCatalog.map((q) => q.id).toSet();
-    expect(ruleIds, dartIds);
+  test('database kinds match the Dart category-conflict partition', () {
+    Set<String> sqlIds(String kind) => {
+      for (final e in sql.entries)
+        if (e.value.$2 == kind) e.key,
+    };
+    Set<String> dartIds(QuestCategory category) => questCatalog
+        .where((q) => q.category == category)
+        .map((q) => q.id)
+        .toSet();
+    expect(sqlIds('count'), dartIds(QuestCategory.sessionCount));
+    expect(sqlIds('duration'), dartIds(QuestCategory.duration));
+    expect(sqlIds('best'), dartIds(QuestCategory.scoreThreshold));
   });
-
-  test('easyIds()/mediumIds()/hardIds() match the Dart tier partition', () {
-    final ruleEasy = _extractIdList(rulesSource, 'easyIds').toSet();
-    final ruleMedium = _extractIdList(rulesSource, 'mediumIds').toSet();
-    final ruleHard = _extractIdList(rulesSource, 'hardIds').toSet();
-
-    final dartEasy = questCatalog
-        .where((q) => q.tier == QuestTier.easy)
-        .map((q) => q.id)
-        .toSet();
-    final dartMedium = questCatalog
-        .where((q) => q.tier == QuestTier.medium)
-        .map((q) => q.id)
-        .toSet();
-    final dartHard = questCatalog
-        .where((q) => q.tier == QuestTier.hard)
-        .map((q) => q.id)
-        .toSet();
-
-    expect(
-      ruleEasy,
-      dartEasy,
-      reason: 'easyIds() diverged from QuestTier.easy',
-    );
-    expect(
-      ruleMedium,
-      dartMedium,
-      reason: 'mediumIds() diverged from QuestTier.medium',
-    );
-    expect(
-      ruleHard,
-      dartHard,
-      reason: 'hardIds() diverged from QuestTier.hard',
-    );
-  });
-
-  test(
-    'sessionCountIds()/durationIds()/scoreThresholdIds() match the Dart category partition',
-    () {
-      final ruleSessionCount = _extractIdList(
-        rulesSource,
-        'sessionCountIds',
-      ).toSet();
-      final ruleDuration = _extractIdList(rulesSource, 'durationIds').toSet();
-      final ruleScoreThreshold = _extractIdList(
-        rulesSource,
-        'scoreThresholdIds',
-      ).toSet();
-
-      final dartSessionCount = questCatalog
-          .where((q) => q.category == QuestCategory.sessionCount)
-          .map((q) => q.id)
-          .toSet();
-      final dartDuration = questCatalog
-          .where((q) => q.category == QuestCategory.duration)
-          .map((q) => q.id)
-          .toSet();
-      final dartScoreThreshold = questCatalog
-          .where((q) => q.category == QuestCategory.scoreThreshold)
-          .map((q) => q.id)
-          .toSet();
-
-      expect(ruleSessionCount, dartSessionCount);
-      expect(ruleDuration, dartDuration);
-      expect(ruleScoreThreshold, dartScoreThreshold);
-    },
-  );
 
   test('every catalog id has fixed XP matching its tier (10/15/20 only)', () {
     for (final quest in questCatalog) {

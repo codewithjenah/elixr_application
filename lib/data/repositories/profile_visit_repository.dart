@@ -1,7 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
 
-import '../database/firestore_helper.dart';
 import '../models/profile_visit.dart';
 import '../models/public_profile.dart';
 import 'public_profile_repository.dart';
@@ -9,53 +9,31 @@ import 'public_profile_repository.dart';
 /// Persistence for profile visitor records.
 class ProfileVisitRepository {
   ProfileVisitRepository({
-    FirebaseFirestore? firestore,
+    SupabaseClient? client,
     PublicProfileRepository? publicProfileRepository,
-  }) : _firestoreOverride = firestore,
+  }) : _clientOverride = client,
        _publicProfileRepository =
            publicProfileRepository ?? PublicProfileRepository();
 
-  final FirebaseFirestore? _firestoreOverride;
+  final SupabaseClient? _clientOverride;
   final PublicProfileRepository _publicProfileRepository;
 
-  FirebaseFirestore get _firestore =>
-      _firestoreOverride ?? FirebaseFirestore.instance;
+  SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
 
-  DocumentReference<Map<String, dynamic>> _visitRef(
-    String profileOwnerId,
-    String viewerId,
-  ) => _firestore
-      .collection(FirestoreCollections.profileVisits)
-      .doc(profileOwnerId)
-      .collection('visitors')
-      .doc(viewerId);
-
-  /// Records or updates a visit. Self-visits are ignored.
+  /// Records or updates a visit. Self-visits are ignored. The server derives
+  /// the viewer from the session and stamps both timestamps.
   Future<void> upsertVisit({
     required String profileOwnerId,
     required String viewerId,
   }) async {
     if (profileOwnerId.isEmpty || viewerId.isEmpty) return;
     if (profileOwnerId == viewerId) return;
+    if (_client.auth.currentUser?.id != viewerId) return;
 
-    final ref = _visitRef(profileOwnerId, viewerId);
-    final snap = await ref.get();
-
-    if (!snap.exists) {
-      await ref.set({
-        'profile_owner_id': profileOwnerId,
-        'viewer_id': viewerId,
-        'first_viewed_at': FieldValue.serverTimestamp(),
-        'last_viewed_at': FieldValue.serverTimestamp(),
-      });
-      return;
-    }
-
-    await ref.update({
-      'profile_owner_id': profileOwnerId,
-      'viewer_id': viewerId,
-      'last_viewed_at': FieldValue.serverTimestamp(),
-    });
+    await _client.rpc<dynamic>(
+      'record_profile_visit',
+      params: {'p_profile_owner_id': profileOwnerId},
+    );
   }
 
   /// Fetches recent visitors for the profile owner, newest first.
@@ -63,17 +41,16 @@ class ProfileVisitRepository {
     required String profileOwnerId,
     int limit = 20,
   }) async {
-    final snapshot = await _firestore
-        .collection(FirestoreCollections.profileVisits)
-        .doc(profileOwnerId)
-        .collection('visitors')
-        .orderBy('last_viewed_at', descending: true)
-        .limit(limit)
-        .get();
+    final rows = await _client
+        .from('profile_visits')
+        .select()
+        .eq('profile_owner_id', profileOwnerId)
+        .order('last_viewed_at', ascending: false)
+        .limit(limit);
 
     final displays = <ProfileVisitDisplay>[];
-    for (final doc in snapshot.docs) {
-      final visit = ProfileVisit.tryFromMap(doc.data(), id: doc.id);
+    for (final row in rows) {
+      final visit = ProfileVisit.tryFromMap(compactRow(row));
       if (visit == null) continue;
 
       PublicProfile? viewerProfile;

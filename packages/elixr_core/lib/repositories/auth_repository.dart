@@ -1,22 +1,17 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase/supabase.dart' as sb;
 
-import '../database/firestore_collections.dart';
+import '../database/supabase_support.dart';
 import '../database/user_profile_store.dart';
 import '../models/coach_code.dart';
 import '../models/teacher_access_code_exception.dart';
 import '../models/user.dart';
 import '../privacy/privacy_consent.dart';
-import '../utils/manila_day.dart';
 import '../utils/user_name.dart';
-import 'firebase_teacher_access_code_repository.dart';
-import 'profile_image_repository.dart';
+import 'supabase_teacher_access_code_repository.dart';
 import 'teacher_access_code_repository.dart';
 
 export '../privacy/privacy_consent.dart';
@@ -38,7 +33,7 @@ class ProfilePictureUpdate {
 
 enum EmailChangeRequestResult { unchanged, verificationSent }
 
-/// Sign-in capabilities reported by Firebase for the active identity.
+/// Sign-in capabilities of the active identity.
 enum AuthProviderKind { password, google }
 
 /// The product role the user selected before Google onboarding started.
@@ -117,25 +112,21 @@ class GoogleSignInCancelledException implements Exception {
   String toString() => 'Google sign-in was cancelled.';
 }
 
-/// Google OAuth tokens acquired by a platform-specific interactive flow.
-///
-/// Windows cannot use Firebase C++'s `SignInWithProvider`, so the desktop app
-/// supplies this flow and the repository exchanges the resulting Google token
-/// for the normal Firebase credential.
+/// Result of a platform-specific interactive Google OAuth flow: the PKCE
+/// authorization code returned to the loopback redirect.
 class GoogleOAuthCredential {
-  const GoogleOAuthCredential({
-    this.idToken,
-    this.accessToken,
-    required this.isNewUser,
-  });
+  const GoogleOAuthCredential({required this.authorizationCode});
 
-  final String? idToken;
-  final String? accessToken;
-  final bool isNewUser;
+  final String authorizationCode;
 }
 
+/// Builds the provider authorization URL for a loopback [redirectUri].
+typedef OAuthAuthorizationUrlBuilder = Future<Uri> Function(Uri redirectUri);
+
 abstract class GoogleOAuthFlow {
-  Future<GoogleOAuthCredential> authenticate();
+  Future<GoogleOAuthCredential> authenticate(
+    OAuthAuthorizationUrlBuilder authorizationUrlFor,
+  );
 }
 
 class GoogleOAuthFlowException implements Exception {
@@ -204,7 +195,7 @@ class PendingEmailChangeRecoveryResult {
   }
 }
 
-/// The outcome of restoring an already-persisted Firebase identity's ELIXR
+/// The outcome of restoring an already-persisted auth identity's ELIXR
 /// profile. This deliberately distinguishes an unavailable backend from an
 /// invalid account so callers can make a safe offline decision.
 enum PersistedProfileRestorationStatus {
@@ -233,7 +224,7 @@ class PersistedProfileRestoration {
     : this._(PersistedProfileRestorationStatus.invalidProfile);
 }
 
-/// A locally retained Firebase user was rejected during refresh for a reason
+/// A locally retained session was rejected by the auth server for a reason
 /// other than backend availability. It must never authorize an offline cache.
 class InvalidPersistedAuthIdentityException implements Exception {
   const InvalidPersistedAuthIdentityException();
@@ -253,13 +244,13 @@ abstract class AuthRepositoryBase {
 
   Future<User> login({required String email, required String password});
 
-  /// Sends a Firebase Auth password-reset email.
+  /// Sends a password-reset email.
   ///
   /// Must not reveal whether [email] is registered. Callers should show a
   /// generic success message after this completes without error.
   ///
-  /// When [continueUrl] is set, Firebase redirects there after the reset
-  /// action so the desktop app can detect completion.
+  /// When [continueUrl] is set, the recovery link redirects there so the
+  /// desktop app can complete the reset locally.
   Future<void> sendPasswordResetEmail({
     required String email,
     String? continueUrl,
@@ -277,7 +268,7 @@ abstract class AuthRepositoryBase {
     ProfilePictureUpdate? profilePictureUpdate,
   });
 
-  /// Persists a Cloud Storage avatar mutation for [userId].
+  /// Persists a Storage avatar mutation for [userId].
   ///
   /// Does not write name or email fields. Retires the legacy local
   /// `profile_picture_path` once a cloud URL exists.
@@ -292,12 +283,9 @@ abstract class AuthRepositoryBase {
     String? continueUrl,
   });
 
-  /// Reloads the Firebase user and returns whether the current email is verified.
-  ///
-  /// Firestore rules read `request.auth.token.email_verified` from the ID
-  /// token, not `User.emailVerified`. When the user is verified, this also
-  /// force-refreshes a stale token so roster writes are not denied after
-  /// `reload()` alone.
+  /// Refreshes the auth user from the server and returns whether its email is
+  /// confirmed. Server authorization reads confirmation from `auth.users`, so
+  /// no token refresh is needed after confirmation.
   Future<bool> isCurrentEmailVerified();
 
   Future<void> requestCurrentEmailVerification({String? continueUrl});
@@ -309,9 +297,9 @@ abstract class AuthRepositoryBase {
     required String newPassword,
   });
 
-  /// Re-authenticates with [password], purges the user's Firestore/Storage
-  /// data, then deletes the Firebase Auth user. Does not delete Auth if the
-  /// data purge fails.
+  /// Re-authenticates with [password], then erases the account server-side
+  /// (data, Storage objects, then the auth user). Nothing is deleted when the
+  /// re-authentication fails.
   Future<void> deleteAccount({
     required String password,
     required String expectedUserId,
@@ -326,7 +314,7 @@ abstract class AuthRepositoryBase {
 }
 
 /// Optional capability so existing product-specific repositories and test
-/// doubles remain source compatible while the Firebase implementation can
+/// doubles remain source compatible while the production implementation can
 /// expose safe offline-restoration semantics.
 abstract class PersistedProfileRestorationRepository {
   Future<PersistedProfileRestoration> restorePersistedProfile();
@@ -364,7 +352,7 @@ abstract class TeacherRegistrationRepositoryBase {
 }
 
 /// Server-authoritative Teacher authorization exposed separately so callers
-/// can refresh a stale claim without changing Trainee repository contracts.
+/// can verify Teacher evidence without changing Trainee repository contracts.
 abstract class TeacherAuthorizationRepositoryBase {
   Future<void> ensureTeacherRoleClaim();
 }
@@ -402,66 +390,23 @@ abstract class TeacherGoogleAuthRepositoryBase {
   });
 }
 
-enum _AuthErrorContext { login, reauthentication, emailChange }
+/// Optional email-link capabilities of the Supabase PKCE flow: an email
+/// verification or recovery link returns an authorization code to the
+/// desktop loopback callback.
+abstract class EmailLinkAuthRepositoryBase {
+  /// Exchanges a verification-link code for a session.
+  Future<void> completeEmailVerificationLink(String code);
 
-/// Deletes known + listed profile Storage objects for [uid].
-///
-/// `object-not-found` is treated as already-clean; every other
-/// [FirebaseException] is rethrown so account erasure can fail closed.
-@visibleForTesting
-Future<void> deleteProfileStorageObjects({
-  required String uid,
-  String? storagePath,
-  required ProfileImageRepositoryBase profileImages,
-  required Future<List<String>> Function(String uid) listObjectPaths,
-}) async {
-  if (storagePath != null && storagePath.isNotEmpty) {
-    await profileImages.deleteProfileImage(
-      authenticatedUid: uid,
-      storagePath: storagePath,
-    );
-  }
-
-  try {
-    final paths = await listObjectPaths(uid);
-    for (final path in paths) {
-      await profileImages.deleteProfileImage(
-        authenticatedUid: uid,
-        storagePath: path,
-      );
-    }
-  } on FirebaseException catch (e) {
-    if (e.code == 'object-not-found') return;
-    rethrow;
-  }
+  /// Exchanges a recovery-link code, sets [newPassword], then signs out so
+  /// the user signs in again with the new credential.
+  Future<void> completePasswordReset({
+    required String code,
+    required String newPassword,
+  });
 }
 
-/// Force-refreshes the Firebase ID token when `User.emailVerified` is true but
-/// the cached JWT still has `email_verified: false`.
-///
-/// `User.reload()` updates the User object; Firestore still evaluates
-/// `request.auth.token` until `getIdToken(true)` mints a new token.
-@visibleForTesting
-Future<void> refreshStaleEmailVerifiedIdToken({
-  required bool emailVerified,
-  required Future<Map<String, dynamic>?> Function() readClaims,
-  required Future<void> Function() forceRefreshIdToken,
-}) async {
-  if (!emailVerified) return;
-  var claimVerified = false;
-  try {
-    final claims = await readClaims();
-    claimVerified = claims?['email_verified'] == true;
-  } catch (_) {
-    // Inspecting the cached JWT failed. Force a refresh so Firestore
-    // sees the same verification state as User.emailVerified.
-    claimVerified = false;
-  }
-  if (claimVerified) return;
-  await forceRefreshIdToken();
-}
-
-/// User-facing message when Firestore/Storage purge fails before Auth delete.
+/// User-facing message when server-side erasure fails before the auth user
+/// is deleted.
 const accountErasurePurgeFailedMessage =
     "We couldn't finish deleting all of your account data, so your sign-in "
     'account was not removed. Please try again.';
@@ -469,344 +414,20 @@ const accountErasurePurgeFailedMessage =
 const accountDeletionRequiresTypedConfirmationMessage =
     'Type the displayed confirmation phrase before deleting your account.';
 
-/// Thrown from a purge stage so debug logs can identify where erasure failed.
+/// Runs the server-side erasure; a failure is reported with a stable message
+/// and leaves the sign-in account intact.
 @visibleForTesting
-class AccountPurgeStageException implements Exception {
-  AccountPurgeStageException({required this.stage, required this.cause});
-
-  final String stage;
-  final Object cause;
-
-  @override
-  String toString() => 'AccountPurgeStageException($stage): $cause';
-}
-
-String _describeAccountPurgeError(Object error) {
-  if (error is FirebaseException) {
-    return 'plugin=${error.plugin} code=${error.code} '
-        'message=${error.message ?? '(none)'}';
-  }
-  if (error is AccountPurgeStageException) {
-    return 'stage=${error.stage}; ${_describeAccountPurgeError(error.cause)}';
-  }
-  return error.toString();
-}
-
-void _logAccountPurgeFailure(Object error) {
-  if (!kDebugMode) return;
-  debugPrint(
-    'Account erasure purge failed: ${_describeAccountPurgeError(error)}',
-  );
-}
-
-/// Purges Phase 2 classroom data for account erasure. Trainees lose their
-/// memberships; Teachers lose owned groups, announcement subcollections, active
-/// group invites (derived from group pointers), lifecycle status projections,
-/// and related memberships.
-@visibleForTesting
-Future<void> purgePhase2GroupDataForAccountErasure({
-  required FirebaseFirestore firestore,
-  required Future<void> Function(List<DocumentReference>) commitDeletes,
-  required String uid,
-}) async {
-  final refs = <String, DocumentReference>{};
-
-  final asTraineeMemberships = await firestore
-      .collection(FirestoreCollections.groupMemberships)
-      .where('trainee_id', isEqualTo: uid)
-      .get();
-  for (final doc in asTraineeMemberships.docs) {
-    refs[doc.reference.path] = doc.reference;
-  }
-
-  final ownedGroups = await firestore
-      .collection(FirestoreCollections.groups)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  for (final doc in ownedGroups.docs) {
-    refs[doc.reference.path] = doc.reference;
-    final lifecycleStatus = doc.reference.collection('lifecycle').doc('status');
-    refs[lifecycleStatus.path] = lifecycleStatus;
-    final announcementDocs = await doc.reference
-        .collection(FirestoreCollections.classroomAnnouncements)
-        .get();
-    for (final announcement in announcementDocs.docs) {
-      refs[announcement.reference.path] = announcement.reference;
-    }
-    final inviteCode = doc.data()['invite_code'];
-    if (inviteCode is String &&
-        inviteCode.isNotEmpty &&
-        CoachCode.isNormalized(inviteCode)) {
-      final inviteRef = firestore
-          .collection(FirestoreCollections.groupInvites)
-          .doc(inviteCode);
-      refs[inviteRef.path] = inviteRef;
-    }
-  }
-
-  final asTeacherMemberships = await firestore
-      .collection(FirestoreCollections.groupMemberships)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  for (final doc in asTeacherMemberships.docs) {
-    refs[doc.reference.path] = doc.reference;
-  }
-
-  await commitDeletes(refs.values.toList());
-}
-
-/// Purges the private classroom authorization pointer for every relationship
-/// in which [uid] is either participant. This runs while the user's profile
-/// still exists so the participant-scoped Firestore rules can authorize both
-/// queries and deletes.
-@visibleForTesting
-Future<void> purgeClassroomTeacherAccessForAccountErasure({
-  required FirebaseFirestore firestore,
-  required Future<void> Function(List<DocumentReference>) commitDeletes,
-  required String uid,
-}) async {
-  final refs = <String, DocumentReference>{};
-  final asTeacher = await firestore
-      .collection(FirestoreCollections.classroomTeacherAccess)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  final asTrainee = await firestore
-      .collection(FirestoreCollections.classroomTeacherAccess)
-      .where('trainee_id', isEqualTo: uid)
-      .get();
-  for (final doc in [...asTeacher.docs, ...asTrainee.docs]) {
-    refs[doc.reference.path] = doc.reference;
-  }
-  await commitDeletes(refs.values.toList());
-}
-
-/// Purges Teacher-owned Phase 5 classroom definitions before the users
-/// document is removed. Ordinary Teachers keep delete permission on their
-/// own movement/assignment documents while verified; this path also works
-/// after the users document is gone.
-@visibleForTesting
-Future<void> purgePhase5ClassroomOwnedDataForAccountErasure({
-  required FirebaseFirestore firestore,
-  required Future<void> Function(List<DocumentReference>) commitDeletes,
-  required String uid,
-}) async {
-  final refs = <String, DocumentReference>{};
-
-  final ownedMovements = await firestore
-      .collection(FirestoreCollections.teacherMovements)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  for (final movement in ownedMovements.docs) {
-    final revisions = await movement.reference
-        .collection(FirestoreCollections.teacherMovementRevisions)
-        .get();
-    for (final revision in revisions.docs) {
-      refs[revision.reference.path] = revision.reference;
-    }
-    refs[movement.reference.path] = movement.reference;
-  }
-
-  final ownedAssignments = await firestore
-      .collection(FirestoreCollections.groupAssignments)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  for (final assignment in ownedAssignments.docs) {
-    refs[assignment.reference.path] = assignment.reference;
-  }
-
-  await commitDeletes(refs.values.toList());
-}
-
-/// Recipient projections are private authorization data. They are removed
-/// after the profile document is gone because their rules intentionally allow
-/// only this narrow self-erasure path at that point.
-@visibleForTesting
-Future<void> purgeAssignmentRecipientsForAccountErasure({
-  required FirebaseFirestore firestore,
-  required Future<void> Function(List<DocumentReference>) commitDeletes,
-  required String uid,
-}) async {
-  final refs = <String, DocumentReference>{};
-  final asTrainee = await firestore
-      .collectionGroup(FirestoreCollections.assignmentRecipients)
-      .where('trainee_id', isEqualTo: uid)
-      .get();
-  final asTeacher = await firestore
-      .collectionGroup(FirestoreCollections.assignmentRecipients)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  for (final doc in [...asTrainee.docs, ...asTeacher.docs]) {
-    refs[doc.reference.path] = doc.reference;
-  }
-  await commitDeletes(refs.values.toList());
-}
-
-/// Canonical assignment-submission object path from frozen attempt identity.
-///
-/// Used during account erasure when `video_storage_path` was never written
-/// (abandoned drafts) and when the stored path is present. Throws if a
-/// `teacher_review_submission` is missing frozen identity fields so erasure
-/// fails closed instead of skipping an object that may still exist.
-@visibleForTesting
-String canonicalAssignmentSubmissionStoragePath({
-  required String attemptId,
-  required Map<String, dynamic> data,
-}) {
-  if (data['attempt_kind'] != 'teacher_review_submission') {
-    throw StateError(
-      'canonical assignment submission path requires teacher_review_submission',
-    );
-  }
-  String readId(String key) {
-    final value = data[key];
-    if (value is! String) {
-      throw StateError(
-        'teacher_review_submission $attemptId is missing $key for Storage cleanup',
-      );
-    }
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      throw StateError(
-        'teacher_review_submission $attemptId is missing $key for Storage cleanup',
-      );
-    }
-    return trimmed;
-  }
-
-  final id = attemptId.trim();
-  if (id.isEmpty) {
-    throw StateError(
-      'teacher_review_submission is missing attempt id for Storage cleanup',
-    );
-  }
-  return 'assignment_submissions/${readId('teacher_id')}/'
-      '${readId('group_id')}/${readId('assignment_id')}/'
-      '${readId('trainee_id')}/$id.mp4';
-}
-
-/// Purges assignment-submission MP4s while the matching attempt documents
-/// still exist. Storage rules authorize delete from the frozen Trainee or
-/// assigning Teacher identity on those documents.
-@visibleForTesting
-Future<void> purgeAssignmentSubmissionVideosForAccountErasure({
-  required FirebaseFirestore firestore,
-  required Future<void> Function(String storagePath) deleteObject,
-  required String uid,
-}) async {
-  final paths = <String>{};
-  final asTrainee = await firestore
-      .collection(FirestoreCollections.assignmentAttempts)
-      .where('trainee_id', isEqualTo: uid)
-      .get();
-  final asTeacher = await firestore
-      .collection(FirestoreCollections.assignmentAttempts)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  for (final doc in [...asTrainee.docs, ...asTeacher.docs]) {
-    final data = doc.data();
-    if (data['attempt_kind'] == 'teacher_review_submission') {
-      paths.add(
-        canonicalAssignmentSubmissionStoragePath(attemptId: doc.id, data: data),
-      );
-    }
-    final path = data['video_storage_path'];
-    if (path is String && path.trim().isNotEmpty) {
-      paths.add(path.trim());
-    }
-  }
-  for (final path in paths) {
-    try {
-      await deleteObject(path);
-    } on FirebaseException catch (error) {
-      if (error.code != 'object-not-found') rethrow;
-    }
-  }
-}
-
-/// Purges `assignment_attempts` after the caller's users document is gone.
-///
-/// Rules allow this only during account erasure (`!exists(users/{uid})`).
-/// Ordinary Teachers must not receive generic delete permission on trainee
-/// classroom attempts.
-@visibleForTesting
-Future<void> purgePhase5AssignmentAttemptsForAccountErasure({
-  required FirebaseFirestore firestore,
-  required Future<void> Function(List<DocumentReference>) commitDeletes,
-  required String uid,
-}) async {
-  final refs = <String, DocumentReference>{};
-  final asTrainee = await firestore
-      .collection(FirestoreCollections.assignmentAttempts)
-      .where('trainee_id', isEqualTo: uid)
-      .get();
-  final asTeacher = await firestore
-      .collection(FirestoreCollections.assignmentAttempts)
-      .where('teacher_id', isEqualTo: uid)
-      .get();
-  for (final doc in asTrainee.docs) {
-    refs[doc.reference.path] = doc.reference;
-  }
-  for (final doc in asTeacher.docs) {
-    refs[doc.reference.path] = doc.reference;
-  }
-  await commitDeletes(refs.values.toList());
-}
-
-/// Purges account data then deletes Auth. Auth deletion runs only after a
-/// successful purge.
-@visibleForTesting
-Future<void> finishAccountDeletionAfterPurge({
-  required Future<void> Function() purgeUserData,
-  required Future<void> Function() deleteAuthUser,
-}) async {
+Future<void> runAccountErasure(Future<void> Function() erase) async {
   try {
-    await purgeUserData();
-  } catch (e) {
-    _logAccountPurgeFailure(e);
+    await erase();
+  } catch (error) {
+    if (kDebugMode) debugPrint('Account erasure failed: $error');
     throw Exception(accountErasurePurgeFailedMessage);
   }
-  await deleteAuthUser();
 }
 
-/// Removes account-linked personal data from one-time Teacher access codes.
-/// Consumed-state audit facts are retained so a redeemed code never becomes
-/// usable again. Safe to retry after any partial completion.
-@visibleForTesting
-Future<void> purgeTeacherAccessCodesForAccountErasure({
-  required FirebaseFirestore firestore,
-  required String uid,
-}) async {
-  final collection = firestore.collection(
-    FirestoreCollections.teacherAccessCodes,
-  );
-  final created = await collection.where('created_by', isEqualTo: uid).get();
-  final consumed = await collection.where('consumed_by', isEqualTo: uid).get();
-  final docs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
-    for (final doc in created.docs) doc.reference.path: doc,
-    for (final doc in consumed.docs) doc.reference.path: doc,
-  };
-  for (final doc in docs.values) {
-    final data = doc.data();
-    final wasCreatedByUser = data['created_by'] == uid;
-    final wasConsumedByUser = data['consumed_by'] == uid;
-    if (wasCreatedByUser && data['consumed'] == false) {
-      await doc.reference.delete();
-      continue;
-    }
-    final updates = <String, dynamic>{};
-    if (wasCreatedByUser) {
-      updates['created_by'] = FieldValue.delete();
-      if (data.containsKey('note')) updates['note'] = FieldValue.delete();
-    }
-    if (wasConsumedByUser) {
-      updates['consumed_by'] = FieldValue.delete();
-    }
-    if (updates.isNotEmpty) await doc.reference.update(updates);
-  }
-}
-
-/// Thrown when a Firebase Auth session has no Firestore `users/{uid}` document
-/// and the client is not allowed to synthesize a Trainee profile.
+/// Thrown when an authenticated session has no ELIXR profile and the client
+/// is not allowed to synthesize a Trainee profile.
 class MissingUserProfileException implements Exception {
   const MissingUserProfileException();
 
@@ -828,7 +449,7 @@ enum AuthFailureKind {
 }
 
 /// A presentation-safe authentication failure. [message] never includes raw
-/// Firebase details or account-existence information.
+/// backend details or account-existence information.
 class AuthFailure implements Exception {
   const AuthFailure(this.kind, this.message, {this.pendingProfile});
 
@@ -852,68 +473,26 @@ class TeacherRoleClaimException implements Exception {
   String toString() => message;
 }
 
-/// Finalizes Teacher authorization with a server-verified token handshake.
-///
-/// The Windows Firebase Auth plugin can return a raw token while leaving the
-/// client-side [IdTokenResult.claims] map null. The server therefore decides
-/// whether the presented token carries the canonical Teacher claim. A 202
-/// response means the Admin claim is ready but this token must be refreshed;
-/// only a 200 response to the refreshed token completes authorization.
-@visibleForTesting
-Future<void> finalizeTeacherRoleClaim({
-  required Future<String?> Function() readBearerToken,
-  required Future<int> Function(String token) invokeFinalizer,
-  required Future<String?> Function() forceRefreshBearerToken,
-}) async {
-  final token = await readBearerToken();
-  if (token == null || token.isEmpty) {
-    throw const TeacherRoleClaimException(
-      TeacherRoleClaimFailureKind.unavailable,
-      'Teacher authorization could not be refreshed. Check your connection and try again.',
-    );
-  }
-  final status = await invokeFinalizer(token);
-  if (status == HttpStatus.ok) return;
-  if (status == HttpStatus.forbidden) {
-    throw const TeacherRoleClaimException(
-      TeacherRoleClaimFailureKind.invalidEvidence,
-      'ELIXR could not verify this account as a Teacher. Contact support if this account should have Teacher access.',
-    );
-  }
-  if (status != HttpStatus.accepted) {
-    throw const TeacherRoleClaimException(
-      TeacherRoleClaimFailureKind.unavailable,
-      'Teacher authorization could not be refreshed. Check your connection and try again.',
-    );
-  }
-  final refreshedToken = await forceRefreshBearerToken();
-  if (refreshedToken == null || refreshedToken.isEmpty) {
-    throw const TeacherRoleClaimException(
-      TeacherRoleClaimFailureKind.missingClaim,
-      'Teacher authorization is not ready yet. Please try again.',
-    );
-  }
+enum _AuthErrorContext { login, reauthentication, emailChange }
 
-  final refreshedStatus = await invokeFinalizer(refreshedToken);
-  if (refreshedStatus == HttpStatus.ok) return;
-  if (refreshedStatus == HttpStatus.forbidden) {
-    throw const TeacherRoleClaimException(
+/// Maps a Teacher-evidence verification failure to the established typed
+/// exception.
+@visibleForTesting
+TeacherRoleClaimException teacherRoleClaimExceptionFor(Object error) {
+  if (error is TeacherRoleClaimException) return error;
+  if (backendErrorCode(error) == 'teacher_evidence_invalid') {
+    return const TeacherRoleClaimException(
       TeacherRoleClaimFailureKind.invalidEvidence,
       'ELIXR could not verify this account as a Teacher. Contact support if this account should have Teacher access.',
     );
   }
-  if (refreshedStatus == HttpStatus.accepted) {
-    throw const TeacherRoleClaimException(
-      TeacherRoleClaimFailureKind.missingClaim,
-      'Teacher authorization is not ready yet. Please try again.',
-    );
-  }
-  throw const TeacherRoleClaimException(
+  return const TeacherRoleClaimException(
     TeacherRoleClaimFailureKind.unavailable,
     'Teacher authorization could not be refreshed. Check your connection and try again.',
   );
 }
 
+/// Supabase Auth + profile repository shared by ELIXR clients.
 class AuthRepository
     implements
         AuthRepositoryBase,
@@ -922,64 +501,53 @@ class AuthRepository
         TeacherAuthorizationRepositoryBase,
         TeacherGoogleAuthRepositoryBase,
         TeacherProfileBorderRepositoryBase,
-        PersistedProfileRestorationRepository {
+        PersistedProfileRestorationRepository,
+        EmailLinkAuthRepositoryBase {
   AuthRepository({
-    fb.FirebaseAuth? auth,
+    sb.SupabaseClient? client,
     UserProfileStore? db,
-    FirebaseFirestore? firestore,
-    ProfileImageRepositoryBase? profileImageRepository,
-    FirebaseStorage? storage,
     TeacherAccessCodeRepository? teacherAccessCodeRepository,
-    Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
     GoogleOAuthFlow? googleOAuthFlow,
-    Future<void> Function(String userId)? archiveChatForAccountErasure,
-    Future<void> Function(fb.User user)? teacherRoleClaimFinalizer,
+    Future<void> Function(String userId)? eraseAccountOnServer,
+    Future<String?> Function()? emailRedirectUrl,
     this.createMissingProfile = true,
-  }) : _auth = auth ?? fb.FirebaseAuth.instance,
-       _firestore = firestore ?? FirebaseFirestore.instance,
-       _db =
-           db ??
-           FirebaseUserProfileStore(
-             firestore: firestore ?? FirebaseFirestore.instance,
-           ),
-       _profileImages = profileImageRepository ?? ProfileImageRepository(),
-       _storage = storage ?? FirebaseStorage.instance,
-       _teacherAccessCodes =
-           teacherAccessCodeRepository ??
-           FirebaseTeacherAccessCodeRepository(
-             firestore: firestore ?? FirebaseFirestore.instance,
-           ),
-       _listProfileStorageObjectPaths = listProfileStorageObjectPaths,
+  }) : _clientOverride = client,
+       _dbOverride = db,
+       _teacherAccessCodesOverride = teacherAccessCodeRepository,
        _googleOAuthFlow = googleOAuthFlow,
-       _archiveChatForAccountErasureOverride = archiveChatForAccountErasure,
-       _teacherRoleClaimFinalizerOverride = teacherRoleClaimFinalizer;
+       _eraseAccountOverride = eraseAccountOnServer,
+       _emailRedirectUrl = emailRedirectUrl;
 
   static const _authOperationTimeout = Duration(seconds: 30);
-  static const _batchLimit = 500;
-  static const _whereInLimit = 30;
-  static const _chatApiBaseUrl = String.fromEnvironment(
-    'ELIXR_CHAT_API_BASE_URL',
-    defaultValue: 'https://asia-southeast1-elixr-app-2026.cloudfunctions.net/',
-  );
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
-  final fb.FirebaseAuth _auth;
-  final UserProfileStore _db;
-  final FirebaseFirestore _firestore;
-  final ProfileImageRepositoryBase _profileImages;
-  final FirebaseStorage _storage;
-  final TeacherAccessCodeRepository _teacherAccessCodes;
-  final Future<List<String>> Function(String userId)?
-  _listProfileStorageObjectPaths;
+  final sb.SupabaseClient? _clientOverride;
+  final UserProfileStore? _dbOverride;
+  final TeacherAccessCodeRepository? _teacherAccessCodesOverride;
   final GoogleOAuthFlow? _googleOAuthFlow;
-  final Future<void> Function(String userId)?
-  _archiveChatForAccountErasureOverride;
-  final Future<void> Function(fb.User user)? _teacherRoleClaimFinalizerOverride;
+  final Future<void> Function(String userId)? _eraseAccountOverride;
+  final Future<String?> Function()? _emailRedirectUrl;
 
-  /// When false, a Firebase session without a Firestore profile is signed out
-  /// instead of synthesizing a Trainee document. Teacher clients pass false
-  /// so a missing profile cannot become a Trainee user written from this app.
+  sb.SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
+  sb.GoTrueClient get _auth => _client.auth;
+  UserProfileStore get _db =>
+      _dbOverride ?? SupabaseUserProfileStore(client: _clientOverride);
+  TeacherAccessCodeRepository get _teacherAccessCodes =>
+      _teacherAccessCodesOverride ??
+      SupabaseTeacherAccessCodeRepository(client: _clientOverride);
+
+  /// Retained for source compatibility. A session without a profile is never
+  /// given a synthesized profile: creation needs explicit legal consent, so
+  /// the identity always goes through profile completion.
   final bool createMissingProfile;
+
+  /// Credentials held in memory only while a new password registration waits
+  /// for email confirmation (Supabase issues no session before then). Used to
+  /// detect confirmation made from another device; cleared on success.
+  ({String email, String password})? _pendingVerification;
+  DateTime? _signupEmailSentAt;
+  DateTime? _lastPendingVerificationProbe;
+  static const _pendingVerificationProbeInterval = Duration(seconds: 10);
 
   @override
   Future<User> register({
@@ -1006,147 +574,156 @@ class AuthRepository
         'Teacher access codes cannot be used for Trainee registration.',
       );
     }
-
-    fb.UserCredential? credential;
+    final normalizedCode = isTeacher
+        ? CoachCode.tryNormalize(teacherAccessCode ?? '')
+        : null;
+    if (isTeacher) {
+      // Specific, presentation-safe errors before an account exists. The
+      // sign-up transaction below remains the authoritative consumption.
+      try {
+        await _teacherAccessCodes.assertRedeemable(teacherAccessCode);
+      } on TeacherAccessCodeException catch (e) {
+        throw AuthFailure(
+          AuthFailureKind.provisioning,
+          e.message ?? e.toString(),
+        );
+      }
+    }
+    final normalized = normalizeUserNameParts(
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+    );
+    final trimmedEmail = email.trim();
     try {
-      credential = await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      final uid = credential.user!.uid;
-      final normalized = normalizeUserNameParts(
-        firstName: firstName,
-        middleName: middleName,
-        lastName: lastName,
-      );
-      final user = User(
-        id: uid,
+      // The profile (and Teacher code consumption) is created atomically with
+      // the auth user by the database sign-up trigger.
+      final response = await _auth
+          .signUp(
+            email: trimmedEmail,
+            password: password,
+            emailRedirectTo: await _resolveEmailRedirect(),
+            data: {
+              'elixr_registration': 'v1',
+              'role': defaultRole,
+              'first_name': normalized.firstName,
+              'middle_name': ?normalized.middleName,
+              'last_name': normalized.lastName,
+              'teacher_access_code': ?normalizedCode,
+              'privacy_policy_version': legalConsent.privacyPolicyVersion,
+              'terms_of_service_version': legalConsent.termsOfServiceVersion,
+            },
+          )
+          .timeout(_authOperationTimeout);
+      final created = response.user;
+      if (created == null) {
+        throw const AuthFailure(
+          AuthFailureKind.provisioning,
+          'ELIXR could not finish creating your profile. Sign in to resume or try again.',
+        );
+      }
+      if (response.session == null) {
+        _pendingVerification = (email: trimmedEmail, password: password);
+        _signupEmailSentAt = DateTime.now();
+      }
+      return User(
+        id: created.id,
         firstName: normalized.firstName,
         middleName: normalized.middleName,
         lastName: normalized.lastName,
-        email: credential.user!.email?.trim().isNotEmpty == true
-            ? credential.user!.email!.trim()
-            : email.trim(),
+        email: created.email?.trim().isNotEmpty == true
+            ? created.email!.trim()
+            : trimmedEmail,
         role: defaultRole,
-        teacherAccessCode: isTeacher
-            ? teacherAccessCode == null
-                  ? null
-                  : CoachCode.tryNormalize(teacherAccessCode)
-            : null,
+        teacherAccessCode: normalizedCode,
       );
-      if (isTeacher) {
-        await _teacherAccessCodes.consumeAndCreateTeacherProfile(
-          code: teacherAccessCode!,
-          user: user,
-          legalConsent: legalConsent,
+    } on sb.AuthException catch (e) {
+      if (isTeacher && _isDatabaseSignupFailure(e)) {
+        throw const AuthFailure(
+          AuthFailureKind.provisioning,
+          'That Teacher access code is invalid or has already been used.',
         );
-        await _ensureTeacherProfileAuthorized(user);
-      } else {
-        await _db.upsertUserProfile(user, legalConsent: legalConsent);
       }
-      return user;
-    } on fb.FirebaseAuthException catch (e) {
       throw _failureForAuthError(e);
-    } on TeacherAccessCodeException catch (e) {
-      final reconciled = await _reconcileRegistration(
-        credential: credential,
-        expectedRole: defaultRole,
-        teacherAccessCode: teacherAccessCode,
-      );
-      if (reconciled != null) {
-        await _ensureTeacherProfileAuthorized(reconciled);
-        return reconciled;
-      }
-      throw AuthFailure(
-        AuthFailureKind.provisioning,
-        e.message ?? e.toString(),
-      );
-    } catch (error) {
-      final reconciled = await _reconcileRegistration(
-        credential: credential,
-        expectedRole: defaultRole,
-        teacherAccessCode: teacherAccessCode,
-      );
-      if (reconciled != null) {
-        await _ensureTeacherProfileAuthorized(reconciled);
-        return reconciled;
-      }
-      if (error is AuthFailure) rethrow;
+    } on TimeoutException {
       throw const AuthFailure(
-        AuthFailureKind.provisioning,
-        'ELIXR could not finish creating your profile. Sign in to resume or try again.',
+        AuthFailureKind.network,
+        'Registration timed out. Check your internet connection and try again.',
+      );
+    } on SocketException {
+      throw const AuthFailure(
+        AuthFailureKind.network,
+        'Network error. Check your connection and try again.',
       );
     }
   }
 
-  Future<User?> _reconcileRegistration({
-    required fb.UserCredential? credential,
-    required String expectedRole,
-    required String? teacherAccessCode,
-  }) async {
-    final created = credential?.user;
-    if (created == null) return null;
-    try {
-      final expected = User(
-        id: created.uid,
-        firstName: '',
-        lastName: '',
-        email: created.email ?? '',
-        role: expectedRole,
-        teacherAccessCode: CoachCode.tryNormalize(teacherAccessCode ?? ''),
-      );
-      final profile = expectedRole == User.roleTeacher
-          ? await _teacherAccessCodes.reconcileTeacherProfile(
-              expectedUser: expected,
-              code: teacherAccessCode ?? '',
-            )
-          : await _db.getUserById(created.uid);
-      if (profile != null &&
-          profile.id == created.uid &&
-          profile.role == expectedRole &&
-          _emailsDiffer(profile.email, created.email ?? '') == false) {
-        return profile;
-      }
-      // A successful read confirming absence makes rollback safe. If this
-      // delete fails, the authenticated identity remains resumable on login.
-      await _deleteCreatedAuthUser(credential);
-    } catch (_) {
-      // An uncertain read must never trigger destructive rollback.
-    }
-    return null;
-  }
+  static bool _isDatabaseSignupFailure(sb.AuthException error) =>
+      error.code == 'unexpected_failure' ||
+      error.message.toLowerCase().contains('database error');
 
-  Future<void> _deleteCreatedAuthUser(fb.UserCredential? credential) async {
-    final created = credential?.user;
-    if (created == null) return;
+  Future<String?> _resolveEmailRedirect([String? explicit]) async {
+    final trimmed = explicit?.trim();
+    if (trimmed != null && trimmed.isNotEmpty) return trimmed;
     try {
-      await created.delete();
+      return await _emailRedirectUrl?.call();
     } catch (_) {
-      try {
-        await _auth.signOut();
-      } catch (_) {}
+      return null;
     }
   }
 
   @override
   Future<User> login({required String email, required String password}) async {
-    fb.UserCredential? credential;
+    sb.AuthResponse? response;
     try {
-      credential = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      return await _loadUserProfile(credential.user!);
-    } on fb.FirebaseAuthException catch (e) {
+      response = await _auth
+          .signInWithPassword(email: email.trim(), password: password)
+          .timeout(_authOperationTimeout);
+      final authUser = response.user;
+      if (authUser == null) {
+        throw const AuthFailure(
+          AuthFailureKind.unknown,
+          'Authentication failed',
+        );
+      }
+      _pendingVerification = null;
+      return await _loadUserProfile(authUser);
+    } on sb.AuthException catch (e) {
+      if (e.code == 'email_not_confirmed') {
+        // Unconfirmed accounts receive no session. Resend the link so the
+        // user can finish verification, without revealing more.
+        _pendingVerification = (email: email.trim(), password: password);
+        try {
+          await _auth.resend(
+            type: sb.OtpType.signup,
+            email: email.trim(),
+            emailRedirectTo: await _resolveEmailRedirect(),
+          );
+        } catch (_) {}
+        throw const AuthFailure(
+          AuthFailureKind.unknown,
+          'Verify your email address before signing in. We sent you a new verification link.',
+        );
+      }
       throw _failureForAuthError(e);
     } on MissingUserProfileException {
-      final firebaseUser = credential?.user;
+      final authUser = response?.user;
       throw AuthFailure(
         AuthFailureKind.missingProfile,
         'Your sign-in is valid, but your ELIXR profile is incomplete. Complete it to continue.',
-        pendingProfile: firebaseUser == null
+        pendingProfile: authUser == null
             ? null
-            : _pendingEmailProfile(firebaseUser),
+            : _pendingEmailProfile(authUser),
+      );
+    } on TimeoutException {
+      throw const AuthFailure(
+        AuthFailureKind.network,
+        'Sign-in timed out. Check your internet connection and try again.',
+      );
+    } on SocketException {
+      throw const AuthFailure(
+        AuthFailureKind.network,
+        'Network error. Check your connection and try again.',
       );
     }
   }
@@ -1163,76 +740,41 @@ class AuthRepository
 
   @override
   Future<void> ensureTeacherRoleClaim() async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) {
+    if (_auth.currentUser == null) {
       throw const TeacherRoleClaimException(
         TeacherRoleClaimFailureKind.unavailable,
         'Teacher authorization could not be refreshed. Sign in and try again.',
       );
     }
-    await _finalizeTeacherRoleClaim(firebaseUser);
+    await _verifyTeacherEvidence();
   }
 
   Future<void> _ensureTeacherProfileAuthorized(User profile) async {
     if (!profile.isTeacher) return;
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null || firebaseUser.uid != profile.id) {
+    final authUser = _auth.currentUser;
+    if (authUser == null || authUser.id != profile.id) {
       throw const TeacherRoleClaimException(
         TeacherRoleClaimFailureKind.invalidEvidence,
         'ELIXR could not verify this account as a Teacher. Sign in again.',
       );
     }
-    await _finalizeTeacherRoleClaim(firebaseUser);
+    await _verifyTeacherEvidence();
   }
 
-  Future<void> _finalizeTeacherRoleClaim(fb.User firebaseUser) async {
-    final override = _teacherRoleClaimFinalizerOverride;
-    if (override != null) return override(firebaseUser);
+  /// The Teacher role is a server-owned profile column bound to a consumed
+  /// access code; this confirms that evidence is intact.
+  Future<void> _verifyTeacherEvidence() async {
     try {
-      await finalizeTeacherRoleClaim(
-        readBearerToken: () =>
-            firebaseUser.getIdToken().timeout(_authOperationTimeout),
-        invokeFinalizer: _invokeTeacherRoleClaimFinalizer,
-        forceRefreshBearerToken: () =>
-            firebaseUser.getIdToken(true).timeout(_authOperationTimeout),
-      );
-    } on TeacherRoleClaimException {
-      rethrow;
-    } on fb.FirebaseAuthException catch (error) {
-      throw TeacherRoleClaimException(
-        TeacherRoleClaimFailureKind.unavailable,
-        _messageForAuthError(error),
-      );
+      await _client
+          .rpc<dynamic>('assert_teacher_authorized')
+          .timeout(_authOperationTimeout);
     } on TimeoutException {
       throw const TeacherRoleClaimException(
         TeacherRoleClaimFailureKind.unavailable,
         'Teacher authorization timed out. Check your connection and try again.',
       );
-    } on SocketException {
-      throw const TeacherRoleClaimException(
-        TeacherRoleClaimFailureKind.unavailable,
-        'Teacher authorization could not reach the server. Check your connection and try again.',
-      );
-    }
-  }
-
-  Future<int> _invokeTeacherRoleClaimFinalizer(String token) async {
-    final endpoint = Uri.parse(
-      _chatApiBaseUrl,
-    ).resolve('ensureTeacherRoleClaim');
-    final client = HttpClient();
-    try {
-      final request = await client
-          .postUrl(endpoint)
-          .timeout(_authOperationTimeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.write('{}');
-      final response = await request.close().timeout(_authOperationTimeout);
-      await response.drain<void>();
-      return response.statusCode;
-    } finally {
-      client.close(force: true);
+    } catch (error) {
+      throw teacherRoleClaimExceptionFor(error);
     }
   }
 
@@ -1246,48 +788,56 @@ class AuthRepository
     );
   }
 
+  Future<sb.User> _authenticateWithGoogle() async {
+    final flow = _googleOAuthFlow;
+    if (flow == null) {
+      throw const GoogleOAuthFlowException(
+        'Google sign-in is unavailable in this build.',
+      );
+    }
+    final credential = await flow.authenticate((redirectUri) async {
+      final response = await _auth.getOAuthSignInUrl(
+        provider: sb.OAuthProvider.google,
+        redirectTo: redirectUri.toString(),
+        queryParams: const {'prompt': 'select_account'},
+      );
+      return Uri.parse(response.url);
+    });
+    final session = await _auth
+        .exchangeCodeForSession(credential.authorizationCode)
+        .timeout(_authOperationTimeout);
+    return session.session.user;
+  }
+
   Future<GoogleSignInResult> _signInWithGoogle({
     required GoogleOnboardingIntent intent,
     String? teacherAccessCode,
   }) async {
     try {
-      final oauthCredential = await _acquireGoogleOAuthCredential();
-      final credential = oauthCredential == null
-          ? await _auth
-                .signInWithProvider(fb.GoogleAuthProvider())
-                .timeout(_authOperationTimeout)
-          : await _auth
-                .signInWithCredential(
-                  fb.GoogleAuthProvider.credential(
-                    idToken: oauthCredential.idToken,
-                    accessToken: oauthCredential.accessToken,
-                  ),
-                )
-                .timeout(_authOperationTimeout);
-      return await _googleResultForCredential(
-        credential,
-        isNewUserOverride: oauthCredential?.isNewUser,
-        intent: intent,
-        teacherAccessCode: teacherAccessCode,
+      final authUser = await _authenticateWithGoogle();
+      final profile = await _loadExistingGoogleProfile(authUser);
+      if (profile != null) return ExistingGoogleProfile(profile);
+      return PendingGoogleSignIn(
+        _pendingGoogleProfile(
+          authUser,
+          isNewUser: _isNewlyCreated(authUser),
+          intent: intent,
+          teacherAccessCode: teacherAccessCode,
+        ),
       );
     } on GoogleSignInCancelledException {
       rethrow;
     } on GoogleOAuthFlowException catch (e) {
       throw Exception(e.message);
-    } on fb.FirebaseAuthException catch (e) {
-      if (_isGoogleCancellation(e.code)) {
-        throw const GoogleSignInCancelledException();
-      }
+    } on sb.AuthException catch (e) {
       throw Exception(_messageForGoogleAuthError(e));
-    } on FirebaseException {
-      await _signOutIgnoringErrors();
-      throw Exception(
-        'Your Google account was verified, but ELIXR could not load your profile. Check your connection and try again.',
-      );
     } on TimeoutException {
       throw Exception(
         'Google sign-in timed out. Check your internet connection and try again.',
       );
+    } on TeacherRoleClaimException {
+      await _signOutIgnoringErrors();
+      rethrow;
     } catch (error, stackTrace) {
       await _signOutIgnoringErrors();
       if (kDebugMode) {
@@ -1295,28 +845,37 @@ class AuthRepository
         debugPrint('$stackTrace');
       }
       throw Exception(
-        'ELIXR could not validate this account profile. Please try again.',
+        'Your Google account was verified, but ELIXR could not load your profile. Check your connection and try again.',
       );
     }
   }
 
+  /// A brand-new identity is created by this very sign-in.
+  static bool _isNewlyCreated(sb.User user) {
+    final created = DateTime.tryParse(user.createdAt);
+    final lastSignIn = DateTime.tryParse(user.lastSignInAt ?? '');
+    if (created == null || lastSignIn == null) return false;
+    return lastSignIn.difference(created).inSeconds.abs() < 60;
+  }
+
   @override
   Future<GoogleSignInResult?> restoreGoogleSignIn() async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null || !_hasProvider(firebaseUser, 'google.com')) {
+    final authUser = _auth.currentUser;
+    if (authUser == null || !_hasProvider(authUser, 'google')) {
       return null;
     }
     try {
-      final profile = await _loadExistingGoogleProfile(firebaseUser);
+      final profile = await _loadExistingGoogleProfile(authUser);
       if (profile != null) return ExistingGoogleProfile(profile);
       return PendingGoogleSignIn(
         _pendingGoogleProfile(
-          firebaseUser,
+          authUser,
           isNewUser: false,
           intent: GoogleOnboardingIntent.unspecified,
         ),
       );
     } catch (error, stackTrace) {
+      if (isBackendUnavailableError(error)) rethrow;
       await _signOutIgnoringErrors();
       if (kDebugMode) {
         debugPrint('Google session restore failed: $error');
@@ -1339,114 +898,44 @@ class AuthRepository
       return deleteAccount(password: password, expectedUserId: expectedUserId);
     }
 
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null || firebaseUser.uid != expectedUserId) {
+    final authUser = _auth.currentUser;
+    if (authUser == null || authUser.id != expectedUserId) {
       throw Exception(
         'The active sign-in does not match this account. Sign in again.',
       );
     }
 
-    fb.UserCredential credential;
+    final sb.User activeUser;
     try {
-      final oauthCredential = await _acquireGoogleOAuthCredential();
-      credential = oauthCredential == null
-          ? await firebaseUser
-                .reauthenticateWithProvider(fb.GoogleAuthProvider())
-                .timeout(_authOperationTimeout)
-          : await firebaseUser
-                .reauthenticateWithCredential(
-                  fb.GoogleAuthProvider.credential(
-                    idToken: oauthCredential.idToken,
-                    accessToken: oauthCredential.accessToken,
-                  ),
-                )
-                .timeout(_authOperationTimeout);
+      activeUser = await _authenticateWithGoogle();
     } on GoogleSignInCancelledException {
       rethrow;
     } on GoogleOAuthFlowException catch (e) {
       throw Exception(e.message);
-    } on fb.FirebaseAuthException catch (e) {
-      if (_isGoogleCancellation(e.code)) {
-        throw const GoogleSignInCancelledException();
-      }
+    } on sb.AuthException catch (e) {
       throw Exception(_messageForGoogleAuthError(e));
     } on TimeoutException {
       throw Exception(
         'Google verification timed out. No account data was deleted.',
       );
     }
-
-    final activeUser = credential.user;
-    if (activeUser == null || activeUser.uid != expectedUserId) {
+    if (activeUser.id != expectedUserId) {
       await _signOutIgnoringErrors();
       throw Exception(
         'Google verified a different account. No account data was deleted.',
       );
     }
-    await finishAccountDeletionAfterPurge(
-      purgeUserData: () => _purgeUserData(expectedUserId),
-      deleteAuthUser: () async {
-        try {
-          await activeUser.delete().timeout(_authOperationTimeout);
-        } on fb.FirebaseAuthException catch (e) {
-          throw Exception(
-            'Your data was removed, but deleting the Google sign-in account failed: '
-            '${_messageForGoogleAuthError(e)} Try signing in again or contact support.',
-          );
-        } on TimeoutException {
-          throw Exception(
-            'Your data was removed, but deleting the Google sign-in account timed out. Try signing in again or contact support.',
-          );
-        }
-      },
-    );
+    await runAccountErasure(() => _eraseAccount(expectedUserId));
+    await _signOutIgnoringErrors();
   }
 
-  Future<GoogleSignInResult> _googleResultForCredential(
-    fb.UserCredential credential, {
-    bool? isNewUserOverride,
-    GoogleOnboardingIntent intent = GoogleOnboardingIntent.trainee,
-    String? teacherAccessCode,
-  }) async {
-    final firebaseUser = credential.user;
-    if (firebaseUser == null) {
-      throw Exception('Google did not return an authenticated account.');
-    }
-    final profile = await _loadExistingGoogleProfile(firebaseUser);
-    if (profile != null) return ExistingGoogleProfile(profile);
-    return PendingGoogleSignIn(
-      _pendingGoogleProfile(
-        firebaseUser,
-        isNewUser:
-            isNewUserOverride ??
-            credential.additionalUserInfo?.isNewUser == true,
-        intent: intent,
-        teacherAccessCode: teacherAccessCode,
-      ),
-    );
-  }
-
-  Future<GoogleOAuthCredential?> _acquireGoogleOAuthCredential() async {
-    final flow = _googleOAuthFlow;
-    if (flow == null) return null;
-    final credential = await flow.authenticate();
-    final hasIdToken = credential.idToken?.trim().isNotEmpty == true;
-    final hasAccessToken = credential.accessToken?.trim().isNotEmpty == true;
-    if (!hasIdToken && !hasAccessToken) {
-      throw const GoogleOAuthFlowException(
-        'Google did not return a usable sign-in credential. Please try again.',
-      );
-    }
-    return credential;
-  }
-
-  Future<User?> _loadExistingGoogleProfile(fb.User firebaseUser) async {
-    var profile = await _db.getUserById(firebaseUser.uid);
-    final authEmail = firebaseUser.email?.trim() ?? '';
+  Future<User?> _loadExistingGoogleProfile(sb.User authUser) async {
+    var profile = await _db.getUserById(authUser.id);
+    final authEmail = authUser.email?.trim() ?? '';
     if (profile != null &&
         authEmail.isNotEmpty &&
         _emailsDiffer(authEmail, profile.email)) {
-      await _db.updateUserProfileField(firebaseUser.uid, {'email': authEmail});
+      await _db.updateUserProfileField(authUser.id, {'email': authEmail});
       profile = profile.copyWith(email: authEmail);
     }
     if (profile != null) await _ensureTeacherProfileAuthorized(profile);
@@ -1454,20 +943,20 @@ class AuthRepository
   }
 
   PendingGoogleProfile _pendingGoogleProfile(
-    fb.User firebaseUser, {
+    sb.User authUser, {
     required bool isNewUser,
     GoogleOnboardingIntent intent = GoogleOnboardingIntent.unspecified,
     String? teacherAccessCode,
   }) {
-    final email = firebaseUser.email?.trim() ?? '';
-    if (email.isEmpty || !firebaseUser.emailVerified) {
+    final email = authUser.email?.trim() ?? '';
+    if (email.isEmpty || authUser.emailConfirmedAt == null) {
       throw Exception(
         'Google must provide a verified email address to continue.',
       );
     }
-    final parsed = parseLegacyFullName(firebaseUser.displayName ?? '');
+    final parsed = parseLegacyFullName(_displayNameOf(authUser));
     return PendingGoogleProfile(
-      uid: firebaseUser.uid,
+      uid: authUser.id,
       email: email,
       firstName: parsed.firstName,
       middleName: parsed.middleName,
@@ -1478,17 +967,59 @@ class AuthRepository
     );
   }
 
-  PendingGoogleProfile _pendingEmailProfile(fb.User firebaseUser) {
-    final parsed = parseLegacyFullName(firebaseUser.displayName ?? '');
+  PendingGoogleProfile _pendingEmailProfile(sb.User authUser) {
+    final parsed = parseLegacyFullName(_displayNameOf(authUser));
     return PendingGoogleProfile(
-      uid: firebaseUser.uid,
-      email: firebaseUser.email?.trim() ?? '',
+      uid: authUser.id,
+      email: authUser.email?.trim() ?? '',
       firstName: parsed.firstName,
       middleName: parsed.middleName,
       lastName: parsed.lastName,
       isNewUser: false,
       identityProvider: ProfileIdentityProvider.password,
     );
+  }
+
+  static String _displayNameOf(sb.User user) {
+    final metadata = user.userMetadata ?? const <String, dynamic>{};
+    for (final key in const ['full_name', 'name']) {
+      final value = metadata[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+    }
+    return '';
+  }
+
+  Future<sb.User> _requireMatchingActiveUser(
+    PendingGoogleProfile pendingProfile, {
+    required String changedMessage,
+    required String mismatchMessage,
+  }) async {
+    final authUser = _auth.currentUser;
+    if (authUser == null || authUser.id != pendingProfile.uid) {
+      await _signOutIgnoringErrors();
+      throw Exception(changedMessage);
+    }
+    final sb.User activeUser;
+    try {
+      activeUser =
+          (await _auth.getUser().timeout(_authOperationTimeout)).user ??
+          authUser;
+    } on sb.AuthException catch (e) {
+      throw Exception(_messageForGoogleAuthError(e));
+    } on TimeoutException {
+      throw Exception(
+        'Account verification timed out. Check your connection and retry.',
+      );
+    }
+    final activeEmail = activeUser.email?.trim() ?? '';
+    if (activeUser.id != pendingProfile.uid ||
+        (pendingProfile.identityProvider == ProfileIdentityProvider.google &&
+            activeUser.emailConfirmedAt == null) ||
+        _emailsDiffer(activeEmail, pendingProfile.email)) {
+      await _signOutIgnoringErrors();
+      throw Exception(mismatchMessage);
+    }
+    return activeUser;
   }
 
   @override
@@ -1499,48 +1030,28 @@ class AuthRepository
     required String lastName,
     required RegistrationLegalConsent legalConsent,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null || firebaseUser.uid != pendingProfile.uid) {
-      await _signOutIgnoringErrors();
-      throw Exception('The active sign-in changed. Sign in again.');
-    }
-    try {
-      await firebaseUser.reload().timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException catch (e) {
-      throw Exception(_messageForGoogleAuthError(e));
-    } on TimeoutException {
-      throw Exception(
-        'Account verification timed out. Check your connection and retry.',
-      );
-    }
-    final activeUser = _auth.currentUser;
-    final activeEmail = activeUser?.email?.trim() ?? '';
-    if (activeUser == null ||
-        activeUser.uid != pendingProfile.uid ||
-        (pendingProfile.identityProvider == ProfileIdentityProvider.google &&
-            !activeUser.emailVerified) ||
-        _emailsDiffer(activeEmail, pendingProfile.email)) {
-      await _signOutIgnoringErrors();
-      throw Exception(
-        'The active sign-in no longer matches this profile. Sign in again.',
-      );
-    }
+    final activeUser = await _requireMatchingActiveUser(
+      pendingProfile,
+      changedMessage: 'The active sign-in changed. Sign in again.',
+      mismatchMessage:
+          'The active sign-in no longer matches this profile. Sign in again.',
+    );
     final normalized = normalizeUserNameParts(
       firstName: firstName,
       middleName: middleName,
       lastName: lastName,
     );
     final user = User(
-      id: activeUser.uid,
+      id: activeUser.id,
       firstName: normalized.firstName,
       middleName: normalized.middleName,
       lastName: normalized.lastName,
-      email: activeEmail,
+      email: activeUser.email?.trim() ?? pendingProfile.email,
       role: User.roleTrainee,
     );
     try {
       await _db.upsertUserProfile(user, legalConsent: legalConsent);
-    } on FirebaseException {
+    } on sb.PostgrestException {
       throw Exception(
         'ELIXR could not create your profile. Check your connection and retry.',
       );
@@ -1557,36 +1068,13 @@ class AuthRepository
     required String teacherAccessCode,
     required RegistrationLegalConsent legalConsent,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null || firebaseUser.uid != pendingProfile.uid) {
-      await _signOutIgnoringErrors();
-      throw Exception(
-        'The active Google account changed. Sign in with Google again.',
-      );
-    }
-    try {
-      await firebaseUser.reload().timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException catch (e) {
-      throw Exception(_messageForGoogleAuthError(e));
-    } on TimeoutException {
-      throw Exception(
-        'Google account verification timed out. Check your connection and retry.',
-      );
-    }
-
-    final activeUser = _auth.currentUser;
-    final activeEmail = activeUser?.email?.trim() ?? '';
-    if (activeUser == null ||
-        activeUser.uid != pendingProfile.uid ||
-        (pendingProfile.identityProvider == ProfileIdentityProvider.google &&
-            !activeUser.emailVerified) ||
-        _emailsDiffer(activeEmail, pendingProfile.email)) {
-      await _signOutIgnoringErrors();
-      throw Exception(
-        'The active Google account no longer matches this profile. Sign in again.',
-      );
-    }
-
+    final activeUser = await _requireMatchingActiveUser(
+      pendingProfile,
+      changedMessage:
+          'The active Google account changed. Sign in with Google again.',
+      mismatchMessage:
+          'The active Google account no longer matches this profile. Sign in again.',
+    );
     final normalizedCode = CoachCode.tryNormalize(teacherAccessCode);
     if (normalizedCode == null) {
       throw const TeacherAccessCodeException(
@@ -1600,11 +1088,11 @@ class AuthRepository
       lastName: lastName,
     );
     final user = User(
-      id: activeUser.uid,
+      id: activeUser.id,
       firstName: normalized.firstName,
       middleName: normalized.middleName,
       lastName: normalized.lastName,
-      email: activeEmail,
+      email: activeUser.email?.trim() ?? pendingProfile.email,
       role: User.roleTeacher,
       teacherAccessCode: normalizedCode,
     );
@@ -1616,23 +1104,21 @@ class AuthRepository
         legalConsent: legalConsent,
       );
     } on Object catch (error, stackTrace) {
-      // Firestore transactions can commit successfully while the client sees
-      // a timeout or transport error. Read the UID-scoped profile before
-      // reporting failure so a retry cannot consume the code twice or display
-      // a false failure.
+      // A committed transaction can still surface a transport error. Read the
+      // UID-scoped profile before reporting failure so a retry cannot report
+      // a false failure for an already-consumed code.
       User? reconciled;
       try {
         reconciled = await _teacherAccessCodes.reconcileTeacherProfile(
           expectedUser: user,
           code: normalizedCode,
         );
-      } catch (reconciliationError, reconciliationStackTrace) {
+      } catch (reconciliationError) {
         if (kDebugMode) {
           debugPrint(
             'Teacher profile reconciliation was inconclusive: '
             '$reconciliationError',
           );
-          debugPrint('$reconciliationStackTrace');
         }
         throw const AuthFailure(
           AuthFailureKind.provisioning,
@@ -1646,7 +1132,7 @@ class AuthRepository
       if (error is TeacherAccessCodeException) {
         throw Exception(error.message ?? error.toString());
       }
-      if (error is FirebaseException) {
+      if (error is sb.PostgrestException) {
         throw Exception(
           'ELIXR could not create your Teacher profile. Check your connection and retry.',
         );
@@ -1669,13 +1155,14 @@ class AuthRepository
     try {
       if (pendingProfile.isNewUser &&
           activeUser != null &&
-          activeUser.uid == pendingProfile.uid &&
+          activeUser.id == pendingProfile.uid &&
           !_emailsDiffer(activeUser.email ?? '', pendingProfile.email)) {
-        await activeUser.delete().timeout(_authOperationTimeout);
+        // The fresh identity has no profile or data; erasure removes it.
+        await _eraseAccount(activeUser.id).timeout(_authOperationTimeout);
       }
     } on Object catch (error, stackTrace) {
-      // Cancellation must always clear local onboarding and sign out. A failed
-      // best-effort deletion leaves the Firebase identity intact for recovery.
+      // Cancellation must always sign out. A failed best-effort deletion
+      // leaves the identity intact for later recovery.
       if (kDebugMode) {
         debugPrint('New Google identity cleanup failed: $error');
         debugPrint('$stackTrace');
@@ -1687,22 +1174,24 @@ class AuthRepository
 
   @override
   Future<Set<AuthProviderKind>> currentProviderKinds() async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) return const {};
-    final kinds = <AuthProviderKind>{};
-    if (_hasProvider(firebaseUser, 'password')) {
-      kinds.add(AuthProviderKind.password);
+    final authUser = _auth.currentUser;
+    if (authUser == null) {
+      return _pendingVerification == null
+          ? const {}
+          : const {AuthProviderKind.password};
     }
-    if (_hasProvider(firebaseUser, 'google.com')) {
-      kinds.add(AuthProviderKind.google);
-    }
-    return kinds;
+    return {
+      if (_hasProvider(authUser, 'email')) AuthProviderKind.password,
+      if (_hasProvider(authUser, 'google')) AuthProviderKind.google,
+    };
   }
 
-  static bool _hasProvider(fb.User user, String providerId) {
-    return user.providerData.any(
-      (provider) => provider.providerId == providerId,
-    );
+  static bool _hasProvider(sb.User user, String provider) {
+    final providers = user.appMetadata['providers'];
+    if (providers is List && providers.contains(provider)) return true;
+    if (user.appMetadata['provider'] == provider) return true;
+    return user.identities?.any((identity) => identity.provider == provider) ??
+        false;
   }
 
   @override
@@ -1717,22 +1206,45 @@ class AuthRepository
     if (!_emailPattern.hasMatch(trimmedEmail)) {
       throw Exception('Invalid email address');
     }
-
     try {
+      // Supabase does not reveal whether the address is registered.
       await _auth
-          .sendPasswordResetEmail(
-            email: trimmedEmail,
-            actionCodeSettings: _actionCodeSettings(continueUrl: continueUrl),
+          .resetPasswordForEmail(
+            trimmedEmail,
+            redirectTo: await _resolveEmailRedirect(continueUrl),
           )
           .timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException catch (e) {
-      // Avoid leaking whether an account exists for this address.
-      if (e.code == 'user-not-found') return;
+    } on sb.AuthException catch (e) {
       throw Exception(_messageForAuthError(e));
     } on TimeoutException {
       throw Exception(
         'Password reset timed out. Check your internet connection and try again.',
       );
+    }
+  }
+
+  @override
+  Future<void> completeEmailVerificationLink(String code) async {
+    await _auth.exchangeCodeForSession(code).timeout(_authOperationTimeout);
+    _pendingVerification = null;
+  }
+
+  @override
+  Future<void> completePasswordReset({
+    required String code,
+    required String newPassword,
+  }) async {
+    try {
+      await _auth.exchangeCodeForSession(code).timeout(_authOperationTimeout);
+      await _auth
+          .updateUser(sb.UserAttributes(password: newPassword))
+          .timeout(_authOperationTimeout);
+    } on sb.AuthException catch (e) {
+      throw Exception(
+        _messageForAuthError(e, context: _AuthErrorContext.reauthentication),
+      );
+    } finally {
+      await _signOutIgnoringErrors();
     }
   }
 
@@ -1744,13 +1256,13 @@ class AuthRepository
 
   @override
   Future<PersistedProfileRestoration> restorePersistedProfile() async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) {
+    final authUser = _auth.currentUser;
+    if (authUser == null) {
       return const PersistedProfileRestoration.signedOut();
     }
     try {
       final user = await _loadUserProfile(
-        firebaseUser,
+        authUser,
         reload: true,
         tolerateReloadFailure: true,
       );
@@ -1761,35 +1273,18 @@ class AuthRepository
     } on InvalidPersistedAuthIdentityException {
       await _signOutIgnoringErrors();
       return const PersistedProfileRestoration.invalidProfile();
-    } on TimeoutException {
-      return const PersistedProfileRestoration.unavailable();
-    } on SocketException {
-      return const PersistedProfileRestoration.unavailable();
-    } on HttpException {
-      return const PersistedProfileRestoration.unavailable();
-    } on HandshakeException {
-      return const PersistedProfileRestoration.unavailable();
-    } on fb.FirebaseAuthException catch (error) {
-      if (_isBackendUnavailable(error.code)) {
-        return const PersistedProfileRestoration.unavailable();
-      }
-      rethrow;
-    } on FirebaseException catch (error) {
-      if (_isBackendUnavailable(error.code)) {
+    } catch (error) {
+      if (isBackendUnavailableError(error)) {
         return const PersistedProfileRestoration.unavailable();
       }
       rethrow;
     }
   }
 
-  static bool _isBackendUnavailable(String code) => switch (code) {
-    'unavailable' || 'network-request-failed' || 'deadline-exceeded' => true,
-    _ => false,
-  };
-
   @override
-  Future<void> clearCurrentUser() {
-    return _auth.signOut();
+  Future<void> clearCurrentUser() async {
+    _pendingVerification = null;
+    await _auth.signOut();
   }
 
   Future<void> _signOutIgnoringErrors() async {
@@ -1800,6 +1295,35 @@ class AuthRepository
     }
   }
 
+  void _requireCurrentUser(String userId) {
+    final authUser = _auth.currentUser;
+    if (authUser == null) throw Exception('Not authenticated');
+    if (authUser.id != userId) {
+      throw Exception('Authenticated user does not match the profile.');
+    }
+  }
+
+  Future<User> _reloadProfile(String userId) async {
+    final updated = await _db.getUserById(userId);
+    if (updated == null) throw Exception('User profile not found');
+    return updated;
+  }
+
+  static Map<String, dynamic> _pictureFields(ProfilePictureUpdate update) =>
+      update.isRemoval
+      ? {
+          'profile_picture_url': null,
+          'profile_picture_storage_path': null,
+          'profile_picture_path': null,
+        }
+      : {
+          'profile_picture_url': update.url,
+          'profile_picture_storage_path': update.storagePath,
+          // Retire the legacy local-path field now that a cross-device URL
+          // exists.
+          'profile_picture_path': null,
+        };
+
   @override
   Future<User> updateProfileDetails({
     required String userId,
@@ -1808,44 +1332,19 @@ class AuthRepository
     required String lastName,
     ProfilePictureUpdate? profilePictureUpdate,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) throw Exception('Not authenticated');
-    if (firebaseUser.uid != userId) {
-      throw Exception('Authenticated user does not match the profile.');
-    }
-
+    _requireCurrentUser(userId);
     final normalized = normalizeUserNameParts(
       firstName: firstName,
       middleName: middleName,
       lastName: lastName,
     );
-    final fields = <String, dynamic>{
+    await _db.updateUserProfileField(userId, {
       'first_name': normalized.firstName,
+      'middle_name': normalized.middleName,
       'last_name': normalized.lastName,
-      'full_name': normalized.fullName,
-      if (normalized.middleName != null)
-        'middle_name': normalized.middleName
-      else
-        'middle_name': FieldValue.delete(),
-    };
-    if (profilePictureUpdate != null) {
-      if (profilePictureUpdate.isRemoval) {
-        fields['profile_picture_url'] = FieldValue.delete();
-        fields['profile_picture_storage_path'] = FieldValue.delete();
-        fields['profile_picture_path'] = FieldValue.delete();
-      } else {
-        fields['profile_picture_url'] = profilePictureUpdate.url;
-        fields['profile_picture_storage_path'] =
-            profilePictureUpdate.storagePath;
-        // Retire the legacy local-path field now that a cross-device URL exists.
-        fields['profile_picture_path'] = FieldValue.delete();
-      }
-    }
-    await _db.updateUserProfileField(userId, fields);
-
-    final updated = await _db.getUserById(userId);
-    if (updated == null) throw Exception('User profile not found');
-    return updated;
+      if (profilePictureUpdate != null) ..._pictureFields(profilePictureUpdate),
+    });
+    return _reloadProfile(userId);
   }
 
   @override
@@ -1853,29 +1352,12 @@ class AuthRepository
     required String userId,
     required ProfilePictureUpdate profilePictureUpdate,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) throw Exception('Not authenticated');
-    if (firebaseUser.uid != userId) {
-      throw Exception('Authenticated user does not match the profile.');
-    }
-
-    final fields = profilePictureUpdate.isRemoval
-        ? <String, dynamic>{
-            'profile_picture_url': FieldValue.delete(),
-            'profile_picture_storage_path': FieldValue.delete(),
-            'profile_picture_path': FieldValue.delete(),
-          }
-        : <String, dynamic>{
-            'profile_picture_url': profilePictureUpdate.url,
-            'profile_picture_storage_path': profilePictureUpdate.storagePath,
-            // Retire the legacy local-path field now that a cross-device URL exists.
-            'profile_picture_path': FieldValue.delete(),
-          };
-    await _db.updateUserProfileField(userId, fields);
-
-    final updated = await _db.getUserById(userId);
-    if (updated == null) throw Exception('User profile not found');
-    return updated;
+    _requireCurrentUser(userId);
+    await _db.updateUserProfileField(
+      userId,
+      _pictureFields(profilePictureUpdate),
+    );
+    return _reloadProfile(userId);
   }
 
   @override
@@ -1883,27 +1365,16 @@ class AuthRepository
     required String userId,
     required String? profileBorderId,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) throw Exception('Not authenticated');
-    if (firebaseUser.uid != userId) {
-      throw Exception('Authenticated user does not match the profile.');
-    }
-
-    final existing = await _db.getUserById(userId);
-    if (existing == null) throw Exception('User profile not found');
+    _requireCurrentUser(userId);
+    final existing = await _reloadProfile(userId);
     if (!existing.isTeacher) {
       throw Exception('Only Teachers can update an avatar frame.');
     }
-
     final normalized = profileBorderId?.trim() ?? '';
     await _db.updateUserProfileField(userId, {
-      'profile_border_id': normalized.isEmpty
-          ? FieldValue.delete()
-          : normalized,
+      'profile_border_id': normalized.isEmpty ? null : normalized,
     });
-
-    final updated = await _db.getUserById(userId);
-    if (updated == null) throw Exception('User profile not found');
+    final updated = await _reloadProfile(userId);
     if (!updated.isTeacher) {
       throw Exception('Teacher role changed while updating the avatar frame.');
     }
@@ -1916,8 +1387,8 @@ class AuthRepository
     required String currentPassword,
     String? continueUrl,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) throw Exception('Not authenticated');
+    final authUser = _auth.currentUser;
+    if (authUser == null) throw Exception('Not authenticated');
 
     final trimmedEmail = newEmail.trim();
     if (trimmedEmail.isEmpty) {
@@ -1927,7 +1398,7 @@ class AuthRepository
       throw Exception('Invalid email address');
     }
 
-    final currentAuthEmail = firebaseUser.email?.trim() ?? '';
+    final currentAuthEmail = authUser.email?.trim() ?? '';
     if (!_emailsDiffer(trimmedEmail, currentAuthEmail)) {
       return EmailChangeRequestResult.unchanged;
     }
@@ -1940,21 +1411,20 @@ class AuthRepository
       );
     }
 
+    await _refreshRecentLogin(
+      email: currentAuthEmail,
+      password: currentPassword,
+      errorContext: _AuthErrorContext.emailChange,
+    );
     try {
-      final activeUser = await _refreshRecentLogin(
-        email: currentAuthEmail,
-        password: currentPassword,
-        errorContext: _AuthErrorContext.emailChange,
-      );
-
-      await activeUser
-          .verifyBeforeUpdateEmail(
-            trimmedEmail,
-            _actionCodeSettings(continueUrl: continueUrl),
+      await _auth
+          .updateUser(
+            sb.UserAttributes(email: trimmedEmail),
+            emailRedirectTo: await _resolveEmailRedirect(continueUrl),
           )
           .timeout(_authOperationTimeout);
       return EmailChangeRequestResult.verificationSent;
-    } on fb.FirebaseAuthException catch (e) {
+    } on sb.AuthException catch (e) {
       throw Exception(
         _messageForAuthError(e, context: _AuthErrorContext.emailChange),
       );
@@ -1967,75 +1437,82 @@ class AuthRepository
 
   @override
   Future<bool> isCurrentEmailVerified() async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) return false;
-
-    try {
-      await firebaseUser.reload().timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException {
-      await _refreshStaleVerifiedEmailIdToken(firebaseUser);
-      return firebaseUser.emailVerified;
-    } on TimeoutException {
-      await _refreshStaleVerifiedEmailIdToken(firebaseUser);
-      return firebaseUser.emailVerified;
+    final authUser = _auth.currentUser;
+    if (authUser == null) {
+      return _completePendingVerificationSignIn();
     }
+    try {
+      final refreshed = (await _auth.getUser().timeout(
+        _authOperationTimeout,
+      )).user;
+      return (refreshed ?? authUser).emailConfirmedAt != null;
+    } on sb.AuthException {
+      return authUser.emailConfirmedAt != null;
+    } on TimeoutException {
+      return authUser.emailConfirmedAt != null;
+    }
+  }
 
-    final activeUser = _auth.currentUser ?? firebaseUser;
-    await _refreshStaleVerifiedEmailIdToken(activeUser);
-    return activeUser.emailVerified;
+  /// Confirmation completed elsewhere (another browser or device) is only
+  /// observable by signing in with the held registration credentials.
+  Future<bool> _completePendingVerificationSignIn() async {
+    final pending = _pendingVerification;
+    if (pending == null) return false;
+    // Verification is polled frequently; sign-in attempts are rate limited by
+    // the Auth server, so probe at most once per interval.
+    final now = DateTime.now();
+    final last = _lastPendingVerificationProbe;
+    if (last != null &&
+        now.difference(last) < _pendingVerificationProbeInterval) {
+      return false;
+    }
+    _lastPendingVerificationProbe = now;
+    try {
+      await _auth
+          .signInWithPassword(email: pending.email, password: pending.password)
+          .timeout(_authOperationTimeout);
+      _pendingVerification = null;
+      return true;
+    } on sb.AuthException {
+      return false;
+    } on TimeoutException {
+      return false;
+    } on SocketException {
+      return false;
+    }
   }
 
   @override
-  Future<void> requestCurrentEmailVerification({String? continueUrl}) {
-    return _sendCurrentEmailVerification(
-      allowIfAlreadyVerified: false,
-      continueUrl: continueUrl,
-    );
-  }
-
-  fb.ActionCodeSettings? _actionCodeSettings({String? continueUrl}) {
-    final url = continueUrl?.trim() ?? '';
-    if (url.isNotEmpty) {
-      return fb.ActionCodeSettings(url: url, handleCodeInApp: false);
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {
+    final authUser = _auth.currentUser;
+    final email = authUser?.email?.trim() ?? _pendingVerification?.email ?? '';
+    if (authUser == null && _pendingVerification == null) {
+      throw Exception('Not authenticated');
     }
-    return null;
-  }
-
-  Future<void> _sendCurrentEmailVerification({
-    required bool allowIfAlreadyVerified,
-    String? continueUrl,
-  }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) throw Exception('Not authenticated');
-
-    try {
-      await firebaseUser.reload().timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException catch (e) {
-      throw Exception(_messageForAuthError(e));
-    } on TimeoutException {
-      throw Exception(
-        'Account refresh timed out. Check your internet connection and try again.',
-      );
-    }
-
-    final activeUser = _auth.currentUser;
-    if (activeUser == null) throw Exception('Not authenticated');
-    if (activeUser.emailVerified && !allowIfAlreadyVerified) {
+    if (authUser != null && authUser.emailConfirmedAt != null) {
       throw Exception('Your email is already verified.');
     }
-
-    final email = activeUser.email?.trim() ?? '';
     if (email.isEmpty) {
       throw Exception(
         'This account has no email address. Verification cannot be sent.',
       );
     }
-
+    final sentAt = _signupEmailSentAt;
+    if (sentAt != null &&
+        DateTime.now().difference(sentAt) < const Duration(seconds: 60)) {
+      // Sign-up already sent the confirmation email moments ago.
+      return;
+    }
     try {
-      await activeUser
-          .sendEmailVerification(_actionCodeSettings(continueUrl: continueUrl))
+      await _auth
+          .resend(
+            type: sb.OtpType.signup,
+            email: email,
+            emailRedirectTo: await _resolveEmailRedirect(continueUrl),
+          )
           .timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException catch (e) {
+      _signupEmailSentAt = DateTime.now();
+    } on sb.AuthException catch (e) {
       throw Exception(
         _messageForAuthError(e, context: _AuthErrorContext.emailChange),
       );
@@ -2048,10 +1525,10 @@ class AuthRepository
 
   @override
   Future<User?> refreshAuthenticatedUser() async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) return null;
+    final authUser = _auth.currentUser;
+    if (authUser == null) return null;
     try {
-      return await _loadUserProfile(firebaseUser, reload: true);
+      return await _loadUserProfile(authUser, reload: true);
     } on MissingUserProfileException {
       await _signOutIgnoringErrors();
       return null;
@@ -2066,51 +1543,32 @@ class AuthRepository
     String? originalEmail,
   }) async {
     final trimmedPending = pendingEmail.trim();
-    final trimmedOriginal = originalEmail?.trim() ?? '';
-    var firebaseUser = _auth.currentUser;
-    var needsRecoverySignIn = false;
-
-    if (firebaseUser != null) {
+    final authUser = _auth.currentUser;
+    if (authUser != null) {
       try {
-        await firebaseUser.reload().timeout(_authOperationTimeout);
-        firebaseUser = _auth.currentUser;
-        if (firebaseUser == null) {
-          needsRecoverySignIn = true;
-        } else {
-          final authEmail = firebaseUser.email?.trim() ?? '';
-          if (!_emailsDiffer(authEmail, trimmedPending)) {
-            final user = await _loadUserProfile(firebaseUser);
-            if (user.id != originalUid) {
-              return PendingEmailChangeRecoveryResult.failed(
-                'Email verification completed for a different account. '
-                'Sign in again.',
-              );
-            }
-            return PendingEmailChangeRecoveryResult.completed(user);
+        final refreshed =
+            (await _auth.getUser().timeout(_authOperationTimeout)).user ??
+            authUser;
+        final authEmail = refreshed.email?.trim() ?? '';
+        if (!_emailsDiffer(authEmail, trimmedPending)) {
+          final user = await _loadUserProfile(refreshed);
+          if (user.id != originalUid) {
+            return PendingEmailChangeRecoveryResult.failed(
+              'Email verification completed for a different account. '
+              'Sign in again.',
+            );
           }
-          if (trimmedOriginal.isNotEmpty &&
-              !_emailsDiffer(authEmail, trimmedOriginal)) {
-            return PendingEmailChangeRecoveryResult.pending();
-          }
-          return PendingEmailChangeRecoveryResult.pending();
+          return PendingEmailChangeRecoveryResult.completed(user);
         }
-      } on fb.FirebaseAuthException catch (e) {
-        if (_isRecoverableSessionInvalidation(e)) {
-          needsRecoverySignIn = true;
-        } else {
+        return PendingEmailChangeRecoveryResult.pending();
+      } on sb.AuthException catch (e) {
+        if (!_isSessionInvalidation(e)) {
           return PendingEmailChangeRecoveryResult.transientFailure();
         }
       } on TimeoutException {
         return PendingEmailChangeRecoveryResult.transientFailure();
       }
-    } else {
-      needsRecoverySignIn = true;
     }
-
-    if (!needsRecoverySignIn) {
-      return PendingEmailChangeRecoveryResult.pending();
-    }
-
     return _recoverSessionWithVerifiedEmail(
       originalUid: originalUid,
       pendingEmail: trimmedPending,
@@ -2124,19 +1582,16 @@ class AuthRepository
     required String recoveryPassword,
   }) async {
     try {
-      final credential = await _auth
-          .signInWithEmailAndPassword(
-            email: pendingEmail,
-            password: recoveryPassword,
-          )
+      final response = await _auth
+          .signInWithPassword(email: pendingEmail, password: recoveryPassword)
           .timeout(_authOperationTimeout);
-      final recovered = credential.user;
+      final recovered = response.user;
       if (recovered == null) {
         return PendingEmailChangeRecoveryResult.failed(
           'Could not restore your session. Sign in with your verified email.',
         );
       }
-      if (recovered.uid != originalUid) {
+      if (recovered.id != originalUid) {
         await _auth.signOut();
         return PendingEmailChangeRecoveryResult.failed(
           'Email verification completed for a different account. '
@@ -2145,66 +1600,49 @@ class AuthRepository
       }
       final user = await _loadUserProfile(recovered, reload: true);
       return PendingEmailChangeRecoveryResult.completed(user);
-    } on fb.FirebaseAuthException catch (e) {
-      switch (e.code) {
-        case 'wrong-password':
-        case 'invalid-credential':
-          return PendingEmailChangeRecoveryResult.failed(
-            'Could not restore your session automatically. '
-            'Sign in with your verified email and password.',
-          );
-        case 'user-not-found':
-          return PendingEmailChangeRecoveryResult.pending();
-        case 'too-many-requests':
-        case 'network-request-failed':
-          return PendingEmailChangeRecoveryResult.transientFailure();
-        default:
-          return PendingEmailChangeRecoveryResult.transientFailure();
+    } on sb.AuthException catch (e) {
+      if (e.code == 'invalid_credentials') {
+        // The new address is not confirmed yet (or the password changed).
+        return PendingEmailChangeRecoveryResult.pending();
       }
+      return PendingEmailChangeRecoveryResult.transientFailure();
     } on TimeoutException {
       return PendingEmailChangeRecoveryResult.transientFailure();
     }
   }
 
-  static bool _isRecoverableSessionInvalidation(
-    fb.FirebaseAuthException error,
-  ) {
-    switch (error.code) {
-      case 'user-token-expired':
-      case 'invalid-user-token':
-      case 'user-disabled':
-        return true;
-      default:
-        return false;
-    }
-  }
+  static bool _isSessionInvalidation(sb.AuthException error) =>
+      error.statusCode == '401' ||
+      error.statusCode == '403' ||
+      error.code == 'user_not_found' ||
+      error.code == 'session_not_found' ||
+      error.code == 'bad_jwt';
 
   @override
   Future<void> updatePassword({
     required String currentPassword,
     required String newPassword,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) throw Exception('Not authenticated');
+    final authUser = _auth.currentUser;
+    if (authUser == null) throw Exception('Not authenticated');
 
-    final email = firebaseUser.email;
+    final email = authUser.email;
     if (email == null || email.isEmpty) {
       throw Exception(
         'This account has no email address. Password cannot be updated.',
       );
     }
 
+    await _refreshRecentLogin(
+      email: email,
+      password: currentPassword,
+      errorContext: _AuthErrorContext.reauthentication,
+    );
     try {
-      final activeUser = await _refreshRecentLogin(
-        email: email,
-        password: currentPassword,
-        errorContext: _AuthErrorContext.reauthentication,
-      );
-
-      await activeUser
-          .updatePassword(newPassword)
+      await _auth
+          .updateUser(sb.UserAttributes(password: newPassword))
           .timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException catch (e) {
+    } on sb.AuthException catch (e) {
       throw Exception(
         _messageForAuthError(e, context: _AuthErrorContext.reauthentication),
       );
@@ -2220,15 +1658,15 @@ class AuthRepository
     required String password,
     required String expectedUserId,
   }) async {
-    final firebaseUser = _auth.currentUser;
-    if (firebaseUser == null) throw Exception('Not authenticated');
-    if (firebaseUser.uid != expectedUserId) {
+    final authUser = _auth.currentUser;
+    if (authUser == null) throw Exception('Not authenticated');
+    if (authUser.id != expectedUserId) {
       throw Exception(
         'The active sign-in does not match this account. Sign in again.',
       );
     }
 
-    final email = firebaseUser.email;
+    final email = authUser.email;
     if (email == null || email.isEmpty) {
       throw Exception(
         'This account has no email address. Account cannot be deleted.',
@@ -2240,407 +1678,45 @@ class AuthRepository
       password: password,
       errorContext: _AuthErrorContext.reauthentication,
     );
-    if (activeUser.uid != expectedUserId) {
+    if (activeUser.id != expectedUserId) {
       await _signOutIgnoringErrors();
       throw Exception(
         'Authentication changed accounts. Sign in again before deleting.',
       );
     }
-    final uid = activeUser.uid;
-
-    await finishAccountDeletionAfterPurge(
-      purgeUserData: () => _purgeUserData(uid),
-      deleteAuthUser: () async {
-        try {
-          await activeUser.delete().timeout(_authOperationTimeout);
-        } on fb.FirebaseAuthException catch (e) {
-          throw Exception(
-            'Your data was removed, but deleting the sign-in account failed: '
-            '${_messageForAuthError(e, context: _AuthErrorContext.reauthentication)}. '
-            'Try signing in again or contact support.',
-          );
-        } on TimeoutException {
-          throw Exception(
-            'Your data was removed, but deleting the sign-in account timed out. '
-            'Try signing in again or contact support.',
-          );
-        }
-      },
-    );
+    await runAccountErasure(() => _eraseAccount(activeUser.id));
+    await _signOutIgnoringErrors();
   }
 
-  Future<void> _purgeUserData(String uid) async {
-    // Chat history is retained only after the trusted Function removes this
-    // account's UID/name/avatar and rewrites sender identities. This runs
-    // before deleting the user profile so the Function can still authenticate
-    // and classify the account. Failure is closed to prevent partial erasure.
-    await _runPurgeStage('chat anonymization and archival', () async {
-      final override = _archiveChatForAccountErasureOverride;
-      if (override != null) return override(uid);
-      await _archiveChatForAccountErasure(uid);
-    });
-
-    // Evidence can contain private annotated images and must be purged before
-    // session documents/auth are removed. A non-not-found failure is allowed
-    // to fail closed so account deletion never leaves known image data behind.
-    await _runPurgeStage('session evidence Storage purge', () async {
-      final listed = await _storage
-          .ref('users/$uid/session_evidence')
-          .listAll();
-      for (final item in listed.items) {
-        try {
-          await item.delete();
-        } on FirebaseException catch (error) {
-          if (error.code != 'object-not-found') rethrow;
-        }
-      }
-    });
-
-    final sessionSnap = await _runPurgeStage('sessions query', () {
-      return _firestore
-          .collection(FirestoreCollections.sessions)
-          .where('user_id', isEqualTo: uid)
-          .get();
-    });
-    final sessionIds = sessionSnap.docs.map((d) => d.id).toList();
-
-    // Feedbacks must be deleted while parent sessions still exist (rules get()).
-    await _runPurgeStage('feedback purge', () async {
-      final feedbackRefs = <DocumentReference>[];
-      for (var i = 0; i < sessionIds.length; i += _whereInLimit) {
-        final chunk = sessionIds.sublist(
-          i,
-          math.min(i + _whereInLimit, sessionIds.length),
-        );
-        final feedbackSnap = await _firestore
-            .collection(FirestoreCollections.feedbacks)
-            .where('session_id', whereIn: chunk)
-            .get();
-        feedbackRefs.addAll(feedbackSnap.docs.map((d) => d.reference));
-      }
-      await _commitDeletes(feedbackRefs);
-    });
-
-    await _runPurgeStage('sessions purge', () {
-      return _commitDeletes(sessionSnap.docs.map((d) => d.reference).toList());
-    });
-
-    await _runPurgeStage('leaderboard marker purge', () async {
-      final markerSnap = await _firestore
-          .collection(FirestoreCollections.leaderboardProcessedSessions)
-          .where('user_id', isEqualTo: uid)
-          .get();
-      await _commitDeletes(markerSnap.docs.map((d) => d.reference).toList());
-    });
-
-    final profile = await _runPurgeStage('daily quest board purge', () async {
-      final loaded = await _db.getUserById(uid);
-      final createdAt =
-          DateTime.tryParse(loaded?.createdAt ?? '')?.toUtc() ??
-          ManilaDay.boardEnumerationFallbackStartUtc;
-      final boardIds = ManilaDay.enumerateDailyQuestBoardIds(
-        userId: uid,
-        createdAtUtc: createdAt,
-        nowUtc: DateTime.now().toUtc(),
-      );
-      await _commitDeletes([
-        for (final id in boardIds)
-          _firestore.collection(FirestoreCollections.dailyQuestBoards).doc(id),
-      ]);
-      return loaded;
-    });
-
-    await _runPurgeStage('daily quest claim purge', () async {
-      final claimSnap = await _firestore
-          .collection(FirestoreCollections.dailyQuestClaims)
-          .where('user_id', isEqualTo: uid)
-          .get();
-      await _commitDeletes(claimSnap.docs.map((d) => d.reference).toList());
-    });
-
-    await _runPurgeStage('training plan purge', () async {
-      final planSnap = await _firestore
-          .collection(FirestoreCollections.trainingPlans)
-          .where('user_id', isEqualTo: uid)
-          .get();
-      await _commitDeletes(planSnap.docs.map((d) => d.reference).toList());
-    });
-
-    await _runPurgeStage('achievement claim purge', () async {
-      final achievementSnap = await _firestore
-          .collection(FirestoreCollections.achievementClaims)
-          .where('user_id', isEqualTo: uid)
-          .get();
-      await _commitDeletes(
-        achievementSnap.docs.map((d) => d.reference).toList(),
-      );
-    });
-
-    await _runPurgeStage('cosmetics/leaderboard purge', () {
-      return _commitDeletes([
-        _firestore.collection(FirestoreCollections.userCosmetics).doc(uid),
-        _firestore.collection(FirestoreCollections.leaderboard).doc(uid),
-      ]);
-    });
-
-    await _runPurgeStage('public profile purge', () async {
-      final publicRoot = _firestore
-          .collection(FirestoreCollections.publicProfiles)
-          .doc(uid);
-      final publicSessions = await publicRoot.collection('sessions').get();
-      final publicAchievements = await publicRoot
-          .collection('achievements')
-          .get();
-      await _commitDeletes([
-        ...publicSessions.docs.map((d) => d.reference),
-        ...publicAchievements.docs.map((d) => d.reference),
-        publicRoot.collection('details').doc('summary'),
-        publicRoot,
-      ]);
-    });
-
-    await _runPurgeStage('inbound visits purge', () async {
-      final inboundVisits = await _firestore
-          .collection(FirestoreCollections.profileVisits)
-          .doc(uid)
-          .collection('visitors')
-          .get();
-      await _commitDeletes(inboundVisits.docs.map((d) => d.reference).toList());
-    });
-
-    await _runPurgeStage('outbound visits purge', () async {
-      final outboundVisits = await _firestore
-          .collectionGroup('visitors')
-          .where('viewer_id', isEqualTo: uid)
-          .get();
-      await _commitDeletes(
-        outboundVisits.docs.map((d) => d.reference).toList(),
-      );
-    });
-
-    await _runPurgeStage('teacher invite purge', () async {
-      final userSnap = await _firestore
-          .collection(FirestoreCollections.users)
-          .doc(uid)
-          .get();
-      final data = userSnap.data();
-      final codes = <String>{
-        if (data?['teacher_roster_invite_code'] case final String value
-            when value.isNotEmpty)
-          value,
-        if (data?['teacher_invite_code'] case final String value
-            when value.isNotEmpty)
-          value,
-      };
-      await _commitDeletes([
-        for (final code in codes)
-          _firestore.collection(FirestoreCollections.teacherInvites).doc(code),
-      ]);
-    });
-
-    await _runPurgeStage('teacher-student link purge', () async {
-      final asTrainee = await _firestore
-          .collection(FirestoreCollections.teacherStudentLinks)
-          .where('trainee_id', isEqualTo: uid)
-          .get();
-      final asTeacher = await _firestore
-          .collection(FirestoreCollections.teacherStudentLinks)
-          .where('teacher_id', isEqualTo: uid)
-          .get();
-      await _commitDeletes([
-        ...asTrainee.docs.map((d) => d.reference),
-        ...asTeacher.docs.map((d) => d.reference),
-      ]);
-    });
-
-    await _runPurgeStage('classroom teacher access purge', () {
-      return purgeClassroomTeacherAccessForAccountErasure(
-        firestore: _firestore,
-        commitDeletes: _commitDeletes,
-        uid: uid,
-      );
-    });
-
-    await _runPurgeStage('teacher access-code personal data purge', () async {
-      await purgeTeacherAccessCodesForAccountErasure(
-        firestore: _firestore,
-        uid: uid,
-      );
-    });
-
-    await _runPurgeStage('group data purge', () {
-      return purgePhase2GroupDataForAccountErasure(
-        firestore: _firestore,
-        commitDeletes: _commitDeletes,
-        uid: uid,
-      );
-    });
-
-    await _runPurgeStage('phase 5 classroom owned purge', () {
-      return purgePhase5ClassroomOwnedDataForAccountErasure(
-        firestore: _firestore,
-        commitDeletes: _commitDeletes,
-        uid: uid,
-      );
-    });
-
-    // Submission MP4s must be deleted while assignment_attempts still exist
-    // and the user is still authenticated. Storage rules match those docs.
-    await _runPurgeStage('assignment submission Storage purge', () {
-      return purgeAssignmentSubmissionVideosForAccountErasure(
-        firestore: _firestore,
-        uid: uid,
-        deleteObject: (path) async {
-          try {
-            await _storage.ref(path).delete();
-          } on FirebaseException catch (error) {
-            if (error.code != 'object-not-found') rethrow;
-          }
-        },
-      );
-    });
-
-    await _runPurgeStage('users document purge', () {
-      return _commitDeletes([
-        _firestore.collection(FirestoreCollections.users).doc(uid),
-      ]);
-    });
-
-    await _runPurgeStage('assignment recipient projection purge', () {
-      return purgeAssignmentRecipientsForAccountErasure(
-        firestore: _firestore,
-        commitDeletes: _commitDeletes,
-        uid: uid,
-      );
-    });
-
-    // Rules permit this cleanup only after the caller's own user document has
-    // gone. Query both roles: a user may have authored and received notes.
-    await _runPurgeStage('coaching notes purge', () async {
-      final asTeacher = await _firestore
-          .collection(FirestoreCollections.teacherCoachingNotes)
-          .where('teacher_id', isEqualTo: uid)
-          .get();
-      final asTrainee = await _firestore
-          .collection(FirestoreCollections.teacherCoachingNotes)
-          .where('trainee_id', isEqualTo: uid)
-          .get();
-      final refs = <String, DocumentReference>{
-        for (final doc in asTeacher.docs) doc.reference.path: doc.reference,
-        for (final doc in asTrainee.docs) doc.reference.path: doc.reference,
-      };
-      await _commitDeletes(refs.values.toList());
-    });
-
-    await _runPurgeStage('phase 5 assignment attempts purge', () {
-      return purgePhase5AssignmentAttemptsForAccountErasure(
-        firestore: _firestore,
-        commitDeletes: _commitDeletes,
-        uid: uid,
-      );
-    });
-
-    await _runPurgeStage('profile Storage purge', () {
-      return _deleteProfileStorage(uid, profile?.profilePictureStoragePath);
-    });
-  }
-
-  Future<T> _runPurgeStage<T>(String stage, Future<T> Function() action) async {
-    try {
-      return await action();
-    } catch (e, st) {
-      final wrapped = AccountPurgeStageException(stage: stage, cause: e);
-      if (kDebugMode) {
-        debugPrint(
-          'Account erasure failed at stage "$stage": '
-          '${_describeAccountPurgeError(e)}',
-        );
-      }
-      Error.throwWithStackTrace(wrapped, st);
-    }
-  }
-
-  Future<void> _archiveChatForAccountErasure(String uid) async {
-    final activeUser = _auth.currentUser;
-    if (activeUser == null || activeUser.uid != uid) {
-      throw StateError('The active sign-in does not match this account.');
-    }
-    final token = await activeUser
-        .getIdToken(true)
-        .timeout(_authOperationTimeout);
-    if (token == null || token.isEmpty) {
-      throw StateError('Could not authenticate chat account erasure.');
-    }
-    final endpoint = Uri.parse(
-      _chatApiBaseUrl,
-    ).resolve('archiveChatForAccountErasure');
-    final client = HttpClient();
-    try {
-      final request = await client
-          .postUrl(endpoint)
-          .timeout(_authOperationTimeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.write('{}');
-      final response = await request.close().timeout(
-        const Duration(minutes: 9),
-      );
-      await response.drain<void>();
-      if (response.statusCode != HttpStatus.ok) {
-        throw StateError('Chat account erasure was not accepted.');
-      }
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  Future<void> _deleteProfileStorage(String uid, String? storagePath) {
-    return deleteProfileStorageObjects(
-      uid: uid,
-      storagePath: storagePath,
-      profileImages: _profileImages,
-      listObjectPaths: _listProfileObjectPaths,
-    );
-  }
-
-  Future<List<String>> _listProfileObjectPaths(String uid) async {
-    final override = _listProfileStorageObjectPaths;
+  /// Server-side erasure: the admin Edge Function verifies a recent sign-in,
+  /// anonymizes retained chat, removes owned Storage objects, then deletes
+  /// the auth user (all ELIXR rows cascade from it).
+  Future<void> _eraseAccount(String uid) async {
+    final override = _eraseAccountOverride;
     if (override != null) return override(uid);
-
-    final listed = await _storage
-        .ref(ProfileImageRepository.profilePrefixForUser(uid))
-        .listAll();
-    return [for (final item in listed.items) item.fullPath];
-  }
-
-  Future<void> _commitDeletes(List<DocumentReference> refs) async {
-    if (refs.isEmpty) return;
-    for (var i = 0; i < refs.length; i += _batchLimit) {
-      final batch = _firestore.batch();
-      final end = math.min(i + _batchLimit, refs.length);
-      for (var j = i; j < end; j++) {
-        batch.delete(refs[j]);
-      }
-      await batch.commit();
+    final response = await _client.functions
+        .invoke('elixr-admin', body: const {'action': 'delete_account'})
+        .timeout(const Duration(minutes: 5));
+    if (response.status != 200) {
+      throw StateError('Account erasure was not accepted.');
     }
   }
 
-  Future<fb.User> _refreshRecentLogin({
+  Future<sb.User> _refreshRecentLogin({
     required String email,
     required String password,
     required _AuthErrorContext errorContext,
   }) async {
-    // Re-validate the current password with the same sign-in path used at
-    // login. `reauthenticateWithCredential` can hang on the Windows desktop
-    // Firebase Auth plugin; signing in again refreshes the session safely.
+    // Re-validating the current password with a fresh sign-in also records a
+    // recent sign-in, which sensitive server operations require.
     try {
-      final credential = await _auth
-          .signInWithEmailAndPassword(email: email, password: password)
+      final response = await _auth
+          .signInWithPassword(email: email, password: password)
           .timeout(_authOperationTimeout);
-      final user = credential.user;
+      final user = response.user;
       if (user == null) throw Exception('Not authenticated');
       return user;
-    } on fb.FirebaseAuthException catch (e) {
+    } on sb.AuthException catch (e) {
       throw Exception(_messageForAuthError(e, context: errorContext));
     } on TimeoutException {
       throw Exception(
@@ -2649,77 +1725,54 @@ class AuthRepository
     }
   }
 
-  Future<void> _refreshStaleVerifiedEmailIdToken(fb.User firebaseUser) async {
-    try {
-      await refreshStaleEmailVerifiedIdToken(
-        emailVerified: firebaseUser.emailVerified,
-        readClaims: () async {
-          final result = await firebaseUser.getIdTokenResult().timeout(
-            _authOperationTimeout,
-          );
-          return result.claims;
-        },
-        forceRefreshIdToken: () async {
-          await firebaseUser.getIdToken(true).timeout(_authOperationTimeout);
-        },
-      );
-    } on fb.FirebaseAuthException catch (e) {
-      throw Exception(_messageForAuthError(e));
-    } on TimeoutException {
-      throw Exception(
-        'Account refresh timed out. Check your internet connection and try again.',
-      );
-    }
-  }
-
   Future<User> _loadUserProfile(
-    fb.User firebaseUser, {
+    sb.User authUser, {
     bool reload = false,
     bool tolerateReloadFailure = false,
   }) async {
-    var authEmail = firebaseUser.email ?? '';
+    var authEmail = authUser.email ?? '';
     if (reload) {
       try {
-        await firebaseUser.reload().timeout(_authOperationTimeout);
-      } on fb.FirebaseAuthException catch (e) {
-        if (tolerateReloadFailure && !_isBackendUnavailable(e.code)) {
+        final refreshed = (await _auth.getUser().timeout(
+          _authOperationTimeout,
+        )).user;
+        authEmail = refreshed?.email ?? authEmail;
+      } on sb.AuthRetryableFetchException {
+        if (!tolerateReloadFailure) {
+          throw Exception(
+            'Network error. Check your connection and try again.',
+          );
+        }
+      } on sb.AuthException catch (e) {
+        if (tolerateReloadFailure) {
           throw const InvalidPersistedAuthIdentityException();
         }
-        if (!tolerateReloadFailure) {
-          throw Exception(_messageForAuthError(e));
-        }
+        throw Exception(_messageForAuthError(e));
       } on TimeoutException {
         if (!tolerateReloadFailure) {
           throw Exception(
             'Account refresh timed out. Check your internet connection and try again.',
           );
         }
+      } catch (error) {
+        if (!(tolerateReloadFailure && isBackendUnavailableError(error))) {
+          rethrow;
+        }
       }
-      authEmail = _auth.currentUser?.email ?? authEmail;
     }
 
-    var profile = await _db.getUserById(firebaseUser.uid);
+    var profile = await _db.getUserById(authUser.id);
     if (profile == null) {
-      if (!createMissingProfile) {
-        throw const MissingUserProfileException();
-      }
-      final parsed = parseLegacyFullName(firebaseUser.displayName ?? 'Trainee');
-      final user = User(
-        id: firebaseUser.uid,
-        firstName: parsed.firstName,
-        middleName: parsed.middleName,
-        lastName: parsed.lastName,
-        email: authEmail,
-        role: User.roleTrainee,
-      );
-      await _db.upsertUserProfile(user);
-      return user;
+      // Profiles require explicit, versioned legal consent recorded by the
+      // server, so a missing profile is never synthesized here; the caller
+      // routes the identity through profile completion instead.
+      throw const MissingUserProfileException();
     }
 
     final trimmedAuthEmail = authEmail.trim();
     if (trimmedAuthEmail.isNotEmpty &&
         _emailsDiffer(trimmedAuthEmail, profile.email)) {
-      await _db.updateUserProfileField(firebaseUser.uid, {
+      await _db.updateUserProfileField(authUser.id, {
         'email': trimmedAuthEmail,
       });
       profile = profile.copyWith(email: trimmedAuthEmail);
@@ -2734,88 +1787,87 @@ class AuthRepository
   }
 
   String _messageForAuthError(
-    fb.FirebaseAuthException error, {
+    sb.AuthException error, {
     _AuthErrorContext context = _AuthErrorContext.login,
   }) {
     switch (error.code) {
-      case 'invalid-email':
+      case 'validation_failed':
+      case 'email_address_invalid':
         return 'Invalid email address';
-      case 'user-disabled':
+      case 'user_banned':
         return 'This account has been disabled';
-      case 'user-not-found':
-      case 'wrong-password':
-      case 'invalid-credential':
+      case 'invalid_credentials':
+      case 'user_not_found':
         if (context == _AuthErrorContext.login) {
           return 'Invalid email or password';
         }
         return 'The current password is incorrect.';
-      case 'email-already-in-use':
+      case 'user_already_exists':
+      case 'email_exists':
         return 'Email already registered';
-      case 'weak-password':
+      case 'weak_password':
         return 'Password must be at least 6 characters';
-      case 'too-many-requests':
+      case 'over_request_rate_limit':
+      case 'over_email_send_rate_limit':
         return 'Too many attempts. Try again later';
-      case 'operation-not-allowed':
-        return 'Email verification is disabled for this Firebase project. '
-            'Check Authentication settings in the Firebase console.';
-      case 'requires-recent-login':
+      case 'email_provider_disabled':
+      case 'signup_disabled':
+        return 'Email sign-in is disabled for this project. '
+            'Check the Supabase Authentication settings.';
+      case 'reauthentication_needed':
         if (context == _AuthErrorContext.emailChange) {
           return 'Please sign out and sign in again before changing your email';
         }
         return 'Please sign out and sign in again before changing your password';
-      case 'network-request-failed':
-        return 'Network error. Check your connection and try again.';
-      default:
-        final message = error.message?.toLowerCase() ?? '';
-        if (message.contains('network')) {
-          return 'Network error. Check your connection and try again.';
-        }
-        return error.message ?? 'Authentication failed';
+      case 'same_password':
+        return 'Choose a password different from your current password.';
     }
+    if (error is sb.AuthRetryableFetchException) {
+      return 'Network error. Check your connection and try again.';
+    }
+    final message = error.message.toLowerCase();
+    if (message.contains('network') || message.contains('socket')) {
+      return 'Network error. Check your connection and try again.';
+    }
+    return error.message.isEmpty ? 'Authentication failed' : error.message;
   }
 
   AuthFailure _failureForAuthError(
-    fb.FirebaseAuthException error, {
+    sb.AuthException error, {
     _AuthErrorContext context = _AuthErrorContext.login,
   }) {
     final kind = switch (error.code) {
-      'user-disabled' => AuthFailureKind.disabledAccount,
-      'too-many-requests' => AuthFailureKind.rateLimited,
-      'network-request-failed' => AuthFailureKind.network,
-      'user-not-found' || 'wrong-password' || 'invalid-credential' =>
+      'user_banned' => AuthFailureKind.disabledAccount,
+      'over_request_rate_limit' ||
+      'over_email_send_rate_limit' => AuthFailureKind.rateLimited,
+      'invalid_credentials' || 'user_not_found' =>
         context == _AuthErrorContext.login
             ? AuthFailureKind.invalidCredentials
             : AuthFailureKind.reauthentication,
+      _ when error is sb.AuthRetryableFetchException => AuthFailureKind.network,
       _ => AuthFailureKind.unknown,
     };
     return AuthFailure(kind, _messageForAuthError(error, context: context));
   }
 
-  static bool _isGoogleCancellation(String code) {
-    return code == 'web-context-cancelled' ||
-        code == 'popup-closed-by-user' ||
-        code == 'cancelled-popup-request' ||
-        code == 'canceled';
-  }
-
-  String _messageForGoogleAuthError(fb.FirebaseAuthException error) {
+  String _messageForGoogleAuthError(sb.AuthException error) {
     switch (error.code) {
-      case 'account-exists-with-different-credential':
-      case 'credential-already-in-use':
-      case 'email-already-in-use':
+      case 'identity_already_exists':
+      case 'email_exists':
+      case 'user_already_exists':
         return 'This email already uses another sign-in method. Sign in with your existing method first.';
-      case 'network-request-failed':
-        return 'Could not reach Google. Check your internet connection and try again.';
-      case 'operation-not-allowed':
-        return 'Google sign-in is not enabled for this Firebase project.';
-      case 'user-mismatch':
-        return 'Google verified a different account. No account data was deleted.';
-      case 'unimplemented':
-        return 'Google sign-in is unavailable in this Windows build. Please update ELIXR.';
-      case 'user-disabled':
+      case 'provider_disabled':
+        return 'Google sign-in is not enabled for this project.';
+      case 'user_banned':
         return 'This account has been disabled.';
-      default:
-        return 'Google sign-in could not be completed. Please try again.';
+      case 'bad_code_verifier':
+      case 'flow_state_expired':
+      case 'flow_state_not_found':
+        return 'Google sign-in expired. Please try again.';
     }
+    if (error is sb.AuthRetryableFetchException) {
+      return 'Could not reach Google. Check your internet connection and try again.';
+    }
+    return 'Google sign-in could not be completed. Please try again.';
   }
 }

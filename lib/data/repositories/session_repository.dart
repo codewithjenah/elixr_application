@@ -1,39 +1,25 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show PostgrestException, SupabaseClient;
 
-import '../database/firestore_helper.dart';
+import '../database/session_database.dart';
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/feedback.dart';
 import '../models/session.dart';
-import 'firebase_classroom_assignment_repository.dart';
+import 'supabase_classroom_assignment_repository.dart';
 
 class SessionRepository {
-  SessionRepository({
-    FirestoreHelper? db,
-    FirebaseAuth? auth,
-    Uri? apiBaseUri,
-    HttpClient Function()? httpClientFactory,
-  }) : _dbOverride = db,
-       _authOverride = auth,
-       apiBaseUri = apiBaseUri ?? Uri.parse(_configuredApiBaseUrl),
-       _httpClientFactory = httpClientFactory ?? HttpClient.new;
+  SessionRepository({SessionDatabase? db, SupabaseClient? client})
+    : _dbOverride = db,
+      _clientOverride = client;
 
-  static const _configuredApiBaseUrl = String.fromEnvironment(
-    'ELIXR_ASSIGNMENTS_API_BASE_URL',
-    defaultValue: 'https://asia-southeast1-elixr-app-2026.cloudfunctions.net/',
-  );
-
-  final FirestoreHelper? _dbOverride;
-  final FirebaseAuth? _authOverride;
-  final Uri apiBaseUri;
-  final HttpClient Function() _httpClientFactory;
-  FirestoreHelper get _db => _dbOverride ?? FirestoreHelper.instance;
-  FirebaseAuth get _auth => _authOverride ?? FirebaseAuth.instance;
+  final SessionDatabase? _dbOverride;
+  final SupabaseClient? _clientOverride;
+  SessionDatabase get _db => _dbOverride ?? SessionDatabase.instance;
+  SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
 
   String allocateSessionId() => _db.allocateSessionId();
 
@@ -61,86 +47,45 @@ class SessionRepository {
       sessionId: sessionId,
       session: session,
       feedbacks: feedbacks,
-      officialAssignmentPointer: officialAssignmentPointer,
     );
   }
 
+  /// The session, its feedback, the official assignment pointer and the
+  /// attempt-limit ledger commit in one server transaction.
   Future<void> _completeOfficialAssignmentSession({
     required String sessionId,
     required Session session,
     required List<Feedback> feedbacks,
   }) async {
-    final user = _auth.currentUser;
-    if (user == null) throw const ClassroomException(ClassroomError.forbidden);
-    final token = await user.getIdToken(true);
-    if (token == null || token.isEmpty) {
-      throw const ClassroomException(ClassroomError.forbidden);
-    }
-    final sessionPayload = session.toMap()
-      ..remove('id')
-      ..remove('created_at')
-      ..remove('user_id')
+    final sessionPayload = SessionDatabase.sessionPayload(session)
       ..remove('challenge_context');
-    final client = _httpClientFactory();
     try {
-      final request = await client
-          .postUrl(apiBaseUri.resolve('completeOfficialAssignmentSession'))
+      await _client
+          .rpc<dynamic>(
+            'complete_official_assignment_session',
+            params: {
+              'p_session_id': sessionId,
+              'p_session': sessionPayload,
+              'p_feedbacks': [
+                for (final feedback in feedbacks)
+                  {
+                    'message': feedback.message,
+                    'feedback_type': feedback.feedbackType,
+                  },
+              ],
+            },
+          )
           .timeout(const Duration(seconds: 30));
-      request.headers.set('X-Firebase-Authorization', 'Bearer $token');
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode({
-          'session_id': sessionId,
-          'session': sessionPayload,
-          'feedbacks': [
-            for (final feedback in feedbacks)
-              {
-                'message': feedback.message,
-                'feedback_type': feedback.feedbackType,
-              },
-          ],
-        }),
-      );
-      final response = await request.close().timeout(
-        const Duration(seconds: 30),
-      );
-      final responseBody = await utf8.decoder
-          .bind(response)
-          .join()
-          .timeout(const Duration(seconds: 30));
-      Object? decoded;
-      try {
-        decoded = responseBody.isEmpty
-            ? <String, dynamic>{}
-            : jsonDecode(responseBody);
-      } on FormatException {
-        if (response.statusCode == HttpStatus.ok) rethrow;
-      }
-      if (response.statusCode != HttpStatus.ok) {
-        throw classroomFunctionFailure(
-          statusCode: response.statusCode,
-          responseBody: decoded,
-        );
-      }
-    } on ClassroomException {
-      rethrow;
+    } on PostgrestException catch (error) {
+      throw classroomRpcFailure(error);
     } on TimeoutException {
       throw const ClassroomException(ClassroomError.invalidState);
-    } on SocketException {
-      throw const ClassroomException(ClassroomError.invalidState);
-    } on FormatException {
-      throw const ClassroomException(ClassroomError.malformed);
-    } finally {
-      client.close(force: true);
+    } catch (error) {
+      if (isBackendUnavailableError(error)) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      rethrow;
     }
-  }
-
-  Future<String> saveSession(Session session) {
-    return _db.insertSession(session);
-  }
-
-  Future<void> saveFeedbacks(List<Feedback> feedbacks) {
-    return _db.insertFeedbacks(feedbacks);
   }
 
   Future<List<Session>> getSessionsForUser(String userId) {

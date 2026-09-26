@@ -4,33 +4,31 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:elixr_core/repositories/auth_repository.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 typedef GoogleBrowserLauncher = Future<void> Function(Uri uri);
 
-/// Runs Google authentication in the system browser and returns the Google
-/// credential to the Windows Firebase Auth client over a private loopback URL.
+/// Runs Google authentication in the system browser and returns the PKCE
+/// authorization code to the app over a private loopback redirect.
 ///
-/// FlutterFire delegates Windows auth to the Firebase C++ SDK, whose
-/// `SignInWithProvider` implementation is unavailable on desktop. The hosted
-/// Firebase JavaScript SDK performs the supported web popup flow on localhost;
-/// the native client then exchanges the resulting Google credential through
-/// `signInWithCredential`.
+/// The Supabase Auth server performs the Google OAuth exchange; the browser
+/// is redirected to `http://localhost:{port}/elixr-google/{nonce}/callback`
+/// with a one-time `code`. The code is useless without the PKCE verifier held
+/// by this app's auth client, and the random path segment keeps other local
+/// processes from guessing the callback.
 class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
   WindowsGoogleOAuthFlow({
     GoogleBrowserLauncher? browserLauncher,
-    FirebaseOptions? firebaseOptions,
     this.timeout = const Duration(minutes: 5),
-  }) : _browserLauncher = browserLauncher ?? _launchCompatibleBrowser,
-       _firebaseOptions = firebaseOptions;
+  }) : _browserLauncher = browserLauncher ?? _launchCompatibleBrowser;
 
   final GoogleBrowserLauncher _browserLauncher;
-  final FirebaseOptions? _firebaseOptions;
   final Duration timeout;
 
   @override
-  Future<GoogleOAuthCredential> authenticate() async {
+  Future<GoogleOAuthCredential> authenticate(
+    OAuthAuthorizationUrlBuilder authorizationUrlFor,
+  ) async {
     if (!Platform.isWindows) {
       throw const GoogleOAuthFlowException(
         'This Google sign-in flow is available only on Windows.',
@@ -57,74 +55,63 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
         }
       }
 
-      final pagePath = '/elixr-google/$nonce';
-      final callbackPath = '$pagePath/complete';
-      final pageUri = Uri(
+      final callbackPath = '/elixr-google/$nonce/callback';
+      final callbackUri = Uri(
         scheme: 'http',
         host: 'localhost',
         port: ipv4.port,
-        path: pagePath,
+        path: callbackPath,
       );
-      final callbackUri = pageUri.replace(path: callbackPath);
-      final options = _firebaseOptions ?? Firebase.app().options;
-      if (options.authDomain?.trim().isEmpty ?? true) {
-        throw const GoogleOAuthFlowException(
-          'Google sign-in is missing the Firebase auth domain configuration.',
-        );
-      }
-      final page = _oauthPage(options, callbackUri);
 
       Future<void> handle(HttpRequest request) async {
         final response = request.response;
         try {
-          if (request.method == 'GET' && request.uri.path == pagePath) {
-            response.statusCode = HttpStatus.ok;
-            response.headers.contentType = ContentType.html;
-            response.write(page);
+          if (request.method != 'GET' || request.uri.path != callbackPath) {
+            response.statusCode = HttpStatus.notFound;
             return;
           }
-          if (request.method == 'POST' && request.uri.path == callbackPath) {
-            final body = await utf8.decoder.bind(request).join();
-            final payload = jsonDecode(body);
-            if (payload is! Map<String, dynamic>) {
-              throw const FormatException('Invalid OAuth callback payload.');
+          final params = request.uri.queryParameters;
+          final code = _nonEmptyString(params['code']);
+          final error = _nonEmptyString(params['error']);
+          response.headers.contentType = ContentType.html;
+          if (code != null) {
+            response.statusCode = HttpStatus.ok;
+            response.write(
+              _resultPage(
+                'Sign-in complete. You can close this tab and return to ELIXR.',
+              ),
+            );
+            if (!completion.isCompleted) {
+              completion.complete(
+                GoogleOAuthCredential(authorizationCode: code),
+              );
             }
-            final status = payload['status'];
-            if (status == 'cancelled') {
-              if (!completion.isCompleted) {
-                completion.completeError(
-                  const GoogleSignInCancelledException(),
-                );
-              }
-            } else if (status == 'success') {
-              final idToken = _nonEmptyString(payload['idToken']);
-              final accessToken = _nonEmptyString(payload['accessToken']);
-              if (idToken == null && accessToken == null) {
-                throw const FormatException('Google token was missing.');
-              }
-              if (!completion.isCompleted) {
-                completion.complete(
-                  GoogleOAuthCredential(
-                    idToken: idToken,
-                    accessToken: accessToken,
-                    isNewUser: payload['isNewUser'] == true,
+          } else if (error == 'access_denied') {
+            response.statusCode = HttpStatus.ok;
+            response.write(
+              _resultPage('Sign-in cancelled. You can return to ELIXR.'),
+            );
+            if (!completion.isCompleted) {
+              completion.completeError(const GoogleSignInCancelledException());
+            }
+          } else {
+            response.statusCode = HttpStatus.ok;
+            response.write(
+              _resultPage(
+                'Google sign-in failed. Return to ELIXR for details.',
+              ),
+            );
+            if (!completion.isCompleted) {
+              completion.completeError(
+                GoogleOAuthFlowException(
+                  _messageForProviderError(
+                    error,
+                    _nonEmptyString(params['error_description']),
                   ),
-                );
-              }
-            } else {
-              final code = _nonEmptyString(payload['code']) ?? 'unknown';
-              if (!completion.isCompleted) {
-                completion.completeError(
-                  GoogleOAuthFlowException(_messageForWebError(code)),
-                );
-              }
+                ),
+              );
             }
-            response.statusCode = HttpStatus.ok;
-            response.headers.contentType = ContentType.json;
-            response.write('{"ok":true}');
-            return;
           }
-          response.statusCode = HttpStatus.notFound;
         } catch (error, stackTrace) {
           if (!completion.isCompleted) {
             completion.completeError(
@@ -160,8 +147,12 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
 
       listen(ipv4);
       if (ipv6 != null) listen(ipv6);
+      final authorizationUri = await authorizationUrlFor(callbackUri);
       unawaited(
-        _browserLauncher(pageUri).catchError((Object error, StackTrace stack) {
+        _browserLauncher(authorizationUri).catchError((
+          Object error,
+          StackTrace stack,
+        ) {
           if (!completion.isCompleted) {
             completion.completeError(error, stack);
           }
@@ -239,16 +230,8 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
     }
   }
 
-  static String _oauthPage(FirebaseOptions options, Uri callbackUri) {
-    final config = jsonEncode({
-      'apiKey': options.apiKey,
-      'appId': options.appId,
-      'authDomain': options.authDomain,
-      'messagingSenderId': options.messagingSenderId,
-      'projectId': options.projectId,
-      'storageBucket': options.storageBucket,
-    });
-    final callback = jsonEncode(callbackUri.toString());
+  static String _resultPage(String message) {
+    final safe = const HtmlEscape().convert(message);
     return '''<!doctype html>
 <html lang="en">
 <head>
@@ -260,103 +243,30 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
     main { width:min(420px,calc(100% - 48px)); padding:36px; border:1px solid #343b45; border-radius:16px; background:#181d24; text-align:center; box-shadow:0 18px 60px #0008; }
     h1 { letter-spacing:.12em; margin:0 0 12px; }
     p { color:#b9c0ca; line-height:1.5; }
-    button { width:100%; margin-top:18px; padding:13px 18px; border:0; border-radius:8px; background:#fff; color:#202124; font-size:15px; font-weight:600; cursor:pointer; }
-    button:disabled { opacity:.65; cursor:wait; }
-    #status { min-height:24px; margin-top:18px; font-size:14px; }
   </style>
 </head>
 <body>
 <main>
   <h1>ELIXR</h1>
-  <p>Continue securely with your Google account. This tab returns the result only to the ELIXR app running on this computer.</p>
-  <button id="google" type="button">Continue with Google</button>
-  <div id="status" role="status"></div>
+  <p>$safe</p>
 </main>
-<script type="module">
-  import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-  import { getAuth, GoogleAuthProvider, signInWithPopup, getAdditionalUserInfo } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-
-  const app = initializeApp($config);
-  const auth = getAuth(app);
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({prompt: 'select_account'});
-  const callbackUrl = $callback;
-  const button = document.getElementById('google');
-  const status = document.getElementById('status');
-  let finished = false;
-
-  async function post(payload) {
-    const response = await fetch(callbackUrl, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) throw new Error('callback-failed');
-    finished = true;
-  }
-
-  button.addEventListener('click', async () => {
-    button.disabled = true;
-    status.textContent = 'Waiting for Google…';
-    try {
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const details = getAdditionalUserInfo(result);
-      if (!credential || (!credential.idToken && !credential.accessToken)) {
-        throw {code: 'auth/missing-google-credential'};
-      }
-      await post({
-        status: 'success',
-        idToken: credential.idToken || null,
-        accessToken: credential.accessToken || null,
-        isNewUser: details ? details.isNewUser === true : false
-      });
-      status.textContent = 'Sign-in complete. You can close this tab and return to ELIXR.';
-      button.hidden = true;
-    } catch (error) {
-      const code = error && error.code ? String(error.code) : 'unknown';
-      const cancelled = code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request';
-      try {
-        await post(cancelled ? {status: 'cancelled'} : {status: 'error', code});
-      } catch (_) {}
-      status.textContent = cancelled ? 'Sign-in cancelled. You can return to ELIXR.' : 'Google sign-in failed. Return to ELIXR for details.';
-      button.disabled = false;
-    }
-  });
-
-  window.addEventListener('beforeunload', () => {
-    if (!finished) {
-      const body = new Blob([JSON.stringify({status:'cancelled'})], {type:'application/json'});
-      navigator.sendBeacon(callbackUrl, body);
-    }
-  });
-</script>
 </body>
 </html>''';
   }
 
-  static String _messageForWebError(String code) {
-    switch (code) {
-      case 'auth/operation-not-allowed':
-        return 'Google sign-in is not enabled for this Firebase project.';
-      case 'auth/unauthorized-domain':
-        return 'Firebase does not authorize the local ELIXR sign-in callback. Add localhost to Authentication authorized domains.';
-      case 'auth/network-request-failed':
-        return 'Could not reach Google. Check your internet connection and try again.';
-      case 'auth/popup-blocked':
-        return 'The browser blocked the Google window. Allow pop-ups on the ELIXR sign-in tab and retry.';
-      case 'auth/web-storage-unsupported':
-      case 'auth/operation-not-supported-in-this-environment':
-        return 'This browser blocks the storage required by Google sign-in. Retry in Microsoft Edge.';
-      case 'auth/configuration-not-found':
-        return 'The Firebase Google sign-in configuration was not found. Check the Authentication provider setup.';
-      case 'auth/internal-error':
-        return 'The browser could not initialize Google sign-in. Close the sign-in window and retry.';
-      case 'auth/account-exists-with-different-credential':
-        return 'This email already uses another sign-in method. Sign in with your existing method first.';
-      default:
-        return 'Google sign-in could not be completed in the browser ($code). Please try again.';
+  static String _messageForProviderError(String? error, String? description) {
+    final detail = description?.toLowerCase() ?? '';
+    if (detail.contains('provider is not enabled') ||
+        detail.contains('unsupported provider')) {
+      return 'Google sign-in is not enabled for this ELIXR server.';
     }
+    if (detail.contains('redirect')) {
+      return 'The ELIXR server does not allow the local sign-in callback. Add http://localhost:*/** to the Auth redirect URLs.';
+    }
+    if (detail.contains('multiple accounts') || detail.contains('identity')) {
+      return 'This email already uses another sign-in method. Sign in with your existing method first.';
+    }
+    return 'Google sign-in could not be completed in the browser (${error ?? 'unknown'}). Please try again.';
   }
 
   static String _randomToken() {

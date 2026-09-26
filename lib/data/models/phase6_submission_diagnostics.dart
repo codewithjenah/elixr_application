@@ -1,5 +1,6 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show AuthException, PostgrestException, StorageException;
 
 import 'assignment_attempt.dart';
 import 'assignment_submission_limits.dart';
@@ -9,7 +10,7 @@ import 'classroom_exceptions.dart';
 enum Phase6SubmissionStage {
   createDraft,
   storageUpload,
-  firestoreSubmit,
+  databaseSubmit,
   supersededCleanup,
   localCleanup,
   abandonCompensation,
@@ -22,8 +23,8 @@ extension Phase6SubmissionStageWire on Phase6SubmissionStage {
         return 'create_draft';
       case Phase6SubmissionStage.storageUpload:
         return 'storage_upload';
-      case Phase6SubmissionStage.firestoreSubmit:
-        return 'firestore_submit';
+      case Phase6SubmissionStage.databaseSubmit:
+        return 'database_submit';
       case Phase6SubmissionStage.supersededCleanup:
         return 'superseded_cleanup';
       case Phase6SubmissionStage.localCleanup:
@@ -77,14 +78,8 @@ String formatPhase6SubmissionDiagnostic({
   final buffer = StringBuffer()
     ..write('[Phase6Submission] stage=${stage.wireValue}')
     ..write(' error_type=${error.runtimeType}');
-  if (error is FirebaseException) {
-    buffer
-      ..write(' plugin=${sanitizePhase6DiagnosticText(error.plugin)}')
-      ..write(' code=${sanitizePhase6DiagnosticText(error.code)}');
-    final message = error.message;
-    if (message != null && message.isNotEmpty) {
-      buffer.write(' message=${sanitizePhase6DiagnosticText(message)}');
-    }
+  if (_writeBackendError(buffer, error)) {
+    // Sanitized backend details were appended.
   } else if (error is ClassroomException) {
     buffer.write(' classroom_code=${error.code.name}');
     final message = error.message;
@@ -117,7 +112,7 @@ Future<int> runPhase6StorageUpload({
       '[Phase6Submission] stage=storage_upload result=success bytes=$bytes',
     );
     return bytes;
-  } on FirebaseException catch (error) {
+  } on StorageException catch (error) {
     emitPhase6SubmissionDiagnostic(
       stage: Phase6SubmissionStage.storageUpload,
       error: error,
@@ -238,15 +233,7 @@ String formatPhase6StorageAnchorReadFailure(Object error) {
   final buffer = StringBuffer()
     ..write('[Phase6StorageAnchor] read_failed')
     ..write(' error_type=${error.runtimeType}');
-  if (error is FirebaseException) {
-    buffer
-      ..write(' plugin=${sanitizePhase6DiagnosticText(error.plugin)}')
-      ..write(' code=${sanitizePhase6DiagnosticText(error.code)}');
-    final message = error.message;
-    if (message != null && message.isNotEmpty) {
-      buffer.write(' message=${sanitizePhase6DiagnosticText(message)}');
-    }
-  }
+  _writeBackendError(buffer, error);
   return buffer.toString();
 }
 
@@ -278,16 +265,35 @@ String formatPhase6StorageAuthTokenRefreshFailure(Object error) {
   final buffer = StringBuffer()
     ..write('[Phase6StorageAuth] token_refresh_failed')
     ..write(' error_type=${error.runtimeType}');
-  if (error is FirebaseException) {
-    buffer
-      ..write(' plugin=${sanitizePhase6DiagnosticText(error.plugin)}')
-      ..write(' code=${sanitizePhase6DiagnosticText(error.code)}');
-    final message = error.message;
-    if (message != null && message.isNotEmpty) {
-      buffer.write(' message=${sanitizePhase6DiagnosticText(message)}');
-    }
-  }
+  _writeBackendError(buffer, error);
   return buffer.toString();
+}
+
+/// Appends sanitized backend error details; returns false for other errors.
+bool _writeBackendError(StringBuffer buffer, Object error) {
+  final (String source, String? code, String message) = switch (error) {
+    PostgrestException(:final code, :final message) => (
+      'database',
+      code,
+      message,
+    ),
+    StorageException(:final statusCode, :final message) => (
+      'storage',
+      statusCode,
+      message,
+    ),
+    AuthException(:final code, :final message) => ('auth', code, message),
+    _ => ('', null, ''),
+  };
+  if (source.isEmpty) return false;
+  buffer.write(' source=$source');
+  if (code != null && code.isNotEmpty) {
+    buffer.write(' code=${sanitizePhase6DiagnosticText(code)}');
+  }
+  if (message.isNotEmpty) {
+    buffer.write(' message=${sanitizePhase6DiagnosticText(message)}');
+  }
+  return true;
 }
 
 /// Logs Auth uid and force-refreshes the ID token once. Does not print tokens.

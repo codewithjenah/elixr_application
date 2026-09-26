@@ -1,19 +1,20 @@
 import 'dart:typed_data';
 
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:elixr_core/database/firestore_collections.dart';
+import 'package:elixr_core/database/supabase_support.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show FileOptions, StorageException, SupabaseClient;
 
-/// Private Firebase Storage access for one confirmed-movement image per session.
+/// Private Storage access for one confirmed-movement image per session.
 class SessionEvidenceRepository {
-  SessionEvidenceRepository({
-    FirebaseStorage? storage,
-    FirebaseFirestore? firestore,
-  }) : _storage = storage ?? FirebaseStorage.instance,
-       _firestore = firestore ?? FirebaseFirestore.instance;
+  SessionEvidenceRepository({SupabaseClient? client})
+    : _clientOverride = client;
 
-  final FirebaseStorage _storage;
-  final FirebaseFirestore _firestore;
+  final SupabaseClient? _clientOverride;
+
+  SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
+
+  static const _bucket = 'session-evidence';
+  static const _maxBytes = 256 * 1024;
 
   static String pathFor({required String userId, required String sessionId}) =>
       'users/$userId/session_evidence/$sessionId.jpg';
@@ -23,107 +24,63 @@ class SessionEvidenceRepository {
     required String sessionId,
     required Uint8List jpegBytes,
   }) async {
-    if (jpegBytes.lengthInBytes < 1024 ||
-        jpegBytes.lengthInBytes > 256 * 1024) {
+    if (jpegBytes.lengthInBytes < 1024 || jpegBytes.lengthInBytes > _maxBytes) {
       throw ArgumentError.value(
         jpegBytes.lengthInBytes,
         'jpegBytes',
         'Evidence JPEG must be 1–256 KiB',
       );
     }
-    await _storage
-        .ref(pathFor(userId: userId, sessionId: sessionId))
-        .putData(jpegBytes, SettableMetadata(contentType: 'image/jpeg'));
+    await _client.storage
+        .from(_bucket)
+        .uploadBinary(
+          pathFor(userId: userId, sessionId: sessionId),
+          jpegBytes,
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: true,
+          ),
+        );
   }
 
-  Future<Uint8List?> download(String storagePath) =>
-      _storage.ref(storagePath).getData(256 * 1024);
+  Future<Uint8List?> download(String storagePath) async {
+    final bytes = await _client.storage.from(_bucket).download(storagePath);
+    if (bytes.lengthInBytes > _maxBytes) {
+      throw StateError('Evidence object exceeds the download limit.');
+    }
+    return bytes;
+  }
 
   /// Reconciles retained private evidence into the sanitized projection before
-  /// a per-Teacher grant becomes effective. No Storage path is projected.
+  /// a per-Teacher grant becomes effective. No Storage path is projected, and
+  /// only already-published projections are updated server-side.
   Future<void> reconcilePublicEvidenceAvailability(String userId) async {
-    final sessions = await _firestore
-        .collection(FirestoreCollections.sessions)
-        .where('user_id', isEqualTo: userId)
-        .get();
-    final eligibleIds = sessions.docs
-        .where((doc) {
-          final data = doc.data();
-          return data['evidence_storage_path'] ==
-                  pathFor(userId: userId, sessionId: doc.id) &&
-              data['evidence_kind'] == 'hold_confirmed';
-        })
-        .map((doc) => doc.id)
-        .toSet();
-    if (eligibleIds.isEmpty) return;
-
-    // Only update projections that already exist. Creating a partial public
-    // session would violate the sanitized projection schema and could expose a
-    // session the Trainee did not publish.
-    final projections = await _firestore
-        .collection(FirestoreCollections.publicProfiles)
-        .doc(userId)
-        .collection('sessions')
-        .get();
-    final eligibleProjections = projections.docs
-        .where((doc) => eligibleIds.contains(doc.id))
-        .toList();
-    for (var offset = 0; offset < eligibleProjections.length; offset += 400) {
-      final batch = _firestore.batch();
-      for (final projection in eligibleProjections.skip(offset).take(400)) {
-        if (projection.data()['evidence_available'] == true) continue;
-        batch.update(projection.reference, {'evidence_available': true});
-      }
-      await batch.commit();
+    if (_client.auth.currentUser?.id != userId) {
+      throw StateError('Evidence can only be reconciled by its owner.');
     }
+    await _client.rpc<dynamic>('reconcile_public_evidence_availability');
   }
 
   /// Idempotently removes evidence objects and their session references.
-  /// Storage is purged first: a failure leaves the Firestore references intact
+  /// Storage is purged first: a failure leaves the database references intact
   /// so the user can retry rather than losing track of an object.
   Future<void> deleteAllForUser(String userId) async {
-    final listed = await _storage
-        .ref('users/$userId/session_evidence')
-        .listAll();
-    for (final item in listed.items) {
+    final storage = _client.storage.from(_bucket);
+    final prefix = 'users/$userId/session_evidence';
+    while (true) {
+      final listed = await storage.list(path: prefix);
+      final paths = [
+        for (final item in listed)
+          if (item.id != null) '$prefix/${item.name}',
+      ];
+      if (paths.isEmpty) break;
       try {
-        await item.delete();
-      } on FirebaseException catch (error) {
-        if (error.code != 'object-not-found') rethrow;
+        await storage.remove(paths);
+      } on StorageException catch (error) {
+        if (!isStorageObjectNotFound(error)) rethrow;
       }
+      if (paths.length < 100) break;
     }
-    final sessions = await _firestore
-        .collection(FirestoreCollections.sessions)
-        .where('user_id', isEqualTo: userId)
-        .get();
-    for (var i = 0; i < sessions.docs.length; i += 400) {
-      final batch = _firestore.batch();
-      for (final doc in sessions.docs.skip(i).take(400)) {
-        if (doc.data().containsKey('evidence_storage_path')) {
-          batch.update(doc.reference, {
-            'evidence_storage_path': FieldValue.delete(),
-            'evidence_kind': FieldValue.delete(),
-            'evidence_size_bytes': FieldValue.delete(),
-          });
-        }
-      }
-      await batch.commit();
-    }
-    final projections = await _firestore
-        .collection(FirestoreCollections.publicProfiles)
-        .doc(userId)
-        .collection('sessions')
-        .get();
-    for (var offset = 0; offset < projections.docs.length; offset += 400) {
-      final batch = _firestore.batch();
-      for (final doc in projections.docs.skip(offset).take(400)) {
-        if (doc.data().containsKey('evidence_available')) {
-          batch.update(doc.reference, {
-            'evidence_available': FieldValue.delete(),
-          });
-        }
-      }
-      await batch.commit();
-    }
+    await _client.rpc<dynamic>('clear_session_evidence_metadata');
   }
 }

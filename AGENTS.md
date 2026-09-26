@@ -22,11 +22,17 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 
 ### Flutter client
 
-- `packages/elixr_core/`: shared User model and Firebase auth repository for reuse by other ELIXR clients.
+- `packages/elixr_core/`: shared User model, Supabase auth repository, and classroom/chat repositories for reuse by other ELIXR clients.
 - `lib/features/`: feature UI and screen-level interaction.
 - `lib/services/`: app state and runtime orchestration using `ChangeNotifier` or focused service objects.
 - `lib/data/repositories/`: persistence and authentication access.
-- `lib/data/database/firestore_helper.dart`: Firestore adapter and document mapping.
+- `lib/data/database/session_database.dart`: session/profile database adapter and row mapping.
+
+### Supabase project
+
+- `supabase/migrations/`: Postgres schema, RLS policies, grants, Storage buckets/policies, and RPCs (the authoritative data contract).
+- `supabase/functions/elixr-admin/`: service-role Edge Function for account erasure, permanent deletes, and learning-material validation.
+- `supabase/tests/`: SQL/RLS security tests (`support/` stubs the Supabase roles and schemas for a plain Postgres).
 - `lib/data/models/`: Dart data and transport models.
 - `lib/core/`: shared routing, theme, constants, transitions, and reusable widgets.
 
@@ -41,8 +47,9 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 
 ### External services
 
-- Firebase Authentication owns user identity.
-- Cloud Firestore stores user profiles, sessions, feedback, and leaderboard aggregates.
+- Supabase Auth owns user identity (email confirmation required; Google via loopback PKCE).
+- Supabase Postgres stores user profiles, sessions, feedback, classroom data, and leaderboard aggregates; private Storage buckets hold media.
+- The Flutter client receives only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` via `--dart-define`; secret/service-role keys never ship in the client.
 - The FastAPI WebSocket is local runtime communication, not persistent storage.
 
 ## Non-negotiable invariants
@@ -51,11 +58,11 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 2. **Keep the WebSocket contract synchronized.** A field change must update every producer, parser, test, and relevant documentation. Protocol version 1 commands use `request_id` / `session_id` with backend `command_ack`; Flutter session flags must not advance on send alone.
 3. **Do not block the asyncio event loop with CV inference.** Preserve the `asyncio.to_thread` or an equivalent bounded worker strategy.
 4. **Release resources deterministically.** Cameras, model wrappers, MediaPipe detectors, WebSockets, stream subscriptions, timers, animation controllers, scroll controllers, and audio players must have clear cleanup paths.
-5. **Do not weaken authentication or Firestore authorization.** UI checks are not security controls; Firestore rules remain authoritative.
-6. **Do not silently change persisted field names.** Firestore documents use snake_case fields and require compatibility consideration.
+5. **Do not weaken authentication or database authorization.** UI checks are not security controls; RLS policies and security-definer RPCs (authorizing with `auth.uid()`, never user metadata) remain authoritative.
+6. **Do not silently change persisted field names.** Database columns and RPC payloads use snake_case fields and require compatibility consideration.
 7. **Rubric assessment stays bounded 0..3 per criterion and 0..12 total.** Performance level is always derived from total. Changes to thresholds or criterion mapping require tests. Never mix legacy 0–100 scores with rubric totals in the same average.
 8. **Movement names are cross-layer identifiers.** Keep Flutter's catalog, Python `MOVEMENT_CONFIG`, and rule registry aligned.
-9. **Do not commit secrets.** Never add service-account keys, tokens, passwords, personal Firebase credentials, or local environment files.
+9. **Do not commit secrets.** Never add service-account keys, tokens, passwords, Supabase secret/service-role keys, or local environment files.
 10. **Do not claim verification that was not performed.** Separate passed checks from unverified behavior.
 11. **Explicit camera selection uses a discovered `camera_device_id`.** Clients must respect `identity_stable`: native Windows/DirectShow identities may remain stable across runtime-index changes; `opencv:N` fallback IDs are tied to ephemeral runtime indices and are not permanent physical identities. Never infer a physical camera from an OpenCV or DirectShow runtime index, and never label index `0` as permanently built-in or index `1` as permanently external.
 12. **Legacy `camera_index` is compatibility-only.** Do not make it the preferred public contract when `camera_device_id` is available.
@@ -63,8 +70,8 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 14. **Camera identity or lifecycle changes require coordinated backend, Flutter, WebSocket contract, documentation, and test updates.**
 15. **Camera discovery probing must remain bounded, cancellable, and tolerant of reasonable warm-up.** Camera cleanup must remain deterministic after preparation failure, stop, cancellation, disconnect, navigation, and application teardown.
 16. **Leaderboard session awards must remain idempotent.** A completed session must not award XP more than once; `leaderboard_processed_sessions/{sessionId}` is the duplicate-award marker.
-17. **Leaderboard identity must remain tied to the authenticated Firebase UID** (`leaderboard/{userId}` document ID and `user_id` field).
-18. **Leaderboard field changes require coordinated updates** to Dart models, repository mappings, Firestore rules, indexes, tests, and documentation.
+17. **Leaderboard identity must remain tied to the authenticated Supabase user ID** (`leaderboard.user_id` primary key).
+18. **Leaderboard field changes require coordinated updates** to Dart models, repository mappings, SQL migrations (policies, RPCs, indexes), tests, and documentation.
 19. **Do not weaken leaderboard ownership or processed-session marker rules.** Marker update/delete restrictions and own-document write constraints must be preserved.
 20. **Do not claim the current client-written leaderboard is fully tamper-proof.** It is appropriate for the controlled capstone environment but is not a trusted server-authoritative ranking system against a hostile modified client.
 
@@ -112,7 +119,7 @@ Do not mask symptoms with broad catches, arbitrary delays, forced rebuilds, or s
 Review the diff as untrusted code. Check for:
 
 - Unrelated changes.
-- Broken cross-language or Firestore contracts.
+- Broken cross-language or database contracts.
 - Missing cleanup after async gaps or navigation.
 - Authentication and authorization regressions.
 - Tests that prove implementation details but not behavior.
@@ -157,18 +164,18 @@ cd backend
 .\run.ps1
 ```
 
-### Firebase
+### Supabase
 
-For Firestore schema, query, rule, or index changes:
+For schema, query, policy, RPC, or Storage changes:
 
-- Review `firestore.rules`.
-- Review `firestore.indexes.json`.
+- Add a new migration under `supabase/migrations/`; never edit an applied one.
+- Extend `supabase/tests/rls/elixr_security_test.sql` and run it against a disposable Postgres with `supabase/tests/support/local_supabase_stub.sql` applied first, or use `supabase start` + `supabase db reset` when the CLI is available.
 - Verify repository queries and model mappings.
-- Use emulator or test-project validation when available.
 - Deploy only after human review:
 
 ```powershell
-firebase deploy --only firestore
+supabase db push
+supabase functions deploy elixr-admin
 ```
 
 Do not deploy, publish, or modify production data unless the user explicitly requests it.
@@ -179,11 +186,11 @@ Do not deploy, publish, or modify production data unless the user explicitly req
 - Rubric assessment: criterion bounds 0..3, total derivation, performance-level boundaries, readiness/camera immunity, FPS independence.
 - WebSocket schema: required fields, defaults, malformed payload behavior, fatal error codes.
 - Flutter services/models: parsing, state transitions, deduplication, cleanup, and error handling.
-- Firestore: mapping compatibility, null timestamps, user ownership, query/index alignment.
+- Database: row mapping compatibility (null columns are compacted away), user ownership, RLS denial paths, RPC error codes.
 - UI: loading, empty, error, disconnected, active-session, and disposal/navigation states.
 - Camera/model: manual integration checks unless a deterministic test double is available.
 
-Never make unit tests depend on a physical webcam, Firebase production data, or downloading a model.
+Never make unit tests depend on a physical webcam, Supabase production data, or downloading a model.
 
 ## Completion report
 

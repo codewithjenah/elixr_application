@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../data/models/training_prop.dart';
@@ -46,10 +46,12 @@ class _CustomMovementReferenceImageState
     final path = widget.storagePath;
     _image = path == null
         ? null
-        : FirebaseStorage.instance
-              .ref(path)
-              .getData(512 * 1024)
-              .then<Uint8List?>((bytes) => bytes)
+        : ElixrSupabase.client.storage
+              .from('custom-movement-references')
+              .download(path)
+              .then<Uint8List?>(
+                (bytes) => bytes.lengthInBytes <= 512 * 1024 ? bytes : null,
+              )
               .catchError((Object _) => null);
   }
 

@@ -14,7 +14,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-class _TrackingPasswordResetRepository implements AuthRepositoryBase {
+class _TrackingPasswordResetRepository
+    implements AuthRepositoryBase, EmailLinkAuthRepositoryBase {
+  @override
+  Future<void> completeEmailVerificationLink(String code) async {}
+
+  @override
+  Future<void> completePasswordReset({
+    required String code,
+    required String newPassword,
+  }) async {}
+
   int sendPasswordResetEmailCallCount = 0;
   String? lastEmail;
   Object? errorToThrow;
@@ -138,13 +148,14 @@ void main() {
   late _TrackingPasswordResetRepository repository;
   late AuthService authService;
   late GoRouter router;
+  late MemoryAuthEmailCallbackServer callbackServer;
 
   setUp(() {
     repository = _TrackingPasswordResetRepository();
     authService = AuthService(
       repository: repository,
       leaderboardRepository: null,
-      emailCallbackServer: MemoryAuthEmailCallbackServer(),
+      emailCallbackServer: callbackServer = MemoryAuthEmailCallbackServer(),
     );
     router = GoRouter(
       initialLocation: '/forgot-password',
@@ -232,8 +243,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      authService.handleEmailActionCallback(
-        Uri.parse('http://localhost:1/elixr-auth?mode=reset'),
+      // The user submits the local new-password form opened by the link.
+      await tester.runAsync(
+        () => callbackServer.passwordResetHandler!('code', 'NewPassw0rd'),
       );
       await tester.pump();
 

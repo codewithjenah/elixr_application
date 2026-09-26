@@ -94,8 +94,18 @@ New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $backendDist -Force | Out-Null
 New-Item -ItemType Directory -Path $backendWork -Force | Out-Null
 
+# Only the public project URL and publishable key are compiled into the client.
+if ([string]::IsNullOrWhiteSpace($env:SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:SUPABASE_PUBLISHABLE_KEY)) {
+    throw "Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY before building the pilot."
+}
+if ($env:SUPABASE_PUBLISHABLE_KEY.StartsWith("sb_secret_")) {
+    throw "SUPABASE_PUBLISHABLE_KEY must be the publishable key, never a secret key."
+}
+
 Write-Host "Building Flutter Windows release..."
-& $flutterCommand.Path build windows --release
+& $flutterCommand.Path build windows --release `
+    "--dart-define=SUPABASE_URL=$env:SUPABASE_URL" `
+    "--dart-define=SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY"
 if ($LASTEXITCODE -ne 0) {
     throw "Flutter Windows release build failed."
 }

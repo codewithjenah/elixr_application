@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
-import 'package:firebase_core/firebase_core.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
@@ -296,7 +296,7 @@ class ClassChallengesPane extends StatelessWidget {
 }
 
 bool _isPermissionDenied(Object? error) =>
-    error is FirebaseException && error.code == 'permission-denied';
+    error != null && isPermissionDeniedError(error);
 
 const _kChallengeCardRadius = 20.0;
 const _kChallengeHeroHeight = 160.0;

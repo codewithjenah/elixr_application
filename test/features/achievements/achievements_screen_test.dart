@@ -23,10 +23,10 @@ import 'package:elixr_application/features/leaderboard/widgets/leaderboard_ident
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/trainee_progression_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
+import 'package:elixr_core/database/supabase_support.dart';
 // Test-only Firebase bootstrap; not part of app dependencies.
 // ignore: depend_on_referenced_packages
-import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -449,8 +449,7 @@ Future<void> setSurface(WidgetTester tester, Size size) async {
 
 Future<void> _ensureFirebaseInitialized() async {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setupFirebaseCoreMocks();
-  await Firebase.initializeApp();
+  ElixrSupabase.configure(SupabaseClient('http://localhost:1', 'test-key'));
 }
 
 Future<void> expectNoOverflow(WidgetTester tester) async {

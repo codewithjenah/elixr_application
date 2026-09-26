@@ -1,22 +1,23 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:elixr_core/database/firestore_collections.dart';
+import 'package:elixr_core/database/supabase_support.dart';
 import 'package:elixr_core/utils/manila_day.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
 
 import '../models/training_plan.dart';
 
 class TrainingPlanRepository {
-  TrainingPlanRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  TrainingPlanRepository({SupabaseClient? client}) : _clientOverride = client;
 
-  final FirebaseFirestore _firestore;
+  final SupabaseClient? _clientOverride;
 
-  CollectionReference<Map<String, dynamic>> get _plans =>
-      _firestore.collection(FirestoreCollections.trainingPlans);
+  SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
 
   Future<List<TrainingPlan>> getPlansForUser(String userId) async {
     if (userId.isEmpty) return const [];
-    final snapshot = await _plans.where('user_id', isEqualTo: userId).get();
-    return _decodeDocs(snapshot.docs);
+    final rows = await _client
+        .from('training_plans')
+        .select()
+        .eq('user_id', userId);
+    return _decodeRows(rows);
   }
 
   Future<List<TrainingPlan>> getPlansInRange({
@@ -29,15 +30,16 @@ class TrainingPlanRepository {
         !ManilaDay.isValidDayKey(endDayKey)) {
       return const [];
     }
-    final snapshot = await _plans
-        .where('user_id', isEqualTo: userId)
-        .where('day_key', isGreaterThanOrEqualTo: startDayKey)
-        .where('day_key', isLessThanOrEqualTo: endDayKey)
-        .get();
-    return _decodeDocs(snapshot.docs);
+    final rows = await _client
+        .from('training_plans')
+        .select()
+        .eq('user_id', userId)
+        .gte('day_key', startDayKey)
+        .lte('day_key', endDayKey);
+    return _decodeRows(rows);
   }
 
-  Future<void> upsertPlan(TrainingPlan plan) {
+  Future<void> upsertPlan(TrainingPlan plan) async {
     final error = TrainingPlan.validate(
       userId: plan.userId,
       dayKey: plan.dayKey,
@@ -50,34 +52,34 @@ class TrainingPlanRepository {
     if (error != null) {
       throw ArgumentError.value(plan, 'plan', error);
     }
-
-    final ref = _plans.doc(plan.id);
-    return _firestore.runTransaction((tx) async {
-      final existing = await tx.get(ref);
-      final payload = plan.toMap();
-      payload['updated_at'] = FieldValue.serverTimestamp();
-      if (existing.exists) {
-        payload['created_at'] = existing.data()?['created_at'];
-        // Overwrite so switching training ↔ rest cannot leave stale fields.
-        tx.set(ref, payload);
-      } else {
-        payload['created_at'] = FieldValue.serverTimestamp();
-        tx.set(ref, payload);
-      }
-    });
+    if (_client.auth.currentUser?.id != plan.userId) {
+      throw StateError('Training plans can only be saved by their owner.');
+    }
+    // The server overwrites every plan field so switching training ↔ rest
+    // cannot leave stale fields, and preserves the original created_at.
+    await _client.rpc<dynamic>(
+      'upsert_training_plan',
+      params: {'p_plan': plan.toMap()},
+    );
   }
 
   Future<void> deletePlan({required String userId, required String dayKey}) {
-    final id = TrainingPlan.documentId(userId, dayKey);
-    return _plans.doc(id).delete();
+    if (_client.auth.currentUser?.id != userId) {
+      throw StateError('Training plans can only be deleted by their owner.');
+    }
+    return _client.rpc<dynamic>(
+      'delete_training_plan',
+      params: {'p_day_key': dayKey},
+    );
   }
 
-  List<TrainingPlan> _decodeDocs(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
+  List<TrainingPlan> _decodeRows(List<Map<String, dynamic>> rows) {
     final plans = <TrainingPlan>[];
-    for (final doc in docs) {
-      final plan = TrainingPlan.tryFromMap(doc.data(), id: doc.id);
+    for (final row in rows) {
+      final plan = TrainingPlan.tryFromMap(
+        compactRow(row),
+        id: row['id'] as String,
+      );
       if (plan != null) plans.add(plan);
     }
     return List<TrainingPlan>.unmodifiable(plans);

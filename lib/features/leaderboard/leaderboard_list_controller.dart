@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 import '../../data/models/leaderboard_award_plan.dart';
 import '../../data/models/leaderboard_entry.dart';
@@ -245,8 +245,8 @@ class LeaderboardListController extends ChangeNotifier {
     StackTrace stackTrace,
   ) {
     if (!kDebugMode) return;
-    final code = error is FirebaseException ? error.code : null;
-    final message = error is FirebaseException ? error.message : null;
+    final code = error is PostgrestException ? error.code : null;
+    final message = error is PostgrestException ? error.message : null;
     debugPrint(
       'Leaderboard page load failed: operation=$operation '
       'period=${_period.name}'

@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -515,31 +514,6 @@ void main() {
 
       expect(authRepository.lastPictureUpdate, isNull);
       expect(authService.currentUser, same(user));
-    });
-  });
-
-  group('LeaderboardRepository.buildPublicProfileFields', () {
-    test('includes display_name and non-empty profile URL', () {
-      expect(
-        LeaderboardRepository.buildPublicProfileFields(
-          displayName: ' Ada ',
-          profilePictureUrl: ' https://storage.example/avatar.jpg ',
-        ),
-        {
-          'display_name': 'Ada',
-          'profile_picture_url': 'https://storage.example/avatar.jpg',
-        },
-      );
-    });
-
-    test('omits empty or whitespace-only profile URL', () {
-      expect(
-        LeaderboardRepository.buildPublicProfileFields(
-          displayName: 'Ada',
-          profilePictureUrl: '   ',
-        ),
-        {'display_name': 'Ada'},
-      );
     });
   });
 }
