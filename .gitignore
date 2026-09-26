@@ -78,4 +78,5 @@ scripts/legacy_coaching_provenance/node_modules/
 firestore-tests/firebase-debug.log
 firestore-tests/firestore-debug.log
 firestore-tests/ui-debug.log
+firebase-rules-debug.txt
 .firebase/

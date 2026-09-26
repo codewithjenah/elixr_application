@@ -3672,33 +3672,12 @@ service cloud.firestore {
 
    function assignmentAttemptPath(attemptId) { return /databases/$(database)/documents/assignment_attempts/$(attemptId); }
 
-   function officialAssignmentAttemptId(sessionId) { return 'official_ptr_' + sessionId; }
-
    function teacherCreatedDraftAttemptId(assignmentId, traineeId) { return 'tc_draft_' + assignmentId + '_' + traineeId; }
-
-   function assignmentContextKeys() { return ['assignment_id', 'group_id', 'teacher_id', 'movement_id', 'revision_id']; }
-
-   function validAssignmentContextMap(ctx) {
-    return ctx is map
-     && ctx.keys().hasOnly(assignmentContextKeys())
-     && isClassroomDocId(ctx.assignment_id)
-     && isClassroomDocId(ctx.group_id)
-     && isClassroomDocId(ctx.teacher_id)
-     && isClassroomDocId(ctx.movement_id)
-     && isClassroomDocId(ctx.revision_id);
-   }
 
    function assignmentAttemptIdentityKeys() {
     return ['trainee_id', 'teacher_id', 'group_id', 'assignment_id',
      'movement_id', 'revision_id', 'origin', 'assessment_mode',
      'attempt_kind', 'status', 'awards_global_xp', 'created_at'];
-   }
-
-   function officialPointerAllowedKeys() {
-    return assignmentAttemptIdentityKeys().concat([
-     'source_session_id', 'assessment_version', 'rubric', 'rubric_total',
-     'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
-    ]);
    }
 
    function referenceMatchAllowedKeys() {
@@ -3887,36 +3866,6 @@ service cloud.firestore {
      );
    }
 
-   function validOfficialPointerCreate(data, attemptId) {
-    let session = getAfter(sessionPath(data.source_session_id)).data;
-    let ctx = session.assignment_context;
-    return data.attempt_kind == 'practice_pointer'
-     && data.status == 'submitted'
-     && data.origin == 'official_elixr'
-     && data.assessment_mode == 'official_guided'
-     && data.keys().hasOnly(officialPointerAllowedKeys())
-     && isClassroomDocId(data.source_session_id)
-     && attemptId == officialAssignmentAttemptId(data.source_session_id)
-     && session.user_id == request.auth.uid
-     && validAssignmentContextMap(ctx)
-     && ctx.assignment_id == data.assignment_id
-     && ctx.group_id == data.group_id
-     && ctx.teacher_id == data.teacher_id
-     && ctx.movement_id == data.movement_id
-     && ctx.revision_id == data.revision_id
-     && data.rubric_total == session.rubric_total
-     && data.performance_level == session.performance_level
-     && data.duration_seconds == session.duration_seconds
-     && data.prop_type == session.prop_type
-     && data.assessment_version == session.assessment_version
-     && data.rubric.technique == session.rubric.technique
-     && data.rubric.stability == session.rubric.stability
-     && data.rubric.completion == session.rubric.completion
-     && data.rubric.prop_positioning == session.rubric.prop_positioning
-     && data.completed_at == session.created_at
-     && data.completed_at == request.time;
-   }
-
    function validTeacherDraftAttemptCreate(data, attemptId) {
     return data.attempt_kind == 'teacher_review_draft'
      && attemptId == teacherCreatedDraftAttemptId(data.assignment_id, data.trainee_id)
@@ -3989,11 +3938,9 @@ service cloud.firestore {
        ? validReferenceMatchCreate(data, attemptId)
        : attemptMatchesAssignment(data)
         && (
-         data.attempt_kind == 'practice_pointer'
-          ? validOfficialPointerCreate(data, attemptId)
-          : data.attempt_kind == 'teacher_review_draft'
-           ? validTeacherDraftAttemptCreate(data, attemptId)
-           : validTeacherReviewSubmissionCreate(data, attemptId)
+         data.attempt_kind == 'teacher_review_draft'
+          ? validTeacherDraftAttemptCreate(data, attemptId)
+          : validTeacherReviewSubmissionCreate(data, attemptId)
         )
      );
    }
@@ -4053,7 +4000,6 @@ service cloud.firestore {
      && resource.data.attempt_kind == 'teacher_review_draft'
      && resource.data.origin == 'teacher_created'
      && assignmentSubmissionIsOpen(resource.data)
-     && assignmentAttemptIdentityUnchanged()
      && request.resource.data.keys().hasOnly(assignmentAttemptIdentityKeys())
      && resource.data.status == 'draft'
      && request.resource.data.status == 'in_progress'
@@ -4072,7 +4018,6 @@ service cloud.firestore {
      && assignmentSubmissionIsOpen(resource.data)
      && after.status == 'submitted'
      && !after.keys().hasAny(['abandoned_at'])
-     && assignmentAttemptIdentityUnchanged()
      && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys())
      && validSubmittedVideoMetadata(after, attemptId)
      && (!resource.data.keys().hasAny(['draft_saved_at'])
@@ -4090,7 +4035,6 @@ service cloud.firestore {
      && resource.data.status == 'in_progress'
      && isCanonicalTeacherReviewSubmissionEmptyAnchor(resource.data)
      && assignmentSubmissionIsOpen(resource.data)
-     && assignmentAttemptIdentityUnchanged()
      && after.status == 'in_progress'
      && after.keys().hasOnly(teacherReviewSubmissionAttachedDraftKeys())
      && validSubmittedVideoMetadata(after, attemptId)
@@ -4103,7 +4047,6 @@ service cloud.firestore {
      && isCanonicalReviewSubmissionAttempt(attemptId)
      && resource.data.status == 'in_progress'
      && resource.data.keys().hasOnly(teacherReviewSubmissionAttachedDraftKeys())
-     && assignmentAttemptIdentityUnchanged()
      && after.status == 'in_progress'
      && after.keys().hasOnly(teacherReviewSubmissionDraftRemovalKeys())
      && after.draft_cleanup_started_at == request.time;
@@ -4115,7 +4058,6 @@ service cloud.firestore {
      && isCanonicalReviewSubmissionAttempt(attemptId)
      && resource.data.status == 'in_progress'
      && resource.data.keys().hasOnly(teacherReviewSubmissionDraftRemovalKeys())
-     && assignmentAttemptIdentityUnchanged()
      && after.status == 'in_progress'
      && after.keys().hasOnly(assignmentAttemptIdentityKeys());
    }
@@ -4127,7 +4069,6 @@ service cloud.firestore {
      && resource.data.status == 'draft'
      && after.status == 'in_progress'
      && assignmentSubmissionIsOpen(resource.data)
-     && assignmentAttemptIdentityUnchanged()
      && after.keys().hasOnly(assignmentAttemptIdentityKeys());
    }
 
@@ -4138,7 +4079,6 @@ service cloud.firestore {
      && resource.data.status == 'submitted'
      && after.status == 'unsubmitting'
      && assignmentSubmissionIsOpen(resource.data)
-     && assignmentAttemptIdentityUnchanged()
      && assignmentAttemptVideoIdentityUnchanged()
      && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys().concat([
       'deletion_failed', 'deletion_failed_at'
@@ -4155,7 +4095,6 @@ service cloud.firestore {
      && isCanonicalReviewSubmissionAttempt(attemptId)
      && resource.data.status == 'unsubmitting'
      && after.status == 'in_progress'
-     && assignmentAttemptIdentityUnchanged()
      && after.keys().hasOnly(teacherReviewSubmissionAnchorKeys())
      && after.deletion_failed == false
      && affectedKeys()
@@ -4173,7 +4112,6 @@ service cloud.firestore {
      && isCanonicalReviewSubmissionAttempt(attemptId)
      && resource.data.status == 'unsubmitting'
      && after.status == 'unsubmitting'
-     && assignmentAttemptIdentityUnchanged()
      && assignmentAttemptVideoIdentityUnchanged()
      && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys().concat([
       'deletion_failed', 'deletion_failed_at'
@@ -4195,7 +4133,6 @@ service cloud.firestore {
      && resource.data.status in ['submitted', 'checked', 'approved', 'needs_retry']
      && after.status == 'checked'
      && assignment.get('max_score', 100) == maxScore
-     && assignmentAttemptIdentityUnchanged()
      && assignmentAttemptVideoIdentityUnchanged()
      && after.keys().hasOnly(teacherReviewSubmissionCheckedKeys())
      && after.grade_score is int
@@ -4241,7 +4178,6 @@ service cloud.firestore {
      && resource.data.attempt_kind == 'teacher_review_submission'
      && resource.data.status == 'checked'
      && after.status == 'checked'
-     && assignmentAttemptIdentityUnchanged()
      && assignmentAttemptVideoIdentityUnchanged()
      && after.keys().hasOnly(teacherReviewSubmissionCheckedKeys())
      && after.grade_score == resource.data.grade_score
@@ -4269,7 +4205,6 @@ service cloud.firestore {
      && resource.data.status == 'submitted'
      && after.status in ['approved', 'needs_retry']
      && after.review_verdict == after.status
-     && assignmentAttemptIdentityUnchanged()
      && assignmentAttemptVideoIdentityUnchanged()
      && after.keys().hasOnly(teacherReviewSubmissionReviewedKeys())
      && after.reviewed_at == request.time
@@ -4293,7 +4228,6 @@ service cloud.firestore {
      && resource.data.status in ['submitted', 'approved', 'needs_retry', 'checked']
      && (resource.data.status != 'checked'
       || (resource.data.teacher_id == request.auth.uid && isTeacherClaim()))
-     && assignmentAttemptIdentityUnchanged()
      && assignmentAttemptReviewUnchanged()
      && assignmentAttemptReviewableMetadataUnchanged()
      && affectedKeys()
@@ -4343,7 +4277,6 @@ service cloud.firestore {
      ])
      && after.status == 'draft'
      && after.awards_global_xp == false
-     && assignmentAttemptIdentityUnchanged()
      && after.abandoned_at == request.time
      && teacherReviewSubmissionHasNoSubmitOrReviewPayload(after)
      && changed.hasOnly(['abandoned_at', 'video_deleted_at',
@@ -4381,7 +4314,6 @@ service cloud.firestore {
      && resource.data.abandoned_at is timestamp
      && after.status == 'draft'
      && after.abandoned_at == resource.data.abandoned_at
-     && assignmentAttemptIdentityUnchanged()
      && teacherReviewSubmissionHasNoSubmitOrReviewPayload(after)
      && affectedKeys()
       .hasOnly(['video_storage_path', 'video_deleted_at',
@@ -4415,87 +4347,71 @@ service cloud.firestore {
    // non-Activity review submissions retain their established client flow.
    allow create: if request.resource.data.attempt_kind != 'practice_pointer'
     && validAssignmentAttemptCreate(request.resource.data, attemptId);
-   // Dispatch by the existing and requested states before entering each
-   // transition's document reads, key checks, and immutable-field checks.
-   // Each validator still owns its full authorization and payload contract.
+   // All client update transitions freeze the same identity fields. Check
+   // them once, then dispatch by attempt kind and state before the expensive
+   // transition-specific document reads and payload validation.
    allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_draft'
-    && resource.data.status == 'draft'
-    && request.resource.data.status == 'in_progress'
-    && validTeacherDraftAttemptUpdate();
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'draft'
-    && request.resource.data.status == 'in_progress'
-    && validCanonicalTeacherReviewSubmissionPromote(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && request.resource.data.status == 'submitted'
-    && validTeacherReviewSubmissionTraineeSubmit(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'in_progress'
-    && request.resource.data.status == 'in_progress'
-    && request.resource.data.keys().hasAny(['draft_saved_at'])
-    && validCanonicalTeacherReviewSubmissionAttachDraft(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'in_progress'
-    && request.resource.data.status == 'in_progress'
-    && request.resource.data.keys().hasAny(['draft_cleanup_started_at'])
-    && validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'in_progress'
-    && request.resource.data.status == 'in_progress'
-    && validCanonicalTeacherReviewSubmissionCompleteDraftRemoval(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'submitted'
-    && request.resource.data.status == 'unsubmitting'
-    && validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'unsubmitting'
-    && request.resource.data.status == 'in_progress'
-    && validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'unsubmitting'
-    && request.resource.data.status == 'unsubmitting'
-    && validCanonicalTeacherReviewSubmissionDeletionFailure(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && request.resource.data.status == 'checked'
-    && validCanonicalTeacherReviewSubmissionCheckedReview();
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'checked'
-    && request.resource.data.status == 'checked'
-    && request.resource.data.keys().hasAny(['result_sent_revision'])
-    && validTeacherReviewResultSent();
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'submitted'
-    && request.resource.data.status in ['approved', 'needs_retry']
-    && validTeacherReviewSubmissionTeacherReview(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status in ['submitted', 'approved', 'needs_retry', 'checked']
-    && request.resource.data.status == resource.data.status
-    && validTeacherReviewSubmissionCleanup(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'draft'
-    && request.resource.data.status == 'draft'
-    && request.resource.data.keys().hasAny(['abandoned_at'])
-    && validTeacherReviewSubmissionAbandon(attemptId);
-   allow update: if isSignedIn()
-    && resource.data.attempt_kind == 'teacher_review_submission'
-    && resource.data.status == 'draft'
-    && request.resource.data.status == 'draft'
-    && resource.data.keys().hasAny(['abandoned_at'])
-    && validAbandonedTeacherReviewCleanup(attemptId);
+    && resource.data.attempt_kind in [
+     'teacher_review_draft', 'teacher_review_submission'
+    ]
+    && assignmentAttemptIdentityUnchanged()
+    && (
+     (resource.data.attempt_kind == 'teacher_review_draft'
+      && resource.data.status == 'draft'
+      && request.resource.data.status == 'in_progress'
+      && validTeacherDraftAttemptUpdate())
+     || (resource.data.attempt_kind == 'teacher_review_submission'
+      && (
+       (resource.data.status == 'draft'
+        && request.resource.data.status == 'in_progress'
+        && validCanonicalTeacherReviewSubmissionPromote(attemptId))
+       || (request.resource.data.status == 'submitted'
+        && validTeacherReviewSubmissionTraineeSubmit(attemptId))
+       || (resource.data.status == 'in_progress'
+        && request.resource.data.status == 'in_progress'
+        && request.resource.data.keys().hasAny(['draft_saved_at'])
+        && validCanonicalTeacherReviewSubmissionAttachDraft(attemptId))
+       || (resource.data.status == 'in_progress'
+        && request.resource.data.status == 'in_progress'
+        && request.resource.data.keys().hasAny(['draft_cleanup_started_at'])
+        && validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId))
+       || (resource.data.status == 'in_progress'
+        && request.resource.data.status == 'in_progress'
+        && validCanonicalTeacherReviewSubmissionCompleteDraftRemoval(attemptId))
+       || (resource.data.status == 'submitted'
+        && request.resource.data.status == 'unsubmitting'
+        && validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId))
+       || (resource.data.status == 'unsubmitting'
+        && request.resource.data.status == 'in_progress'
+        && validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId))
+       || (resource.data.status == 'unsubmitting'
+        && request.resource.data.status == 'unsubmitting'
+        && validCanonicalTeacherReviewSubmissionDeletionFailure(attemptId))
+       || (request.resource.data.status == 'checked'
+        && validCanonicalTeacherReviewSubmissionCheckedReview())
+       || (resource.data.status == 'checked'
+        && request.resource.data.status == 'checked'
+        && request.resource.data.keys().hasAny(['result_sent_revision'])
+        && validTeacherReviewResultSent())
+       || (resource.data.status == 'submitted'
+        && request.resource.data.status in ['approved', 'needs_retry']
+        && validTeacherReviewSubmissionTeacherReview(attemptId))
+       || (resource.data.status in [
+         'submitted', 'approved', 'needs_retry', 'checked'
+        ]
+        && request.resource.data.status == resource.data.status
+        && validTeacherReviewSubmissionCleanup(attemptId))
+       || (resource.data.status == 'draft'
+        && request.resource.data.status == 'draft'
+        && request.resource.data.keys().hasAny(['abandoned_at'])
+        && validTeacherReviewSubmissionAbandon(attemptId))
+       || (resource.data.status == 'draft'
+        && request.resource.data.status == 'draft'
+        && resource.data.keys().hasAny(['abandoned_at'])
+        && validAbandonedTeacherReviewCleanup(attemptId))
+      )
+     )
+    );
    allow delete: if isSignedIn()
     && !exists(userPath(request.auth.uid))
     && (

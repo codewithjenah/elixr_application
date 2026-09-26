@@ -845,6 +845,19 @@ describe('Phase 5 teacher movements and attempts', () => {
     );
   });
 
+  test('official practice_pointer creation is reserved for Functions', async () => {
+    await seedClassroom();
+    const sessionId = 'sessPtrServerOnly';
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'sessions', sessionId),
+        v2Session({ context: assignmentContext(ASG_A), createdAt: Timestamp.now() }));
+    });
+    await assertFails(
+      setDoc(doc(context('trainee').firestore(), 'assignment_attempts', `official_ptr_${sessionId}`),
+        officialPointer({ sessionId })),
+    );
+  });
+
   test('Teacher assignment lists require both the owned group and teacher predicates', async () => {
     await seedClassroom();
     const teacher = context('teacher').firestore();
