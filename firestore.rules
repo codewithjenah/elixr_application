@@ -2709,34 +2709,6 @@ service cloud.firestore {
      'schema_version', 'created_at', 'updated_at'];
    }
 
-   function teacherMovementRevisionKeys() {
-    return ['movement_id', 'teacher_id', 'schema_version', 'assessment_mode',
-     'spec', 'created_at'];
-   }
-
-   function teacherReviewedSpecKeys() { return ['instructions', 'required_prop', 'capability']; }
-
-   function validTeacherReviewedSpec(spec) {
-    return spec is map
-     && spec.keys().hasOnly(teacherReviewedSpecKeys().concat([
-      'safety_guidance', 'activity_assessment'
-     ]))
-     && isBoundedText(spec.instructions, 2000)
-     && isTrainingProp(spec.required_prop)
-     && spec.capability == 'teacher_review_only'
-     && (
-      !spec.keys().hasAny(['safety_guidance'])
-      || isBoundedText(spec.safety_guidance, 1000)
-     )
-     && (
-      !spec.keys().hasAny(['activity_assessment'])
-      || validActivityAssessment(
-       spec.activity_assessment,
-       spec.activity_assessment.rubric.maximum_score
-      )
-     );
-   }
-
    function validTeacherMovementCreate(data, movementId) {
     return isVerifiedTeacher()
      && isClassroomDocId(movementId)
@@ -2810,6 +2782,51 @@ service cloud.firestore {
      );
    }
 
+   allow get, list: if isTeacherClaim()
+    && resource.data.teacher_id == request.auth.uid;
+   allow create: if validTeacherMovementCreate(request.resource.data, movementId);
+   allow update: if validTeacherMovementUpdate(movementId);
+   allow delete: if isSignedIn()
+    && isTeacherClaim()
+    && resource.data.teacher_id == request.auth.uid
+    && (
+     (get(teacherMovementRevisionPath(
+      movementId, resource.data.current_revision_id
+     )).data.assessment_mode != 'template_scored'
+      && isVerifiedTeacher())
+     || !exists(userPath(request.auth.uid))
+    );
+  }
+
+  match /teacher_movements/{movementId}/revisions/{revisionId} {
+   function teacherMovementRevisionKeys() {
+    return ['movement_id', 'teacher_id', 'schema_version', 'assessment_mode',
+     'spec', 'created_at'];
+   }
+
+   function teacherReviewedSpecKeys() { return ['instructions', 'required_prop', 'capability']; }
+
+   function validTeacherReviewedSpec(spec) {
+    return spec is map
+     && spec.keys().hasOnly(teacherReviewedSpecKeys().concat([
+      'safety_guidance', 'activity_assessment'
+     ]))
+     && isBoundedText(spec.instructions, 2000)
+     && isTrainingProp(spec.required_prop)
+     && spec.capability == 'teacher_review_only'
+     && (
+      !spec.keys().hasAny(['safety_guidance'])
+      || isBoundedText(spec.safety_guidance, 1000)
+     )
+     && (
+      !spec.keys().hasAny(['activity_assessment'])
+      || validActivityAssessment(
+       spec.activity_assessment,
+       spec.activity_assessment.rubric.maximum_score
+      )
+     );
+   }
+
    function validTeacherMovementRevisionCreate(data, movementId, revisionId) {
     let afterRoot = getAfter(teacherMovementPath(movementId)).data;
     return isVerifiedTeacher()
@@ -2828,35 +2845,18 @@ service cloud.firestore {
 
    allow get, list: if isTeacherClaim()
     && resource.data.teacher_id == request.auth.uid;
-   allow create: if validTeacherMovementCreate(request.resource.data, movementId);
-   allow update: if validTeacherMovementUpdate(movementId);
+   allow create: if validTeacherMovementRevisionCreate(
+    request.resource.data, movementId, revisionId
+   );
+   allow update: if false;
    allow delete: if isSignedIn()
     && isTeacherClaim()
     && resource.data.teacher_id == request.auth.uid
     && (
-     (get(teacherMovementRevisionPath(
-      movementId, resource.data.current_revision_id
-     )).data.assessment_mode != 'template_scored'
+     (resource.data.assessment_mode != 'template_scored'
       && isVerifiedTeacher())
      || !exists(userPath(request.auth.uid))
     );
-
-   match /revisions/{revisionId} {
-    allow get, list: if isTeacherClaim()
-     && resource.data.teacher_id == request.auth.uid;
-    allow create: if validTeacherMovementRevisionCreate(
-     request.resource.data, movementId, revisionId
-    );
-    allow update: if false;
-    allow delete: if isSignedIn()
-     && isTeacherClaim()
-     && resource.data.teacher_id == request.auth.uid
-     && (
-      (resource.data.assessment_mode != 'template_scored'
-       && isVerifiedTeacher())
-      || !exists(userPath(request.auth.uid))
-     );
-   }
   }
 
   match /custom_movements/{movementId} {
@@ -2875,61 +2875,12 @@ service cloud.firestore {
      + movementId + '_' + revisionId + '.jpg';
    }
 
-   function customMovementRevisionKeys() {
-    return ['movement_id', 'owner_uid', 'owner_role', 'schema_version',
-     'template', 'created_at'];
-   }
-
    function validCustomOwnerRole(ownerUid, ownerRole) {
     return ownerUid == request.auth.uid
      && ((ownerRole == 'teacher' && isVerifiedTeacher())
       || (ownerRole == 'trainee'
        && exists(userPath(request.auth.uid))
        && get(userPath(request.auth.uid)).data.role == 'Trainee'));
-   }
-
-   function validMovementTemplate(value) {
-    return value is map
-     && value.keys().hasOnly(['schema_version', 'capture_version',
-      'duration_ms', 'reference_count', 'required_modalities',
-      'normalization_metadata', 'feature_capabilities',
-      'canonical_sequence', 'variability_metadata', 'prop_events',
-      'rotation_trace'])
-     && value.keys().hasAll(['schema_version', 'capture_version',
-      'duration_ms', 'reference_count', 'required_modalities',
-      'normalization_metadata', 'feature_capabilities',
-      'canonical_sequence', 'variability_metadata', 'prop_events'])
-     && value.schema_version in [1, 2]
-     && value.reference_count is int && value.reference_count >= 2
-     && value.reference_count <= 10
-     && value.feature_capabilities is map
-     && ((value.schema_version == 1
-       && !value.keys().hasAny(['rotation_trace'])
-       && value.feature_capabilities.prop_rotation == false)
-      || (value.schema_version == 2
-       && value.keys().hasAll(['rotation_trace'])
-       && value.feature_capabilities.prop_rotation == true
-       && value.canonical_sequence is list
-       && value.canonical_sequence.size() == 32
-       && value.rotation_trace is map
-       && value.rotation_trace.keys().hasOnly(['angles_rad',
-        'total_signed_rad', 'coverage', 'pair_coverage'])
-       && value.rotation_trace.keys().hasAll(['angles_rad',
-        'total_signed_rad', 'coverage', 'pair_coverage'])
-       && value.rotation_trace.angles_rad is list
-       && value.rotation_trace.angles_rad.size() == 32
-       && value.rotation_trace.total_signed_rad is number
-       && (value.rotation_trace.total_signed_rad >= 4.084
-        || value.rotation_trace.total_signed_rad <= -4.084)
-       && value.rotation_trace.coverage is number
-       && value.rotation_trace.coverage >= 0.8
-       && value.rotation_trace.coverage <= 1
-       && value.rotation_trace.pair_coverage is number
-       && value.rotation_trace.pair_coverage >= 0.7
-       && value.rotation_trace.pair_coverage <= 1))
-     && value.canonical_sequence is list
-     && value.canonical_sequence.size() >= 2
-     && value.canonical_sequence.size() <= 600;
    }
 
    function validCustomMovementCreate(data, movementId) {
@@ -2991,6 +2942,67 @@ service cloud.firestore {
      );
    }
 
+   allow get, list: if isSignedIn()
+    && resource.data.owner_uid == request.auth.uid;
+   allow create: if validCustomMovementCreate(
+    request.resource.data, movementId
+   );
+   allow update: if validCustomMovementUpdate(movementId);
+   // Archive preserves revision/history references. Permanent cascading
+   // deletion is intentionally unavailable to untrusted clients.
+   allow delete: if false;
+  }
+
+  match /custom_movements/{movementId}/revisions/{revisionId} {
+   function customMovementRevisionKeys() {
+    return ['movement_id', 'owner_uid', 'owner_role', 'schema_version',
+     'template', 'created_at'];
+   }
+
+   function validMovementTemplate(value) {
+    return value is map
+     && value.keys().hasOnly(['schema_version', 'capture_version',
+      'duration_ms', 'reference_count', 'required_modalities',
+      'normalization_metadata', 'feature_capabilities',
+      'canonical_sequence', 'variability_metadata', 'prop_events',
+      'rotation_trace'])
+     && value.keys().hasAll(['schema_version', 'capture_version',
+      'duration_ms', 'reference_count', 'required_modalities',
+      'normalization_metadata', 'feature_capabilities',
+      'canonical_sequence', 'variability_metadata', 'prop_events'])
+     && value.schema_version in [1, 2]
+     && value.reference_count is int && value.reference_count >= 2
+     && value.reference_count <= 10
+     && value.feature_capabilities is map
+     && ((value.schema_version == 1
+       && !value.keys().hasAny(['rotation_trace'])
+       && value.feature_capabilities.prop_rotation == false)
+      || (value.schema_version == 2
+       && value.keys().hasAll(['rotation_trace'])
+       && value.feature_capabilities.prop_rotation == true
+       && value.canonical_sequence is list
+       && value.canonical_sequence.size() == 32
+       && value.rotation_trace is map
+       && value.rotation_trace.keys().hasOnly(['angles_rad',
+        'total_signed_rad', 'coverage', 'pair_coverage'])
+       && value.rotation_trace.keys().hasAll(['angles_rad',
+        'total_signed_rad', 'coverage', 'pair_coverage'])
+       && value.rotation_trace.angles_rad is list
+       && value.rotation_trace.angles_rad.size() == 32
+       && value.rotation_trace.total_signed_rad is number
+       && (value.rotation_trace.total_signed_rad >= 4.084
+        || value.rotation_trace.total_signed_rad <= -4.084)
+       && value.rotation_trace.coverage is number
+       && value.rotation_trace.coverage >= 0.8
+       && value.rotation_trace.coverage <= 1
+       && value.rotation_trace.pair_coverage is number
+       && value.rotation_trace.pair_coverage >= 0.7
+       && value.rotation_trace.pair_coverage <= 1))
+     && value.canonical_sequence is list
+     && value.canonical_sequence.size() >= 2
+     && value.canonical_sequence.size() <= 600;
+   }
+
    function validCustomRevisionCreate(data, movementId, revisionId) {
     let root = getAfter(customMovementPath(movementId)).data;
      return isClassroomDocId(revisionId)
@@ -3007,22 +3019,10 @@ service cloud.firestore {
 
    allow get, list: if isSignedIn()
     && resource.data.owner_uid == request.auth.uid;
-   allow create: if validCustomMovementCreate(
-    request.resource.data, movementId
+   allow create: if validCustomRevisionCreate(
+    request.resource.data, movementId, revisionId
    );
-   allow update: if validCustomMovementUpdate(movementId);
-   // Archive preserves revision/history references. Permanent cascading
-   // deletion is intentionally unavailable to untrusted clients.
-   allow delete: if false;
-
-   match /revisions/{revisionId} {
-    allow get, list: if isSignedIn()
-     && resource.data.owner_uid == request.auth.uid;
-    allow create: if validCustomRevisionCreate(
-     request.resource.data, movementId, revisionId
-    );
-    allow update, delete: if false;
-   }
+   allow update, delete: if false;
   }
 
   match /custom_movement_results/{resultId} {
@@ -3173,19 +3173,6 @@ service cloud.firestore {
     return teacherCreatedAssignmentAllowedKeys().concat([
      'official_movement_name', 'grading_locked_at'
     ]);
-   }
-
-   function validAssignmentRecipient(data, assignmentId, traineeId) {
-    return data.keys().hasOnly(assignmentRecipientKeys())
-     && data.assignment_id == assignmentId
-     && data.trainee_id == traineeId
-     && isClassroomDocId(assignmentId)
-     && isClassroomDocId(data.group_id)
-     && isClassroomDocId(data.teacher_id)
-     && isClassroomDocId(traineeId)
-     && data.audience_type in ['selected_students', 'individual_student']
-     && data.schema_version == 1
-     && data.created_at is timestamp;
    }
 
    function validOfficialAssignmentCreate(data) {
@@ -3520,109 +3507,123 @@ service cloud.firestore {
      || get(userPath(request.auth.uid)).data.get('lifecycle_state', 'active')
       == 'deleting'
     );
+  }
 
-   match /assignment_recipients/{traineeId} {
-    // A Teacher query is constrained by teacher_id and does not perform a
-    // parent get per row. The client revalidates every row before use.
-    allow get: if isSignedIn()
+  // Explicit subcollection scopes avoid inheriting assignment root validators.
+  match /group_assignments/{assignmentId}/assignment_recipients/{traineeId} {
+   function validAssignmentRecipient(data, assignmentId, traineeId) {
+    return data.keys().hasOnly(assignmentRecipientKeys())
+     && data.assignment_id == assignmentId
+     && data.trainee_id == traineeId
+     && isClassroomDocId(assignmentId)
+     && isClassroomDocId(data.group_id)
+     && isClassroomDocId(data.teacher_id)
+     && isClassroomDocId(traineeId)
+     && data.audience_type in ['selected_students', 'individual_student']
+     && data.schema_version == 1
+     && data.created_at is timestamp;
+   }
+
+   // A Teacher query is constrained by teacher_id and does not perform a
+   // parent get per row. The client revalidates every row before use.
+   allow get: if isSignedIn()
+    && isTeacherClaim()
+    && resource.data.teacher_id == request.auth.uid
+    && validAssignmentRecipient(resource.data, assignmentId, traineeId);
+   // Collection-group queries must be provable from their query
+   // constraint alone. The teacher query is constrained by teacher_id;
+   // the client validates the immutable row shape and parent identity.
+   allow list: if isSignedIn()
+    && isTeacherClaim()
+    && resource.data.teacher_id == request.auth.uid;
+   // A Trainee can direct-read only their own relationship; querying or
+   // enumerating projections is denied so classmates' UIDs stay private.
+   allow get: if isSignedIn()
+    && traineeId == request.auth.uid
+    && validAssignmentRecipient(resource.data, assignmentId, traineeId)
+    && exists(assignmentPath(assignmentId))
+    && traineeCanAccessAssignment(
+     get(assignmentPath(assignmentId)).data, assignmentId, traineeId
+    );
+   // After users/{uid} is removed, account erasure may query/delete just
+   // this caller's recipient rows without parent-document access calls.
+   allow list: if isSignedIn()
+    && !exists(userPath(request.auth.uid))
+    && resource.data.trainee_id == request.auth.uid;
+   allow delete: if isSignedIn()
+    && !exists(userPath(request.auth.uid))
+    && (
+     (traineeId == request.auth.uid && resource.data.trainee_id == request.auth.uid)
+     || (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
+    );
+   allow create, update: if false;
+  }
+
+  // One private deadline projection per recipient.  This is intentionally
+  // a direct-read-only subcollection for Trainees: listing it would leak
+  // classmate identities and deadlines.
+  match /group_assignments/{assignmentId}/assignment_deadline_overrides/{traineeId} {
+   function validDeadlineOverride(data) {
+    return data.keys().hasOnly([
+      'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
+      'due_at', 'schema_version', 'created_at', 'updated_at'
+     ])
+     && data.assignment_id == assignmentId
+     && data.trainee_id == traineeId
+     && data.group_id is string && data.teacher_id is string
+     && data.due_at is timestamp && data.schema_version == 1
+     && data.created_at is timestamp && data.updated_at is timestamp;
+   }
+   function teacherCanWriteDeadlineOverride(data) {
+    let assignment = get(assignmentPath(assignmentId)).data;
+    return isVerifiedTeacher()
+     && assignment.teacher_id == request.auth.uid
+     && data.teacher_id == assignment.teacher_id
+     && data.group_id == assignment.group_id
+     && assignment.keys().hasAny(['due_at'])
+     && assignment.due_at is timestamp
+     && data.due_at > assignment.due_at
+     && hasApprovedTraineeMembership(assignment.group_id, traineeId)
+     && assignmentAllowsTrainee(assignment, assignmentId, traineeId);
+   }
+   allow get: if isSignedIn() && (
+    (resource.data.teacher_id == request.auth.uid
      && isTeacherClaim()
-     && resource.data.teacher_id == request.auth.uid
-     && validAssignmentRecipient(resource.data, assignmentId, traineeId);
-    // Collection-group queries must be provable from their query
-    // constraint alone. The teacher query is constrained by teacher_id;
-    // the client validates the immutable row shape and parent identity.
-    allow list: if isSignedIn()
-     && isTeacherClaim()
-     && resource.data.teacher_id == request.auth.uid;
-    // A Trainee can direct-read only their own relationship; querying or
-    // enumerating projections is denied so classmates' UIDs stay private.
-    allow get: if isSignedIn()
-     && traineeId == request.auth.uid
-     && validAssignmentRecipient(resource.data, assignmentId, traineeId)
+     && validDeadlineOverride(resource.data))
+    || (traineeId == request.auth.uid
+     && validDeadlineOverride(resource.data)
      && exists(assignmentPath(assignmentId))
      && traineeCanAccessAssignment(
       get(assignmentPath(assignmentId)).data, assignmentId, traineeId
-     );
-    // After users/{uid} is removed, account erasure may query/delete just
-    // this caller's recipient rows without parent-document access calls.
-    allow list: if isSignedIn()
-     && !exists(userPath(request.auth.uid))
-     && resource.data.trainee_id == request.auth.uid;
-    allow delete: if isSignedIn()
-     && !exists(userPath(request.auth.uid))
-     && (
-      (traineeId == request.auth.uid && resource.data.trainee_id == request.auth.uid)
-      || (resource.data.teacher_id == request.auth.uid && isTeacherClaim())
-     );
-    allow create, update: if false;
-   }
-
-   // One private deadline projection per recipient.  This is intentionally
-   // a direct-read-only subcollection for Trainees: listing it would leak
-   // classmate identities and deadlines.
-   match /assignment_deadline_overrides/{traineeId} {
-    function validDeadlineOverride(data) {
-     return data.keys().hasOnly([
-       'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
-       'due_at', 'schema_version', 'created_at', 'updated_at'
-      ])
-      && data.assignment_id == assignmentId
-      && data.trainee_id == traineeId
-      && data.group_id is string && data.teacher_id is string
-      && data.due_at is timestamp && data.schema_version == 1
-      && data.created_at is timestamp && data.updated_at is timestamp;
-    }
-    function teacherCanWriteDeadlineOverride(data) {
-     let assignment = get(assignmentPath(assignmentId)).data;
-     return isVerifiedTeacher()
-      && assignment.teacher_id == request.auth.uid
-      && data.teacher_id == assignment.teacher_id
-      && data.group_id == assignment.group_id
-      && assignment.keys().hasAny(['due_at'])
-      && assignment.due_at is timestamp
-      && data.due_at > assignment.due_at
-      && hasApprovedTraineeMembership(assignment.group_id, traineeId)
-      && assignmentAllowsTrainee(assignment, assignmentId, traineeId);
-    }
-    allow get: if isSignedIn() && (
-     (resource.data.teacher_id == request.auth.uid
-      && isTeacherClaim()
-      && validDeadlineOverride(resource.data))
-     || (traineeId == request.auth.uid
-      && validDeadlineOverride(resource.data)
-      && exists(assignmentPath(assignmentId))
-      && traineeCanAccessAssignment(
-       get(assignmentPath(assignmentId)).data, assignmentId, traineeId
-      ))
+     ))
+   );
+   allow list: if false;
+   allow create: if validDeadlineOverride(request.resource.data)
+    && teacherCanWriteDeadlineOverride(request.resource.data)
+    && request.resource.data.created_at == request.time
+    && request.resource.data.updated_at == request.time;
+   allow update: if validDeadlineOverride(request.resource.data)
+    && teacherCanWriteDeadlineOverride(request.resource.data)
+    && request.resource.data.schema_version == resource.data.schema_version
+    && request.resource.data.created_at == resource.data.created_at
+    && request.resource.data.updated_at == request.time;
+   allow delete: if isVerifiedTeacher()
+    && resource.data.teacher_id == request.auth.uid
+    && exists(assignmentPath(assignmentId))
+    && get(assignmentPath(assignmentId)).data.teacher_id == request.auth.uid
+    && resource.data.group_id == get(assignmentPath(assignmentId)).data.group_id
+    && hasApprovedTraineeMembership(resource.data.group_id, traineeId)
+    && assignmentAllowsTrainee(
+     get(assignmentPath(assignmentId)).data, assignmentId, traineeId
     );
-    allow list: if false;
-    allow create: if validDeadlineOverride(request.resource.data)
-     && teacherCanWriteDeadlineOverride(request.resource.data)
-     && request.resource.data.created_at == request.time
-     && request.resource.data.updated_at == request.time;
-    allow update: if validDeadlineOverride(request.resource.data)
-     && teacherCanWriteDeadlineOverride(request.resource.data)
-     && request.resource.data.schema_version == resource.data.schema_version
-     && request.resource.data.created_at == resource.data.created_at
-     && request.resource.data.updated_at == request.time;
-    allow delete: if isVerifiedTeacher()
-     && resource.data.teacher_id == request.auth.uid
-     && exists(assignmentPath(assignmentId))
-     && get(assignmentPath(assignmentId)).data.teacher_id == request.auth.uid
-     && resource.data.group_id == get(assignmentPath(assignmentId)).data.group_id
-     && hasApprovedTraineeMembership(resource.data.group_id, traineeId)
-     && assignmentAllowsTrainee(
-      get(assignmentPath(assignmentId)).data, assignmentId, traineeId
-     );
-   }
+  }
 
-   // Learning-material records are written exclusively by Functions after
-   // byte validation. Future clients obtain authorized metadata through the
-   // server API; direct Firestore access would expose internal Storage paths
-   // and invite forged lifecycle transitions.
-   match /learning_materials/{materialId} {
-    allow read, write: if false;
-   }
+  // Learning-material records are written exclusively by Functions after
+  // byte validation. Future clients obtain authorized metadata through the
+  // server API; direct Firestore access would expose internal Storage paths
+  // and invite forged lifecycle transitions.
+  match /group_assignments/{assignmentId}/learning_materials/{materialId} {
+   allow read, write: if false;
   }
 
   // Server-owned upload authorization and one-lookup Storage access

@@ -250,6 +250,32 @@ describe('custom movement v1 ownership and revisions', () => {
     );
   });
 
+  test('revision scope preserves private reads and atomic root linkage', async () => {
+    await assertSucceeds(createMovement({
+      uid: 'trainee', ownerRole: 'trainee', movementId: TRAINEE_MOVEMENT_ID,
+      revisionId: TRAINEE_REVISION_ID, name: 'My Cascade',
+    }));
+    const owner = context('trainee', false).firestore();
+    const revision = (db, movementId = TRAINEE_MOVEMENT_ID,
+      revisionId = TRAINEE_REVISION_ID) => doc(
+      db, 'custom_movements', movementId, 'revisions', revisionId,
+    );
+    const snapshot = await assertSucceeds(getDoc(revision(owner)));
+    for (const uid of ['other-trainee', 'teacher']) {
+      await assertFails(getDoc(revision(context(uid).firestore())));
+    }
+    await assertFails(deleteDoc(revision(owner)));
+    // A new revision must be selected by the root in the same atomic write.
+    await assertFails(setDoc(revision(owner, TRAINEE_MOVEMENT_ID, 'unlinked'), {
+      ...snapshot.data(), created_at: serverTimestamp(),
+    }));
+    await assertFails(setDoc(revision(owner, 'wrong-parent'), {
+      ...snapshot.data(), created_at: serverTimestamp(),
+    }));
+    await assertFails(setDoc(doc(owner, 'custom_movements', TRAINEE_MOVEMENT_ID,
+      'revisions', TRAINEE_REVISION_ID, 'extra', 'nested'), {owner_uid: 'trainee'}));
+  });
+
   test('reference image path must match its owner and root revision', async () => {
     await assertSucceeds(createMovement({
       uid: 'trainee',

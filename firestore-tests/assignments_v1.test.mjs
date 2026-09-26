@@ -17,6 +17,7 @@ import {
   where,
   setDoc,
   updateDoc,
+  deleteDoc,
   writeBatch,
   serverTimestamp,
   Timestamp,
@@ -273,6 +274,72 @@ async function seedApprovedOtherTrainee() {
     });
   });
 }
+
+describe('assignment subcollection scope boundaries', () => {
+  test('deadline overrides retain parent identity, membership, and private reads', async () => {
+    await seedClassroom();
+    const dueAt = Timestamp.fromMillis(Date.now() + 60_000);
+    const extended = Timestamp.fromMillis(dueAt.toMillis() + 60_000);
+    await seedBypassingRules(async (admin) => {
+      await updateDoc(doc(admin, 'group_assignments', ASG_A), {due_at: dueAt});
+    });
+    const ref = (db, assignmentId = ASG_A) => doc(
+      db, 'group_assignments', assignmentId, 'assignment_deadline_overrides', 'trainee',
+    );
+    const teacher = context('teacher').firestore();
+    const data = {
+      assignment_id: ASG_A, group_id: GROUP_ID, teacher_id: 'teacher',
+      trainee_id: 'trainee', due_at: extended, schema_version: 1,
+      created_at: serverTimestamp(), updated_at: serverTimestamp(),
+    };
+    await assertFails(setDoc(ref(context('other').firestore()), data));
+    await assertFails(setDoc(ref(context('trainee').firestore()), data));
+    await assertFails(setDoc(ref(teacher, ASG_B), data));
+    await assertFails(setDoc(ref(teacher), {...data, group_id: 'wrong-group'}));
+    await assertSucceeds(setDoc(ref(teacher), data));
+    await assertSucceeds(getDoc(ref(teacher)));
+    await assertSucceeds(getDoc(ref(context('trainee').firestore())));
+    await assertFails(getDoc(ref(context('otherTrainee').firestore())));
+    await assertFails(getDocs(collection(
+      context('trainee').firestore(), 'group_assignments', ASG_A,
+      'assignment_deadline_overrides',
+    )));
+    await assertFails(updateDoc(ref(teacher), {
+      teacher_id: 'other', updated_at: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(ref(teacher), {
+      due_at: Timestamp.fromMillis(extended.toMillis() + 60_000),
+      updated_at: serverTimestamp(),
+    }));
+    await seedBypassingRules(async (admin) => {
+      await updateDoc(doc(admin, 'group_memberships', `${GROUP_ID}_trainee`), {
+        status: 'pending',
+      });
+    });
+    await assertFails(getDoc(ref(context('trainee').firestore())));
+    await assertFails(updateDoc(ref(teacher), {updated_at: serverTimestamp()}));
+    await assertFails(deleteDoc(ref(teacher)));
+    await seedBypassingRules(async (admin) => {
+      await updateDoc(doc(admin, 'group_memberships', `${GROUP_ID}_trainee`), {
+        status: 'approved',
+      });
+    });
+    await assertSucceeds(deleteDoc(ref(teacher)));
+  });
+
+  test('recipient direct reads bind the row to its assignment path', async () => {
+    await seedClassroom();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'group_assignments', ASG_B,
+        'assignment_recipients', 'trainee'),
+      assignmentRecipientDoc(ASG_A, 'trainee', 'individual_student'));
+    });
+    for (const uid of ['teacher', 'trainee']) {
+      await assertFails(getDoc(doc(context(uid).firestore(),
+        'group_assignments', ASG_B, 'assignment_recipients', 'trainee')));
+    }
+  });
+});
 
 describe('Phase 5 official assignment session+pointer contract', () => {
   test('assignment reads enforce audience while legacy remains entire-class', async () => {
