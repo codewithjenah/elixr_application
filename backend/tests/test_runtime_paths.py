@@ -11,6 +11,8 @@ def test_source_resource_root_is_backend_directory() -> None:
 
 
 def test_writable_data_root_uses_local_app_data(monkeypatch) -> None:
+    # The Windows branch; macOS is covered in test_macos_platform.py.
+    monkeypatch.setattr(runtime_paths.sys, "platform", "win32")
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\Pilot\AppData\Local")
     monkeypatch.delenv("APPDATA", raising=False)
 
