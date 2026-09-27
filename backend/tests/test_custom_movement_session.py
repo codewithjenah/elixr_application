@@ -1,4 +1,5 @@
 import time
+import threading
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -27,6 +28,7 @@ from vision.camera import CapturedFrame
 from vision.types import HandLandmarks, HandsResult, Point2D, PoseLandmarks, PropDetection
 from vision.hands_detector import HandsDetector
 from test_session_lifecycle import StubHandsDetector, _patch_vision
+from test_ai_lifecycle_races import DelayedWaiterLock
 
 
 @pytest.fixture(autouse=True)
@@ -165,6 +167,72 @@ def test_reference_drafts_have_stable_ids_and_delete_only_selected_clip():
         session.build_custom_template()
     session.close()
     assert not Path(last["local_file_path"]).exists()
+
+
+def test_reference_delete_busy_and_invalid_id_preserve_retryable_drafts(monkeypatch):
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    first, second = [_accepted_reference(session) for _ in range(2)]
+    drafts = list(session._custom_references)
+    with pytest.raises(ValueError, match="^invalid_reference_id$"):
+        session.delete_custom_reference("missing")
+    with monkeypatch.context() as patch:
+        def busy(*args, **kwargs):
+            raise PermissionError("simulated Windows sharing violation")
+        patch.setattr(Path, "unlink", busy)
+        for _ in range(2):
+            with pytest.raises(ValueError, match="^reference_file_busy$"):
+                session.delete_custom_reference(first["reference_id"])
+            assert session._custom_references == drafts
+            assert all(Path(item["local_file_path"]).exists() for item in (first, second))
+    assert session.delete_custom_reference(first["reference_id"]) == 1
+    assert session._custom_references == [drafts[1]]
+    session.close()
+
+
+def test_reference_delete_waiter_blocks_ai_barging_before_unlink(monkeypatch):
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    first, second = [_accepted_reference(session) for _ in range(2)]
+    state = DelayedWaiterLock()
+    session._ai_state_lock = state
+    assert state.acquire(blocking=False)
+    stages = []
+    original_delete = session._delete_custom_draft
+
+    def unlink(draft):
+        stages.append("unlink")
+        original_delete(draft)
+
+    monkeypatch.setattr(session, "_delete_custom_draft", unlink)
+    monkeypatch.setattr(session, "_process_frame_unlocked", lambda **_: stages.append("ai"))
+    counts = []
+    worker = threading.Thread(target=lambda: counts.append(
+        session.delete_custom_reference(first["reference_id"])
+    ))
+    worker.start()
+    try:
+        assert state.waiting.wait(2)
+    finally:
+        state.release()
+    try:
+        for _ in range(20):
+            session.analyze_tick()
+        # Delay is before unlink, not inside file deletion.
+        assert stages == []
+        assert counts == []
+        assert session._ai_lifecycle_skips == 20
+    finally:
+        state.resume.set()
+        worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert counts == [1]
+    assert stages == ["unlink"]
+    assert not Path(first["local_file_path"]).exists()
+    assert Path(second["local_file_path"]).exists()
+    session.analyze_tick()
+    assert stages == ["unlink", "ai"]
+    session.close()
 
 
 def test_reference_trim_rebases_samples_and_invalid_edit_preserves_prior_trim():

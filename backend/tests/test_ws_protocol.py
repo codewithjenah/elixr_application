@@ -6,6 +6,8 @@ import asyncio
 import json
 import threading
 import time
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -23,6 +25,7 @@ from schemas.commands import (
     parse_v1_command,
 )
 from schemas.protocol import CommandAck, ProtocolError
+from test_ai_lifecycle_races import DelayedWaiterLock
 
 
 def test_custom_reference_commands_and_ack_metadata():
@@ -647,6 +650,106 @@ def _wait_for_ack(ws: FakeWebSocket, request_id: str, timeout: float = 2.0):
         raise AssertionError(f"Timed out waiting for ack {request_id}")
 
     return _run
+
+
+@pytest.mark.parametrize("file_busy", [False, True])
+def test_active_custom_delete_returns_correlated_ack(monkeypatch, tmp_path, file_busy):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+    clips = [tmp_path / f"reference-{index}.mp4" for index in range(2)]
+    for clip in clips:
+        clip.write_bytes(b"test clip")
+    sessions = []
+    state = DelayedWaiterLock()
+    state.resume.set()
+    ai_skipped = threading.Event()
+    original_session = websocket_api.VisionSession
+
+    def make_session(*args, **kwargs):
+        session = original_session(*args, **kwargs)
+        session._ai_state_lock = state
+        original_tick = session.analyze_tick
+
+        def tick():
+            before = session._ai_lifecycle_skips
+            result = original_tick()
+            if session._ai_lifecycle_skips > before:
+                ai_skipped.set()
+            return result
+
+        session.analyze_tick = tick
+        session._custom_references = [
+            SimpleNamespace(reference_id=f"ref-{index}", clip=SimpleNamespace(local_path=str(clip)))
+            for index, clip in enumerate(clips)
+        ]
+        sessions.append(session)
+        return session
+
+    monkeypatch.setattr(websocket_api, "VisionSession", make_session)
+    original_unlink = Path.unlink
+
+    def unlink(path, *args, **kwargs):
+        if file_busy and path == clips[0]:
+            raise PermissionError("simulated Windows sharing violation")
+        return original_unlink(path, *args, **kwargs)
+
+    async def run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        try:
+            await ws.push(_prepare_payload(session_mode="custom_capture", movement="Custom Movement"))
+            assert (await _wait_for_ack(ws, "req-1")())["accepted"] is True
+            await ws.push({"protocol_version": 1, "request_id": "activate",
+                           "session_id": "session-1", "action": "activate"})
+            assert (await _wait_for_ack(ws, "activate")())["accepted"] is True
+            with monkeypatch.context() as patch:
+                patch.setattr(Path, "unlink", unlink)
+                # Hold state as an in-flight AI frame, then delay the delete
+                # waiter's wakeup while the real AI loop tries newer frames.
+                await asyncio.to_thread(sessions[0]._acquire_ai_state, blocking=True)
+                state.waiting.clear()
+                state.resume.clear()
+                try:
+                    await ws.push({"protocol_version": 1, "request_id": "delete",
+                                   "session_id": "session-1", "action": "delete_custom_reference",
+                                   "reference_id": "ref-0"})
+                    assert await asyncio.to_thread(state.waiting.wait, 2)
+                finally:
+                    state.release()
+                try:
+                    ai_skipped.clear()
+                    assert await asyncio.to_thread(ai_skipped.wait, 1)
+                    assert clips[0].exists()  # Still waiting before unlink.
+                finally:
+                    state.resume.set()
+                ack = await _wait_for_ack(ws, "delete", timeout=2)()
+            assert ack["action"] == "delete_custom_reference"
+            assert ack["session_id"] == "session-1"
+            assert ack["session_state"] == "active"
+            assert ack["accepted"] is (not file_busy)
+            assert ack["reference_count"] == (2 if file_busy else 1)
+            assert ack["error_code"] == ("reference_file_busy" if file_busy else None)
+            if not file_busy:
+                assert ack["reference_id"] == "ref-0"
+            assert clips[0].exists() is file_busy
+            assert clips[1].exists()
+            assert sessions[0].custom_reference_count == (2 if file_busy else 1)
+            # Trim shares the dispatcher and must reach its validation/ACK path.
+            await ws.push({"protocol_version": 1, "request_id": "trim-missing",
+                           "session_id": "session-1", "action": "trim_custom_reference",
+                           "reference_id": "missing", "trim_start_ms": 0, "trim_end_ms": 1000})
+            trim_ack = await _wait_for_ack(ws, "trim-missing")()
+            assert trim_ack["accepted"] is False
+            assert trim_ack["error_code"] == "invalid_reference_id"
+        finally:
+            state.resume.set()
+            await ws.close_client()
+            await asyncio.wait_for(task, timeout=2)
+        acks = [message for message in _decode_sent(ws) if message.get("request_id") == "delete"]
+        assert len(acks) == 1
+        assert acks[0]["message_type"] == "command_ack"
+
+    asyncio.run(run())
 
 
 def test_malformed_json_protocol_error_keeps_socket_usable(monkeypatch):

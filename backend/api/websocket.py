@@ -841,6 +841,7 @@ class VisionSession:
         # These must not be the same lock: lifecycle ownership is not a
         # duplicate AI worker.
         self._ai_state_lock = threading.Lock()
+        self._ai_state_turnstile = threading.Lock()
         self._ai_tick_lock = threading.Lock()
         self._last_preview_sequence: int | None = None
         self._last_ai_sequence: int | None = None
@@ -1637,13 +1638,18 @@ class VisionSession:
         """Exclusive access to AI/lifecycle mutation. Preview must not call this.
 
         Blocking waits are for lifecycle methods running off the asyncio loop.
+        They hold the turnstile while waiting for state, so new AI ticks cannot
+        overtake a waiting mutation. Lock order is always turnstile -> state;
+        release the turnstile before mutating, and never reacquire it under state.
         The AI worker uses non-blocking acquire and treats failure as normal
         contention: skip this newest-frame tick rather than crash.
         """
-        if blocking:
-            self._ai_state_lock.acquire()
-            return True
-        return self._ai_state_lock.acquire(blocking=False)
+        if not self._ai_state_turnstile.acquire(blocking=blocking):
+            return False
+        try:
+            return self._ai_state_lock.acquire(blocking=blocking)
+        finally:
+            self._ai_state_turnstile.release()
 
     def _release_ai_state(self) -> None:
         self._ai_state_lock.release()
@@ -2889,8 +2895,8 @@ class VisionSession:
             raise RuntimeError("AI worker violated single in-flight")
         try:
             if not self._acquire_ai_state(blocking=False):
-                # Lifecycle mutation owns AI state. Skip this stale tick;
-                # the next loop iteration analyzes the newest frame.
+                # Lifecycle mutation owns or is waiting for AI state. Skip this
+                # stale tick; the next iteration analyzes the newest frame.
                 self._ai_lifecycle_skips += 1
                 return None
             self._ai_inflight += 1
@@ -5405,6 +5411,8 @@ async def websocket_endpoint(websocket: WebSocket):
         command: StartCustomCaptureCommand
         | StopCustomCaptureCommand
         | DiscardCustomReferenceCommand
+        | DeleteCustomReferenceCommand
+        | TrimCustomReferenceCommand
         | BuildCustomTemplateCommand
         | FinishCustomAssessmentCommand,
     ) -> None:
@@ -5691,6 +5699,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 StartCustomCaptureCommand,
                 StopCustomCaptureCommand,
                 DiscardCustomReferenceCommand,
+                DeleteCustomReferenceCommand,
+                TrimCustomReferenceCommand,
                 BuildCustomTemplateCommand,
                 FinishCustomAssessmentCommand,
             ),

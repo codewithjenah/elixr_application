@@ -28,6 +28,70 @@ _WAIT_S = 2.0
 _STILL_BLOCKED_S = 0.2
 
 
+class DelayedWaiterLock:
+    """Model an unfair lock scheduler without relying on OS thread timing.
+
+    Pause a blocking waiter before granting state ownership. A plain Lock
+    permits new non-blocking callers to barge during this scheduling window.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.waiting = threading.Event()
+        self.resume = threading.Event()
+
+    def acquire(self, blocking=True):
+        if blocking:
+            self.waiting.set()
+            if not self.resume.wait(_WAIT_S):
+                raise AssertionError("state waiter was not resumed")
+        return self.lock.acquire(blocking=blocking)
+
+    def release(self):
+        self.lock.release()
+
+
+def test_waiting_lifecycle_prevents_new_ai_ticks_from_barging(monkeypatch):
+    session = websocket_api.VisionSession("Hand Stall")
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    processed = []
+    monkeypatch.setattr(session, "_process_frame_unlocked", lambda **_: processed.append(1))
+    state = DelayedWaiterLock()
+    session._ai_state_lock = state
+    assert state.acquire(blocking=False)  # Original in-flight frame.
+    acquired = threading.Event()
+
+    def mutate():
+        session._acquire_ai_state(blocking=True)
+        try:
+            acquired.set()
+        finally:
+            session._release_ai_state()
+
+    waiter = threading.Thread(target=mutate)
+    waiter.start()
+    try:
+        assert state.waiting.wait(_WAIT_S)
+    finally:
+        state.release()
+    try:
+        # The old frame has finished, but the waiting thread has not yet run.
+        # Every one of these ticks could previously overtake that waiter.
+        for _ in range(20):
+            assert session.analyze_tick() is None
+        assert processed == []
+        assert session._ai_lifecycle_skips == 20
+        assert not acquired.is_set()
+    finally:
+        state.resume.set()
+        _join(waiter)
+    assert acquired.is_set()
+    session.analyze_tick()
+    assert processed == [1]
+    assert session._ai_inflight_max == 1
+    session.close()
+
+
 class GatedHands(StubHandsDetector):
     """Hands detector that blocks in detect() until ``release`` is set."""
 
