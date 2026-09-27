@@ -477,6 +477,101 @@ begin
   perform tests.expect_error($q$ select public.award_session_xp('sessCara000000000001', 'Cara', null) $q$,
     'not_awardable', 'custom movement sessions never award global XP');
 end $$;
+do $$
+declare
+  v_v1 jsonb := '{"schema_version":1,"capture_version":1,"duration_ms":2000,"reference_count":2,"required_modalities":["hands","prop_translation"],"normalization_metadata":{},"feature_capabilities":{"pose":false,"hands":true,"prop_translation":true,"release_catch":false,"prop_rotation":false},"canonical_sequence":[[0],[1]],"variability_metadata":{},"prop_events":[]}';
+  v_v2 jsonb;
+  v_v3 jsonb;
+  v_sequence jsonb;
+  v_trace jsonb;
+begin
+  select jsonb_agg(jsonb_build_object('timestamp_ms', i * 25, 'pose', '{}'::jsonb))
+    into v_sequence from generate_series(0, 31) i;
+  select jsonb_build_object(
+    'angles_rad', jsonb_agg(i * 0.2),
+    'total_signed_rad', 6.2,
+    'coverage', 0.95,
+    'pair_coverage', 0.9
+  ) into v_trace from generate_series(0, 31) i;
+  v_v2 := jsonb_set(jsonb_set(jsonb_set(v_v1,
+    '{schema_version}', '2'::jsonb),
+    '{canonical_sequence}', v_sequence),
+    '{feature_capabilities,prop_rotation}', 'true'::jsonb)
+    || jsonb_build_object('rotation_trace', v_trace);
+  v_v3 := jsonb_set(jsonb_set(v_v1,
+    '{schema_version}', '3'::jsonb),
+    '{canonical_sequence}', v_sequence)
+    || jsonb_build_object('movement_behavior', 'static', 'rotation_trace', null);
+
+  perform tests.check(private.valid_movement_template(v_v1), 'valid schema-v1 template remains accepted');
+  perform tests.check(private.valid_movement_template(v_v2), 'valid schema-v2 rotation remains accepted');
+  perform tests.check(private.valid_movement_template(v_v3), 'static schema-v3 JSON null trace is accepted');
+  perform tests.check(jsonb_typeof(v_v3 -> 'rotation_trace') = 'null',
+    'static fixture contains a present JSON null rotation trace');
+  perform tests.check(not private.valid_movement_template(v_v3 - 'movement_behavior'),
+    'schema-v3 movement behavior is required');
+  perform tests.check(not private.valid_movement_template(v_v3 || jsonb_build_object('movement_behavior', 'dynamic')),
+    'schema-v3 dynamic behavior is rejected');
+  perform tests.check(not private.valid_movement_template(v_v3 || jsonb_build_object('movement_behavior', 'other')),
+    'unknown schema-v3 behavior is rejected');
+  perform tests.check(not private.valid_movement_template(v_v3 - 'rotation_trace'),
+    'schema-v3 rotation trace key is required');
+  perform tests.check(not private.valid_movement_template(v_v3 || jsonb_build_object('rotation_trace', v_trace)),
+    'schema-v3 trace cannot contradict false rotation capability');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{feature_capabilities,prop_rotation}', 'true'::jsonb)),
+    'schema-v3 learned rotation requires a trace');
+  perform tests.check(not private.valid_movement_template(jsonb_set(jsonb_set(v_v3,
+    '{feature_capabilities,prop_rotation}', 'true'::jsonb),
+    '{rotation_trace}', '{"angles_rad":[]}'::jsonb)),
+    'schema-v3 learned rotation rejects an invalid trace');
+  perform tests.check(not private.valid_movement_template(jsonb_set(jsonb_set(v_v2,
+    '{schema_version}', '3'::jsonb) || jsonb_build_object('movement_behavior', 'static'),
+    '{rotation_trace,angles_rad,0}', '"invalid"'::jsonb)),
+    'schema-v3 learned rotation rejects invalid angle values');
+  perform tests.check(private.valid_movement_template(jsonb_set(v_v2,
+    '{schema_version}', '3'::jsonb) || jsonb_build_object('movement_behavior', 'static')),
+    'schema-v3 static movement can contain a valid learned rotation');
+  perform tests.check(not private.valid_movement_template(v_v3 || '{"unexpected":true}'::jsonb),
+    'schema-v3 unknown keys are rejected');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{capture_version}', '2'::jsonb)),
+    'schema-v3 unsupported capture version is rejected');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{duration_ms}', '"bad"'::jsonb)),
+    'schema-v3 malformed duration is rejected');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{required_modalities}', '["hands","hands"]'::jsonb)),
+    'schema-v3 duplicate modalities are rejected');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{normalization_metadata}', '[]'::jsonb)),
+    'schema-v3 malformed normalization metadata is rejected');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{prop_events}', '{}'::jsonb)),
+    'schema-v3 malformed prop events are rejected');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{feature_capabilities,prop_rotation}', '"false"'::jsonb)),
+    'schema-v3 rotation capability must be boolean');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3,
+    '{canonical_sequence}', '[]'::jsonb)),
+    'schema-v3 canonical sequence must contain 32 samples');
+  perform tests.check(not private.valid_movement_template(v_v1 || jsonb_build_object('movement_behavior', 'static')),
+    'schema-v1 does not gain schema-v3 fields');
+  perform tests.check(not private.valid_movement_template(v_v2 || jsonb_build_object('movement_behavior', 'static')),
+    'schema-v2 does not gain schema-v3 fields');
+
+  perform tests.expect_error(format(
+    'select public.create_custom_movement(%L,%L,%L,%L,%L,%L,%L,%L::jsonb,null)',
+    'cmovInvalid3', 'crevInvalid3', 'trainee', 'Static hold', '', 'Easy', 'bottle',
+    v_v3 - 'movement_behavior'), 'malformed', 'create RPC rejects malformed schema-v3 template');
+  perform public.create_custom_movement('cmovStatic3', 'crevStatic3', 'trainee',
+    'Static hold', '', 'Easy', 'bottle', v_v3, null);
+  perform tests.check((select count(*) from public.custom_movements where id = 'cmovStatic3') = 1,
+    'create RPC inserts schema-v3 static movement');
+  perform tests.check((select template from public.custom_movement_revisions
+    where id = 'crevStatic3') = v_v3,
+    'create RPC inserts the unmodified schema-v3 static revision');
+end $$;
 select tests.login('22222222-2222-4222-8222-222222222222');
 do $$
 begin

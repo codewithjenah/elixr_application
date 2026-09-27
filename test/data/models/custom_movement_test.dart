@@ -122,6 +122,36 @@ void main() {
       expect(parsed?.movementBehavior, 'static');
       expect(parsed?.toMap(), staticTemplate);
       expect(
+        MovementTemplate.tryFrom(
+          Map<String, dynamic>.from(staticTemplate)
+            ..remove('movement_behavior'),
+        ),
+        isNull,
+      );
+      expect(
+        MovementTemplate.tryFrom(
+          Map<String, dynamic>.from(staticTemplate)
+            ..['rotation_trace'] = {'angles_rad': <double>[]},
+        ),
+        isNull,
+      );
+      final rotatingStatic = Map<String, dynamic>.from(staticTemplate)
+        ..['feature_capabilities'] = {
+          ...staticTemplate['feature_capabilities'] as Map<String, dynamic>,
+          'prop_rotation': true,
+        };
+      expect(MovementTemplate.tryFrom(rotatingStatic), isNull);
+      rotatingStatic['rotation_trace'] = {
+        'angles_rad': List<double>.generate(32, (i) => i * 0.2),
+        'total_signed_rad': 6.2,
+        'coverage': 0.95,
+        'pair_coverage': 0.9,
+      };
+      expect(
+        MovementTemplate.tryFrom(rotatingStatic)?.requiresRotation,
+        isTrue,
+      );
+      expect(
         MovementTemplate.tryFrom(templateMap())?.movementBehavior,
         'dynamic',
       );
