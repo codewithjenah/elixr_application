@@ -135,6 +135,7 @@ class _Socket extends Fake implements WebSocketService {
   final Map<String, (int, int)> committedTrims = {};
   bool rejectNextTrim = false;
   String? rejectBuildCode;
+  String? rejectBuildMessage;
   int buildCalls = 0;
   bool rejectNextReference = false;
   bool failDisconnect = false;
@@ -334,6 +335,7 @@ class _Socket extends Fake implements WebSocketService {
             action: 'build_custom_template',
             accepted: false,
             errorCode: code,
+            message: rejectBuildMessage,
           ),
         );
       }
@@ -584,6 +586,28 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('Review movement'), findsOneWidget);
+  });
+
+  testWidgets('unstable static reference shows the backend message', (
+    tester,
+  ) async {
+    const message =
+        'The ending position was not held steadily. Record each example with a steady final hold.';
+    final socket = _Socket()
+      ..rejectBuildCode = 'unstable_static_reference'
+      ..rejectBuildMessage = message;
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _recordTwoReferences(tester, socket);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('custom-movement-review')),
+    );
+    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text(message), findsOneWidget);
+    expect(find.textContaining('unstable_static_reference'), findsNothing);
     expect(find.text('Review movement'), findsOneWidget);
   });
 

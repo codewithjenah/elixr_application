@@ -319,7 +319,9 @@ class _CustomMovementAuthoringScreenState
 
   void _requireAccepted(CommandAck ack) {
     if (!ack.accepted) {
-      throw StateError(ack.errorCode ?? ack.message ?? 'Command rejected');
+      // Only the Review flow displays this text; every other caller replaces
+      // it with its own guidance. Prefer the backend's human-readable message.
+      throw StateError(ack.message ?? ack.errorCode ?? 'Command rejected');
     }
   }
 

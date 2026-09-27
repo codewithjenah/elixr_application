@@ -15,7 +15,10 @@ from assessment.custom_movement.completion import (
     evaluate_completion,
     find_movement_start_index,
 )
-from assessment.custom_movement.template_engine import validate_assessment_sequence
+from assessment.custom_movement.template_engine import (
+    trailing_hold_window,
+    validate_assessment_sequence,
+)
 from assessment.readiness import ReadinessObservation
 from api import websocket as websocket_api
 from schemas.feedback import FeedbackMessage
@@ -337,6 +340,47 @@ def test_static_references_reject_unstable_or_inconsistent_endings():
     )
     with pytest.raises(ValueError, match="unstable_static_reference"):
         build_template([normal, unstable], movement_behavior="static")
+
+
+def _prop_jitter(reference, indices, dx=.2):
+    return tuple(replace(frame, prop=Landmark(frame.prop.x + dx, frame.prop.y))
+                 if index in indices else frame
+                 for index, frame in enumerate(reference))
+
+
+def test_static_reference_tolerates_one_isolated_jitter_in_trailing_hold():
+    normal = _grip_reference()
+    # Trailing hold of the 10 fps reference is frames 10..19.
+    assert len(trailing_hold_window(normal)) == 10
+    one_jitter = _prop_jitter(normal, {14})
+    template = build_template([normal, one_jitter], movement_behavior="static")
+    assert template.movement_behavior == "static"
+    assert websocket_api.CustomMovementTemplate.from_dict(template.to_dict()) == template
+    hold = tuple(replace(frame, timestamp_ms=index * 100)
+                 for index, frame in enumerate(normal[8:]))
+    assert evaluate_completion(template, hold) == MOVEMENT_COMPLETED
+    at_thirty_fps = tuple(replace(normal[-1], timestamp_ms=index * 33) for index in range(40))
+    build_template([at_thirty_fps, _prop_jitter(at_thirty_fps, {30, 35})],
+                   movement_behavior="static")
+
+
+@pytest.mark.parametrize("indices", ({17}, {19}, {18, 19}, {12, 15}, {11, 13, 15}))
+def test_static_reference_rejects_unstable_ending_or_repeated_mismatches(indices):
+    normal = _grip_reference()
+    with pytest.raises(ValueError, match="unstable_static_reference"):
+        build_template([normal, _prop_jitter(normal, indices)], movement_behavior="static")
+
+
+def test_static_reference_rejects_sustained_mismatches_at_thirty_fps():
+    hold = tuple(replace(_grip_reference()[-1], timestamp_ms=index * 33) for index in range(40))
+    with pytest.raises(ValueError, match="unstable_static_reference"):
+        build_template([hold, _prop_jitter(hold, {20, 23, 26, 29})], movement_behavior="static")
+
+
+def test_static_reference_jitter_does_not_mask_inconsistent_endings():
+    with pytest.raises(ValueError, match="inconsistent_static_references"):
+        build_template([_prop_jitter(_grip_reference(), {14}), _grip_reference(reverse=True)],
+                       movement_behavior="static")
 
 
 def test_custom_assessment_completion_waits_for_the_rest_of_a_partial_sequence():

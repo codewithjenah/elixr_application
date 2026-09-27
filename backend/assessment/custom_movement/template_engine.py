@@ -19,6 +19,7 @@ SCHEMA_VERSION = 2
 STATIC_SCHEMA_VERSION = 3
 STATIC_HOLD_MS = 800
 STATIC_STABILITY_TOLERANCE = 0.12
+STATIC_REFERENCE_MATCH_RATIO = 0.90
 CAPTURE_VERSION = 1
 CANONICAL_FRAMES = 32
 MIN_FRAMES = 8
@@ -938,6 +939,7 @@ def build_template(
             raise ValueError(FailureCode.INSUFFICIENT_HAND_COVERAGE.value)
     normalised: list[tuple[FrameSample, ...]] = []
     durations: list[int] = []
+    static_endings: list[FrameSample] = []
     for reference in references:
         check = validate_sequence(
             reference, required, required_hand_sides=hand_sides
@@ -953,12 +955,13 @@ def build_template(
         )
         durations.append(reference[-1].timestamp_ms - reference[0].timestamp_ms)
         if movement_behavior == "static":
-            final = normalised[-1][-1]
-            if any(not static_frame_matches(final, frame, required) for frame in normalised[-1]):
+            ending = static_reference_target(normalised[-1], required)
+            if ending is None:
                 raise ValueError("unstable_static_reference")
+            static_endings.append(ending)
     if movement_behavior == "static":
-        target = normalised[0][-1]
-        if any(not static_frame_matches(target, reference[-1], required) for reference in normalised[1:]):
+        target = static_endings[0]
+        if any(not static_frame_matches(target, ending, required) for ending in static_endings[1:]):
             raise ValueError("inconsistent_static_references")
     resampled = [_resample(seq) for seq in normalised]
     medoid_index = min(
@@ -1223,6 +1226,32 @@ def static_frame_matches(
         if error is None or error > STATIC_STABILITY_TOLERANCE:
             return False
     return True
+
+
+def static_reference_target(
+    hold: Sequence[FrameSample], required_modalities: Sequence[str]
+) -> FrameSample | None:
+    """Return the stable ending of a normalized static reference hold, if any.
+
+    The last three frames must all match the ending, so a performer still
+    moving at the end is rejected. Elsewhere in the hold an isolated detector
+    mismatch is tolerated, but authoring stays stricter than live assessment
+    (0.85): at most 10% of frames, and never more than one below 20 frames.
+    The ending is the recent frame agreeing with most of the hold, so one
+    noisy final observation does not become the reference position.
+    """
+    if len(hold) < 3:
+        return None
+    best: tuple[int, FrameSample, list[bool]] | None = None
+    for candidate in reversed(hold[-3:]):
+        matches = [static_frame_matches(candidate, frame, required_modalities) for frame in hold]
+        if best is None or sum(matches) > best[0]:
+            best = (sum(matches), candidate, matches)
+    _, target, matches = best
+    allowed_mismatches = max(1, int(len(hold) * (1 - STATIC_REFERENCE_MATCH_RATIO)))
+    if not all(matches[-3:]) or matches.count(False) > allowed_mismatches:
+        return None
+    return target
 
 
 def _phase_aligned_prop_curve_error(
