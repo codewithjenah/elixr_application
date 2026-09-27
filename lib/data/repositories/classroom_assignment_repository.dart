@@ -34,7 +34,7 @@ abstract class ClassroomAssignmentRepository {
     required String traineeId,
     required int total,
     required String performanceLevel,
-    required Map<String, int> componentScores,
+    required Map<String, int?> componentScores,
   });
 
   Future<GroupAssignment> createOfficialAssignment({

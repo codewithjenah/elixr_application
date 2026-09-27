@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 Map<String, dynamic> referenceAttempt({
   int total = 10,
   String level = 'proficient',
-  Map<String, int>? scores,
+  Map<String, Object?>? scores,
 }) => {
   'trainee_id': 'trainee-1',
   'teacher_id': 'teacher-1',
@@ -47,10 +47,10 @@ void main() {
     expect(attempt.awardsGlobalXp, isFalse);
   });
 
-  test('reference match rejects a forged total', () {
+  test('reference match rejects an out-of-range total', () {
     expect(
       AssignmentAttempt.tryFromMap(
-        referenceAttempt(total: 12, level: 'mastered'),
+        referenceAttempt(total: 13, level: 'mastered'),
         id: 'custom_assignment-1_trainee-1_1',
       ),
       isNull,
@@ -75,9 +75,57 @@ void main() {
     );
   });
 
-  test('shared total projection remains bounded and deterministic', () {
-    expect(referenceMatchedTotal([0, 0, 0, 0, 0]), 0);
-    expect(referenceMatchedTotal([3, 2, 3, 2, 2]), 10);
-    expect(referenceMatchedTotal([3, 3, 3, 3, 3]), 12);
+  test('reference match keeps a Not assessed component as null', () {
+    final attempt = AssignmentAttempt.tryFromMap(
+      referenceAttempt(
+        scores: {
+          'Body technique': null,
+          'Hand technique': 2,
+          'Prop path': 2,
+          'Timing': 3,
+          'Control/stability': 3,
+        },
+      ),
+      id: 'custom_assignment-1_trainee-1_1',
+    );
+
+    expect(attempt, isNotNull);
+    expect(attempt!.referenceTotal, 10);
+    expect(
+      attempt.referenceComponentScores!.containsKey('Body technique'),
+      isTrue,
+    );
+    expect(attempt.referenceComponentScores!['Body technique'], isNull);
+  });
+
+  test('reference match rejects malformed component values', () {
+    for (final bad in <Object?>[4, -1, 'x', 2.5]) {
+      expect(
+        AssignmentAttempt.tryFromMap(
+          referenceAttempt(
+            scores: {
+              'Body technique': bad,
+              'Hand technique': 2,
+              'Prop path': 2,
+              'Timing': 3,
+              'Control/stability': 3,
+            },
+          ),
+          id: 'custom_assignment-1_trainee-1_1',
+        ),
+        isNull,
+        reason: '$bad',
+      );
+    }
+  });
+
+  test('reference match rejects inconsistent performance level', () {
+    expect(
+      AssignmentAttempt.tryFromMap(
+        referenceAttempt(level: 'mastered'),
+        id: 'custom_assignment-1_trainee-1_1',
+      ),
+      isNull,
+    );
   });
 }

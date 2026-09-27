@@ -37,16 +37,21 @@ const referenceMatchedComponentNames = <String>{
   'Control/stability',
 };
 
-/// Projects five bounded 0..3 component scores onto the shared 0..12 rubric.
-int referenceMatchedTotal(Iterable<int> componentScores) {
-  final values = componentScores.toList(growable: false);
-  if (values.length != referenceMatchedComponentNames.length ||
-      values.any((score) => score < 0 || score > 3)) {
-    throw ArgumentError(
-      'Reference-match scores must contain five 0..3 values.',
-    );
+/// Whether [scores] holds exactly the five canonical components, each either
+/// a 0..3 score or null ("Not assessed"), with at least one assessed.
+///
+/// The total is backend-authoritative (the scorer applies weighting and
+/// rotation), so it is never recomputed from these values.
+bool isValidReferenceMatchedComponents(Map<String, int?>? scores) {
+  if (scores == null ||
+      scores.length != referenceMatchedComponentNames.length ||
+      !scores.keys.toSet().containsAll(referenceMatchedComponentNames)) {
+    return false;
   }
-  return (values.fold<int>(0, (sum, score) => sum + score) * 12 / 15).round();
+  return scores.values.any((score) => score != null) &&
+      scores.values.every(
+        (score) => score == null || (score >= 0 && score <= 3),
+      );
 }
 
 String referenceMatchedPerformanceLevel(int total) => switch (total) {
@@ -208,7 +213,7 @@ class AssignmentAttempt {
   final TeacherActivityAssessmentConfig? activityAssessmentSnapshot;
   final Map<String, int>? criterionScores;
   final int? referenceTotal;
-  final Map<String, int>? referenceComponentScores;
+  final Map<String, int?>? referenceComponentScores;
   final String? referencePerformanceLevel;
 
   int? get rubricTotal => rubric?.total;
@@ -394,7 +399,7 @@ class AssignmentAttempt {
     TeacherActivityAssessmentConfig? activityAssessmentSnapshot,
     Map<String, int>? criterionScores,
     int? referenceTotal,
-    Map<String, int>? referenceComponentScores,
+    Map<String, int?>? referenceComponentScores,
     String? referencePerformanceLevel,
     bool clearVideoStoragePath = false,
     bool clearVideoMetadata = false,
@@ -615,17 +620,16 @@ class AssignmentAttempt {
     final referencePerformanceLevel = map['performance_level'] is String
         ? map['performance_level'] as String
         : null;
-    Map<String, int>? referenceComponentScores;
+    Map<String, int?>? referenceComponentScores;
     if (map['reference_component_scores'] is Map) {
       referenceComponentScores = {};
       for (final entry in (map['reference_component_scores'] as Map).entries) {
+        final value = entry.value;
         if (entry.key is! String ||
-            entry.value is! int ||
-            (entry.value as int) < 0 ||
-            (entry.value as int) > 3) {
+            (value != null && (value is! int || value < 0 || value > 3))) {
           return null;
         }
-        referenceComponentScores[entry.key as String] = entry.value as int;
+        referenceComponentScores[entry.key as String] = value as int?;
       }
     }
     if ((assignmentConfigurationRevision == null) !=
@@ -807,12 +811,6 @@ class AssignmentAttempt {
         return null;
       }
     } else if (attemptKind == AssignmentAttemptKind.referenceMatch) {
-      final hasExactReferenceComponents =
-          referenceComponentScores?.keys.toSet().length ==
-              referenceMatchedComponentNames.length &&
-          referenceComponentScores!.keys.toSet().containsAll(
-            referenceMatchedComponentNames,
-          );
       if (sourceSessionId != null ||
           origin != MovementOrigin.teacherCreated ||
           assessmentMode != AssessmentMode.referenceMatched ||
@@ -821,10 +819,7 @@ class AssignmentAttempt {
           referenceTotal < 0 ||
           referenceTotal > 12 ||
           map['reference_max_total'] != 12 ||
-          referenceComponentScores == null ||
-          !hasExactReferenceComponents ||
-          referenceMatchedTotal(referenceComponentScores.values) !=
-              referenceTotal ||
+          !isValidReferenceMatchedComponents(referenceComponentScores) ||
           referencePerformanceLevel == null ||
           referenceMatchedPerformanceLevel(referenceTotal) !=
               referencePerformanceLevel ||

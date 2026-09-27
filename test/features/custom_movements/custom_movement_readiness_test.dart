@@ -334,7 +334,7 @@ class _ClassroomRepository extends Fake
   bool failSave = false;
   int? savedTotal;
   String? savedLevel;
-  Map<String, int>? savedComponents;
+  Map<String, int?>? savedComponents;
 
   @override
   Future<void> saveCustomMovementAssignmentAttempt({
@@ -342,7 +342,7 @@ class _ClassroomRepository extends Fake
     required String traineeId,
     required int total,
     required String performanceLevel,
-    required Map<String, int> componentScores,
+    required Map<String, int?> componentScores,
   }) async {
     saveCalls += 1;
     savedTotal = total;

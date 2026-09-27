@@ -116,19 +116,13 @@ class SupabaseClassroomAssignmentRepository
     required String traineeId,
     required int total,
     required String performanceLevel,
-    required Map<String, int> componentScores,
+    required Map<String, int?> componentScores,
   }) async {
     if (!assignment.isReferenceMatched ||
         assignment.movementTemplate == null ||
         total < 0 ||
         total > 12 ||
-        componentScores.keys.toSet().length !=
-            referenceMatchedComponentNames.length ||
-        !componentScores.keys.toSet().containsAll(
-          referenceMatchedComponentNames,
-        ) ||
-        componentScores.values.any((value) => value < 0 || value > 3) ||
-        referenceMatchedTotal(componentScores.values) != total ||
+        !isValidReferenceMatchedComponents(componentScores) ||
         referenceMatchedPerformanceLevel(total) != performanceLevel) {
       throw const ClassroomException(ClassroomError.malformed);
     }

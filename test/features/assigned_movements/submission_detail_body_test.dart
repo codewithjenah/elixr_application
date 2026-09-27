@@ -253,6 +253,42 @@ void main() {
     expect(find.textContaining('does not save a video clip'), findsOneWidget);
   });
 
+  testWidgets('reference match shows a null component as Not assessed', (
+    tester,
+  ) async {
+    await _pumpBody(
+      tester,
+      assignment: _teacherAssignment(),
+      attempt: AssignmentAttempt(
+        id: 'attempt-ref',
+        traineeId: 'trainee-1',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        assignmentId: 'asg-1',
+        movementId: 'tm1',
+        revisionId: 'rev1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.referenceMatched,
+        attemptKind: AssignmentAttemptKind.referenceMatch,
+        status: AssignmentAttemptStatus.submitted,
+        referenceTotal: 10,
+        referencePerformanceLevel: 'proficient',
+        referenceComponentScores: const {
+          'Body technique': null,
+          'Hand technique': 2,
+          'Prop path': 2,
+          'Timing': 3,
+          'Control/stability': 3,
+        },
+        completedAt: DateTime.utc(2026, 9, 27),
+      ),
+    );
+
+    expect(find.text('Body technique: Not assessed'), findsOneWidget);
+    expect(find.text('Hand technique: 2/3'), findsOneWidget);
+    expect(find.textContaining('0/3'), findsNothing);
+  });
+
   testWidgets(
     'official guided attempt scrolls inside the bounded teacher desktop workspace',
     (tester) async {

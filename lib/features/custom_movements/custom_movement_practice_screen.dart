@@ -558,10 +558,9 @@ class _CustomMovementPracticeScreenState
             traineeId: widget.traineeUid!,
             total: assessment.total!,
             performanceLevel: assessment.performanceLevel!,
-            componentScores: {
-              for (final entry in assessment.componentScores.entries)
-                if (entry.value != null) entry.key: entry.value!,
-            },
+            // Null components are "Not assessed" and must be kept, not
+            // dropped or zeroed.
+            componentScores: Map.of(assessment.componentScores),
           ),
     );
     SessionSummaryResult? result;

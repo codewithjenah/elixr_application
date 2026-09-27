@@ -586,7 +586,11 @@ class _ReferenceMatchedSection extends StatelessWidget {
           for (final entry in scores.entries)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: Text('${entry.key}: ${entry.value}/3'),
+              child: Text(
+                entry.value == null
+                    ? '${entry.key}: Not assessed'
+                    : '${entry.key}: ${entry.value}/3',
+              ),
             ),
         ],
         if (attempt.completedAt != null) ...[
