@@ -57,13 +57,16 @@ void main() {
         find.byType(ElixEditorialHeader),
       );
       expect(editorial.variant, ElixEditorialHeaderVariant.compact);
-      expect(editorial.headingColor, AppColors.textPrimary);
 
       final title = tester.widget<Text>(find.text('Hand Stall'));
+      final semanticPrimary = tester
+          .element(find.byType(ElixEditorialHeader))
+          .elixTextPrimary;
+      expect(semanticPrimary, AppColors.textPrimary);
       expect(title.style!.fontSize, 18);
       expect(title.style!.fontFamily, ElixTypography.fontFamily);
       expect(title.style!.fontFamily, isNot(AppTheme.brandFontFamily));
-      expect(title.style!.color, AppColors.textPrimary);
+      expect(title.style!.color, semanticPrimary);
 
       expect(
         find.text('Balance the bottle on your palm and hold it steady.'),
