@@ -198,34 +198,64 @@ jobs:
           PYTHON: python3.11
         run: bash scripts/build_macos_release.sh
 
-      - name: Smoke-test the packaged backend health endpoint
+      - name: Smoke-test the frozen backend health endpoint
+        # The copy inside ELIXR.app is signed app-sandbox + inherit, so macOS
+        # traps it (SIGTRAP) unless the sandboxed ELIXR app is its parent; the
+        # next step covers that copy. This runs the identical frozen payload.
         run: |
-          BACKEND="build/macos-release/dmg-stage/ELIXR.app/Contents/Resources/backend/elixr_backend"
+          BACKEND="build/macos-release/backend-dist/elixr_backend/elixr_backend"
           "$BACKEND" --host 127.0.0.1 --port 18765 &
           pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
           for i in $(seq 1 120); do
             if curl -fsS http://127.0.0.1:18765/health | grep -q '"ok"'; then
-              echo "health ok after ${i}s"; kill "$pid"; wait "$pid" || true; exit 0
+              echo "health ok after ${i}s"
+              listeners="$(lsof -nP -a -p "$pid" -iTCP -sTCP:LISTEN -Fn | sed -n 's/^n//p' | sort -u)"
+              echo "listeners: $listeners"
+              test "$listeners" = "127.0.0.1:18765" || { echo "unexpected listeners"; exit 1; }
+              exit 0
             fi
+            kill -0 "$pid" 2>/dev/null || { echo "frozen backend exited before health"; exit 1; }
             sleep 1
           done
-          kill "$pid" || true
-          exit 1
+          echo "frozen backend health timed out"; exit 1
 
-      - name: Launch app and confirm sidecar cleanup
+      - name: Launch app and confirm sidecar health and cleanup
         run: |
           APP="build/macos-release/dmg-stage/ELIXR.app"
           "$APP/Contents/MacOS/ELIXR" &
           app_pid=$!
-          found=""
+          trap 'kill "$app_pid" 2>/dev/null || true; pkill -f "ELIXR.app/Contents/Resources/backend/elixr_backend" || true' EXIT
+          sidecar=""
           for i in $(seq 1 90); do
-            if pgrep -P "$app_pid" -f elixr_backend >/dev/null; then found=1; break; fi
+            sidecar="$(pgrep -P "$app_pid" -f elixr_backend || true)"
+            [ -n "$sidecar" ] && break
+            kill -0 "$app_pid" 2>/dev/null || { echo "ELIXR exited during startup"; exit 1; }
             sleep 1
           done
-          test -n "$found" || { echo "ELIXR did not start its sidecar"; kill "$app_pid"; exit 1; }
+          test -n "$sidecar" || { echo "ELIXR did not start its sidecar"; exit 1; }
+          ps -o pid=,ppid=,command= -p "$sidecar"
+          port=""
+          for i in $(seq 1 60); do
+            port="$(lsof -nP -a -p "$sidecar" -iTCP -sTCP:LISTEN -Fn | sed -n 's/^n127\.0\.0\.1://p' | head -1)"
+            if [ -n "$port" ] && curl -fsS "http://127.0.0.1:$port/health" | grep -q '"ok"'; then
+              echo "bundled sidecar healthy on 127.0.0.1:$port after ${i}s"; break
+            fi
+            port=""
+            kill -0 "$sidecar" 2>/dev/null || { echo "sidecar exited before health"; exit 1; }
+            sleep 1
+          done
+          test -n "$port" || { echo "bundled sidecar never became healthy"; exit 1; }
+          # The app hands the sidecar its free-port probe result and its pid.
+          ps -o command= -p "$sidecar" | grep -q -- "--host 127.0.0.1 --port $port --parent-pid $app_pid" \
+            || { echo "sidecar was not started with the dynamic loopback endpoint"; exit 1; }
+          listeners="$(lsof -nP -a -p "$sidecar" -iTCP -sTCP:LISTEN -Fn | sed -n 's/^n//p' | sort -u)"
+          test "$listeners" = "127.0.0.1:$port" || { echo "unexpected listeners: $listeners"; exit 1; }
           kill "$app_pid"; wait "$app_pid" || true
           for i in $(seq 1 15); do
-            pgrep -f "ELIXR.app/Contents/Resources/backend/elixr_backend" >/dev/null || { echo "sidecar exited"; exit 0; }
+            if ! kill -0 "$sidecar" 2>/dev/null; then
+              echo "sidecar exited ${i}s after ELIXR exited"; trap - EXIT; exit 0
+            fi
             sleep 1
           done
           echo "sidecar still running after app exit"; exit 1
