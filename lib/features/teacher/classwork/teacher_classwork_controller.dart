@@ -112,6 +112,7 @@ class TeacherClassworkController extends ChangeNotifier {
 
   final Map<String, List<AssignmentAttempt>> _attemptsByAssignment = {};
   final Set<String> _attemptLoadErrors = {};
+  final Set<String> _deletedAssignmentIds = {};
   final Map<String, StreamSubscription<List<AssignmentAttempt>>>
   _attemptSubscriptions = {};
   StreamSubscription<List<GroupAssignment>>? _assignmentsSubscription;
@@ -218,6 +219,7 @@ class TeacherClassworkController extends ChangeNotifier {
       for (final assignment in items)
         if (assignment.groupId == groupId &&
             assignment.teacherId == teacherId &&
+            !_deletedAssignmentIds.contains(assignment.id) &&
             (fixedTraineeId == null ||
                 assignment.isAvailableToTrainee(fixedTraineeId!)))
           assignment,
@@ -826,14 +828,31 @@ class TeacherClassworkController extends ChangeNotifier {
     );
   }
 
-  Future<void> permanentlyDeleteAssignment(GroupAssignment assignment) {
-    return _runWrite(
-      () => assignmentRepository.permanentlyDeleteAssignment(
+  /// Returns true only after the repository confirms the permanent delete.
+  /// Local state is reconciled immediately rather than waiting for Realtime;
+  /// on failure nothing is removed.
+  Future<bool> permanentlyDeleteAssignment(GroupAssignment assignment) {
+    return _runWriteWithResult(() async {
+      await assignmentRepository.permanentlyDeleteAssignment(
         teacherId: teacherId,
         assignmentId: assignment.id,
         confirmation: 'DELETE ASSIGNMENT',
-      ),
-    );
+      );
+      _removeDeletedAssignment(assignment.id);
+    });
+  }
+
+  void _removeDeletedAssignment(String assignmentId) {
+    if (_disposed) return;
+    // Deletion is permanent, so a later fetch or stream snapshot that still
+    // contains this id is stale and must not bring the card back.
+    _deletedAssignmentIds.add(assignmentId);
+    assignments = [
+      for (final item in assignments)
+        if (item.id != assignmentId) item,
+    ];
+    _syncAttemptSubscriptions();
+    _reconcileSelection();
   }
 
   void _replaceAttempt(AssignmentAttempt updated) {

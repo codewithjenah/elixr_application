@@ -36,6 +36,7 @@ import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/class_challenge_repository.dart';
+import '../../../data/repositories/custom_movement_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
@@ -1266,6 +1267,7 @@ Future<void> _showGroupAssignmentComposer(
     assignmentRepository: assignmentRepository,
     groupRepository: controller.repository,
     movementRepository: movementRepository,
+    customMovementRepository: _tryRead<CustomMovementRepository>(context),
     ensureTeacherAuthorization: ensureTeacherAuthorization,
   );
   await showTeacherAssignmentComposer(
@@ -2102,173 +2104,224 @@ Future<void> _confirmPermanentlyDeleteAssignment(
   TeacherClassworkController controller,
   GroupAssignment assignment,
 ) async {
-  final confirmation = TextEditingController();
-  var phraseMatches = false;
-  var copied = false;
   await showDialog<bool>(
     context: context,
     dismissWithEsc: false,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) => PopScope(
-          canPop: !controller.busy,
-          child: Actions(
-            actions: {
-              DismissIntent: CallbackAction<DismissIntent>(
-                onInvoke: (_) {
-                  if (!controller.busy) Navigator.pop(dialogContext, false);
-                  return null;
-                },
-              ),
-            },
-            child: Center(
-              child: ElixDialog(
-                title: 'Delete assignment permanently?',
-                subtitle: 'This action cannot be undone.',
-                icon: FluentIcons.delete,
-                iconColor: context.elixColors.error,
-                headerAccentColor: context.elixColors.error,
-                maxWidth: 520,
-                scrollableContent: true,
-                uniformActionSize: const Size(176, 40),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '“${assignment.displayTitle}” and all recipient records, '
-                      'submissions, and uploaded media will be permanently removed.',
-                      style: AppTheme.body.copyWith(
-                        color: context.elixTextSecondary,
-                        height: 1.45,
+    builder: (_) => _PermanentDeleteAssignmentDialog(
+      controller: controller,
+      assignment: assignment,
+    ),
+  );
+}
+
+/// Owns the confirmation text controller so it outlives the route's exit
+/// animation and is disposed exactly once with the dialog.
+class _PermanentDeleteAssignmentDialog extends StatefulWidget {
+  const _PermanentDeleteAssignmentDialog({
+    required this.controller,
+    required this.assignment,
+  });
+
+  final TeacherClassworkController controller;
+  final GroupAssignment assignment;
+
+  @override
+  State<_PermanentDeleteAssignmentDialog> createState() =>
+      _PermanentDeleteAssignmentDialogState();
+}
+
+class _PermanentDeleteAssignmentDialogState
+    extends State<_PermanentDeleteAssignmentDialog> {
+  static const phrase = 'DELETE ASSIGNMENT';
+
+  final confirmation = TextEditingController();
+  late final Listenable _changes = Listenable.merge([
+    widget.controller,
+    confirmation,
+  ]);
+  var copied = false;
+  var submitting = false;
+
+  TeacherClassworkController get controller => widget.controller;
+  GroupAssignment get assignment => widget.assignment;
+
+  // The controller text is the only source of truth: it reflects typing,
+  // keyboard/toolbar paste, and any other edit path, so the button can never
+  // be gated by a stale flag that only an onChanged callback would update.
+  bool phraseMatches() => confirmation.text.trim() == phrase;
+
+  @override
+  void dispose() {
+    confirmation.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext dialogContext) {
+    return AnimatedBuilder(
+      animation: _changes,
+      builder: (context, _) => PopScope(
+        canPop: !controller.busy && !submitting,
+        child: Actions(
+          actions: {
+            DismissIntent: CallbackAction<DismissIntent>(
+              onInvoke: (_) {
+                if (!controller.busy && !submitting) {
+                  Navigator.pop(dialogContext, false);
+                }
+                return null;
+              },
+            ),
+          },
+          child: Center(
+            child: ElixDialog(
+              title: 'Delete assignment permanently?',
+              subtitle: 'This action cannot be undone.',
+              icon: FluentIcons.delete,
+              iconColor: context.elixColors.error,
+              headerAccentColor: context.elixColors.error,
+              maxWidth: 520,
+              scrollableContent: true,
+              uniformActionSize: const Size(176, 40),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '“${assignment.displayTitle}” and all recipient records, '
+                    'submissions, and uploaded media will be permanently removed.',
+                    style: AppTheme.body.copyWith(
+                      color: context.elixTextSecondary,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: context.isHighContrast
+                          ? context.elixCardSurface
+                          : context.elixColors.interactiveHover,
+                      borderRadius: BorderRadius.circular(ElixRadius.control),
+                      border: Border.all(
+                        color: context.elixColors.borderSubtle,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        color: context.isHighContrast
-                            ? context.elixCardSurface
-                            : context.elixColors.interactiveHover,
-                        borderRadius: BorderRadius.circular(ElixRadius.control),
-                        border: Border.all(
-                          color: context.elixColors.borderSubtle,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'CONFIRMATION PHRASE',
+                          style: AppTheme.bodySecondary.copyWith(
+                            color: context.elixTextSecondary,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                          ),
                         ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'CONFIRMATION PHRASE',
-                            style: AppTheme.bodySecondary.copyWith(
-                              color: context.elixTextSecondary,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.8,
+                        const SizedBox(height: AppSpacing.sm),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SelectableText(
+                                phrase,
+                                style: AppTheme.technical(
+                                  color: context.elixTextPrimary,
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SelectableText(
-                                  'DELETE ASSIGNMENT',
-                                  style: AppTheme.technical(
-                                    color: context.elixTextPrimary,
-                                  ),
+                            Tooltip(
+                              message: 'Copy confirmation phrase',
+                              child: ElixPrimaryButton(
+                                key: const Key(
+                                  'teacher_assignment_copy_delete_phrase',
                                 ),
+                                label: copied ? 'Copied' : 'Copy',
+                                expanded: false,
+                                dense: true,
+                                variant: ElixButtonVariant.outline,
+                                onPressed: () async {
+                                  await Clipboard.setData(
+                                    const ClipboardData(text: phrase),
+                                  );
+                                  if (mounted) {
+                                    setState(() => copied = true);
+                                  }
+                                },
                               ),
-                              Tooltip(
-                                message: 'Copy confirmation phrase',
-                                child: ElixPrimaryButton(
-                                  key: const Key(
-                                    'teacher_assignment_copy_delete_phrase',
-                                  ),
-                                  label: copied ? 'Copied' : 'Copy',
-                                  expanded: false,
-                                  dense: true,
-                                  variant: ElixButtonVariant.outline,
-                                  onPressed: () async {
-                                    await Clipboard.setData(
-                                      const ClipboardData(
-                                        text: 'DELETE ASSIGNMENT',
-                                      ),
-                                    );
-                                    if (context.mounted) {
-                                      setDialogState(() => copied = true);
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'Paste or type the phrase above to enable permanent deletion.',
+                    style: AppTheme.bodySecondary.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  ElixTextField(
+                    key: const Key('teacher_assignment_delete_confirmation'),
+                    controller: confirmation,
+                    enabled: !controller.busy && !submitting,
+                    autofocus: true,
+                  ),
+                  if (controller.errorMessage != null) ...[
                     const SizedBox(height: AppSpacing.md),
-                    Text(
-                      'Paste or type the phrase above to enable permanent deletion.',
-                      style: AppTheme.bodySecondary.copyWith(
-                        color: context.elixTextSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    ElixTextField(
-                      key: const Key('teacher_assignment_delete_confirmation'),
-                      controller: confirmation,
-                      enabled: !controller.busy,
-                      autofocus: true,
-                      onChanged: (value) => setDialogState(
-                        () => phraseMatches = value == 'DELETE ASSIGNMENT',
-                      ),
-                    ),
-                    if (controller.errorMessage != null) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      ElixInlineError(message: controller.errorMessage!),
-                    ],
+                    ElixInlineError(message: controller.errorMessage!),
                   ],
-                ),
-                actions: [
-                  ElixPrimaryButton(
-                    label: 'Cancel',
-                    expanded: false,
-                    variant: ElixButtonVariant.secondary,
-                    onPressed: controller.busy
-                        ? null
-                        : () => Navigator.pop(dialogContext, false),
-                  ),
-                  ElixPrimaryButton(
-                    key: const Key('teacher_assignment_confirm_delete'),
-                    label: controller.busy
-                        ? 'Deleting...'
-                        : 'Delete permanently',
-                    expanded: false,
-                    isLoading: controller.busy,
-                    variant: ElixButtonVariant.destructive,
-                    onPressed: phraseMatches && !controller.busy
-                        ? () async {
-                            // The controller sets busy synchronously before its first await.
-                            if (controller.busy) return;
-                            await controller.permanentlyDeleteAssignment(
-                              assignment,
-                            );
-                            if (!dialogContext.mounted) return;
-                            if (controller.errorMessage == null) {
-                              Navigator.pop(dialogContext, true);
-                            }
-                          }
-                        : null,
-                  ),
                 ],
               ),
+              actions: [
+                ElixPrimaryButton(
+                  label: 'Cancel',
+                  expanded: false,
+                  variant: ElixButtonVariant.secondary,
+                  onPressed: controller.busy || submitting
+                      ? null
+                      : () => Navigator.pop(dialogContext, false),
+                ),
+                ElixPrimaryButton(
+                  key: const Key('teacher_assignment_confirm_delete'),
+                  label: controller.busy || submitting
+                      ? 'Deleting...'
+                      : 'Delete permanently',
+                  expanded: false,
+                  isLoading: controller.busy || submitting,
+                  variant: ElixButtonVariant.destructive,
+                  onPressed: phraseMatches() && !controller.busy && !submitting
+                      ? () async {
+                          // Re-check the live text and guard duplicate
+                          // presses before the first await.
+                          if (submitting ||
+                              controller.busy ||
+                              !phraseMatches()) {
+                            return;
+                          }
+                          setState(() => submitting = true);
+                          final deleted = await controller
+                              .permanentlyDeleteAssignment(assignment);
+                          if (!mounted) return;
+                          if (deleted) {
+                            Navigator.pop(this.context, true);
+                          } else {
+                            // Keep the dialog open; the controller error is
+                            // rendered above.
+                            setState(() => submitting = false);
+                          }
+                        }
+                      : null,
+                ),
+              ],
             ),
           ),
         ),
       ),
-    ),
-  );
-  confirmation.dispose();
+    );
+  }
 }
 
 Future<void> _showRenameDialog(

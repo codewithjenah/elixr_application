@@ -294,6 +294,94 @@ void main() {
   }
 
   testWidgets(
+    'pasted assignment delete phrase reaches the repository and removes the card without Realtime',
+    (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, Object?>{'text': 'DELETE ASSIGNMENT\n'}
+            : call.method == 'Clipboard.hasStrings'
+            ? <String, Object?>{'value': true}
+            : null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final assignments = _SilentDeleteRepository();
+      addTearDown(assignments.dispose);
+      final group = await repository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSIT-4A',
+      );
+      final assignment = await assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: group,
+        officialMovementName: 'Normal Grip',
+        allowedProp: TrainingProp.bottle,
+      );
+      final controller = await controllerFor(
+        'teacher-1',
+        assignmentRepository: assignments,
+      );
+      addTearDown(controller.dispose);
+      await controller.startForGroup(group.id);
+      await pumpDetail(tester, controller: controller, groupId: group.id);
+      final card = find.byKey(Key('teacher_group_assignment_${assignment.id}'));
+      expect(card, findsOneWidget);
+
+      final open = find.byKey(
+        Key('teacher_group_delete_assignment_${assignment.id}'),
+      );
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      final field = find.byKey(
+        const Key('teacher_assignment_delete_confirmation'),
+      );
+      final confirm = find.byKey(
+        const Key('teacher_assignment_confirm_delete'),
+      );
+
+      await tester.enterText(field, 'DELETE');
+      await tester.pump();
+      expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNull);
+
+      await tester.enterText(field, '');
+      await tester.pump();
+      await tester.tap(field);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(tester.widget<ElixPrimaryButton>(confirm).onPressed, isNotNull);
+
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      expect(assignments.deleteCalls, 1);
+      expect(find.byType(ElixDialog), findsNothing);
+      expect(card, findsNothing);
+
+      // A later snapshot that still contains the deleted row is stale.
+      await assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: group,
+        officialMovementName: 'Body Grip',
+        allowedProp: TrainingProp.bottle,
+      );
+      await tester.pumpAndSettle();
+      expect(card, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'owned detail controller uses the provided assignment repository for classroom deletion',
     (tester) async {
       final assignments = _PendingDeleteRepository();
@@ -1550,6 +1638,24 @@ class _PendingDeleteRepository extends InMemoryClassroomAssignmentRepository {
   }) async {
     deleteCalls++;
     await pending.future;
+  }
+}
+
+/// Backend delete succeeds, but no Realtime change is delivered and the
+/// local store keeps the row, so any later emission is a stale snapshot.
+class _SilentDeleteRepository extends InMemoryClassroomAssignmentRepository {
+  int deleteCalls = 0;
+
+  @override
+  Future<void> permanentlyDeleteAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required String confirmation,
+  }) async {
+    deleteCalls++;
+    if (confirmation != 'DELETE ASSIGNMENT') {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
   }
 }
 

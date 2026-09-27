@@ -113,6 +113,24 @@ class _FailingReviewRepository extends InMemoryClassroomAssignmentRepository {
   }) => throw StateError('save failed');
 }
 
+/// Simulates the admin delete: success leaves the local row in place because
+/// no Realtime delete event is delivered.
+class _ScriptedDeleteRepository extends InMemoryClassroomAssignmentRepository {
+  Object? failure;
+  var deleteCalls = 0;
+
+  @override
+  Future<void> permanentlyDeleteAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required String confirmation,
+  }) async {
+    deleteCalls++;
+    final error = failure;
+    if (error != null) throw error;
+  }
+}
+
 void main() {
   late InMemoryGroupRepository groups;
   late InMemoryClassroomAssignmentRepository assignments;
@@ -196,6 +214,51 @@ void main() {
     teacherDisplayName: 'Grace Hopper',
     groupName: 'BSHM 4A',
     maxScore: 100,
+  );
+
+  test(
+    'permanent delete removes the assignment only after the repository succeeds',
+    () async {
+      final repository = _ScriptedDeleteRepository();
+      addTearDown(repository.dispose);
+      repository.seedAssignment(assignment);
+      final controller = TeacherClassworkController(
+        teacherId: 'teacher',
+        teacherDisplayName: 'Grace Hopper',
+        groupId: 'g1',
+        groupRepository: groups,
+        assignmentRepository: repository,
+        initialAssignmentId: 'a1',
+        initialTraineeId: 'trainee-1',
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      await pumpEventQueue();
+      expect(controller.assignmentById('a1'), isNotNull);
+
+      repository.failure = StateError('network down');
+      expect(await controller.permanentlyDeleteAssignment(assignment), isFalse);
+      expect(repository.deleteCalls, 1);
+      expect(controller.assignmentById('a1'), isNotNull);
+      expect(controller.selectedAssignmentId, 'a1');
+      expect(controller.errorMessage, isNotNull);
+
+      repository.failure = null;
+      expect(await controller.permanentlyDeleteAssignment(assignment), isTrue);
+      expect(repository.deleteCalls, 2);
+      expect(controller.assignmentById('a1'), isNull);
+      expect(controller.selectedAssignmentId, isNull);
+      expect(controller.selectedTraineeId, isNull);
+      expect(controller.hasAttemptSnapshot('a1'), isFalse);
+
+      // The repository never emitted a delete; a stale re-emission that still
+      // carries the row must not bring it back.
+      repository.seedAssignment(
+        assignment.copyWith(status: GroupAssignmentStatus.archived),
+      );
+      await pumpEventQueue();
+      expect(controller.assignmentById('a1'), isNull);
+    },
   );
 
   AssignmentAttempt submitted(String traineeId) => AssignmentAttempt(

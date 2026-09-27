@@ -112,6 +112,11 @@ class _TeacherMovementBuilderDialogState
   bool _uploadingDemo = false;
   File? _demoFile;
   final ElixrPlaybackSession _demoPlayback = ElixrPlaybackSession();
+
+  /// Shared by the always-visible Scrollbar and its scroll view. Desktop
+  /// scroll views are not primary by default, so an implicit controller
+  /// leaves the Scrollbar without an attached position.
+  final ScrollController _editorScrollController = ScrollController();
   late DateTime? _dueAt;
   late bool _hasDueDate;
   late AssignmentAttemptPolicy _attemptPolicy;
@@ -256,6 +261,7 @@ class _TeacherMovementBuilderDialogState
   @override
   void dispose() {
     unawaited(_demoPlayback.release());
+    _editorScrollController.dispose();
     _title.dispose();
     _instructions.dispose();
     _safety.dispose();
@@ -611,9 +617,11 @@ class _TeacherMovementBuilderDialogState
                 key: const ValueKey('teacher_activity_builder_form'),
                 padding: EdgeInsets.zero,
                 child: Scrollbar(
+                  controller: _editorScrollController,
                   thumbVisibility: true,
                   child: SingleChildScrollView(
                     key: const ValueKey('teacher_activity_builder_scroll'),
+                    controller: _editorScrollController,
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.xl,
                       AppSpacing.xl,

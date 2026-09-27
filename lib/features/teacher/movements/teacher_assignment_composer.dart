@@ -27,6 +27,7 @@ import '../../../data/models/assessment_mode.dart';
 import '../../../data/models/activity_learning_material.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/classroom_exceptions.dart';
+import '../../../data/models/custom_movement.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
@@ -35,6 +36,7 @@ import '../../../data/models/teacher_reviewed_movement_spec.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/activity_learning_material_repository.dart';
+import '../../../data/repositories/custom_movement_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import 'teacher_movement_builder_dialog.dart';
 import '../../activity_learning_materials/activity_learning_materials_panel.dart';
@@ -54,6 +56,7 @@ class TeacherAssignmentCreationService {
     required this.assignmentRepository,
     required this.groupRepository,
     this.movementRepository,
+    this.customMovementRepository,
     this.ensureTeacherAuthorization,
   });
 
@@ -62,7 +65,70 @@ class TeacherAssignmentCreationService {
   final ClassroomAssignmentRepository assignmentRepository;
   final GroupRepository groupRepository;
   final TeacherMovementRepository? movementRepository;
+
+  /// Source of Teacher-owned automatic (reference-matched) movements.
+  final CustomMovementRepository? customMovementRepository;
   final Future<bool> Function()? ensureTeacherAuthorization;
+
+  /// Assigns a Teacher-owned automatic movement to the entire class.
+  ///
+  /// The server contract supports only the classroom, attempt policy, and due
+  /// date; scoring is fixed reference matching out of 12. The root and its
+  /// active revision are re-read immediately before writing so a stale picker
+  /// snapshot can never pin an archived movement or a replaced revision.
+  Future<GroupAssignment> createAutomatic({
+    required ElixrGroup group,
+    required CustomMovement movement,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
+    DateTime? dueAt,
+  }) async {
+    final repository = customMovementRepository;
+    if (repository == null) {
+      throw const ClassroomException(
+        ClassroomError.notFound,
+        'Automatic movements are unavailable right now.',
+      );
+    }
+    await _ensureTeacherAuthorization();
+    final current = await repository.getOwnedMovement(
+      movementId: movement.id,
+      ownerUid: teacherId,
+    );
+    if (current == null ||
+        current.ownerUid != teacherId ||
+        current.ownerRole != CustomMovementOwnerRole.teacher) {
+      throw const ClassroomException(
+        ClassroomError.notFound,
+        'This automatic movement is no longer available.',
+      );
+    }
+    if (!current.isActive) {
+      throw const ClassroomException(
+        ClassroomError.archived,
+        'Archived automatic movements cannot be assigned.',
+      );
+    }
+    final revision = await repository.getRevision(
+      movementId: current.id,
+      revisionId: current.activeRevisionId,
+    );
+    if (revision == null || revision.id != current.activeRevisionId) {
+      throw const ClassroomException(
+        ClassroomError.notFound,
+        'The current version of this automatic movement is unavailable.',
+      );
+    }
+    return assignmentRepository.createCustomMovementAssignment(
+      teacherId: teacherId,
+      teacherDisplayName: teacherDisplayName,
+      group: group,
+      movement: current,
+      revision: revision,
+      dueAt: dueAt,
+      attemptPolicy: attemptPolicy,
+    );
+  }
 
   /// Creates either an Official ELIXR or Teacher-created assignment.
   ///
@@ -285,6 +351,7 @@ Future<bool?> showTeacherAssignmentComposer(
   GroupAssignment? existingAssignment,
   Future<bool> Function()? ensureTeacherAuthorization,
   ActivityLearningMaterialRepository? materialRepository,
+  CustomMovementRepository? customMovementRepository,
 }) async {
   final reduceMotion = MediaQuery.disableAnimationsOf(context);
   final service =
@@ -295,6 +362,7 @@ Future<bool?> showTeacherAssignmentComposer(
         assignmentRepository: assignmentRepository,
         groupRepository: groupRepository,
         movementRepository: movementRepository,
+        customMovementRepository: customMovementRepository,
         ensureTeacherAuthorization: ensureTeacherAuthorization,
       );
   final result = await Navigator.of(context).push<bool>(
@@ -319,6 +387,8 @@ Future<bool?> showTeacherAssignmentComposer(
             teacherCreatedMovement: teacherCreatedMovement,
             existingAssignment: existingAssignment,
             materialRepository: materialRepository,
+            customMovementRepository:
+                customMovementRepository ?? service.customMovementRepository,
           ),
       transitionsBuilder: (_, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
@@ -366,6 +436,7 @@ class TeacherAssignmentComposer extends StatefulWidget {
     this.existingAssignment,
     this.materialRepository,
     this.materialFilePicker = openFile,
+    this.customMovementRepository,
   });
 
   final String teacherId;
@@ -391,6 +462,10 @@ class TeacherAssignmentComposer extends StatefulWidget {
   final GroupAssignment? existingAssignment;
   final ActivityLearningMaterialRepository? materialRepository;
   final ActivityLearningMaterialFilePicker materialFilePicker;
+
+  /// Lists Teacher-owned automatic movements alongside Teacher-reviewed
+  /// Activities when the classroom-scoped picker is shown.
+  final CustomMovementRepository? customMovementRepository;
 
   @override
   State<TeacherAssignmentComposer> createState() =>
@@ -446,6 +521,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   List<TeacherMovement> _teacherMovements = const [];
   Map<String, TeacherMovementRevision> _teacherMovementRevisions = const {};
   StreamSubscription<List<TeacherMovement>>? _movementSubscription;
+
+  /// Teacher-owned automatic movements are a distinct selection type; they are
+  /// never converted into or stored as a [TeacherMovement].
+  StreamSubscription<List<CustomMovement>>? _automaticMovementSubscription;
+  List<CustomMovement> _automaticMovements = const [];
+  CustomMovement? _selectedAutomaticMovement;
+  bool _loadingAutomaticMovements = false;
   StreamSubscription<List<GroupMembership>>? _rosterSubscription;
   int _movementLoadToken = 0;
   int _rosterLoadToken = 0;
@@ -522,6 +604,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   bool get _isTeacherCreated =>
       _origin == _AssignmentOriginSelection.teacherCreated;
 
+  /// An automatic movement is selected. Its scoring is fixed (reference
+  /// matched, 12 points) and the server contract accepts only the classroom,
+  /// attempt policy, and due date.
+  bool get _isAutomaticSelected =>
+      !_isEditing && _isTeacherCreated && _selectedAutomaticMovement != null;
+
   TeacherReviewedMovementSpec? get _selectedActivitySpec {
     final revision = _selectedTeacherRevision;
     final spec = revision?.spec;
@@ -536,7 +624,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   bool get _hasValidMaxScore {
-    if (!_isTeacherCreated) return true;
+    if (!_isTeacherCreated || _isAutomaticSelected) return true;
     if (_isEditing && !_customizeActivity) {
       final value = int.tryParse(_maxScoreController.text.trim());
       return value != null && value >= 1 && value <= 100;
@@ -646,6 +734,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   bool get _hasValidActivityAssessment =>
       !_isTeacherCreated ||
+      _isAutomaticSelected ||
       (_isEditing && !_customizeActivity) ||
       _activityAssessment != null;
 
@@ -710,7 +799,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   bool get _canSubmit =>
       !_submitting &&
       _selectedGroup?.isActive == true &&
-      (_selectedOfficialMovement != null || _hasValidTeacherMovement) &&
+      (_selectedOfficialMovement != null ||
+          _hasValidTeacherMovement ||
+          _isAutomaticSelected) &&
       _hasValidOfficialProp &&
       (!_isTeacherCreated || !_loadingTeacherMovements) &&
       _hasValidMaxScore &&
@@ -789,6 +880,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _selectedOfficialMovement = _enabledOfficialMovements.firstOrNull;
       _selectedOfficialProp = _selectedOfficialMovement?.supportedProps.first;
       _startWatchingTeacherMovements();
+      _startWatchingAutomaticMovements();
     } else {
       unawaited(_prefillActivityDefaultsForSelectedMovement());
     }
@@ -946,6 +1038,75 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
   }
 
+  void _startWatchingAutomaticMovements() {
+    final repository = widget.customMovementRepository;
+    if (repository == null) return;
+    _loadingAutomaticMovements = true;
+    _automaticMovementSubscription = repository
+        .watchOwnedMovements(ownerUid: widget.teacherId)
+        .listen(
+          (movements) {
+            if (!mounted) return;
+            final assignable = [
+              for (final movement in movements)
+                if (movement.ownerUid == widget.teacherId &&
+                    movement.ownerRole == CustomMovementOwnerRole.teacher &&
+                    movement.isActive)
+                  movement,
+            ];
+            setState(() {
+              _automaticMovements = assignable;
+              _loadingAutomaticMovements = false;
+              final selected = _selectedAutomaticMovement;
+              if (selected != null) {
+                // Keep the freshest root (its active revision may change);
+                // drop the selection when it is archived or removed.
+                _selectedAutomaticMovement = assignable
+                    .where((movement) => movement.id == selected.id)
+                    .firstOrNull;
+              }
+            });
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!mounted) return;
+            setState(() {
+              _loadingAutomaticMovements = false;
+              _automaticMovements = const [];
+              _selectedAutomaticMovement = null;
+              _movementLoadError = 'Could not load automatic movements.';
+            });
+          },
+        );
+  }
+
+  void _onAutomaticMovementChanged(String movementId) {
+    if (_submitting || _isEditing) return;
+    final movement = _automaticMovements
+        .where((item) => item.id == movementId)
+        .firstOrNull;
+    if (movement == null) return;
+    if (_audienceType.isTargeted) {
+      _rosterLoadToken++;
+      unawaited(_rosterSubscription?.cancel());
+      _rosterSubscription = null;
+    }
+    setState(() {
+      _selectedAutomaticMovement = movement;
+      _selectedTeacherCreatedMovement = null;
+      _customizeActivity = false;
+      // The automatic assignment RPC always targets the entire class and
+      // publishes immediately; clear controls whose values would not persist.
+      _audienceType = AssignmentAudienceType.entireClass;
+      _targetTraineeIds = const {};
+      _eligibleTrainees = const [];
+      _rosterLoadError = null;
+      _loadingRoster = false;
+      _publicationSchedulingEnabled = false;
+      _attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault;
+      _validationError = null;
+    });
+  }
+
   void _onTeacherMovements(List<TeacherMovement> movements) {
     unawaited(_loadAssignableTeacherMovements(movements));
   }
@@ -1039,7 +1200,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         if (selected != null &&
             !assignable.any((movement) => movement.id == selected.id)) {
           _selectedTeacherCreatedMovement = assignable.firstOrNull;
-        } else if (_isTeacherCreated && selected == null) {
+        } else if (_isTeacherCreated &&
+            selected == null &&
+            _selectedAutomaticMovement == null) {
           _selectedTeacherCreatedMovement = assignable.firstOrNull;
         }
       }
@@ -1056,6 +1219,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   void dispose() {
     _materialPreviewGeneration += 1;
     unawaited(_movementSubscription?.cancel());
+    unawaited(_automaticMovementSubscription?.cancel());
     unawaited(_rosterSubscription?.cancel());
     _maxScoreController.dispose();
     _assignmentTitleController.dispose();
@@ -1161,6 +1325,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       isEditingDraft: _isEditingDraft,
       onSaveDraft:
           _canSubmit &&
+              !_isAutomaticSelected &&
               (!_isEditing ||
                   _isEditingDraft ||
                   _editingAssignment!.isScheduled)
@@ -1178,6 +1343,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           : null,
       onSchedule:
           _canSubmit &&
+              !_isAutomaticSelected &&
               _publicationSchedulingEnabled &&
               (!_isEditing || _canEditPublication)
           ? () => _isEditing
@@ -1193,14 +1359,22 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       isTeacherCreated: _isTeacherCreated,
       dueAt: _dueAt,
       canSubmit: _canSubmit,
-      maximumScore: int.tryParse(_maxScoreController.text.trim()),
+      maximumScore: _isAutomaticSelected
+          ? 12
+          : int.tryParse(_maxScoreController.text.trim()),
       audienceLabel: _audienceSummaryLabel,
-      readinessLabel: _isTeacherCreated ? _readinessSummaryLabel : null,
+      readinessLabel: _isTeacherCreated && !_isAutomaticSelected
+          ? _readinessSummaryLabel
+          : null,
       attemptsLabel: _attemptPolicy.displayLabel,
-      recordingDurationSeconds: _isTeacherCreated
+      recordingDurationSeconds: _isTeacherCreated && !_isAutomaticSelected
           ? _recordingDurationSeconds
           : null,
-      rubricLabel: _isTeacherCreated ? _rubricTemplate.displayLabel : null,
+      rubricLabel: _isAutomaticSelected
+          ? 'Reference matched'
+          : _isTeacherCreated
+          ? _rubricTemplate.displayLabel
+          : null,
       actions: actions,
     );
     final wide = availableWidth >= _teacherAssignmentWideBreakpoint;
@@ -1292,9 +1466,17 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         const SizedBox(height: AppSpacing.lg),
         _AssignmentAudienceSelector(
           selected: _audienceType,
-          enabled: !_submitting && _canEditAudience,
+          enabled: !_submitting && _canEditAudience && !_isAutomaticSelected,
           onChanged: _onAudienceTypeChanged,
         ),
+        if (_isAutomaticSelected) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Automatic movements are assigned to the entire class.',
+            key: const Key('teacher_assignment_automatic_audience_note'),
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
         if (_audienceType.isTargeted) ...[
           const SizedBox(height: AppSpacing.md),
           _buildRosterPicker(context),
@@ -1343,6 +1525,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const _AutomaticScoringCard(),
         ],
         if ((_isTeacherCreated && _hasValidTeacherMovement) ||
+            _isAutomaticSelected ||
             _selectedOfficialMovement != null) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
@@ -1354,6 +1537,38 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           ),
           const SizedBox(height: AppSpacing.lg),
           _attemptAllowanceField(enabled: _canEditAudience),
+        ],
+        if (_isAutomaticSelected) ...[
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.completed,
+            eyebrow: 'SELECTED MOVEMENT',
+            title: _selectedAutomaticMovement!.name,
+            description:
+                '${_selectedAutomaticMovement!.propType.displayLabel} · '
+                'Automatic · Reference matched · Up to 12 points',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _ComposerAlert(
+            key: const Key('teacher_assignment_automatic_notice'),
+            title: const Text('Scored automatically'),
+            content: const Text(
+              'Trainees are scored against your recorded reference, up to 12 '
+              'points. The rubric and maximum score are fixed. Topics, '
+              'learning materials, drafts, and scheduling are not available '
+              'for automatic movements; it is published when you assign it.',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.calendar,
+            eyebrow: 'DEADLINE',
+            title: 'When should it be done?',
+            description:
+                'A due date keeps the class aligned without surprises.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _dueDateField(),
         ],
         if (_isTeacherCreated && _hasValidTeacherMovement) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -1520,54 +1735,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 'A due date keeps the class aligned without surprises.',
           ),
           const SizedBox(height: AppSpacing.lg),
-          _DueDateField(
-            dueAt: _dueAt,
-            enabled: !_submitting,
-            onToggle: (checked) {
-              setState(() {
-                _validationError = null;
-                _dueAt = checked == true
-                    ? _manilaCivilDateTimeUtc(_manilaCivilDateNow(), 23, 59)
-                    : null;
-              });
-            },
-            onDateChanged: (value) => setState(() {
-              final dueAt = _dueAt;
-              if (dueAt == null) return;
-              _dueAt = _manilaCivilDateTimeUtc(
-                value,
-                _manilaCivilHour(dueAt),
-                _manilaCivilMinute(dueAt),
-              );
-            }),
-            onHourChanged: (value) => setState(() {
-              final dueAt = _dueAt;
-              if (dueAt == null) return;
-              _dueAt = _manilaCivilDateTimeUtc(
-                _manilaCivilDate(dueAt),
-                _hour24From12(value, _periodForHour24(_manilaCivilHour(dueAt))),
-                _manilaCivilMinute(dueAt),
-              );
-            }),
-            onMinuteChanged: (value) => setState(() {
-              final dueAt = _dueAt;
-              if (dueAt == null) return;
-              _dueAt = _manilaCivilDateTimeUtc(
-                _manilaCivilDate(dueAt),
-                _manilaCivilHour(dueAt),
-                value,
-              );
-            }),
-            onPeriodChanged: (value) => setState(() {
-              final dueAt = _dueAt;
-              if (dueAt == null) return;
-              _dueAt = _manilaCivilDateTimeUtc(
-                _manilaCivilDate(dueAt),
-                _hour24From12(_hour12From24(_manilaCivilHour(dueAt)), value),
-                _manilaCivilMinute(dueAt),
-              );
-            }),
-          ),
+          _dueDateField(),
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
             icon: FluentIcons.clock,
@@ -1648,6 +1816,55 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       ],
     );
   }
+
+  Widget _dueDateField() => _DueDateField(
+    dueAt: _dueAt,
+    enabled: !_submitting,
+    onToggle: (checked) {
+      setState(() {
+        _validationError = null;
+        _dueAt = checked == true
+            ? _manilaCivilDateTimeUtc(_manilaCivilDateNow(), 23, 59)
+            : null;
+      });
+    },
+    onDateChanged: (value) => setState(() {
+      final dueAt = _dueAt;
+      if (dueAt == null) return;
+      _dueAt = _manilaCivilDateTimeUtc(
+        value,
+        _manilaCivilHour(dueAt),
+        _manilaCivilMinute(dueAt),
+      );
+    }),
+    onHourChanged: (value) => setState(() {
+      final dueAt = _dueAt;
+      if (dueAt == null) return;
+      _dueAt = _manilaCivilDateTimeUtc(
+        _manilaCivilDate(dueAt),
+        _hour24From12(value, _periodForHour24(_manilaCivilHour(dueAt))),
+        _manilaCivilMinute(dueAt),
+      );
+    }),
+    onMinuteChanged: (value) => setState(() {
+      final dueAt = _dueAt;
+      if (dueAt == null) return;
+      _dueAt = _manilaCivilDateTimeUtc(
+        _manilaCivilDate(dueAt),
+        _manilaCivilHour(dueAt),
+        value,
+      );
+    }),
+    onPeriodChanged: (value) => setState(() {
+      final dueAt = _dueAt;
+      if (dueAt == null) return;
+      _dueAt = _manilaCivilDateTimeUtc(
+        _manilaCivilDate(dueAt),
+        _hour24From12(_hour12From24(_manilaCivilHour(dueAt)), value),
+        _manilaCivilMinute(dueAt),
+      );
+    }),
+  );
 
   Widget _buildLearningMaterials(BuildContext context) {
     final repository = widget.materialRepository;
@@ -2233,6 +2450,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   String get _movementTitle =>
       _selectedOfficialMovement?.name ??
+      (_isAutomaticSelected ? _selectedAutomaticMovement!.name : null) ??
       (_isTeacherCreated && _assignmentTitleController.text.trim().isNotEmpty
           ? _assignmentTitleController.text.trim()
           : _selectedTeacherCreatedMovement?.title) ??
@@ -2311,6 +2529,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (_origin == _AssignmentOriginSelection.official) {
       return _officialModeLabel(_selectedOfficialProp);
     }
+    final automatic = _isAutomaticSelected ? _selectedAutomaticMovement : null;
+    if (automatic != null) {
+      return 'Automatic · Reference matched · ${automatic.propType.displayLabel}';
+    }
     return _selectedTeacherCreatedMovement == null
         ? 'Choose an assignable movement.'
         : 'Teacher reviewed · No automatic ELIXR score';
@@ -2386,10 +2608,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       );
     }
 
-    if (_loadingTeacherMovements) {
+    final hasAnyTeacherActivity =
+        _teacherMovements.isNotEmpty || _automaticMovements.isNotEmpty;
+    if (!hasAnyTeacherActivity &&
+        (_loadingTeacherMovements || _loadingAutomaticMovements)) {
       return _teacherMovementLoadingState(context);
     }
-    if (_teacherMovements.isEmpty) {
+    if (!hasAnyTeacherActivity) {
       return _firstTeacherMovementState(context);
     }
     return Column(
@@ -2398,6 +2623,24 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _MovementChoiceList(
           key: const Key('teacher_assignment_movement'),
           children: [
+            for (final movement in _automaticMovements)
+              _MovementChoiceCard(
+                key: Key('teacher_assignment_automatic_${movement.id}'),
+                title: movement.name,
+                metadata:
+                    'Automatic · Reference matched · ${movement.propType.displayLabel}',
+                description: movement.description.trim().isEmpty
+                    ? 'Scored automatically against your recorded reference, up to 12 points.'
+                    : movement.description,
+                movementName: movement.name,
+                selected: _selectedAutomaticMovement?.id == movement.id,
+                enabled: !_submitting && _canEditIdentity,
+                isTeacherCreated: true,
+                onPressed: () => _onAutomaticMovementChanged(movement.id),
+                selectionKey: Key(
+                  'teacher_assignment_select_automatic_${movement.id}',
+                ),
+              ),
             for (final movement in _teacherMovements)
               _MovementChoiceCard(
                 key: Key('teacher_assignment_custom_${movement.id}'),
@@ -2624,6 +2867,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       if (value == _AssignmentOriginSelection.official) {
         _customizeActivity = false;
         _selectedTeacherCreatedMovement = null;
+        _selectedAutomaticMovement = null;
         _selectedOfficialMovement ??= _enabledOfficialMovements.firstOrNull;
         final movement = _selectedOfficialMovement;
         if (movement == null ||
@@ -2634,10 +2878,18 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       } else {
         _selectedOfficialMovement = null;
         _selectedOfficialProp = null;
-        _selectedTeacherCreatedMovement ??= _teacherMovements.firstOrNull;
+        if (_selectedAutomaticMovement == null) {
+          _selectedTeacherCreatedMovement ??= _teacherMovements.firstOrNull;
+        }
       }
     });
     if (value == _AssignmentOriginSelection.teacherCreated) {
+      if (_selectedTeacherCreatedMovement == null &&
+          _selectedAutomaticMovement == null &&
+          _automaticMovements.isNotEmpty) {
+        _onAutomaticMovementChanged(_automaticMovements.first.id);
+        return;
+      }
       unawaited(_prefillActivityDefaultsForSelectedMovement());
     }
   }
@@ -2820,6 +3072,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             _preservePersistedTeacherRevision = false;
           }
           _selectedTeacherCreatedMovement = movement;
+          _selectedAutomaticMovement = null;
           _customizeActivity = false;
           _validationError = null;
         });
@@ -3011,6 +3264,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _origin = _AssignmentOriginSelection.teacherCreated;
       _selectedOfficialMovement = null;
       _selectedTeacherCreatedMovement = movement;
+      _selectedAutomaticMovement = null;
       _preservePersistedTeacherRevision = false;
       _customizeActivity = false;
       _movementLoadError = null;
@@ -3068,6 +3322,15 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   String? _formValidationError([_PublicationAction? action]) {
     if (_selectedGroup?.isActive != true) {
       return 'Choose an active classroom.';
+    }
+    if (_isAutomaticSelected) {
+      if (action != _PublicationAction.publish) {
+        return 'Automatic movements are published immediately; drafts and scheduling are not available.';
+      }
+      if (_queuedMaterials.isNotEmpty) {
+        return 'Remove the queued learning materials; automatic movements do not support them.';
+      }
+      return null;
     }
     if (_selectedOfficialMovement == null && !_hasValidTeacherMovement) {
       if (_isTeacherCreated && _loadingTeacherMovements) {
@@ -3137,6 +3400,20 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _validationError = null;
     });
     try {
+      final automatic = _isAutomaticSelected
+          ? _selectedAutomaticMovement
+          : null;
+      if (automatic != null) {
+        // A created assignment is cached so a retry never inserts twice.
+        _createdAssignment ??= await widget.creationService.createAutomatic(
+          group: group,
+          movement: automatic,
+          attemptPolicy: _attemptPolicy,
+          dueAt: _dueAt,
+        );
+        if (pageContext.mounted) Navigator.pop(pageContext, true);
+        return;
+      }
       var created = _createdAssignment;
       if (created == null) {
         created = await widget.creationService.create(

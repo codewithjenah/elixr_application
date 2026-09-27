@@ -690,6 +690,37 @@ void main() {
     expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(560));
   });
 
+  testWidgets(
+    'builder scrollbar shares its scroll view controller on Windows',
+    (tester) async {
+      await pumpBuilder(tester, size: const Size(1280, 700));
+      await tester.pumpAndSettle();
+      final scroll = find.byKey(
+        const ValueKey('teacher_activity_builder_scroll'),
+      );
+      final scrollView = tester.widget<SingleChildScrollView>(scroll);
+      final scrollbar = tester.widget<Scrollbar>(
+        find.ancestor(of: scroll, matching: find.byType(Scrollbar)).first,
+      );
+      expect(scrollView.controller, isNotNull);
+      expect(scrollbar.controller, same(scrollView.controller));
+
+      await tester.drag(scroll, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      // Crossing the wide/narrow breakpoint remounts the scroll view.
+      await pumpBuilder(tester, size: const Size(680, 700));
+      await tester.pumpAndSettle();
+      await tester.drag(scroll, const Offset(0, -200));
+      await tester.pumpAndSettle();
+      await pumpBuilder(tester, size: const Size(1280, 700));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
   testWidgets('builder keeps its live summary on wide layouts only', (
     tester,
   ) async {

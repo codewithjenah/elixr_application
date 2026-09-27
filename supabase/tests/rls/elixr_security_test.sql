@@ -646,6 +646,43 @@ begin
   perform tests.check((select count(*) from public.custom_movements) = 0, 'custom movements are owner-private');
 end $$;
 
+-- A static schema-v3 template stores `rotation_trace: null`; assignment JSON
+-- must keep that nested key so clients can parse the committed assignment.
+select tests.login('11111111-1111-4111-8111-111111111111');
+do $$
+declare
+  v_sequence jsonb;
+  v_template jsonb;
+  v jsonb;
+begin
+  select jsonb_agg(jsonb_build_object('timestamp_ms', i * 25, 'pose', '{}'::jsonb))
+    into v_sequence from generate_series(0, 31) i;
+  v_template := '{"schema_version":3,"capture_version":1,"duration_ms":2000,"reference_count":1,"required_modalities":["hands","prop_translation"],"normalization_metadata":{},"feature_capabilities":{"pose":false,"hands":true,"prop_translation":true,"release_catch":false,"prop_rotation":false},"variability_metadata":{},"prop_events":[],"movement_behavior":"static","rotation_trace":null}'::jsonb
+    || jsonb_build_object('canonical_sequence', v_sequence);
+  perform public.create_custom_movement('cmovTeach3', 'crevTeach3', 'teacher',
+    'Teacher hold', '', 'Easy', 'bottle', v_template, null);
+  v := public.create_custom_movement_assignment(current_setting('tests.group_id'),
+    'cmovTeach3', 'crevTeach3', '{"type":"unlimited"}'::jsonb, null);
+  perform tests.check(v -> 'movement_template' = v_template,
+    'custom assignment response returns the stored schema-v3 template verbatim');
+  perform tests.check(jsonb_typeof(v -> 'movement_template' -> 'rotation_trace') = 'null',
+    'custom assignment response keeps the JSON null rotation trace');
+  perform tests.check((v ->> 'max_score')::int = 12 and v ->> 'assessment_mode' = 'reference_matched',
+    'custom assignment keeps reference-matched 12-point scoring');
+  perform tests.check(not (v ? 'topic') and not (v ? 'publish_at'),
+    'top-level null assignment columns are still compacted');
+end $$;
+select tests.login('22222222-2222-4222-8222-222222222222');
+do $$
+declare
+  v jsonb;
+begin
+  select a into v from jsonb_array_elements(public.list_trainee_assignments(null)) a
+    where a ->> 'movement_id' = 'cmovTeach3';
+  perform tests.check(jsonb_typeof(v -> 'movement_template' -> 'rotation_trace') = 'null',
+    'trainee assignment listing keeps the schema-v3 JSON null rotation trace');
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Chat
 -- ---------------------------------------------------------------------------
