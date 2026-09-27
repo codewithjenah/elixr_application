@@ -48,7 +48,32 @@ log "Creating arm64 Python build environment"
 PY="$VENV/bin/python"
 "$PY" -m pip install --upgrade pip
 "$PY" -m pip install -r "$REPO_ROOT/backend/requirements-dev.txt" -r "$REPO_ROOT/packaging/requirements-build.txt"
-"$PY" -m pip check
+
+log "Checking installed dependency metadata"
+# mediapipe 0.10.9's macOS wheel is named universal2 but its WHEEL metadata
+# declares only macosx_13_0_x86_64, so `pip check` reports it unsupported on
+# arm64. That exact line alone is tolerated, and only after the verifier
+# proves the wheel's arm64 slices and a real Hands/Pose inference. Any other
+# `pip check` finding stays fatal.
+MEDIAPIPE_TAG_COMPLAINT="mediapipe 0.10.9 is not supported on this platform"
+set +e
+PIP_CHECK_OUTPUT="$("$PY" -m pip check 2>&1)"
+PIP_CHECK_STATUS=$?
+set -e
+printf '%s\n' "$PIP_CHECK_OUTPUT"
+MEDIAPIPE_VERIFY_FLAGS=()
+if [[ $PIP_CHECK_STATUS -ne 0 ]]; then
+  OTHER_FINDINGS="$(printf '%s\n' "$PIP_CHECK_OUTPUT" | grep -vxF "$MEDIAPIPE_TAG_COMPLAINT" | grep -v '^[[:space:]]*$' || true)"
+  if [[ -n "$OTHER_FINDINGS" ]] || ! grep -qxF "$MEDIAPIPE_TAG_COMPLAINT" <<<"$PIP_CHECK_OUTPUT"; then
+    fail "pip check reported dependency problems."
+  fi
+  echo "Only the known mediapipe 0.10.9 wheel-tag complaint; verifying the real runtime."
+  MEDIAPIPE_VERIFY_FLAGS+=(--mislabeled-wheel)
+fi
+
+log "Verifying MediaPipe arm64 runtime"
+"$PY" "$REPO_ROOT/packaging/macos/verify_mediapipe_runtime.py" ${MEDIAPIPE_VERIFY_FLAGS[@]+"${MEDIAPIPE_VERIFY_FLAGS[@]}"} \
+  || fail "MediaPipe is not usable on this arm64 host."
 "$PY" - <<'PY'
 import cv2, mediapipe, numpy, ultralytics, onnxruntime as ort
 providers = ort.get_available_providers()
