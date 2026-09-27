@@ -13,12 +13,12 @@ def test_source_resource_root_is_backend_directory() -> None:
 def test_writable_data_root_uses_local_app_data(monkeypatch) -> None:
     # The Windows branch; macOS is covered in test_macos_platform.py.
     monkeypatch.setattr(runtime_paths.sys, "platform", "win32")
-    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\Pilot\AppData\Local")
+    local_app_data = r"C:\Users\Pilot\AppData\Local"
+    monkeypatch.setenv("LOCALAPPDATA", local_app_data)
     monkeypatch.delenv("APPDATA", raising=False)
 
-    assert runtime_paths.writable_data_root() == Path(
-        r"C:\Users\Pilot\AppData\Local\ELIXR"
-    )
+    # Built with the host's Path flavour so the join separator matches.
+    assert runtime_paths.writable_data_root() == Path(local_app_data) / "ELIXR"
 
 
 def test_frozen_resource_root_uses_executable_directory(monkeypatch, tmp_path: Path) -> None:
