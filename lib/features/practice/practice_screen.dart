@@ -44,6 +44,7 @@ import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
 import 'practice_run_phase.dart';
 import 'session_assessment.dart';
+import 'session_evidence_consent.dart';
 import 'session_summary_sheet.dart';
 import 'training_quit_guard.dart';
 import 'widgets/readiness_checklist_panel.dart';
@@ -1342,23 +1343,7 @@ class PracticeScreenState extends State<PracticeScreen>
     }
   }
 
-  Future<bool> _askEvidenceConsent() {
-    return ElixDialog.confirm(
-      context,
-      title: 'Save your confirmed movement?',
-      icon: FluentIcons.camera,
-      maxWidth: 500,
-      barrierDismissible: false,
-      uniformActionSize: const Size(198, 56),
-      cancelLabel: 'Save without image',
-      confirmLabel: 'Enable & save image',
-      message:
-          'We captured one annotated image from the exact frame that '
-          'confirmed your movement. It is private to your account, never '
-          'shared to profiles or leaderboards, and can be deleted anytime '
-          'in Settings → Privacy.',
-    );
-  }
+  Future<bool> _askEvidenceConsent() => askSessionEvidenceConsent(context);
 
   String _instructionForMovement(String movement) {
     for (final m in movementCatalog) {

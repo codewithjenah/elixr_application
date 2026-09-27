@@ -199,6 +199,18 @@ class AppRouter {
             );
           },
         ),
+        // Personal Custom Movement practice uses the full training surface,
+        // outside the trainee shell, exactly like official `/practice`.
+        GoRoute(
+          path: AppRoutePaths.customMovementPracticePattern,
+          pageBuilder: (context, state) => fadeTransitionPage(
+            key: state.pageKey,
+            child: CustomMovementRouteScreen(
+              movementId: state.pathParameters['movementId'] ?? '',
+              onExit: () => context.go(AppRoutePaths.movementsMyMovements),
+            ),
+          ),
+        ),
         GoRoute(
           path:
               '${AppRoutePaths.classChallengePlayPrefix}/:groupId/:challengeId',
@@ -288,30 +300,20 @@ class AppRouter {
               ),
             ),
             GoRoute(
-              path: '${AppRoutePaths.movements}/practice/:movementId',
-              pageBuilder: (context, state) => fadeTransitionPage(
-                key: state.pageKey,
-                child: CustomMovementRouteScreen(
-                  movementId: state.pathParameters['movementId'] ?? '',
-                  onExit: () => context.go(AppRoutePaths.movementsMyMovements),
-                ),
-              ),
-            ),
-            GoRoute(
               path: AppRoutePaths.myMovements,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
                 child: const MyMovementsScreen(),
               ),
               routes: [
+                // Legacy deep link: one canonical practice route owns the
+                // screen and its return destination.
                 GoRoute(
                   path: 'practice/:movementId',
-                  pageBuilder: (context, state) => fadeTransitionPage(
-                    key: state.pageKey,
-                    child: CustomMovementRouteScreen(
-                      movementId: state.pathParameters['movementId'] ?? '',
-                    ),
-                  ),
+                  redirect: (context, state) =>
+                      AppRoutePaths.movementsMyMovementPractice(
+                        state.pathParameters['movementId'] ?? '',
+                      ),
                 ),
               ],
             ),

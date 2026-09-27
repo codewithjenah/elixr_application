@@ -120,6 +120,13 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
       resultValue = rubricTotalLabel(total);
       resultLabel = level.label;
       resultColor = performanceLevelColor(level);
+    } else if (s.isCustomMovement) {
+      final percent = s.customScorePercent;
+      resultValue = percent == null ? '—' : '$percent%';
+      resultLabel = customAssessmentLabel;
+      resultColor = percent == null
+          ? context.elixTextSecondary
+          : AppColors.primary;
     } else {
       final legacy = s.legacyScore;
       resultValue = legacy == null ? '—' : '$legacy/100';

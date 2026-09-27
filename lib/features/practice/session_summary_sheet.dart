@@ -1842,6 +1842,18 @@ class _SummaryActions extends StatelessWidget {
   }
 }
 
+/// The official completion save-state banner, shared by other result dialogs
+/// that observe a [SessionSummarySaveController].
+class SessionSaveStatusBanner extends StatelessWidget {
+  const SessionSaveStatusBanner({super.key, required this.state, this.error});
+
+  final SessionSaveState state;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) => _SaveStatus(state: state, error: error);
+}
+
 class _SaveStatus extends StatelessWidget {
   const _SaveStatus({
     required this.state,

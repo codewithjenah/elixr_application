@@ -136,6 +136,12 @@ abstract class CustomMovementRepository {
     required String ownerUid,
   });
 
+  /// Persists one logical personal attempt. Callers reuse the same
+  /// [sessionId] on retry; the server treats a committed replay as success.
+  ///
+  /// [evidenceJpegBytes] is the backend completion-confirming frame, passed
+  /// only when the owner permits session evidence. It is stored in the
+  /// private session-evidence bucket and attached to the mirrored session.
   Future<void> savePersonalResult({
     required String ownerUid,
     required String movementId,
@@ -149,6 +155,7 @@ abstract class CustomMovementRepository {
     required TrainingProp propType,
     required int durationSeconds,
     String? referenceImageStoragePath,
+    Uint8List? evidenceJpegBytes,
   });
 }
 

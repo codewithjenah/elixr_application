@@ -63,6 +63,30 @@ Session _legacySession({int legacyScore = 84}) {
   );
 }
 
+/// A mirrored custom-movement row exactly as Supabase stores it today:
+/// assessment_version 1 with the custom percentage in `score`.
+Session _customSession({
+  int score = 83,
+  String? evidenceStoragePath,
+  String? evidenceKind,
+}) {
+  return Session.fromMap({
+    'id': 'custom-session',
+    'user_id': _userId,
+    'movement_name': 'My Toss',
+    'difficulty': 'Medium',
+    'duration_seconds': 12,
+    'created_at': '2026-08-02T11:00:00.000',
+    'prop_type': 'bottle',
+    'assessment_version': 1,
+    'score': score,
+    'custom_movement_id': 'movement-1',
+    'custom_movement_revision_id': 'revision-1',
+    'evidence_storage_path': ?evidenceStoragePath,
+    'evidence_kind': ?evidenceKind,
+  });
+}
+
 /// 1x1 PNG so Image.memory can decode without Firebase Storage.
 final Uint8List _onePixelPng = Uint8List.fromList(
   base64Decode(
@@ -286,6 +310,77 @@ void main() {
       expect(find.text('Technique'), findsNothing);
       expect(find.text('Rubric Total'), findsNothing);
       expect(find.textContaining('/ 12'), findsNothing);
+    });
+
+    test('custom sessions are their own domain, never legacy V1', () {
+      final custom = _customSession();
+      expect(custom.isCustomMovement, isTrue);
+      expect(custom.isLegacyAssessment, isFalse);
+      expect(custom.customScorePercent, 83);
+      final legacy = _legacySession();
+      expect(legacy.isCustomMovement, isFalse);
+      expect(legacy.isLegacyAssessment, isTrue);
+      expect(legacy.customScorePercent, isNull);
+      expect(_rubricSession().isLegacyAssessment, isFalse);
+      expect(_rubricSession().isCustomMovement, isFalse);
+    });
+
+    testWidgets('existing custom rows show Custom Assessment, not Legacy', (
+      tester,
+    ) async {
+      await _pumpDetails(tester, session: _customSession());
+
+      expect(find.text(customAssessmentLabel), findsOneWidget);
+      expect(find.text('Custom Score: 83%'), findsOneWidget);
+      expect(find.textContaining('Legacy'), findsNothing);
+      expect(find.textContaining('/100'), findsNothing);
+      expect(find.text('Technique'), findsNothing);
+      expect(find.text('No confirmed movement image'), findsOneWidget);
+    });
+
+    testWidgets('custom completion evidence renders the saved image', (
+      tester,
+    ) async {
+      final requested = <String>[];
+      await _pumpDetails(
+        tester,
+        session: _customSession(
+          evidenceStoragePath:
+              'users/history-user/session_evidence/custom-session.jpg',
+          evidenceKind: 'movement_completed',
+        ),
+        loadEvidence: (path) async {
+          requested.add(path);
+          return _onePixelPng;
+        },
+      );
+
+      expect(requested, [
+        'users/history-user/session_evidence/custom-session.jpg',
+      ]);
+      expect(find.text('Confirmed movement image'), findsOneWidget);
+      expect(find.byKey(const Key('history-evidence-preview')), findsOneWidget);
+    });
+
+    testWidgets('unknown evidence kinds never fabricate an image', (
+      tester,
+    ) async {
+      var loads = 0;
+      await _pumpDetails(
+        tester,
+        session: _customSession(
+          evidenceStoragePath:
+              'users/history-user/session_evidence/custom-session.jpg',
+          evidenceKind: 'unexpected_kind',
+        ),
+        loadEvidence: (_) async {
+          loads++;
+          return _onePixelPng;
+        },
+      );
+
+      expect(loads, 0);
+      expect(find.text('No confirmed movement image'), findsOneWidget);
     });
 
     testWidgets('session without any assessment does not invent a result', (
@@ -694,6 +789,19 @@ void main() {
         );
       },
     );
+
+    testWidgets('custom row shows its percentage as a Custom Assessment', (
+      tester,
+    ) async {
+      await pumpRows(tester, [_customSession(score: 92), _legacySession()]);
+
+      expect(find.text('92%'), findsOneWidget);
+      expect(find.text(customAssessmentLabel), findsOneWidget);
+      // Legacy V1 wording stays on the genuine legacy row only.
+      expect(find.text('84/100'), findsOneWidget);
+      expect(find.text('Excellent'), findsOneWidget);
+      expect(find.text('92/100'), findsNothing);
+    });
 
     testWidgets('expanding a row keeps the inspector inside the same card', (
       tester,

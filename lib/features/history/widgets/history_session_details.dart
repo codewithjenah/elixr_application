@@ -42,7 +42,7 @@ class HistorySessionDetails extends StatelessWidget {
 
   bool get _hasConfirmedStill =>
       session.evidenceStoragePath != null &&
-      session.evidenceKind == 'hold_confirmed';
+      historyEvidenceKinds.contains(session.evidenceKind);
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +245,8 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
   @override
   Widget build(BuildContext context) {
     final path = widget.session.evidenceStoragePath;
-    if (path == null || widget.session.evidenceKind != 'hold_confirmed') {
+    if (path == null ||
+        !historyEvidenceKinds.contains(widget.session.evidenceKind)) {
       return Text(
         'No confirmed movement image',
         style: AppTheme.bodySecondary.copyWith(
@@ -482,6 +483,32 @@ class _AssessmentBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rubric = session.rubric;
+    if (session.isCustomMovement) {
+      final percent = session.customScorePercent;
+      return Wrap(
+        key: const Key('history-custom-assessment'),
+        spacing: AppSpacing.sm,
+        runSpacing: 2,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            customAssessmentLabel,
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            percent == null ? 'No score recorded' : customScoreLabel(percent),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
+            ),
+          ),
+        ],
+      );
+    }
     if (!session.isRubricAssessed || rubric == null) {
       final legacy = session.legacyScore;
       return Text(

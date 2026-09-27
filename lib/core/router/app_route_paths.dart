@@ -117,13 +117,20 @@ abstract final class AppRoutePaths {
   static bool opensMyMovementsLibrary(Uri uri) =>
       uri.queryParameters[movementsLibraryQuery] == myMovementsLibraryValue;
 
+  /// Route pattern for personal Custom Movement practice. It is a full
+  /// training route outside the trainee shell.
+  static const customMovementPracticePattern =
+      '$movements/practice/:movementId';
+
   /// Personal practice opened from the canonical Movements > My Movements
-  /// library. The legacy [myMovementPractice] route remains available for
-  /// existing deep links.
+  /// library. The legacy [myMovementPractice] route redirects here.
   static String movementsMyMovementPractice(String movementId) =>
       '$movements/practice/${Uri.encodeComponent(movementId)}';
 
-  /// Legacy personal-practice deep link.
+  static bool isCustomMovementPracticeRoute(String location) =>
+      location.startsWith('$movements/practice/');
+
+  /// Legacy personal-practice deep link; redirects to the canonical route.
   static String myMovementPractice(String movementId) =>
       '$myMovements/practice/${Uri.encodeComponent(movementId)}';
 
@@ -291,6 +298,7 @@ abstract final class AppRoutePaths {
   }
 
   static bool isTraineeShellRoute(String location) {
+    if (isCustomMovementPracticeRoute(location)) return false;
     for (final route in traineeShellRoutes) {
       if (location == route || location.startsWith('$route/')) {
         return true;
@@ -308,6 +316,7 @@ abstract final class AppRoutePaths {
         location.startsWith('$classChallengePlayPrefix/') ||
         location.startsWith('$livePractice?') ||
         location == assignedPracticePrefix ||
-        location.startsWith('$assignedPracticePrefix/');
+        location.startsWith('$assignedPracticePrefix/') ||
+        isCustomMovementPracticeRoute(location);
   }
 }

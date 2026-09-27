@@ -140,8 +140,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   /// Sorts score-bearing cohorts independently so V2 totals never become
-  /// mathematically comparable to legacy percentages. Rubric sessions appear
-  /// first, followed by legacy sessions and then unscored sessions.
+  /// mathematically comparable to legacy or custom percentages. Rubric
+  /// sessions appear first, then custom assessments, legacy sessions and
+  /// finally unscored sessions.
   int _compareResult(Session a, Session b, {required bool descending}) {
     final aRubric = ComparableRubricProgress.scoreFor(
       assessmentVersion: a.assessmentVersion,
@@ -151,21 +152,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
       assessmentVersion: b.assessmentVersion,
       rubricTotal: b.rubricTotal,
     );
-    final aCohort = aRubric != null
+    int cohortOf(Session s, int? rubric) => rubric != null
         ? 0
-        : a.legacyScore != null
+        : s.customScorePercent != null
         ? 1
-        : 2;
-    final bCohort = bRubric != null
-        ? 0
-        : b.legacyScore != null
-        ? 1
-        : 2;
+        : s.isLegacyAssessment
+        ? 2
+        : 3;
+    final aCohort = cohortOf(a, aRubric);
+    final bCohort = cohortOf(b, bRubric);
     if (aCohort != bCohort) return aCohort.compareTo(bCohort);
 
     final comparison = switch (aCohort) {
       0 => aRubric!.compareTo(bRubric!),
-      1 => a.legacyScore!.compareTo(b.legacyScore!),
+      1 => a.customScorePercent!.compareTo(b.customScorePercent!),
+      2 => a.legacyScore!.compareTo(b.legacyScore!),
       _ => 0,
     };
     if (comparison != 0) return descending ? -comparison : comparison;
@@ -269,7 +270,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final groups = _groupByDate();
 
     // Assessment cohorts are aggregated separately: rubric totals are 0..12 and
-    // legacy scores are 0..100.
+    // legacy scores are 0..100. Custom assessments join neither cohort.
     final rubricTotals = <int>[];
     for (final session in _sessions) {
       final score = ComparableRubricProgress.scoreFor(
@@ -280,7 +281,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
     final legacyScores = <int>[
       for (final s in _sessions)
-        if (!s.isRubricAssessed && s.legacyScore != null) s.legacyScore!,
+        if (s.isLegacyAssessment) s.legacyScore!,
     ];
 
     final totalDurationSeconds = _sessions.fold<int>(

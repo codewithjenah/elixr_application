@@ -994,6 +994,49 @@ def test_active_custom_samples_use_current_hands_for_coverage(monkeypatch):
         session.close()
 
 
+def test_custom_completion_frame_carries_evidence_exactly_once(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+    try:
+        assert session.start()
+        assert session.activate() == (True, None)
+        assert session.start_custom_capture(duration_seconds=30) == (True, None)
+        completes = {"now": False}
+
+        def record(**_):
+            if completes["now"]:
+                session._custom_assessment_progress = websocket_api.CUSTOM_ASSESSMENT_COMPLETED
+
+        monkeypatch.setattr(session, "_record_custom_sample", record)
+        waiting = session.process_frame()
+        assert waiting is not None and waiting.evidence_jpeg_base64 is None
+        completes["now"] = True
+        confirming = session.process_frame()
+        assert confirming.custom_assessment_progress == "completed"
+        assert confirming.evidence_jpeg_base64
+        later = session.process_frame()
+        assert later.custom_assessment_progress == "completed"
+        assert later.evidence_jpeg_base64 is None
+    finally:
+        session.close()
+
+
+def test_custom_capture_session_never_emits_completion_evidence(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    try:
+        assert session.start()
+        assert session.activate() == (True, None)
+        monkeypatch.setattr(session, "_observe_custom_people", lambda *a, **k: None)
+        message = session.process_frame()
+        assert message is not None and message.evidence_jpeg_base64 is None
+    finally:
+        session.close()
+
+
 def test_custom_reference_rejects_confirmed_multiple_people_and_allows_retry():
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
     session._lifecycle = websocket_api.SESSION_ACTIVE

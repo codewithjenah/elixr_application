@@ -48,6 +48,15 @@ Color scoreQualityColor(int legacyScore) {
 /// Explicit legacy read-out so a 0..100 value is never mistaken for a rubric.
 String legacyScoreLabel(int legacyScore) => 'Legacy Score: $legacyScore/100';
 
+/// Custom Movement assessment read-out. Custom percentages are their own
+/// scoring domain and are never labelled legacy or given V1 quality words.
+String customScoreLabel(int percent) => 'Custom Score: $percent%';
+
+const customAssessmentLabel = 'Custom Assessment';
+
+/// Evidence kinds History can render as a confirmed movement image.
+const historyEvidenceKinds = {'hold_confirmed', 'movement_completed'};
+
 /// Assessment V2 rubric total read-out (0..12).
 String rubricTotalLabel(int rubricTotal) =>
     AssessmentScoreDisplay.official(rubricTotal);

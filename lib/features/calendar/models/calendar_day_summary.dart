@@ -24,10 +24,11 @@ class CalendarDaySummary {
     return totals;
   }
 
-  /// Legacy Assessment V1 percentages (0..100) recorded on this date.
+  /// Legacy Assessment V1 percentages (0..100) recorded on this date. Custom
+  /// Movement percentages are a separate domain and are excluded.
   List<int> get _legacyScores => [
     for (final s in sessions)
-      if (!s.isRubricAssessed && s.legacyScore != null) s.legacyScore!,
+      if (s.isLegacyAssessment) s.legacyScore!,
   ];
 
   int get rubricSessionCount => _rubricTotals.length;

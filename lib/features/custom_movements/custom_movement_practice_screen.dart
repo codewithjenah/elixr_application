@@ -15,10 +15,15 @@ import '../../data/models/practice_feedback.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/websocket_service.dart';
+import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/camera_device_service.dart';
 import '../settings/widgets/camera_source_preference.dart';
+import '../practice/session_evidence_consent.dart';
+import '../practice/session_summary_sheet.dart';
+import 'custom_movement_result_dialog.dart';
 import '../practice/widgets/training_action_area.dart';
 import '../practice/widgets/training_arena_layout.dart';
 import '../practice/widgets/training_camera_workspace.dart';
@@ -38,6 +43,7 @@ class CustomMovementPracticeScreen extends StatefulWidget {
     this.classroomRepository,
     this.webSocket,
     this.onExit,
+    this.sessionService,
   });
 
   final CustomMovement movement;
@@ -47,6 +53,10 @@ class CustomMovementPracticeScreen extends StatefulWidget {
   final String? traineeUid;
   final ClassroomAssignmentRepository? classroomRepository;
   final WebSocketService? webSocket;
+
+  /// Session-evidence preference owner. Defaults to the provided
+  /// [SessionService]; injectable for tests.
+  final SessionService? sessionService;
 
   /// Allows routed personal practice to return to its canonical origin without
   /// changing the pop behavior used by assignment and teacher flows.
@@ -60,7 +70,6 @@ class CustomMovementPracticeScreen extends StatefulWidget {
 enum _CustomPracticePhase {
   preparing,
   setupChecking,
-  readyToStart,
   countdown,
   recording,
   processing,
@@ -119,6 +128,13 @@ class _CustomMovementPracticeScreenState
   _CustomPracticeFailure? _failure;
   String? _resultSaveWarning;
   String? _sessionToRelease;
+
+  /// One-shot readiness auto-start gate for the current preparation cycle.
+  /// Reset only by a new preparation or a recoverable confirm rejection.
+  bool _autoStartConsumed = false;
+
+  /// Backend completion-confirming frame, captured before capture teardown.
+  Uint8List? _completionEvidenceJpegBytes;
   DateTime? _practiceStartedAt;
   DateTime? _recordingDeadline;
   Timer? _recordingTimer;
@@ -147,14 +163,21 @@ class _CustomMovementPracticeScreenState
       if (feedback.readinessItems != null || feedback.readinessStable != null) {
         _readinessFeedback.value = feedback;
       }
-      if (_phase == _CustomPracticePhase.setupChecking ||
-          _phase == _CustomPracticePhase.readyToStart) {
-        final nextPhase = feedback.readinessStable == true
-            ? _CustomPracticePhase.readyToStart
-            : _CustomPracticePhase.setupChecking;
-        if (nextPhase != _phase) setState(() => _phase = nextPhase);
+      // Readiness only matters during setup; late readiness loss after the
+      // attempt was accepted never demotes or restarts it.
+      if (_phase == _CustomPracticePhase.setupChecking) {
+        if (feedback.readinessStable == true) {
+          _maybeAutoStart();
+        } else {
+          setState(() {});
+        }
       }
       if (feedback.customAssessmentProgress != null) {
+        // The backend attaches evidence only to the completion-confirming
+        // frame. Retain it before the async stop/teardown below.
+        if (_phase == _CustomPracticePhase.recording) {
+          _completionEvidenceJpegBytes ??= feedback.evidenceJpegBytes;
+        }
         _assessmentProgress.value = feedback;
         final cueSequence = feedback.customAssessmentCueSequence;
         final cue = feedback.customAssessmentCue;
@@ -183,6 +206,8 @@ class _CustomMovementPracticeScreenState
         _failure = null;
         _result = null;
         _resultSaveWarning = null;
+        _autoStartConsumed = false;
+        _completionEvidenceJpegBytes = null;
         _countdown = null;
         _remainingSeconds = _captureDuration.inSeconds;
         _recordingDeadline = null;
@@ -220,11 +245,9 @@ class _CustomMovementPracticeScreenState
       );
       _requireAccepted(await _socket.sendBeginReadiness(sessionId: sessionId));
       if (mounted) {
-        setState(
-          () => _phase = _readinessFeedback.value?.readinessStable == true
-              ? _CustomPracticePhase.readyToStart
-              : _CustomPracticePhase.setupChecking,
-        );
+        setState(() => _phase = _CustomPracticePhase.setupChecking);
+        // Readiness may already have become stable before this ack.
+        _maybeAutoStart();
       }
     } catch (error) {
       await _stopSessionBestEffort();
@@ -241,8 +264,28 @@ class _CustomMovementPracticeScreenState
     }
   }
 
+  /// Starts the attempt once per preparation cycle, as soon as the
+  /// backend-authoritative readiness is stable. There is no manual start.
+  void _maybeAutoStart() {
+    if (!mounted ||
+        _autoStartConsumed ||
+        _busy ||
+        _cameraSelectionBusy ||
+        _phase != _CustomPracticePhase.setupChecking ||
+        _readinessFeedback.value?.readinessStable != true) {
+      return;
+    }
+    _autoStartConsumed = true;
+    unawaited(_start());
+  }
+
+  static bool _isRecoverableReadinessRejection(String? code) =>
+      code == 'readiness_not_stable' ||
+      code == 'readiness_stale' ||
+      code == 'single_performer_required';
+
   Future<void> _start() async {
-    if (_busy || _phase != _CustomPracticePhase.readyToStart) return;
+    if (_busy || _phase != _CustomPracticePhase.setupChecking) return;
     setState(() {
       _busy = true;
       _phase = _CustomPracticePhase.countdown;
@@ -251,7 +294,18 @@ class _CustomMovementPracticeScreenState
       _resultSaveWarning = null;
     });
     try {
-      _requireAccepted(await _socket.sendConfirmReadiness());
+      final confirm = await _socket.sendConfirmReadiness();
+      if (!mounted) return;
+      if (!confirm.accepted &&
+          _isRecoverableReadinessRejection(confirm.errorCode)) {
+        // Setup changed before acceptance: keep calibrating and re-arm the
+        // gate for the next fresh stable readiness report.
+        _readinessFeedback.value = null;
+        _autoStartConsumed = false;
+        setState(() => _phase = _CustomPracticePhase.setupChecking);
+        return;
+      }
+      _requireAccepted(confirm);
       for (var value = 3; value >= 1; value--) {
         if (!mounted) return;
         setState(() => _countdown = value);
@@ -308,6 +362,12 @@ class _CustomMovementPracticeScreenState
     if (_busy || _phase != _CustomPracticePhase.recording) return;
     _recordingTimer?.cancel();
     _recordingTimer = null;
+    ({
+      CustomAssessmentSnapshot assessment,
+      Uint8List? evidence,
+      int durationSeconds,
+    })?
+    personalResult;
     setState(() {
       _busy = true;
       _phase = _CustomPracticePhase.processing;
@@ -337,9 +397,6 @@ class _CustomMovementPracticeScreenState
           }
         }
       }
-      final feedback = assessment['feedback'] is List
-          ? (assessment['feedback'] as List).whereType<String>().toList()
-          : <String>[];
       final assignment = widget.assignment;
       final total = (assessment['total'] as num?)?.toInt();
       final level = assessment['performance_level'] as String?;
@@ -361,6 +418,23 @@ class _CustomMovementPracticeScreenState
           category: _CustomFailureCategory.operation,
         );
       }
+      if (assignment == null) {
+        final snapshot = CustomAssessmentSnapshot.tryFrom(assessment);
+        if (snapshot == null) {
+          throw const _CustomPracticeFailure(
+            message:
+                'The assessment result was incomplete. Start another practice attempt.',
+            category: _CustomFailureCategory.operation,
+          );
+        }
+        // Freeze this attempt before teardown: persistence and the result
+        // dialog use only this immutable snapshot.
+        personalResult = (
+          assessment: snapshot,
+          evidence: _completionEvidenceJpegBytes,
+          durationSeconds: _elapsedPracticeSeconds(),
+        );
+      }
 
       String? resultSaveWarning;
       if (assignment != null) {
@@ -380,33 +454,6 @@ class _CustomMovementPracticeScreenState
           resultSaveWarning =
               'Assessment complete, but the classroom result could not be saved.';
         }
-      } else if (percent != null) {
-        try {
-          final sessionId = widget.repository.allocateSessionId();
-          await widget.repository.savePersonalResult(
-            ownerUid: widget.movement.ownerUid,
-            movementId: widget.movement.id,
-            revisionId: widget.revision.id,
-            totalScore: percent,
-            componentScores: componentScores,
-            feedback: feedback,
-            sessionId: sessionId,
-            movementName: widget.movement.name,
-            difficulty: widget.movement.difficulty,
-            propType: widget.movement.propType,
-            durationSeconds: DateTime.now()
-                .difference(_practiceStartedAt ?? DateTime.now())
-                .inSeconds
-                .clamp(0, 86400)
-                .toInt(),
-            referenceImageStoragePath:
-                widget.movement.referenceImageStoragePath,
-          );
-        } catch (_) {
-          // A repository failure must not be mislabeled as assessment failure.
-          resultSaveWarning =
-              'Assessment complete, but the personal result could not be saved.';
-        }
       }
       await _stopSessionBestEffort();
       if (mounted) {
@@ -414,11 +461,14 @@ class _CustomMovementPracticeScreenState
         setState(() {
           _phase = _CustomPracticePhase.completed;
           _presentation.value = null;
-          _result = assessment;
+          // Only classroom results render inline; personal results open the
+          // modal result dialog below.
+          _result = assignment == null ? null : assessment;
           _resultSaveWarning = resultSaveWarning;
         });
       }
     } catch (error) {
+      personalResult = null;
       await _stopSessionBestEffort();
       if (mounted) {
         _clearLiveCue();
@@ -430,6 +480,97 @@ class _CustomMovementPracticeScreenState
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+    final completed = personalResult;
+    if (completed != null &&
+        mounted &&
+        _phase == _CustomPracticePhase.completed) {
+      await _presentPersonalResult(
+        assessment: completed.assessment,
+        evidence: completed.evidence,
+        durationSeconds: completed.durationSeconds,
+      );
+    }
+  }
+
+  int _elapsedPracticeSeconds() => DateTime.now()
+      .difference(_practiceStartedAt ?? DateTime.now())
+      .inSeconds
+      .clamp(0, 86400)
+      .toInt();
+
+  /// Persists one completed personal attempt and presents its result.
+  ///
+  /// Persistence starts here, before the dialog is shown, under one reserved
+  /// session ID that every retry reuses.
+  Future<void> _presentPersonalResult({
+    required CustomAssessmentSnapshot assessment,
+    required Uint8List? evidence,
+    required int durationSeconds,
+  }) async {
+    final ownerUid = widget.movement.ownerUid;
+    final usableEvidence =
+        evidence != null &&
+            SessionEvidenceRepository.acceptsJpegSize(evidence.lengthInBytes)
+        ? evidence
+        : null;
+    Uint8List? retainedEvidence;
+    if (usableEvidence != null) {
+      // Same consent semantics as official practice: an explicit opt-out is
+      // respected; an unset preference asks once and records the decision.
+      final preferences =
+          widget.sessionService ?? context.read<SessionService>();
+      var enabled = await preferences.sessionEvidenceEnabled(ownerUid);
+      if (!mounted) return;
+      if (enabled == null) {
+        enabled = await askSessionEvidenceConsent(context);
+        if (!mounted) return;
+        await preferences.setSessionEvidenceEnabled(
+          userId: ownerUid,
+          enabled: enabled,
+        );
+        if (!mounted) return;
+      }
+      if (enabled) retainedEvidence = usableEvidence;
+    }
+
+    final sessionId = widget.repository.allocateSessionId();
+    final saveController = SessionSummarySaveController(
+      save: () => widget.repository.savePersonalResult(
+        ownerUid: ownerUid,
+        movementId: widget.movement.id,
+        revisionId: widget.revision.id,
+        totalScore: assessment.scorePercent,
+        componentScores: assessment.persistedComponentScores,
+        feedback: assessment.feedback,
+        sessionId: sessionId,
+        movementName: widget.movement.name,
+        difficulty: widget.movement.difficulty,
+        propType: widget.movement.propType,
+        durationSeconds: durationSeconds,
+        referenceImageStoragePath: widget.movement.referenceImageStoragePath,
+        evidenceJpegBytes: retainedEvidence,
+      ),
+    );
+    unawaited(saveController.start());
+    SessionSummaryResult? result;
+    try {
+      result = await CustomMovementResultDialog.show(
+        context,
+        movementName: widget.movement.name,
+        durationSeconds: durationSeconds,
+        assessment: assessment,
+        saveController: saveController,
+        evidenceJpegBytes: usableEvidence,
+      );
+    } finally {
+      saveController.dispose();
+    }
+    if (!mounted) return;
+    if (result == SessionSummaryResult.tryAgain) {
+      await _tryAgain();
+    } else {
+      await _leave();
     }
   }
 
@@ -465,7 +606,11 @@ class _CustomMovementPracticeScreenState
         });
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+        // Stable readiness may have arrived while this retry was busy.
+        _maybeAutoStart();
+      }
     }
   }
 
@@ -507,6 +652,7 @@ class _CustomMovementPracticeScreenState
           _busy = false;
           _cameraSelectionBusy = false;
         });
+        _maybeAutoStart();
       }
     }
   }
@@ -643,7 +789,6 @@ class _CustomMovementPracticeScreenState
 
   bool get _cameraCanBeChanged =>
       _phase == _CustomPracticePhase.setupChecking ||
-      _phase == _CustomPracticePhase.readyToStart ||
       (_phase == _CustomPracticePhase.failed && _failure?.isSetup == true);
 
   Future<void> _stopSessionBestEffort() async {
@@ -743,7 +888,7 @@ class _CustomMovementPracticeScreenState
                       isPreparing ||
                       (_phase == _CustomPracticePhase.setupChecking &&
                           result == null),
-                  readyAura: _phase == _CustomPracticePhase.readyToStart,
+                  readyAura: _phase == _CustomPracticePhase.countdown,
                   idleTitle: 'Movement Assessment',
                   idleSubtitle: 'Complete setup before the timed assessment.',
                   idleCaption:
@@ -828,16 +973,12 @@ class _CustomMovementPracticeScreenState
   }) {
     final showInstructions = switch (_phase) {
       _CustomPracticePhase.preparing ||
-      _CustomPracticePhase.setupChecking ||
-      _CustomPracticePhase.readyToStart => true,
+      _CustomPracticePhase.setupChecking => true,
       _ => false,
     };
-    final setupPhase =
-        _phase == _CustomPracticePhase.setupChecking ||
-        _phase == _CustomPracticePhase.readyToStart;
+    final setupPhase = _phase == _CustomPracticePhase.setupChecking;
     final detectionObserving = switch (_phase) {
       _CustomPracticePhase.setupChecking ||
-      _CustomPracticePhase.readyToStart ||
       _CustomPracticePhase.countdown ||
       _CustomPracticePhase.recording ||
       _CustomPracticePhase.processing => true,
@@ -851,10 +992,6 @@ class _CustomMovementPracticeScreenState
       _CustomPracticePhase.setupChecking => TrainingReadyBrief(
         title: 'Checking setup…',
         body: widget.revision.template.readinessGuidance,
-      ),
-      _CustomPracticePhase.readyToStart => const TrainingReadyBrief(
-        title: 'Ready to Practice',
-        body: 'Your setup is stable. Start when you are ready.',
       ),
       _CustomPracticePhase.countdown => TrainingReadyBrief(
         title: 'Get ready${_countdown == null ? '' : ' · $_countdown'}',
@@ -875,7 +1012,7 @@ class _CustomMovementPracticeScreenState
         result == null
             ? const TrainingReadyBrief(
                 title: 'Assessment complete',
-                body: 'Your movement score is ready.',
+                body: 'Your result is shown in the session summary.',
               )
             : _CustomAssessmentResult(result: result),
       _CustomPracticePhase.failed => TrainingReadyBrief(
@@ -932,7 +1069,7 @@ class _CustomMovementPracticeScreenState
                 return ReadinessChecklistPanel(
                   items: items,
                   progress: feedback?.readinessStableProgress ?? 0,
-                  stable: _phase == _CustomPracticePhase.readyToStart,
+                  stable: feedback?.readinessStable ?? false,
                   complete: feedback?.readinessComplete ?? false,
                 );
               }
@@ -950,8 +1087,7 @@ class _CustomMovementPracticeScreenState
     };
     final actionLabel = switch (_phase) {
       _CustomPracticePhase.preparing => 'Preparing…',
-      _CustomPracticePhase.setupChecking ||
-      _CustomPracticePhase.readyToStart => 'Start Practice',
+      _CustomPracticePhase.setupChecking => 'Hold steady… starts automatically',
       _CustomPracticePhase.countdown => 'Get Ready…',
       _CustomPracticePhase.recording => 'Completes automatically',
       _CustomPracticePhase.processing => 'Analyzing performance…',
@@ -961,7 +1097,6 @@ class _CustomMovementPracticeScreenState
     };
     final canRunAction = !_busy && !_cameraSelectionBusy;
     final action = switch (_phase) {
-      _CustomPracticePhase.readyToStart => canRunAction ? _start : null,
       _CustomPracticePhase.recording => null,
       _CustomPracticePhase.completed ||
       _CustomPracticePhase.failed => canRunAction ? _tryAgain : null,
@@ -1021,7 +1156,9 @@ class _CustomMovementPracticeScreenState
               compact: true,
               enabled: !_busy && !_cameraSelectionBusy,
               onSelectionBusyChanged: (busy) {
-                if (mounted) setState(() => _cameraSelectionBusy = busy);
+                if (!mounted) return;
+                setState(() => _cameraSelectionBusy = busy);
+                if (!busy) _maybeAutoStart();
               },
               onSelectionSaved: _switchCamera,
             ),
@@ -1112,7 +1249,6 @@ class _CustomMovementPracticeScreenState
   TrainingSessionPhase get _panelPhase => switch (_phase) {
     _CustomPracticePhase.preparing => TrainingSessionPhase.preparingCamera,
     _CustomPracticePhase.setupChecking => TrainingSessionPhase.readiness,
-    _CustomPracticePhase.readyToStart => TrainingSessionPhase.ready,
     _CustomPracticePhase.countdown => TrainingSessionPhase.getReady,
     _CustomPracticePhase.recording => TrainingSessionPhase.recording,
     _CustomPracticePhase.processing => TrainingSessionPhase.processing,

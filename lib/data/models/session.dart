@@ -30,7 +30,9 @@ class Session {
   final String movementName;
   final String difficulty;
 
-  /// Legacy Assessment V1 percentage (0..100). Null for Assessment V2 sessions.
+  /// Persisted `score` column (0..100). Null for Assessment V2 sessions. For a
+  /// custom-movement session this is the custom percentage; use
+  /// [isLegacyAssessment] / [customScorePercent] rather than reading it as V1.
   final int? legacyScore;
 
   /// Assessment V2 rubric. Null for legacy sessions.
@@ -58,6 +60,19 @@ class Session {
   final String? referenceImageStoragePath;
 
   bool get isRubricAssessed => assessmentVersion == 2 && rubric != null;
+
+  /// Personal practice of an owner-created movement. Its mirrored row stores
+  /// the custom 0..100 percentage in `score`, but it is a separate scoring
+  /// domain: never a legacy Assessment V1 session and never a rubric.
+  bool get isCustomMovement =>
+      !isRubricAssessed && (customMovementId?.trim().isNotEmpty ?? false);
+
+  /// Custom assessment percentage (0..100), or null for other sessions.
+  int? get customScorePercent => isCustomMovement ? legacyScore : null;
+
+  /// A genuine legacy Assessment V1 percentage session.
+  bool get isLegacyAssessment =>
+      !isRubricAssessed && !isCustomMovement && legacyScore != null;
 
   /// Convenience: rubric total for V2, else null (never mix with legacyScore).
   int? get rubricTotal => rubric?.total;

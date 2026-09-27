@@ -874,6 +874,8 @@ Live coaching uses three trainee-facing verdicts derived from `posture_status` (
 
 Hold confirmation is **backend-authoritative**. Flutter must not run a parallel client-side hold timer. During `session_state: active`, the backend tracks continuous positive/stable frames using monotonic time, pauses on `unknown` without counting those frames as invalid, resets the hold segment after prolonged unknown or after a sustained Wrong dropout, and sets `hold_confirmed: true` once per activated session when the configured duration is reached. Preview, unavailable, and error messages use safe hold defaults (`hold_progress: 0`, `hold_confirmed: false`).
 
+Personal Custom Movement practice (`/movements/practice/:movementId`, a full training route outside the trainee shell; `/my-movements/practice/:id` redirects there) starts automatically once backend readiness is stable: one `confirm_readiness` → countdown → `activate` → `start_custom_capture` per preparation cycle. In `custom_assessment` mode the backend attaches `evidence_jpeg_base64` once, to the frame whose sample evaluation first reports `custom_assessment_progress: completed`. On completion Flutter saves one attempt under a reserved session ID via `save_custom_movement_practice_result` (idempotent on retry), uploading the evidence only when the owner's session-evidence preference allows it; the mirrored session uses `evidence_kind: movement_completed`. History identifies these rows by `custom_movement_id` and shows them as a Custom Assessment, never as legacy V1.
+
 Optional readiness fields on feedback (present during `readying`; omitted otherwise):
 
 - `readiness_items` — checklist rows `{code, status, message}` with status `ready` | `waiting` | `error`

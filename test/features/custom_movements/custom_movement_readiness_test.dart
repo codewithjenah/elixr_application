@@ -9,7 +9,9 @@ import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/custom_movement_repository.dart';
 import 'package:elixr_application/features/custom_movements/custom_movement_practice_screen.dart';
+import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/widgets/training_action_area.dart';
+import 'package:elixr_application/services/session_service.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
@@ -131,13 +133,23 @@ class _CustomSocket extends WebSocketService {
   Future<CommandAck> sendBeginReadiness({String? sessionId}) async =>
       _ack('begin_readiness');
 
-  @override
-  Future<CommandAck> sendConfirmReadiness({String? sessionId}) async =>
-      _ack('confirm_readiness');
+  int confirmCalls = 0;
+  int activateCalls = 0;
+  String? rejectNextConfirmCode;
 
   @override
-  Future<CommandAck> sendActivate({String? sessionId}) async =>
-      _ack('activate');
+  Future<CommandAck> sendConfirmReadiness({String? sessionId}) async {
+    confirmCalls += 1;
+    final code = rejectNextConfirmCode;
+    rejectNextConfirmCode = null;
+    return _ack('confirm_readiness', accepted: code == null, errorCode: code);
+  }
+
+  @override
+  Future<CommandAck> sendActivate({String? sessionId}) async {
+    activateCalls += 1;
+    return _ack('activate');
+  }
 
   @override
   Future<CommandAck> sendStartCustomCapture({
@@ -183,6 +195,7 @@ class _CustomSocket extends WebSocketService {
           {
             'score_percent': 83.3,
             'total': 10,
+            'max_total': 12,
             'performance_level': 'proficient',
             'component_scores': {'Timing': 3, 'Prop path': 2},
             'feedback': ['Good timing'],
@@ -247,6 +260,7 @@ class _CustomSocket extends WebSocketService {
     List<ReadinessItemView>? readinessItems,
     bool? readinessComplete,
     double? readinessStableProgress,
+    Uint8List? evidenceJpegBytes,
   }) {
     _feedback.add(
       PracticeFeedback(
@@ -272,6 +286,7 @@ class _CustomSocket extends WebSocketService {
         customAssessmentCueSequence: customAssessmentCueSequence,
         personCount: personCount,
         referenceInvalid: referenceInvalid,
+        evidenceJpegBytes: evidenceJpegBytes,
       ),
     );
   }
@@ -301,13 +316,17 @@ class _UnusedRepository extends Fake implements CustomMovementRepository {}
 
 class _RecordingRepository extends Fake implements CustomMovementRepository {
   int savePersonalResultCalls = 0;
+  int allocatedSessionIds = 0;
   bool failNextSave = false;
   double? savedScore;
   String? savedMovementName;
   int? savedDurationSeconds;
+  Map<String, double>? savedComponents;
+  final List<String> savedSessionIds = [];
+  final List<Uint8List?> savedEvidence = [];
 
   @override
-  String allocateSessionId() => 'custom-session';
+  String allocateSessionId() => 'custom-session-${++allocatedSessionIds}';
 
   @override
   Future<void> savePersonalResult({
@@ -323,17 +342,43 @@ class _RecordingRepository extends Fake implements CustomMovementRepository {
     required TrainingProp propType,
     required int durationSeconds,
     String? referenceImageStoragePath,
+    Uint8List? evidenceJpegBytes,
   }) async {
     savePersonalResultCalls += 1;
     savedScore = totalScore;
     savedMovementName = movementName;
     savedDurationSeconds = durationSeconds;
+    savedComponents = componentScores;
+    savedSessionIds.add(sessionId);
+    savedEvidence.add(evidenceJpegBytes);
     if (failNextSave) {
       failNextSave = false;
       throw StateError('offline');
     }
   }
 }
+
+class _EvidencePreferences extends SessionService {
+  _EvidencePreferences({this.enabled});
+
+  bool? enabled;
+  final List<bool> recordedDecisions = [];
+
+  @override
+  Future<bool?> sessionEvidenceEnabled(String userId) async => enabled;
+
+  @override
+  Future<void> setSessionEvidenceEnabled({
+    required String userId,
+    required bool enabled,
+  }) async {
+    recordedDecisions.add(enabled);
+    this.enabled = enabled;
+  }
+}
+
+/// A JPEG-sized payload within the private evidence contract (1–256 KiB).
+final _evidenceJpeg = Uint8List.fromList(List<int>.filled(2048, 7));
 
 class _TestSettings extends SettingsService {
   _TestSettings({this.deviceId});
@@ -383,6 +428,81 @@ Widget _withSettings(SettingsService settings, Widget child) => MultiProvider(
   ],
   child: FluentApp(home: child),
 );
+
+const _autoStartLabel = 'Hold steady… starts automatically';
+
+/// Stable readiness auto-confirms; then the 3-second countdown, activation
+/// and custom capture start follow with no user action.
+Future<void> _autoStartThroughCountdown(
+  WidgetTester tester,
+  _CustomSocket socket,
+) async {
+  socket.emitReady();
+  await tester.pump();
+  for (var second = 0; second < 3; second++) {
+    await tester.pump(const Duration(seconds: 1));
+  }
+  await tester.pump();
+}
+
+CustomMovement _movement({String id = 'movement-auto'}) => CustomMovement(
+  id: id,
+  ownerUid: 'trainee-1',
+  ownerRole: CustomMovementOwnerRole.trainee,
+  name: 'Auto toss',
+  description: 'Toss and catch with the left hand.',
+  difficulty: 'Medium',
+  propType: TrainingProp.bottle,
+  status: CustomMovementStatus.active,
+  activeRevisionId: 'revision-auto',
+);
+
+CustomMovementRevision _revision(CustomMovement movement) =>
+    CustomMovementRevision(
+      id: movement.activeRevisionId,
+      movementId: movement.id,
+      ownerUid: movement.ownerUid,
+      ownerRole: movement.ownerRole,
+      template: MovementTemplate.tryFrom(_oneHandTemplateMap())!,
+    );
+
+Future<void> _pumpPractice(
+  WidgetTester tester,
+  _CustomSocket socket, {
+  CustomMovementRepository? repository,
+  SessionService? sessionService,
+  VoidCallback? onExit,
+}) async {
+  _useDesktopSurface(tester);
+  final movement = _movement();
+  await tester.pumpWidget(
+    _withSettings(
+      _TestSettings(),
+      CustomMovementPracticeScreen(
+        movement: movement,
+        revision: _revision(movement),
+        repository: repository ?? _UnusedRepository(),
+        webSocket: socket,
+        sessionService: sessionService ?? _EvidencePreferences(enabled: false),
+        onExit: onExit,
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+Future<void> _completeMovement(
+  WidgetTester tester,
+  _CustomSocket socket, {
+  Uint8List? evidence,
+}) async {
+  socket.emitFeedback(
+    bottleDetected: true,
+    customAssessmentProgress: 'completed',
+    evidenceJpegBytes: evidence,
+  );
+  await tester.pumpAndSettle();
+}
 
 void _useDesktopSurface(WidgetTester tester) {
   tester.view.physicalSize = const Size(1400, 1000);
@@ -552,7 +672,9 @@ void main() {
         expect(fullInstructions.data, description);
         expect(fullInstructions.maxLines, isNull);
         expect(fullInstructions.overflow, isNull);
-        expect(find.text('Start Practice'), findsOneWidget);
+        // No manual start: setup advances automatically once stable.
+        expect(find.text('Start Practice'), findsNothing);
+        expect(find.text(_autoStartLabel), findsOneWidget);
         expect(
           tester
               .widget<TrainingActionArea>(find.byType(TrainingActionArea))
@@ -568,20 +690,6 @@ void main() {
         );
         expect(headerInstruction.maxLines, 2);
         expect(headerInstruction.overflow, TextOverflow.ellipsis);
-
-        socket.emitReady();
-        await tester.pump();
-        expect(find.text('Start Practice'), findsOneWidget);
-        expect(
-          tester
-              .widget<TrainingActionArea>(find.byType(TrainingActionArea))
-              .onPressed,
-          isNotNull,
-        );
-        expect(
-          find.byKey(const ValueKey('custom-movement-instructions')),
-          findsOneWidget,
-        );
         expect(tester.takeException(), isNull);
 
         await tester.pumpWidget(const SizedBox());
@@ -626,15 +734,7 @@ void main() {
         ),
       );
       await tester.pump();
-      socket.emitReady();
-      await tester.pump();
-
-      await tester.tap(find.text('Start Practice'));
-      await tester.pump();
-      for (var second = 0; second < 3; second++) {
-        await tester.pump(const Duration(seconds: 1));
-      }
-      await tester.pump();
+      await _autoStartThroughCountdown(tester, socket);
 
       expect(socket.startCustomCaptureCalls, 1);
       expect(socket.stopCalls, 1);
@@ -681,7 +781,8 @@ void main() {
         ),
       );
       await tester.pump();
-      socket.emitReady();
+      // Still calibrating (not yet stable), so the camera may be changed.
+      socket.emitReadiness(false);
       socket.emitPresentation(prop: 'confirmed', hands: 'tracking');
       await tester.pump();
       expect(find.text('Bottle detected'), findsOneWidget);
@@ -696,7 +797,12 @@ void main() {
       expect(socket.stopCalls, 1);
       expect(socket.preparedCameraDeviceIds, ['dev-a', 'dev-b']);
       expect(find.text('Bottle detected'), findsNothing);
-      expect(find.text('Start Practice'), findsOneWidget);
+      // The camera change starts a fresh, unconsumed readiness gate.
+      expect(find.text(_autoStartLabel), findsOneWidget);
+      expect(socket.confirmCalls, 0);
+      await _autoStartThroughCountdown(tester, socket);
+      expect(socket.confirmCalls, 1);
+      expect(socket.startCustomCaptureCalls, 1);
       await tester.pumpWidget(const SizedBox());
       await socket.closeTestStreams();
     },
@@ -822,8 +928,8 @@ void main() {
       socket.emitPresentation();
       await tester.pump();
       expect(find.text('Searching for bottle'), findsOne);
-      await tester.tap(find.text('Start Practice'));
-      await tester.pump();
+      expect(find.text('Start Practice'), findsNothing);
+      expect(socket.confirmCalls, 0);
       expect(socket.startCustomCaptureCalls, 0);
 
       socket.emitFeedback(bottleDetected: true, readinessStable: false);
@@ -877,11 +983,10 @@ void main() {
 
       socket.emitReady();
       await tester.pump();
-      expect(find.text('Ready to Practice'), findsOne);
-      expect(find.text('Start Practice'), findsOne);
-
-      await tester.tap(find.text('Start Practice'));
-      await tester.pump();
+      // Stable readiness is accepted and the countdown begins by itself.
+      expect(socket.confirmCalls, 1);
+      expect(find.text('Get ready · 3'), findsOne);
+      expect(find.text('Start Practice'), findsNothing);
       expect(find.text('Finish Session'), findsNothing);
       for (var second = 0; second < 3; second++) {
         await tester.pump(const Duration(seconds: 1));
@@ -958,13 +1063,8 @@ void main() {
       expect(find.text('Bottle detected'), findsNothing);
 
       expect(repository.savePersonalResultCalls, 0);
-      socket.emitReady();
-      await tester.pump();
-      await tester.tap(find.text('Start Practice'));
-      for (var second = 0; second < 3; second++) {
-        await tester.pump(const Duration(seconds: 1));
-      }
-      await tester.pump();
+      await _autoStartThroughCountdown(tester, socket);
+      expect(socket.startCustomCaptureCalls, 2);
       expect(find.text('Completes automatically'), findsOne);
       expect(socket.finishCustomAssessmentCalls, 0);
       expect(repository.savePersonalResultCalls, 0);
@@ -993,6 +1093,7 @@ void main() {
           customAssessment: {
             'score_percent': 83.3,
             'total': 10,
+            'max_total': 12,
             'performance_level': 'proficient',
             'component_scores': {'Timing': 3, 'Prop path': 2},
             'feedback': ['Good timing'],
@@ -1006,47 +1107,20 @@ void main() {
       expect(repository.savedScore, 83.3);
       expect(repository.savedMovementName, 'One-hand toss');
       expect(repository.savedDurationSeconds, greaterThanOrEqualTo(0));
-      expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
-      expect(find.text('SUCCESS · AUTOMATIC ASSESSMENT'), findsOne);
-      expect(find.byKey(const ValueKey('custom-live-cue')), findsNothing);
-
-      repository.failNextSave = true;
-      socket.nextAssessment = {
-        'score_percent': 33.3,
-        'total': 4,
-        'performance_level': 'developing',
-        'component_scores': {'Timing': 0, 'Prop path': 1},
-        'feedback': ['Improve prop path.'],
-      };
-      await tester.tap(find.text('Practice Again'));
-      await tester.pump();
-      socket.emitReady();
-      await tester.pump();
-      await tester.tap(find.text('Start Practice'));
-      for (var second = 0; second < 3; second++) {
-        await tester.pump(const Duration(seconds: 1));
-      }
-      await tester.pump();
-      socket.emitFeedback(
-        bottleDetected: true,
-        customAssessmentProgress: 'completed',
-      );
-      await tester.pumpAndSettle();
-      expect(repository.savePersonalResultCalls, 2);
-      expect(find.byKey(const ValueKey('custom-assessment-result')), findsOne);
-      expect(find.text('NEEDS IMPROVEMENT · AUTOMATIC ASSESSMENT'), findsOne);
+      expect(repository.savedComponents, {'Timing': 3.0, 'Prop path': 2.0});
+      // The result is a modal dialog, not inline session-panel content.
+      expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
       expect(
-        find.text(
-          'Assessment complete, but the personal result could not be saved.',
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.text(
-          'The performance could not be assessed. Reposition and retry.',
-        ),
+        find.byKey(const ValueKey('custom-assessment-result')),
         findsNothing,
       );
+      expect(find.text('83%'), findsOne);
+      expect(find.text('Score 10 / 12'), findsOne);
+      expect(find.text('Proficient'), findsOne);
+      expect(find.text('3 / 3'), findsOne);
+      expect(find.text('•  Good timing'), findsOne);
+      expect(find.text('Session saved'), findsOne);
+      expect(find.byKey(const ValueKey('custom-live-cue')), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await socket.closeTestStreams();
@@ -1098,13 +1172,7 @@ void main() {
       ),
     );
     await tester.pump();
-    socket.emitReady();
-    await tester.pump();
-    await tester.tap(find.text('Start Practice'));
-    for (var second = 0; second < 3; second++) {
-      await tester.pump(const Duration(seconds: 1));
-    }
-    await tester.pump();
+    await _autoStartThroughCountdown(tester, socket);
     expect(
       find.text('Move into the saved position and hold steady.'),
       findsOne,
@@ -1141,6 +1209,7 @@ void main() {
         customAssessment: {
           'score_percent': 83.3,
           'total': 10,
+          'max_total': 12,
           'performance_level': 'proficient',
           'component_scores': {'Hand technique': 3, 'Prop path': 3},
           'feedback': <String>[],
@@ -1152,6 +1221,262 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
   });
+
+  testWidgets(
+    'repeated stable readiness starts exactly one countdown, activation and capture',
+    (tester) async {
+      final socket = _CustomSocket();
+      await _pumpPractice(tester, socket, repository: _RecordingRepository());
+
+      for (var i = 0; i < 5; i++) {
+        socket.emitReady();
+        await tester.pump();
+      }
+      expect(socket.confirmCalls, 1);
+      for (var second = 0; second < 3; second++) {
+        socket.emitReady();
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      socket.emitReady();
+      await tester.pump();
+
+      expect(socket.confirmCalls, 1);
+      expect(socket.activateCalls, 1);
+      expect(socket.startCustomCaptureCalls, 1);
+      expect(find.text('Completes automatically'), findsOne);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets(
+    'late readiness loss after acceptance cannot demote or restart the attempt',
+    (tester) async {
+      final socket = _CustomSocket();
+      await _pumpPractice(tester, socket, repository: _RecordingRepository());
+
+      socket.emitReady();
+      await tester.pump();
+      expect(find.text('Get ready · 3'), findsOne);
+      socket.emitReadiness(false);
+      await tester.pump();
+      expect(find.text('Get ready · 3'), findsOne);
+      expect(find.text(_autoStartLabel), findsNothing);
+      for (var second = 0; second < 3; second++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      socket.emitReadiness(false);
+      await tester.pump();
+      socket.emitReady();
+      await tester.pump();
+
+      expect(find.text('Completes automatically'), findsOne);
+      expect(socket.confirmCalls, 1);
+      expect(socket.activateCalls, 1);
+      expect(socket.startCustomCaptureCalls, 1);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets(
+    'recoverable confirm rejection keeps calibrating and re-arms on fresh stability',
+    (tester) async {
+      final socket = _CustomSocket()
+        ..rejectNextConfirmCode = 'readiness_not_stable';
+      await _pumpPractice(tester, socket, repository: _RecordingRepository());
+
+      socket.emitReady();
+      await tester.pump();
+      await tester.pump();
+      expect(socket.confirmCalls, 1);
+      expect(find.text(_autoStartLabel), findsOne);
+      expect(find.text('Practice needs attention'), findsNothing);
+
+      await _autoStartThroughCountdown(tester, socket);
+      expect(socket.confirmCalls, 2);
+      expect(socket.startCustomCaptureCalls, 1);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets('retry resets the gate so a new attempt auto-starts', (
+    tester,
+  ) async {
+    final socket = _CustomSocket()..rejectStartCustomCapture = true;
+    await _pumpPractice(tester, socket, repository: _RecordingRepository());
+
+    await _autoStartThroughCountdown(tester, socket);
+    expect(socket.startCustomCaptureCalls, 1);
+    expect(find.text('Practice Again'), findsOne);
+
+    socket.rejectStartCustomCapture = false;
+    await tester.tap(find.text('Practice Again'));
+    await tester.pump();
+    expect(find.text(_autoStartLabel), findsOne);
+    await _autoStartThroughCountdown(tester, socket);
+
+    expect(socket.confirmCalls, 2);
+    expect(socket.activateCalls, 2);
+    expect(socket.startCustomCaptureCalls, 2);
+    expect(find.text('Completes automatically'), findsOne);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets(
+    'completion saves once automatically and Practice Again auto-starts a new attempt',
+    (tester) async {
+      final socket = _CustomSocket();
+      final repository = _RecordingRepository();
+      await _pumpPractice(tester, socket, repository: repository);
+      await _autoStartThroughCountdown(tester, socket);
+
+      await _completeMovement(tester, socket);
+      // A duplicate completion signal cannot finish or save twice.
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'completed',
+      );
+      await tester.pumpAndSettle();
+      expect(socket.finishCustomAssessmentCalls, 1);
+      expect(repository.savePersonalResultCalls, 1);
+      expect(repository.savedSessionIds, ['custom-session-1']);
+      expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
+      expect(find.text('Session saved'), findsOne);
+      expect(find.textContaining('Legacy'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey('custom-result-practice-again')),
+      );
+      // Setup visuals animate continuously, so pump past the dialog exit.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const ValueKey('custom-result-dialog')), findsNothing);
+      expect(socket.preparedCameraDeviceIds, hasLength(2));
+      await _autoStartThroughCountdown(tester, socket);
+      expect(socket.startCustomCaptureCalls, 2);
+      expect(repository.savePersonalResultCalls, 1);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets('save failure keeps the result and retries the same session id', (
+    tester,
+  ) async {
+    final socket = _CustomSocket();
+    final repository = _RecordingRepository()..failNextSave = true;
+    var exited = false;
+    await _pumpPractice(
+      tester,
+      socket,
+      repository: repository,
+      onExit: () => exited = true,
+    );
+    await _autoStartThroughCountdown(tester, socket);
+    await _completeMovement(tester, socket);
+
+    expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
+    expect(find.text('83%'), findsOne);
+    expect(find.text('Session saved'), findsNothing);
+    expect(find.text('Retry Save'), findsOne);
+    expect(
+      tester
+          .widget<GameActionButton>(
+            find.byKey(const ValueKey('custom-result-back')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.text('Retry Save'));
+    await tester.pumpAndSettle();
+    expect(repository.savedSessionIds, [
+      'custom-session-1',
+      'custom-session-1',
+    ]);
+    expect(repository.allocatedSessionIds, 1);
+    expect(find.text('Session saved'), findsOne);
+
+    await tester.tap(
+      find.byKey(const ValueKey('custom-result-primary-action')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(exited, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('evidence-enabled save passes the backend completion frame', (
+    tester,
+  ) async {
+    final socket = _CustomSocket();
+    final repository = _RecordingRepository();
+    final preferences = _EvidencePreferences(enabled: true);
+    await _pumpPractice(
+      tester,
+      socket,
+      repository: repository,
+      sessionService: preferences,
+    );
+    await _autoStartThroughCountdown(tester, socket);
+    await _completeMovement(tester, socket, evidence: _evidenceJpeg);
+
+    expect(repository.savedEvidence, [same(_evidenceJpeg)]);
+    expect(preferences.recordedDecisions, isEmpty);
+    expect(find.byKey(const ValueKey('custom-result-evidence')), findsOne);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('evidence-disabled save uploads no image', (tester) async {
+    final socket = _CustomSocket();
+    final repository = _RecordingRepository();
+    await _pumpPractice(
+      tester,
+      socket,
+      repository: repository,
+      sessionService: _EvidencePreferences(enabled: false),
+    );
+    await _autoStartThroughCountdown(tester, socket);
+    await _completeMovement(tester, socket, evidence: _evidenceJpeg);
+
+    expect(repository.savePersonalResultCalls, 1);
+    expect(repository.savedEvidence, [isNull]);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets(
+    'unset evidence preference asks consent before saving the image',
+    (tester) async {
+      final socket = _CustomSocket();
+      final repository = _RecordingRepository();
+      final preferences = _EvidencePreferences();
+      await _pumpPractice(
+        tester,
+        socket,
+        repository: repository,
+        sessionService: preferences,
+      );
+      await _autoStartThroughCountdown(tester, socket);
+      await _completeMovement(tester, socket, evidence: _evidenceJpeg);
+
+      expect(find.text('Save your confirmed movement?'), findsOne);
+      expect(repository.savePersonalResultCalls, 0);
+      await tester.tap(find.text('Enable & save image'));
+      await tester.pumpAndSettle();
+      expect(preferences.recordedDecisions, [true]);
+      expect(repository.savedEvidence, [same(_evidenceJpeg)]);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
 
   testWidgets('custom assessment uses its route-specific exit callback', (
     tester,

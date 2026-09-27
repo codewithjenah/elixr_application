@@ -477,6 +477,64 @@ begin
   perform tests.expect_error($q$ select public.award_session_xp('sessCara000000000001', 'Cara', null) $q$,
     'not_awardable', 'custom movement sessions never award global XP');
 end $$;
+
+-- Custom practice completion evidence and retry-safe persistence.
+do $$
+declare
+  v jsonb;
+begin
+  v := public.save_custom_movement_practice_result('sessCara000000000002', 'cmov1', 'crev1',
+    66.7, '{"Timing":2}', '["ok"]', 12, null);
+  perform tests.check(v ->> 'reused' = 'false', 'first custom practice save commits');
+  v := public.save_custom_movement_practice_result('sessCara000000000002', 'cmov1', 'crev1',
+    66.7, '{"Timing":2}', '["ok"]', 12, null);
+  perform tests.check(v ->> 'reused' = 'true', 'retry of the same attempt is idempotent');
+  perform tests.check((select count(*) from public.custom_movement_results
+    where id = 'sessCara000000000002') = 1, 'retry never duplicates the custom result');
+  perform tests.check((select evidence_kind from public.sessions
+    where id = 'sessCara000000000002') is null, 'no evidence is attached without an upload');
+  perform tests.expect_error($q$ select public.save_custom_movement_practice_result(
+    'sessCara000000000003', 'cmov1', 'crev1', 50, '{}', '[]', 10, 4096) $q$,
+    'evidence_missing', 'evidence metadata requires the uploaded private object');
+  perform tests.expect_error($q$ select public.save_custom_movement_practice_result(
+    'sessCara000000000003', 'cmov1', 'crev1', 50, '{}', '[]', 10, 100) $q$,
+    'malformed', 'evidence size stays within the Storage contract');
+  perform tests.expect_error($q$ select public.save_custom_movement_practice_result(
+    'sessCara000000000003', 'cmov1', 'crev1', 101, '{}', '[]', 10, null) $q$,
+    'malformed', 'custom percentage is bounded 0..100');
+end $$;
+reset role;
+insert into storage.objects (bucket_id, name, owner, metadata) values
+  ('session-evidence', 'users/44444444-4444-4444-8444-444444444444/session_evidence/sessCara000000000004.jpg',
+   '44444444-4444-4444-8444-444444444444', '{"size":4096,"mimetype":"image/jpeg"}');
+set local role authenticated;
+select tests.login('44444444-4444-4444-8444-444444444444');
+do $$
+begin
+  perform public.save_custom_movement_practice_result('sessCara000000000004', 'cmov1', 'crev1',
+    91.7, '{"Timing":3}', '[]', 9, 4096);
+  perform tests.check((select evidence_kind from public.sessions where id = 'sessCara000000000004')
+    = 'movement_completed', 'custom evidence uses the completed-movement kind');
+  perform tests.check((select evidence_storage_path from public.sessions where id = 'sessCara000000000004')
+    = 'users/44444444-4444-4444-8444-444444444444/session_evidence/sessCara000000000004.jpg',
+    'custom evidence path is derived server-side');
+  perform tests.check((select evidence_available from public.public_profile_sessions
+    where session_id = 'sessCara000000000004') is null, 'custom evidence is never projected publicly');
+end $$;
+select tests.login('33333333-3333-4333-8333-333333333333');
+select tests.expect_error($$
+  select public.save_custom_movement_practice_result('sessBen0000000000009', 'cmov1', 'crev1', 50, '{}', '[]', 10, null)
+$$, 'forbidden', 'only the movement owner can save a custom practice result');
+select tests.expect_error($$
+  select public.save_custom_movement_practice_result('sessCara000000000002', 'cmov1', 'crev1', 50, '{}', '[]', 10, null)
+$$, 'forbidden', 'another user cannot replay someone else''s session id');
+select tests.login('22222222-2222-4222-8222-222222222222');
+select tests.expect_error($$
+  select public.save_session('sessAna0000000000006',
+    '{"movement_name":"Hand Stall","difficulty":"Easy","duration_seconds":60,"prop_type":"shaker","assessment_version":2,"rubric":{"technique":1,"stability":1,"completion":1,"prop_positioning":1},"rubric_total":4,"performance_level":"developing","evidence_storage_path":"users/22222222-2222-4222-8222-222222222222/session_evidence/sessAna0000000000006.jpg","evidence_kind":"movement_completed","evidence_size_bytes":2048}',
+    '[]')
+$$, 'sessions_evidence_shape', 'official sessions cannot claim custom completion evidence');
+select tests.login('44444444-4444-4444-8444-444444444444');
 do $$
 declare
   v_v1 jsonb := '{"schema_version":1,"capture_version":1,"duration_ms":2000,"reference_count":2,"required_modalities":["hands","prop_translation"],"normalization_metadata":{},"feature_capabilities":{"pose":false,"hands":true,"prop_translation":true,"release_catch":false,"prop_rotation":false},"canonical_sequence":[[0],[1]],"variability_metadata":{},"prop_events":[]}';

@@ -101,6 +101,60 @@ void main() {
     );
   });
 
+  test(
+    'personal custom practice is a full training route outside AppShell',
+    () {
+      final auth = phase3TeacherAuth();
+      final tutorials = TutorialProgressService();
+      final joinLinks = JoinLinkService();
+      final router = AppRouter.create(
+        auth,
+        tutorials,
+        joinLinks,
+        TraineeProgressionService.ready(),
+      );
+      addTearDown(router.dispose);
+      addTearDown(auth.dispose);
+      addTearDown(tutorials.dispose);
+      addTearDown(joinLinks.dispose);
+
+      final canonical = router.configuration.findMatch(
+        Uri.parse(AppRoutePaths.movementsMyMovementPractice('move-1')),
+      );
+      expect(canonical.isError, isFalse);
+      expect(canonical.pathParameters, {'movementId': 'move-1'});
+      // Like official `/practice`, no shell (sidebar) wraps the page.
+      expect(canonical.matches.whereType<ShellRouteMatch>(), isEmpty);
+      expect(
+        router.configuration.routes.whereType<GoRoute>().where(
+          (route) => route.path == AppRoutePaths.customMovementPracticePattern,
+        ),
+        hasLength(1),
+      );
+      final traineeShell = router.configuration.routes
+          .whereType<ShellRoute>()
+          .singleWhere(
+            (shell) => shell.routes.whereType<GoRoute>().any(
+              (route) => route.path == AppRoutePaths.dashboard,
+            ),
+          );
+      expect(
+        traineeShell.routes.whereType<GoRoute>().map((route) => route.path),
+        isNot(contains(AppRoutePaths.customMovementPracticePattern)),
+      );
+
+      // The legacy deep link resolves to a redirect-only route, not a second
+      // practice screen.
+      final legacy = router.configuration.findMatch(
+        Uri.parse(AppRoutePaths.myMovementPractice('move-1')),
+      );
+      final legacyRoute = _goRoutes(legacy.matches).last;
+      expect(legacyRoute.redirect, isNotNull);
+      expect(legacyRoute.pageBuilder, isNull);
+      expect(legacyRoute.builder, isNull);
+    },
+  );
+
   test('classwork deep link matches one group-detail page route', () {
     final auth = phase3TeacherAuth();
     final tutorials = TutorialProgressService();

@@ -144,6 +144,7 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
     required TrainingProp propType,
     required int durationSeconds,
     String? referenceImageStoragePath,
+    Uint8List? evidenceJpegBytes,
   }) async {}
 }
 

@@ -8,12 +8,24 @@ import '../models/custom_movement.dart';
 import '../models/movement_template.dart';
 import '../models/training_prop.dart';
 import 'custom_movement_repository.dart';
+import 'session_evidence_repository.dart';
 
 class SupabaseCustomMovementRepository implements CustomMovementRepository {
-  SupabaseCustomMovementRepository({SupabaseClient? client})
-    : _clientOverride = client;
+  SupabaseCustomMovementRepository({
+    SupabaseClient? client,
+    SessionEvidenceRepository? evidenceRepository,
+  }) : _clientOverride = client,
+       _evidenceRepositoryOverride = evidenceRepository;
 
   final SupabaseClient? _clientOverride;
+  final SessionEvidenceRepository? _evidenceRepositoryOverride;
+  SessionEvidenceRepository? _evidenceRepositoryInstance;
+
+  SessionEvidenceRepository get _evidenceRepository =>
+      _evidenceRepositoryOverride ??
+      (_evidenceRepositoryInstance ??= SessionEvidenceRepository(
+        client: _clientOverride,
+      ));
 
   SupabaseClient get _client => _clientOverride ?? ElixrSupabase.client;
 
@@ -315,6 +327,7 @@ class SupabaseCustomMovementRepository implements CustomMovementRepository {
     required TrainingProp propType,
     required int durationSeconds,
     String? referenceImageStoragePath,
+    Uint8List? evidenceJpegBytes,
   }) async {
     if (!totalScore.isFinite ||
         totalScore < 0 ||
@@ -325,10 +338,19 @@ class SupabaseCustomMovementRepository implements CustomMovementRepository {
         sessionId.length > 128) {
       throw ArgumentError.value(totalScore, 'totalScore');
     }
+    // Upload first (upsert is idempotent for the same session ID) so the
+    // server can verify the object before attaching evidence metadata.
+    if (evidenceJpegBytes != null) {
+      await _evidenceRepository.upload(
+        userId: ownerUid,
+        sessionId: sessionId,
+        jpegBytes: evidenceJpegBytes,
+      );
+    }
     // The result and its session-history mirror commit together; movement
-    // identity fields are derived server-side from the owned movement.
+    // identity fields and the evidence path are derived server-side.
     await _client.rpc<dynamic>(
-      'save_custom_movement_result',
+      'save_custom_movement_practice_result',
       params: {
         'p_session_id': sessionId,
         'p_movement_id': movementId,
@@ -337,6 +359,7 @@ class SupabaseCustomMovementRepository implements CustomMovementRepository {
         'p_component_scores': componentScores,
         'p_feedback': feedback.take(8).toList(growable: false),
         'p_duration_seconds': durationSeconds,
+        'p_evidence_size_bytes': evidenceJpegBytes?.lengthInBytes,
       },
     );
   }

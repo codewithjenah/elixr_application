@@ -57,4 +57,11 @@ void main() {
       '/movements/practice/movement%20%2F%20one',
     );
   });
+
+  test('custom movement practice is classified as practice, not shell', () {
+    final location = AppRoutePaths.movementsMyMovementPractice('m1');
+    expect(AppRoutePaths.isTraineePracticeRoute(location), isTrue);
+    expect(AppRoutePaths.isTraineeShellRoute(location), isFalse);
+    expect(AppRoutePaths.isTraineeShellRoute(AppRoutePaths.movements), isTrue);
+  });
 }

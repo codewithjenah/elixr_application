@@ -1611,6 +1611,33 @@ class VisionSession:
                 elif self._custom_assessment_cue == "movement_detected":
                     self._set_custom_assessment_cue("keep_going")
 
+    def _custom_completion_evidence_b64(
+        self, *, frame, normalized, hands, pose, feedback: str,
+    ) -> str | None:
+        """Best-effort annotated JPEG of the custom completion frame.
+
+        Runs in the frame worker. A failed encode returns ``None``; a later
+        frame is never substituted because it would not show the completion.
+        """
+        try:
+            annotated = annotate_frame(
+                frame,
+                list(normalized.annotation),
+                hands,
+                feedback,
+                "positive",
+                self.display_movement,
+                pose=pose,
+                prop_label=self.prop_display_name,
+            )
+            evidence_jpeg = encode_evidence_jpeg(annotated)
+        except cv2.error:
+            logger.exception("Could not encode custom completion evidence")
+            return None
+        if evidence_jpeg is None:
+            return None
+        return base64.b64encode(evidence_jpeg).decode("ascii")
+
     def _set_custom_assessment_cue(self, cue: str, *, force: bool = False) -> None:
         if force or cue != self._custom_assessment_cue:
             self._custom_assessment_cue = cue
@@ -3358,6 +3385,9 @@ class VisionSession:
                     bottles=list(normalized.bottles), shakers=list(normalized.shakers),
                     hands=hands, pose=pose,
                 ))
+            completed_before_frame = (
+                self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
+            )
             if not self._is_custom_capture or self._custom_samples is None or (
                 self._custom_person_count == 1
                 and not self._custom_multiple_invalid
@@ -3411,6 +3441,19 @@ class VisionSession:
                 feedback_type="warning" if multiple_people_warning else "positive",
                 prop_label=self.prop_display_name,
             )
+            evidence_b64 = None
+            if (
+                self._is_custom_assessment
+                and self._custom_samples is not None
+                and not completed_before_frame
+                and self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
+            ):
+                # Completion changes state only inside this frame's sample
+                # evaluation, so this is the completion-confirming frame.
+                evidence_b64 = self._custom_completion_evidence_b64(
+                    frame=frame, normalized=normalized, hands=hands, pose=pose,
+                    feedback=feedback,
+                )
             message = self._stamp(
                 FeedbackMessage(
                     bottle_detected=normalized.selected_detected,
@@ -3421,6 +3464,7 @@ class VisionSession:
                     feedback_type="warning" if multiple_people_warning else "positive",
                     posture_status="unknown",
                     frame_jpeg_base64=None,
+                    evidence_jpeg_base64=evidence_b64,
                     camera_ready=True,
                     session_state="active",
                     person_count=self._custom_person_count if self._is_custom_capture else None,

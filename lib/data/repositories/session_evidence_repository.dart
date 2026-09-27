@@ -19,12 +19,15 @@ class SessionEvidenceRepository {
   static String pathFor({required String userId, required String sessionId}) =>
       'users/$userId/session_evidence/$sessionId.jpg';
 
+  /// Whether [upload] and the database evidence constraint accept this size.
+  static bool acceptsJpegSize(int bytes) => bytes >= 1024 && bytes <= _maxBytes;
+
   Future<void> upload({
     required String userId,
     required String sessionId,
     required Uint8List jpegBytes,
   }) async {
-    if (jpegBytes.lengthInBytes < 1024 || jpegBytes.lengthInBytes > _maxBytes) {
+    if (!acceptsJpegSize(jpegBytes.lengthInBytes)) {
       throw ArgumentError.value(
         jpegBytes.lengthInBytes,
         'jpegBytes',
