@@ -144,7 +144,10 @@ def test_marker_observations_build_and_assess_rotation_without_onnx(tmp_path):
     assert FailureCode.INSUFFICIENT_ORIENTATION in validate_sequence(
         missing, ("prop_translation",), require_rotation=True
     ).codes
-    assert build_template([missing] * 3).feature_capabilities["prop_rotation"] is False
+    # Without marker evidence the prop never moves: rotation is not claimed
+    # and a stationary clip cannot become a dynamic movement.
+    with pytest.raises(ValueError, match=FailureCode.NO_MEANINGFUL_MOTION.value):
+        build_template([missing] * 3)
 
 
 def test_only_custom_bottle_sessions_enable_color_orientation(monkeypatch):

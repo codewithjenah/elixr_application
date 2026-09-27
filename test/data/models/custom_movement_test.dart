@@ -59,6 +59,24 @@ void main() {
       );
     });
 
+    test('a static schema-v3 template is ready with one reference', () {
+      Map<String, dynamic> staticMap(int count) => templateMap()
+        ..['schema_version'] = 3
+        ..['movement_behavior'] = 'static'
+        ..['rotation_trace'] = null
+        ..['reference_count'] = count
+        ..['canonical_sequence'] = List.generate(
+          32,
+          (index) => {'timestamp_ms': index * 30, 'pose': <String, dynamic>{}},
+        );
+      final single = MovementTemplate.tryFrom(staticMap(1));
+      expect(single?.isReady, isTrue);
+      expect(single?.toMap(), staticMap(1));
+      expect(MovementTemplate.tryFrom(staticMap(0)), isNull);
+      expect(MovementTemplate.minimumReferencesFor('static'), 1);
+      expect(MovementTemplate.minimumReferencesFor('dynamic'), 2);
+    });
+
     test('rejects executable/unknown fields and v1 rotation', () {
       final executable = templateMap()..['python_rule'] = 'eval(user_input)';
       final rotating = templateMap();

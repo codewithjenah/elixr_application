@@ -559,6 +559,16 @@ begin
     'schema-v1 does not gain schema-v3 fields');
   perform tests.check(not private.valid_movement_template(v_v2 || jsonb_build_object('movement_behavior', 'static')),
     'schema-v2 does not gain schema-v3 fields');
+  perform tests.check(private.valid_movement_template(jsonb_set(v_v3, '{reference_count}', '1'::jsonb)),
+    'static schema-v3 is accepted with one reference');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3, '{reference_count}', '0'::jsonb)),
+    'static schema-v3 still needs a reference');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v1, '{reference_count}', '1'::jsonb)),
+    'dynamic schema-v1 still needs two references');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v2, '{reference_count}', '1'::jsonb)),
+    'dynamic schema-v2 still needs two references');
+  perform tests.check(not private.valid_movement_template(jsonb_set(v_v3, '{reference_count}', '11'::jsonb)),
+    'static schema-v3 keeps the ten-reference maximum');
 
   perform tests.expect_error(format(
     'select public.create_custom_movement(%L,%L,%L,%L,%L,%L,%L,%L::jsonb,null)',

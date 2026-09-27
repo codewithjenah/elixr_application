@@ -262,6 +262,44 @@ void main() {
       expect(ack.customAssessment?['total'], 10);
     });
 
+    test('rejected authoring ack carries measured reference diagnostics', () {
+      final decoded = decoder.decode(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': 'req-build',
+          'session_id': 'session-custom',
+          'action': 'build_custom_template',
+          'accepted': false,
+          'error_code': 'insufficient_tracking_samples',
+          'message': 'Your clip is long enough, but ELIXR captured too few…',
+          'reference_count': 2,
+          'reference_quality': {
+            'reason': 'insufficient_tracking_samples',
+            'reference_index': 1,
+            'duration_ms': 5200,
+            'required_duration_ms': 1000,
+            'sample_count': 4,
+            'required_sample_count': 6,
+            'hand_coverage': 0.9,
+            'pose_coverage': 1.0,
+            'prop_coverage': 0.75,
+            'longest_tracking_gap_ms': 300,
+            'movement_signals': ['hands'],
+          },
+        }),
+      );
+      final ack = (decoded as WsCommandAckMessage).ack;
+      expect(ack.accepted, isFalse);
+      expect(ack.errorCode, 'insufficient_tracking_samples');
+      final quality = ack.referenceQuality!;
+      expect(quality['duration_ms'], 5200);
+      expect(quality['sample_count'], 4);
+      expect(quality['required_sample_count'], 6);
+      expect(quality['reference_index'], 1);
+      expect(quality['movement_signals'], ['hands']);
+    });
+
     test('prepare acknowledgment parses selected-camera fallback metadata', () {
       final decoded = decoder.decode(
         jsonEncode({

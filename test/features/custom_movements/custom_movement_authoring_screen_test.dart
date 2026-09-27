@@ -88,6 +88,7 @@ CustomMovement _movement(CustomMovementOwnerRole role) => CustomMovement(
 
 class _Repository extends Fake implements CustomMovementRepository {
   CustomMovement? saved;
+  MovementTemplate? savedTemplate;
   CustomMovementSaveException? saveFailure;
   int saveCalls = 0;
 
@@ -104,7 +105,13 @@ class _Repository extends Fake implements CustomMovementRepository {
   }) async {
     saveCalls++;
     if (saveFailure case final failure?) throw failure;
-    expect(template.referenceCount, greaterThanOrEqualTo(2));
+    expect(
+      template.referenceCount,
+      greaterThanOrEqualTo(
+        MovementTemplate.minimumReferencesFor(template.movementBehavior),
+      ),
+    );
+    savedTemplate = template;
     return saved = _movement(ownerRole);
   }
 
@@ -139,6 +146,9 @@ class _Socket extends Fake implements WebSocketService {
   bool rejectNextStartCapture = false;
   String? rejectBuildCode;
   String? rejectBuildMessage;
+  Map<String, dynamic>? rejectBuildQuality;
+  String? rejectNextStopCode;
+  Map<String, dynamic>? rejectNextStopQuality;
   String? builtBehavior;
   int buildCalls = 0;
   bool rejectNextReference = false;
@@ -294,6 +304,20 @@ class _Socket extends Fake implements WebSocketService {
           _rejected('stop_custom_capture', 'multiple_people_detected'),
         );
       }
+      if (rejectNextStopCode case final code?) {
+        rejectNextStopCode = null;
+        return Future<CommandAck>.value(
+          CommandAck(
+            protocolVersion: 1,
+            requestId: 'request-stop_custom_capture',
+            sessionId: 'session-1',
+            action: 'stop_custom_capture',
+            accepted: false,
+            errorCode: code,
+            referenceQuality: rejectNextStopQuality,
+          ),
+        );
+      }
       count++;
       committedTrims['reference-$count'] = (0, 7000);
       return Future<CommandAck>.value(
@@ -348,6 +372,7 @@ class _Socket extends Fake implements WebSocketService {
             accepted: false,
             errorCode: code,
             message: rejectBuildMessage,
+            referenceQuality: rejectBuildQuality,
           ),
         );
       }
@@ -884,20 +909,23 @@ void main() {
     expect(find.text('Continue to review'), findsOneWidget);
   });
 
-  testWidgets('unstable static reference shows the backend message', (
+  testWidgets('unstable static reference shows static-hold guidance', (
     tester,
   ) async {
-    const message =
-        'The ending position was not held steadily. Record each example with a steady final hold.';
     final socket = _Socket()
       ..rejectBuildCode = 'unstable_static_reference'
-      ..rejectBuildMessage = message;
+      ..rejectBuildMessage = 'backend text';
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
     await _recordTwoReferences(tester, socket);
     await _tapReview(tester);
 
-    expect(find.text(message), findsOneWidget);
+    expect(
+      find.text(
+        'The final position was still moving. Hold it steady for at least 0.8 seconds before stopping.',
+      ),
+      findsOneWidget,
+    );
     expect(find.textContaining('unstable_static_reference'), findsNothing);
     expect(find.text('Continue to review'), findsOneWidget);
   });
@@ -1176,7 +1204,7 @@ void main() {
       );
       expect(
         find.text(
-          'Record the same movement at least twice. Three examples can improve consistency.',
+          'Record 2 examples of the same movement. Small movements are okay. Each clip must be at least 1.0 second long.',
         ),
         findsOneWidget,
       );
@@ -1719,6 +1747,197 @@ void main() {
     expect(first.dx, lessThan(second.dx));
     expect(find.byType(ElixrVideoPlayer), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  group('customReferenceIssueMessage', () {
+    String? message(
+      String code,
+      Map<String, dynamic>? details, {
+      String behavior = 'dynamic',
+    }) => customReferenceIssueMessage(
+      code,
+      details,
+      movementBehavior: behavior,
+      propLabel: 'Bottle',
+    );
+
+    test('short static clip states duration and hold requirements', () {
+      expect(
+        message('reference_duration_too_short', {
+          'duration_ms': 600,
+        }, behavior: 'static'),
+        'This clip is 0.6 s. Record at least 1.0 second and hold the final position steady for at least 0.8 seconds.',
+      );
+    });
+
+    test('long clip with few samples is a tracking problem', () {
+      final text = message('insufficient_tracking_samples', {
+        'duration_ms': 5200,
+        'sample_count': 4,
+        'required_sample_count': 6,
+      })!;
+      expect(
+        text,
+        'Your clip is long enough, but ELIXR captured only 4 usable tracking samples (needs 6). Keep your hand and bottle visible and try again.',
+      );
+      expect(text, isNot(contains('too short')));
+    });
+
+    test('coverage, gap, motion, and trim codes are specific', () {
+      expect(
+        message('insufficient_prop_coverage', {'prop_coverage': 0.4}),
+        contains('visible in only 40% of the clip'),
+      );
+      expect(
+        message('insufficient_hand_coverage', {'hand_coverage': 0.5}),
+        contains('Your hand was tracked in only 50%'),
+      );
+      expect(
+        message('excessive_tracking_gap', {'longest_tracking_gap_ms': 1000}),
+        contains('lost for 1.0 s in a row'),
+      );
+      expect(
+        message('no_meaningful_motion', {'reference_index': 1}),
+        startsWith('Example 2: ELIXR can see your hand and bottle'),
+      );
+      expect(
+        message('invalid_trim_range', null),
+        'That trim range is not valid. Keep the start before the end.',
+      );
+      expect(
+        message('invalid_reference_count', null, behavior: 'static'),
+        'Record 1 clear example before reviewing.',
+      );
+      expect(message('multiple_people_detected', null), isNull);
+    });
+  });
+
+  Map<String, dynamic> staticTemplateMap() => _templateMap(1)
+    ..['schema_version'] = 3
+    ..['movement_behavior'] = 'static'
+    ..['rotation_trace'] = null
+    ..['canonical_sequence'] = List.generate(
+      32,
+      (index) => {'timestamp_ms': index * 30, 'pose': <String, dynamic>{}},
+    );
+
+  testWidgets('static hold reviews and saves after one example', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final repository = _Repository();
+    final socket = _Socket()..templateOverride = staticTemplateMap();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: repository, socket: socket));
+    await _tapKey(tester, 'custom-movement-behavior-static');
+    await _enterReferenceStudio(tester, socket);
+    expect(
+      find.text(
+        'Record 1 clear example. Hold the final position steady for at least 0.8 seconds. Each clip must be at least 1.0 second long.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('0 of 1 required · Up to 5 examples'), findsOneWidget);
+    expect(_onPressed(tester, _reviewButton), isNull);
+
+    await _record(tester, socket);
+    expect(find.text('Ready to review'), findsOneWidget);
+    expect(_onPressed(tester, _reviewButton), isNotNull);
+    await _tapReview(tester);
+    expect(socket.builtBehavior, 'static');
+    expect(find.text('Static hold'), findsOneWidget);
+    expect(find.textContaining('A third example'), findsNothing);
+
+    await tester.tap(_saveButton);
+    await tester.pump();
+    await tester.pump();
+    expect(repository.saveCalls, 1);
+    expect(repository.savedTemplate?.referenceCount, 1);
+    await tester.pump(const Duration(milliseconds: 200));
+  });
+
+  testWidgets('dynamic still needs two examples before review', (tester) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _record(tester, socket);
+    expect(_onPressed(tester, _reviewButton), isNull);
+    expect(find.text('Record 1 more example to continue.'), findsOneWidget);
+  });
+
+  testWidgets('rejected clip explains a tracking problem with measurements', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket()
+      ..rejectNextStopCode = 'insufficient_tracking_samples'
+      ..rejectNextStopQuality = {
+        'duration_ms': 5200,
+        'sample_count': 4,
+        'required_sample_count': 6,
+      };
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _record(tester, socket);
+    expect(socket.count, 0);
+    expect(
+      find.text(
+        'Your clip is long enough, but ELIXR captured only 4 usable tracking samples (needs 6). Keep your hand and bottle visible and try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('too short'), findsNothing);
+  });
+
+  testWidgets('build rejection marks the example and shows quality on its card', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket()
+      ..rejectBuildCode = 'no_meaningful_motion'
+      ..rejectBuildQuality = {
+        'reference_index': 1,
+        'movement_signals': <String>[],
+      };
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _recordTwoReferences(tester, socket);
+    await _tapReview(tester);
+    expect(
+      find.textContaining(
+        'Example 2: ELIXR can see your hand and bottle, but no clear movement was detected.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Continue to review'), findsOneWidget);
+
+    await _tapKey(tester, 'example-select-reference-2');
+    expect(
+      _pillState(tester, 'reference-quality-motion'),
+      AuthoringCheckState.missing,
+    );
+    expect(
+      _pillState(tester, 'reference-quality-duration'),
+      AuthoringCheckState.ok,
+    );
+    expect(
+      _pillState(tester, 'reference-quality-hands'),
+      AuthoringCheckState.missing,
+    );
+    expect(
+      _pillState(tester, 'reference-quality-body'),
+      AuthoringCheckState.ok,
+    );
+    expect(find.text('Hands · 25%'), findsOneWidget);
+    expect(find.text('Duration · 7.0 s'), findsOneWidget);
+    await _tapKey(tester, 'example-select-reference-1');
+    expect(
+      _pillState(tester, 'reference-quality-motion'),
+      AuthoringCheckState.pending,
+    );
   });
 
   testWidgets('setup remains usable in light, dark, and high contrast themes', (

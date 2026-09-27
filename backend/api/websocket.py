@@ -54,7 +54,6 @@ from assessment.custom_movement import (
     build_template as build_custom_movement_template,
     compare_sequence as compare_custom_movement_sequence,
     detect_prop_events,
-    validate_sequence as validate_custom_movement_sequence,
 )
 from assessment.custom_movement.completion import (
     MOVEMENT_COMPLETED as CUSTOM_ASSESSMENT_COMPLETED,
@@ -125,7 +124,11 @@ from vision.prop_inference import (
     yolo_runtime_threads,
 )
 from assessment.custom_movement.template_engine import (
+    FailureCode as CustomFailureCode,
     PropEventTracker,
+    ReferenceQualityError,
+    check_reference_integrity,
+    minimum_references as custom_minimum_references,
     trailing_hold_window,
     validate_assessment_sequence,
 )
@@ -514,11 +517,17 @@ def _human_error_message(error_code: str) -> str:
         "inconsistent_static_references": "The ending positions differ between examples. Record the same grip or stall each time.",
         "single_performer_required": "Keep one performer in frame before recording a reference.",
         "multiple_people_detected": "Reference rejected because multiple people were detected. Keep only one performer in frame and record it again.",
-        "invalid_reference_count": "Record at least two valid references before building the template.",
+        "invalid_reference_count": "Record 1 example for a static hold, or 2 examples for a dynamic movement, before reviewing.",
         "invalid_reference_id": "That reference is no longer available.",
-        "invalid_trim_range": "Keep more of the movement in the clip.",
+        "invalid_trim_range": "The trim range is not valid. Keep the start before the end, inside the clip.",
         "reference_file_busy": "Close the reference preview and retry deleting it.",
         "insufficient_frames": "The recording was too short. Perform the complete movement and retry.",
+        "reference_duration_too_short": "Record at least 1.0 second. For a static hold, hold the final position steady for at least 0.8 seconds.",
+        "insufficient_tracking_samples": "Your clip is long enough, but ELIXR captured too few tracking samples. Keep your hand and prop visible and try again.",
+        "insufficient_prop_coverage": "The selected prop was not visible for most of the clip. Keep it in view and try again.",
+        "excessive_tracking_gap": "Tracking was lost for too long. Keep your hand, body, and prop visible throughout, then try again.",
+        "no_meaningful_motion": "ELIXR can see your hand and prop, but no clear movement was detected. Perform the full movement before stopping.",
+        "inconsistent_dynamic_references": "The two examples show different movements. Record the same movement each time.",
         "missing_modality": "Keep your upper body, hands, and selected prop visible.",
         "insufficient_hand_coverage": "Hand tracking was too incomplete to learn this movement. Re-record the references with hands visible throughout.",
         "track_loss": "The selected prop was lost for too long. Reposition and retry.",
@@ -557,6 +566,12 @@ class _CustomReferenceDraft:
     @property
     def video_duration_ms(self) -> int:
         return round(len(self.clip.frame_capture_times) * 1000 / self.clip.fps)
+
+    @property
+    def effective_duration_ms(self) -> int:
+        """Wall-clock length of the kept (trimmed) video range."""
+        end = self.trim_end_ms if self.trim_end_ms is not None else self.video_duration_ms
+        return end - self.trim_start_ms
 
     def effective_samples(self) -> tuple[CustomFrameSample, ...]:
         end = self.trim_end_ms if self.trim_end_ms is not None else self.video_duration_ms
@@ -1151,7 +1166,12 @@ class VisionSession:
                     samples = tuple(mapped)
                     if not samples:
                         recorder.cancel()
-                        return False, "insufficient_frames", {"valid": False, "accepted": False}
+                        code = CustomFailureCode.INSUFFICIENT_TRACKING_SAMPLES.value
+                        return False, code, {
+                            "valid": False, "accepted": False, "reason": code,
+                            "rejected_reason": code, "sample_count": 0,
+                            "duration_ms": round(len(clip.frame_capture_times) * 1000 / clip.fps),
+                        }
                 except SubmissionRecorderError as exc:
                     if recorder is not None:
                         recorder.cancel()
@@ -1166,40 +1186,51 @@ class VisionSession:
                 if self._is_custom_assessment and self._custom_template is not None
                 else ()
             )
-            validator = (
-                validate_assessment_sequence
-                if self._is_custom_assessment
-                else validate_custom_movement_sequence
-            )
-            validation_samples = samples
-            if self._is_custom_assessment and self._custom_template is not None:
-                validation_samples = (
-                    trailing_hold_window(samples)
-                    if self._custom_template.movement_behavior == "static"
-                    else samples[self._custom_assessment_movement_start_index or 0:]
+            reference_measurements: dict[str, Any] = {}
+            if self._is_custom_capture:
+                # Integrity only (wall-clock duration, processed samples, prop
+                # evidence). Motion, hold and hand-side semantics need every
+                # reference and are checked when the template is built.
+                assert clip is not None
+                try:
+                    reference_measurements = check_reference_integrity(
+                        samples,
+                        clip_duration_ms=round(len(clip.frame_capture_times) * 1000 / clip.fps),
+                    )
+                    codes: list[str] = []
+                except ReferenceQualityError as exc:
+                    reference_measurements = exc.details
+                    codes = [exc.code]
+            else:
+                validation_samples = samples
+                if self._custom_template is not None:
+                    validation_samples = (
+                        trailing_hold_window(samples)
+                        if self._custom_template.movement_behavior == "static"
+                        else samples[self._custom_assessment_movement_start_index or 0:]
+                    )
+                validation = validate_assessment_sequence(
+                    validation_samples,
+                    required_modalities,
+                    required_hand_sides=required_hand_sides,
+                    template=self._custom_template,
                 )
-            validation = validator(
-                validation_samples,
-                required_modalities,
-                required_hand_sides=required_hand_sides,
-                **({"template": self._custom_template} if self._is_custom_assessment else {}),
-            )
-            rejected_reason = (
-                validation.codes[0].value if validation.codes else None
-            )
+                codes = [code.value for code in validation.codes]
+            valid = not codes
             quality = {
-                "valid": validation.valid,
+                "valid": valid,
                 "frame_count": len(samples),
                 "duration_ms": samples[-1].timestamp_ms,
-                "codes": [code.value for code in validation.codes],
+                "codes": codes,
                 **self._custom_capture_diagnostics(
                     samples,
                     orientation_ms=self._orientation_inference_ms,
                     orientation_count=self._orientation_inference_count,
                     orientation_provider=(self._orientation_detector.provider if self._orientation_detector else None),
                 ),
-                "accepted": validation.valid,
-                "rejected_reason": rejected_reason,
+                **reference_measurements,
+                "accepted": valid,
+                "rejected_reason": codes[0] if codes else None,
             }
             logger.info(
                 "CUSTOM_CAPTURE_DIAGNOSTICS session_id=%s mode=%s diagnostics=%s",
@@ -1207,11 +1238,10 @@ class VisionSession:
                 "assessment" if self._is_custom_assessment else "reference",
                 quality,
             )
-            if not validation.valid:
+            if not valid:
                 if recorder is not None:
                     recorder.cancel()
-                code = validation.codes[0].value if validation.codes else "invalid_reference"
-                return False, code, quality
+                return False, codes[0], quality
             if self._is_custom_capture:
                 assert clip is not None
                 draft = _CustomReferenceDraft(
@@ -1281,9 +1311,11 @@ class VisionSession:
             if start_ms < 0 or end_ms > draft.video_duration_ms or end_ms <= start_ms:
                 raise ValueError("invalid_trim_range")
             candidate = replace(draft, trim_start_ms=start_ms, trim_end_ms=end_ms)
-            validation = validate_custom_movement_sequence(candidate.effective_samples(), ("prop_translation",))
-            if not validation.valid:
-                raise ValueError("invalid_trim_range")
+            # Basic duration/sample/prop integrity only. Hand- or pose-led
+            # movement is judged with full context by build_custom_template.
+            check_reference_integrity(
+                candidate.effective_samples(), clip_duration_ms=end_ms - start_ms,
+            )
             draft.trim_start_ms = start_ms
             draft.trim_end_ms = end_ms
             return {"reference_id": reference_id, "trim_start_ms": start_ms, "trim_end_ms": end_ms}
@@ -1295,8 +1327,24 @@ class VisionSession:
         try:
             if not self._is_custom_capture:
                 raise ValueError("invalid_session_purpose")
+            required_count = custom_minimum_references(movement_behavior)
+            if len(self._custom_references) < required_count:
+                raise ReferenceQualityError(CustomFailureCode.INVALID_REFERENCE_COUNT, {
+                    "reference_count": len(self._custom_references),
+                    "required_reference_count": required_count,
+                })
+            references = []
+            for index, draft in enumerate(self._custom_references):
+                samples = draft.effective_samples()
+                check_reference_integrity(
+                    samples,
+                    clip_duration_ms=draft.effective_duration_ms,
+                    movement_behavior=movement_behavior,
+                    reference_index=index,
+                )
+                references.append(samples)
             template = build_custom_movement_template(
-                tuple(draft.effective_samples() for draft in self._custom_references),
+                tuple(references),
                 required_modalities=("hands",),
                 movement_behavior=movement_behavior,
             )
@@ -5565,6 +5613,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 error_code=code,
                 message=_human_error_message(code),
                 reference_count=getattr(session, "custom_reference_count", None),
+                # Measured actual/required values for authoring rejections.
+                reference_quality=exc.details if isinstance(exc, ReferenceQualityError) else None,
             )
         except Exception:
             logger.exception("Custom movement command failed: %s", command.action)

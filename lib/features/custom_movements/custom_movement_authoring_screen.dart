@@ -42,7 +42,89 @@ class _ReferenceDraft {
   int startMs = 0;
   late int endMs = durationMs;
 
+  /// Movement/hold issue reported for this example by the last template
+  /// build (for example `no_meaningful_motion`). Cleared on any edit.
+  String? semanticIssue;
+
   bool get isTrimmed => startMs > 0 || endMs < durationMs;
+}
+
+/// A backend authoring rejection already mapped to its user-facing message.
+class _ReferenceIssue implements Exception {
+  const _ReferenceIssue(this.message);
+  final String message;
+}
+
+/// One beginner-facing sentence for a backend authoring rejection, using the
+/// measured values the backend returns in `reference_quality`. Returns null
+/// for codes this screen does not own so callers keep their own fallback.
+String? customReferenceIssueMessage(
+  String? code,
+  Map<String, dynamic>? details, {
+  required String movementBehavior,
+  required String propLabel,
+}) {
+  final values = details ?? const <String, dynamic>{};
+  num? number(String key) => values[key] is num ? values[key] as num : null;
+  String seconds(num ms) => (ms / 1000).toStringAsFixed(1);
+  String percent(String key, String fallback) {
+    final value = number(key);
+    return value == null ? fallback : '${(value * 100).round()}%';
+  }
+
+  final isStatic = movementBehavior == 'static';
+  final prop = propLabel.toLowerCase();
+  final index = number('reference_index');
+  final prefix = index == null ? '' : 'Example ${index.toInt() + 1}: ';
+  final holdSeconds = seconds(
+    MovementTemplate.staticHoldDuration.inMilliseconds,
+  );
+  final holdHint = isStatic
+      ? ' and hold the final position steady for at least $holdSeconds seconds'
+      : '';
+  final duration = number('duration_ms');
+  final samples = number('sample_count');
+  final requiredSamples = number('required_sample_count');
+  final gap = number('longest_tracking_gap_ms');
+  final message = switch (code) {
+    'reference_duration_too_short' =>
+      '${duration == null ? '' : 'This clip is ${seconds(duration)} s. '}'
+          'Record at least ${seconds(MovementTemplate.minimumReferenceDuration.inMilliseconds)} second$holdHint.',
+    'insufficient_tracking_samples' =>
+      'Your clip is long enough, but ELIXR captured only '
+          '${samples?.toInt() ?? 'a few'} usable tracking samples'
+          '${requiredSamples == null ? '' : ' (needs ${requiredSamples.toInt()})'}. '
+          'Keep your hand and $prop visible and try again.',
+    'insufficient_prop_coverage' =>
+      'The $prop was visible in only ${percent('prop_coverage', 'part')} '
+          'of the clip. Keep it in view the whole time and try again.',
+    'insufficient_hand_coverage' =>
+      'Your hand was tracked in only ${percent('hand_coverage', 'part')} '
+          'of the clip. Keep at least one hand clearly visible throughout.',
+    'excessive_tracking_gap' =>
+      'Tracking was lost for ${gap == null ? 'too long' : '${seconds(gap)} s'} '
+          'in a row. Keep your hand, body, and $prop visible throughout.',
+    'no_meaningful_motion' =>
+      'ELIXR can see your hand and $prop, but no clear movement was detected. '
+          'Perform the full movement before stopping. Small movements are okay.',
+    'inconsistent_dynamic_references' =>
+      'Your examples show different movements. Record the same movement each '
+          'time; different speeds are fine.',
+    'unstable_static_reference' =>
+      'The final position was still moving. Hold it steady for at least '
+          '$holdSeconds seconds before stopping.',
+    'inconsistent_static_references' =>
+      'The final positions differ between examples. Record the same grip or '
+          'stall each time.',
+    'invalid_trim_range' =>
+      'That trim range is not valid. Keep the start before the end.',
+    'invalid_reference_count' =>
+      isStatic
+          ? 'Record 1 clear example before reviewing.'
+          : 'Record 2 examples of the same movement before reviewing.',
+    _ => null,
+  };
+  return message == null ? null : '$prefix$message';
 }
 
 /// The backend reports observed-frame coverage. It is feedback for the next
@@ -52,15 +134,19 @@ class _ReferenceQuality {
     required this.leftHandCoverage,
     required this.rightHandCoverage,
     required this.poseCoverage,
+    this.propCoverage,
   });
 
   final double? leftHandCoverage;
   final double? rightHandCoverage;
   final double? poseCoverage;
+  final double? propCoverage;
 
   // Matches template_engine.MIN_COVERAGE. Final template inference also checks
   // tracking gaps, so this only prompts a better next recording.
   static const minimumCoverageHint = 0.70;
+  // Matches template_engine.REFERENCE_MIN_PROP_COVERAGE.
+  static const minimumPropCoverageHint = 0.60;
 
   double? get bestHandCoverage {
     final values = [
@@ -89,6 +175,7 @@ class _ReferenceQuality {
       leftHandCoverage: coverage('left_hand_coverage'),
       rightHandCoverage: coverage('right_hand_coverage'),
       poseCoverage: coverage('pose_coverage'),
+      propCoverage: coverage('prop_coverage'),
     );
   }
 }
@@ -197,6 +284,15 @@ class _CustomMovementAuthoringScreenState
   int _pendingEnd = 0;
 
   bool get _hasUsableTemplate => _template?.isReady == true;
+  int get _requiredReferences =>
+      MovementTemplate.minimumReferencesFor(_movementBehavior);
+
+  String? _issueMessage(CommandAck ack) => customReferenceIssueMessage(
+    ack.errorCode,
+    ack.referenceQuality,
+    movementBehavior: _movementBehavior,
+    propLabel: _prop.displayLabel,
+  );
   bool get _canRecord =>
       _sessionStarted &&
       _previewReady &&
@@ -505,6 +601,10 @@ class _CustomMovementAuthoringScreenState
   Future<void> _stopAndStoreReference({required bool automatic}) async {
     try {
       final ack = await _socket.sendStopCustomCapture();
+      if (!ack.accepted) {
+        final issue = _issueMessage(ack);
+        if (issue != null) throw _ReferenceIssue(issue);
+      }
       _requireAccepted(ack);
       final id = ack.referenceId;
       final path = ack.localFilePath;
@@ -535,6 +635,8 @@ class _CustomMovementAuthoringScreenState
             ? Uint8List.fromList(referenceFrame)
             : _referenceImageJpegBytes;
       });
+    } on _ReferenceIssue catch (issue) {
+      if (mounted) setState(() => _error = issue.message);
     } catch (_) {
       if (mounted) {
         setState(
@@ -660,6 +762,12 @@ class _CustomMovementAuthoringScreenState
     setState(() => _busy = true);
     try {
       await _commitTrim(reference, start, end);
+    } on _ReferenceIssue catch (issue) {
+      if (mounted) {
+        setState(
+          () => _error = '${issue.message} The previous trim is still saved.',
+        );
+      }
     } catch (_) {
       if (mounted) {
         setState(
@@ -682,11 +790,16 @@ class _CustomMovementAuthoringScreenState
       startMs: start,
       endMs: end,
     );
+    if (!ack.accepted) {
+      final issue = _issueMessage(ack);
+      if (issue != null) throw _ReferenceIssue(issue);
+    }
     _requireAccepted(ack);
     if (mounted) {
       setState(() {
         reference.startMs = start;
         reference.endMs = end;
+        reference.semanticIssue = null;
         if (_previewId == reference.id) {
           _pendingStart = start;
           _pendingEnd = end;
@@ -698,10 +811,14 @@ class _CustomMovementAuthoringScreenState
   }
 
   Future<void> _review() async {
-    if (_replacingReferences &&
-        _references.length < MovementTemplate.minimumReferences) {
+    if (_replacingReferences && _references.length < _requiredReferences) {
       setState(
-        () => _error = 'Record the movement at least twice before reviewing.',
+        () => _error = customReferenceIssueMessage(
+          'invalid_reference_count',
+          null,
+          movementBehavior: _movementBehavior,
+          propLabel: _prop.displayLabel,
+        ),
       );
       return;
     }
@@ -728,10 +845,17 @@ class _CustomMovementAuthoringScreenState
         final ack = await _socket.sendBuildCustomTemplate(
           movementBehavior: _movementBehavior,
         );
-        if (!ack.accepted && ack.errorCode == 'insufficient_hand_coverage') {
-          throw StateError(
-            'Hands were visible but tracking was too intermittent to learn the hand movement. Re-record examples with at least one hand clearly visible throughout.',
-          );
+        if (!ack.accepted) {
+          // Mark the example the backend identified so its card shows it.
+          final index = ack.referenceQuality?['reference_index'];
+          if (index is int && index >= 0 && index < _references.length) {
+            final issue = ack.errorCode;
+            if (mounted) {
+              setState(() => _references[index].semanticIssue = issue);
+            }
+          }
+          final issue = _issueMessage(ack);
+          if (issue != null) throw StateError(issue);
         }
         if (!ack.accepted && ack.errorCode == 'insufficient_frames') {
           throw StateError(
@@ -750,6 +874,9 @@ class _CustomMovementAuthoringScreenState
             _template = template;
             _step = 2;
             _error = null;
+            for (final reference in _references) {
+              reference.semanticIssue = null;
+            }
           });
         }
       } catch (error) {
@@ -789,7 +916,12 @@ class _CustomMovementAuthoringScreenState
       setState(
         () => _error =
             metadataError ??
-            'Record at least two usable examples before saving.',
+            customReferenceIssueMessage(
+              'invalid_reference_count',
+              null,
+              movementBehavior: _movementBehavior,
+              propLabel: _prop.displayLabel,
+            ),
       );
       return;
     }
@@ -1070,7 +1202,7 @@ class _CustomMovementAuthoringScreenState
                   key: const ValueKey('custom-movement-behavior-dynamic'),
                   title: 'Dynamic sequence',
                   description:
-                      'Use this for a movement with a visible path, release, catch, transition, or multiple phases.',
+                      'Use this for any visible change: a grip transition, wrist or arm movement, prop path, or toss. Small movements are okay.',
                   icon: FluentIcons.play,
                   selected: _movementBehavior == 'dynamic',
                   onPressed: locked
@@ -1640,19 +1772,29 @@ class _CustomMovementAuthoringScreenState
     return const SizedBox.shrink();
   }
 
+  /// Pre-recording guidance using the backend-mirrored minimums.
+  String get _recordingGuidance {
+    String seconds(Duration value) =>
+        (value.inMilliseconds / 1000).toStringAsFixed(1);
+    final minimum = seconds(MovementTemplate.minimumReferenceDuration);
+    return _movementBehavior == 'static'
+        ? 'Record 1 clear example. Hold the final position steady for at least ${seconds(MovementTemplate.staticHoldDuration)} seconds. Each clip must be at least $minimum second long.'
+        : 'Record 2 examples of the same movement. Small movements are okay. Each clip must be at least $minimum second long.';
+  }
+
   String get _recordLabel {
     if (_recording) return 'Stop & save example';
     if (_finishingReference) return 'Saving example…';
     if (_countdown != null) return 'Get ready…';
     if (_references.length >= _maxReferences) return 'Example limit reached';
-    if (_references.length < MovementTemplate.minimumReferences) {
+    if (_references.length < _requiredReferences) {
       return 'Record example ${_references.length + 1}';
     }
     return 'Record another example';
   }
 
   Widget _captureControls({required bool singleLineGuidance}) {
-    final required = MovementTemplate.minimumReferences;
+    final required = _requiredReferences;
     final count = _references.length;
     final action = Column(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -1823,7 +1965,7 @@ class _CustomMovementAuthoringScreenState
 
   Widget _examplesPanel({required bool fill}) {
     final count = _references.length;
-    final required = MovementTemplate.minimumReferences;
+    final required = _requiredReferences;
     final selectedIndex = _references.indexWhere(
       (item) => item.id == _previewId,
     );
@@ -1876,10 +2018,11 @@ class _CustomMovementAuthoringScreenState
           count >= _maxReferences
               ? 'You have reached the 5 example limit.'
               : count < required
-              ? 'Record the same movement at least twice. Three examples can improve consistency.${_movementBehavior == 'static' ? ' Hold the final position steady for about one second in each.' : ''}'
-              : count == required
+              ? _recordingGuidance
+              : count == required && _movementBehavior != 'static'
               ? 'A third example can help ELIXR learn the movement more consistently.'
               : 'You can review whenever you are ready.',
+          key: const ValueKey('examples-guidance'),
           style: ElixTypography.supporting(color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -2049,6 +2192,83 @@ class _CustomMovementAuthoringScreenState
   String _coverage(double? value) =>
       value == null ? 'not reported' : '${(value * 100).round()}%';
 
+  /// Compact per-example quality: what ELIXR saw and what review will check.
+  Widget _qualityChips(_ReferenceDraft reference) {
+    final quality = reference.quality;
+    AuthoringCheckState coverageState(double? value, double minimum) =>
+        value == null
+        ? AuthoringCheckState.pending
+        : value >= minimum
+        ? AuthoringCheckState.ok
+        : AuthoringCheckState.missing;
+    final keptMs = reference.endMs - reference.startMs;
+    final isStatic = _movementBehavior == 'static';
+    final issue = reference.semanticIssue;
+    final motionIssue = const {
+      'no_meaningful_motion',
+      'inconsistent_dynamic_references',
+      'unstable_static_reference',
+      'inconsistent_static_references',
+    }.contains(issue);
+    return Wrap(
+      key: const ValueKey('reference-quality'),
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      children: [
+        AuthoringStatusPill(
+          key: const ValueKey('reference-quality-hands'),
+          label: 'Hands',
+          detail: _coverage(quality?.bestHandCoverage),
+          state: coverageState(
+            quality?.bestHandCoverage,
+            _ReferenceQuality.minimumCoverageHint,
+          ),
+        ),
+        AuthoringStatusPill(
+          key: const ValueKey('reference-quality-body'),
+          label: 'Body',
+          detail: _coverage(quality?.poseCoverage),
+          state: coverageState(
+            quality?.poseCoverage,
+            _ReferenceQuality.minimumCoverageHint,
+          ),
+        ),
+        AuthoringStatusPill(
+          key: const ValueKey('reference-quality-prop'),
+          label: 'Prop',
+          detail: _coverage(quality?.propCoverage),
+          state: coverageState(
+            quality?.propCoverage,
+            _ReferenceQuality.minimumPropCoverageHint,
+          ),
+        ),
+        AuthoringStatusPill(
+          key: const ValueKey('reference-quality-motion'),
+          label: isStatic ? 'Hold' : 'Movement',
+          detail: motionIssue
+              ? 'needs attention'
+              : _template != null
+              ? 'learned'
+              : 'checked at review',
+          state: motionIssue
+              ? AuthoringCheckState.missing
+              : _template != null
+              ? AuthoringCheckState.ok
+              : AuthoringCheckState.pending,
+        ),
+        AuthoringStatusPill(
+          key: const ValueKey('reference-quality-duration'),
+          label: 'Duration',
+          detail: '${(keptMs / 1000).toStringAsFixed(1)} s',
+          state:
+              keptMs >= MovementTemplate.minimumReferenceDuration.inMilliseconds
+              ? AuthoringCheckState.ok
+              : AuthoringCheckState.missing,
+        ),
+      ],
+    );
+  }
+
   Widget _exampleEditor(_ReferenceDraft reference, int index) {
     final colors = context.elixColors;
     final editable = !_busy && !_recording;
@@ -2113,6 +2333,8 @@ class _CustomMovementAuthoringScreenState
               ),
             ),
           ),
+          const SizedBox(height: AppSpacing.sm),
+          _qualityChips(reference),
           if (quality != null) ...[
             const SizedBox(height: AppSpacing.xs),
             Text(
@@ -2355,7 +2577,8 @@ class _CustomMovementAuthoringScreenState
                 : 'Saved version',
           ),
           if (_replacingReferences &&
-              _references.length == MovementTemplate.minimumReferences)
+              _movementBehavior != 'static' &&
+              _references.length == _requiredReferences)
             Text(
               'You can save now. A third example may improve consistency.',
               style: ElixTypography.caption(color: context.elixTextSecondary),
@@ -2459,9 +2682,11 @@ class _CustomMovementAuthoringScreenState
   String _footerHint() {
     switch (_step) {
       case 0:
-        return 'Next, you will record the movement 2 to 5 times.';
+        return _movementBehavior == 'static'
+            ? 'Next, you will record 1 clear example of the held position.'
+            : 'Next, you will record the movement 2 to 5 times.';
       case 1:
-        final missing = MovementTemplate.minimumReferences - _references.length;
+        final missing = _requiredReferences - _references.length;
         if (_recording || _finishingReference) {
           return 'Finish the current example to continue.';
         }
@@ -2489,8 +2714,7 @@ class _CustomMovementAuthoringScreenState
       onPressed:
           _busy ||
               _recording ||
-              (_replacingReferences &&
-                  _references.length < MovementTemplate.minimumReferences)
+              (_replacingReferences && _references.length < _requiredReferences)
           ? null
           : _review,
       isLoading: _buildingTemplate,

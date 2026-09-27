@@ -711,7 +711,17 @@ registry:
   Reference recording is limited to 15 seconds, with a visible client countdown
   that automatically sends `stop_custom_capture` at its deadline.
   Detector samples map to MP4 time through capture timestamps of frames actually
-  written by the existing Python camera producer. `trim_custom_reference`
+  written by the existing Python camera producer. `stop_custom_capture` and
+  `trim_custom_reference` check only reference integrity: at least 1.0 s of
+  wall-clock clip, at least 6 processed tracking samples (the AI loop is
+  inference-bound, so cadence varies by machine), prop coverage of at least
+  60%, and no prop gap over 800 ms. Rejections use specific codes
+  (`reference_duration_too_short`, `insufficient_tracking_samples`,
+  `insufficient_prop_coverage`, `excessive_tracking_gap`, `invalid_trim_range`)
+  and, like `build_custom_template` rejections (`no_meaningful_motion`,
+  `inconsistent_dynamic_references`, `unstable_static_reference`,
+  `invalid_reference_count`, ...), carry measured and required values in the
+  ack's `reference_quality`. `trim_custom_reference`
   selects a non-destructive time range and validates the retained samples;
   `delete_custom_reference` removes an arbitrary draft by ID and its temp clip.
   A confirmed second person invalidates the current reference with
@@ -723,14 +733,22 @@ registry:
   handedness is normalized from raw OpenCV input to performer left/right once
   in the shared detector; mirrored Flutter preview does not change stored sides.
   `discard_custom_reference` remains a compatibility command for removing the
-  most recent draft. `build_custom_template` uses retained trimmed drafts and
-  returns `movement_template` after at least two valid references. The optional
-  `movement_behavior` command field is `dynamic` (default) or `static`.
-  Static references must finish with an observable, stable 800 ms hold;
-  the learned template stores that ending hold as schema version 3 with
-  `movement_behavior: "static"`. Existing version-1/2 templates remain dynamic.
-  The authoring
-  page recommends three and permits up to five; existing templates with up to
+  most recent draft. `build_custom_template` uses retained trimmed drafts. The
+  optional `movement_behavior` command field is `dynamic` (default) or `static`.
+  A static hold needs one valid reference that finishes with an observable,
+  stable 800 ms hold (at least 4 samples); matching ranks wrist-relative hand
+  shape first, elbow/wrist pose second, and broad prop placement third, and
+  tolerates isolated detector misses at the same 85% agreement live
+  assessment uses. The learned template stores that ending hold as schema
+  version 3 with `movement_behavior: "static"`. A dynamic movement needs two
+  references, each with at least one sustained movement signal (hand
+  landmarks, arm pose, prop path, observed flight, or verified rotation);
+  neither a toss nor multiple phases is required, and median-filtered motion
+  rejects single-frame detector spikes. New templates store
+  `variability_metadata.motion_unit` so live completion applies the same
+  motion thresholds; templates without it keep the original rule. Existing
+  version-1/2 templates remain dynamic. The authoring page permits up to
+  five examples; existing templates with up to
   ten references remain readable. Temporary clips are deleted on draft deletion
   or session close and are never persisted to the database.
 - `session_mode: "custom_assessment"` requires a versioned

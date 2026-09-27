@@ -4,14 +4,18 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from .template_engine import (
-    POSE_MOTION_THRESHOLD,
+    MIN_STATIC_HOLD_SAMPLES,
+    MIN_TRACKING_SAMPLES,
     STATIC_HOLD_MS,
     FrameSample,
     MovementTemplate,
     _dtw,
     _modality_error,
     compare_sequence,
+    final_frames_still,
+    motion_thresholds,
     normalize_sequence,
+    sequence_motion,
     static_frame_matches,
     trailing_hold_window,
     validate_assessment_sequence,
@@ -110,6 +114,33 @@ def _movement_start_index(
     return None
 
 
+def _motion_unit(template: MovementTemplate) -> float | None:
+    value = template.variability_metadata.get("motion_unit")
+    return float(value) if value is not None and value > 0 else None
+
+
+def _motion(template: MovementTemplate, sequence: Sequence[FrameSample], modality: str) -> float:
+    """The motion measure authoring used; legacy templates keep the old one."""
+    if _motion_unit(template) is None:
+        return _sequence_range(sequence, modality)
+    return sequence_motion(sequence, modality)
+
+
+def _moving_thresholds(template: MovementTemplate) -> dict[str, float]:
+    """Learned moving modalities and their meaningful-motion thresholds.
+
+    Uses the authoring thresholds and motion measure in the template's own
+    units, so a small movement accepted at authoring is also completable
+    live. Legacy templates without ``motion_unit`` keep the original rule.
+    """
+    thresholds = motion_thresholds(_motion_unit(template))
+    return {
+        modality: thresholds[modality]
+        for modality in template.required_modalities
+        if _motion(template, template.canonical_sequence, modality) >= thresholds[modality]
+    }
+
+
 def find_movement_start_index(
     template: MovementTemplate, samples: Sequence[FrameSample]
 ) -> int | None:
@@ -121,13 +152,7 @@ def find_movement_start_index(
         use_pose_anchor="pose" in required,
         required_hand_sides=template.required_hand_sides,
     )
-    moving_modalities = [
-        modality
-        for modality in required
-        if _sequence_range(template.canonical_sequence, modality)
-        >= POSE_MOTION_THRESHOLD
-    ]
-    return _movement_start_index(normalized, moving_modalities)
+    return _movement_start_index(normalized, list(_moving_thresholds(template)))
 
 
 def estimate_sequence_progress(
@@ -137,10 +162,7 @@ def estimate_sequence_progress(
     if not samples or template.movement_behavior == "static":
         return 0.0
     reference = template.canonical_sequence
-    moving = [
-        modality for modality in template.required_modalities
-        if _sequence_range(reference, modality) >= POSE_MOTION_THRESHOLD
-    ]
+    moving = list(_moving_thresholds(template))
     if not moving:
         return 0.0
     recent = normalize_sequence(
@@ -177,13 +199,13 @@ def evaluate_completion(
         required_hand_sides=template.required_hand_sides,
     )
     reference = template.canonical_sequence
-    moving_modalities = [
-        modality
-        for modality in required
-        if _sequence_range(reference, modality) >= POSE_MOTION_THRESHOLD
-    ]
+    thresholds = _moving_thresholds(template)
+    moving_modalities = list(thresholds)
     if not moving_modalities:
         return WAITING_FOR_MOVEMENT
+    # Tolerances below were tuned in shoulder widths; widen (never tighten)
+    # them for hand-anchored templates whose units are much smaller.
+    tolerance_scale = max(1.0, _motion_unit(template) or 1.0)
 
     # Retain a short lead-in from the user's start position for comparison.
     movement_start = _movement_start_index(normalized, moving_modalities)
@@ -198,13 +220,13 @@ def evaluate_completion(
         frame for frame in samples if frame.timestamp_ms >= candidate_start_ms
     )
     movement_detected = any(
-        _sequence_range(candidate, modality)
-        >= max(POSE_MOTION_THRESHOLD, _sequence_range(reference, modality) * 0.20)
+        _motion(template, candidate, modality)
+        >= max(thresholds[modality], _motion(template, reference, modality) * 0.20)
         for modality in moving_modalities
     )
     if not movement_detected:
         return WAITING_FOR_MOVEMENT
-    if len(candidate) < 8:
+    if len(candidate) < MIN_TRACKING_SAMPLES:
         return MOVEMENT_DETECTED
 
     candidate_duration = candidate[-1].timestamp_ms - candidate[0].timestamp_ms
@@ -261,7 +283,13 @@ def evaluate_completion(
             if phase_errors else 0.0
         )
         endpoint_tolerance = min(
-            _ENDPOINT_TOLERANCE, max(0.10, expected_range * 0.45)
+            _ENDPOINT_TOLERANCE * tolerance_scale,
+            max(0.10 * tolerance_scale, expected_range * 0.45),
+        )
+        # Detector jitter accumulates path length but not sustained
+        # displacement; a stationary attempt cannot satisfy this.
+        sustained = sequence_motion(candidate, modality) >= max(
+            0.6 * thresholds[modality], 0.5 * sequence_motion(reference, modality)
         )
         evidence.append(DynamicMotionEvidence(
             modality=modality,
@@ -271,28 +299,29 @@ def evaluate_completion(
             aligned_error=aligned_error,
             phase_progress=phase_progress,
             complete=(ratio >= _MIN_PATH_RATIO
+                      and sustained
                       and phase_progress >= 0.85
                       and start_error is not None and start_error <= endpoint_tolerance
                       and end_error is not None and end_error <= endpoint_tolerance
                       and aligned_error is not None
-                      and aligned_error <= _MAX_ALIGNED_MOTION_ERROR),
+                      and aligned_error <= _MAX_ALIGNED_MOTION_ERROR * tolerance_scale),
         ))
     quorum = len(moving_modalities) // 2 + 1 if len(moving_modalities) > 2 else 1
     if sum(item.complete for item in evidence) < quorum:
         return MOVEMENT_DETECTED
     prop_evidence = next((item for item in evidence if item.modality == "prop_translation"), None)
+    prop_endpoint_tolerance = min(
+        _ENDPOINT_TOLERANCE * tolerance_scale,
+        max(0.10 * tolerance_scale, _sequence_range(reference, "prop_translation") * 0.60),
+    )
     if prop_evidence is not None and not (
         prop_evidence.path_ratio >= 0.50
         and prop_evidence.start_error is not None
-        and prop_evidence.start_error <= min(
-            _ENDPOINT_TOLERANCE, max(0.10, _sequence_range(reference, "prop_translation") * 0.60)
-        )
+        and prop_evidence.start_error <= prop_endpoint_tolerance
         and prop_evidence.end_error is not None
-        and prop_evidence.end_error <= min(
-            _ENDPOINT_TOLERANCE, max(0.10, _sequence_range(reference, "prop_translation") * 0.60)
-        )
+        and prop_evidence.end_error <= prop_endpoint_tolerance
         and prop_evidence.aligned_error is not None
-        and prop_evidence.aligned_error <= 0.30
+        and prop_evidence.aligned_error <= 0.30 * tolerance_scale
     ):
         # A prop-centric template needs meaningful confirmed prop travel even
         # when body/hand motion supplies the completion quorum.
@@ -306,7 +335,7 @@ def _evaluate_static_completion(
     if not samples:
         return WAITING_FOR_MOVEMENT
     hold = trailing_hold_window(samples)
-    if len(hold) < 8:
+    if len(hold) < MIN_STATIC_HOLD_SAMPLES:
         if len(hold) < 3:
             return WAITING_FOR_MOVEMENT
         normalized = normalize_sequence(
@@ -336,6 +365,8 @@ def _evaluate_static_completion(
     ]
     if not all(matches[-3:]):
         return WAITING_FOR_MOVEMENT
+    if not final_frames_still(normalized, template.required_modalities):
+        return POSITION_DETECTED
     if sum(matches) / len(matches) < 0.85:
         return POSITION_DETECTED
     if hold[-1].timestamp_ms - hold[0].timestamp_ms < STATIC_HOLD_MS:
@@ -345,6 +376,9 @@ def _evaluate_static_completion(
         return POSITION_DETECTED
     if template.feature_capabilities.get("hands") and (comparison.component_scores["Hand technique"] or 0) < 2:
         return POSITION_DETECTED
-    if (comparison.component_scores["Prop path"] or 0) < 2:
+    # Grip/hand geometry is the primary static evidence; the prop only needs
+    # presence and broad placement (enforced by static_frame_matches and
+    # validation above), so ordinary YOLO jitter cannot block completion.
+    if (comparison.component_scores["Prop path"] or 0) < 1:
         return POSITION_DETECTED
     return MOVEMENT_COMPLETED

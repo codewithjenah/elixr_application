@@ -18,18 +18,43 @@ from vision.bottle_orientation import BottleOrientation, wrapped_delta
 SCHEMA_VERSION = 2
 STATIC_SCHEMA_VERSION = 3
 STATIC_HOLD_MS = 800
-STATIC_STABILITY_TOLERANCE = 0.12
-STATIC_REFERENCE_MATCH_RATIO = 0.90
+# Normalized distances below are shoulder widths when Pose anchors the frame.
+# Static matching ranks evidence: hand/grip shape (wrist-relative) is strict,
+# relevant arm pose is secondary, and the prop only has to stay broadly placed
+# so ordinary YOLO centre jitter cannot veto a correct grip.
+STATIC_STABILITY_TOLERANCE = 0.16  # final-observation stillness
+STATIC_REFERENCE_MATCH_RATIO = 0.85  # same agreement ratio as live assessment
+STATIC_HAND_KEYPOINT_TOLERANCE = 0.15
+STATIC_HAND_POSITION_TOLERANCE = 0.20
+STATIC_POSE_TOLERANCE = 0.20
+STATIC_PROP_TOLERANCE = 0.25
 CAPTURE_VERSION = 1
 CANONICAL_FRAMES = 32
 MIN_FRAMES = 8
 MIN_COVERAGE = 0.70
 MAX_TRACK_GAP = 2
-# Live detector losses are measured in elapsed time. Reference recording keeps
-# the stricter frame-count rule above.
+# Live detector losses are measured in elapsed time. Reference recording now
+# uses the same elapsed-time policy (see REFERENCE_MAX_GAP_MS).
 ASSESSMENT_MAX_TRACK_GAP_MS = 450
 ASSESSMENT_MAX_FRAME_INTERVAL_MS = 700
 POSE_MOTION_THRESHOLD = 0.08
+# Reference authoring. The custom-capture AI loop is unthrottled, so its sample
+# cadence is inference-bound (roughly 5-15 Hz on target laptops). Wall-clock
+# clip duration and processed sample count are therefore checked separately.
+MIN_STATIC_REFERENCES = 1
+MIN_DYNAMIC_REFERENCES = 2
+MIN_REFERENCE_DURATION_MS = 1000  # holds the 800 ms static ending plus lead-in
+MIN_TRACKING_SAMPLES = 6  # 1 s at >= 6 Hz
+MIN_STATIC_HOLD_SAMPLES = 4  # 800 ms at >= 5 Hz (window includes boundary)
+REFERENCE_MIN_PROP_COVERAGE = 0.60
+REFERENCE_MAX_GAP_MS = ASSESSMENT_MAX_TRACK_GAP_MS
+REFERENCE_MAX_PROP_GAP_MS = 800
+# Meaningful dynamic motion, in shoulder widths. Converted to each template's
+# own coordinate units with ``motion_unit`` so hand-anchored templates are not
+# judged against pose-anchored numbers.
+MEANINGFUL_MOTION_THRESHOLD = 0.05
+PROP_MOTION_THRESHOLD = 0.08
+NOMINAL_SHOULDER_WIDTH = 0.30  # image fraction, used only if shoulders unseen
 MEANINGFUL_POSE_KEYS = frozenset(
     {
         "13",
@@ -65,6 +90,27 @@ class FailureCode(str, Enum):
     INVALID_TIMESTAMPS = "invalid_timestamps"
     INSUFFICIENT_HAND_COVERAGE = "insufficient_hand_coverage"
     INSUFFICIENT_ORIENTATION = "insufficient_orientation"
+    REFERENCE_DURATION_TOO_SHORT = "reference_duration_too_short"
+    INSUFFICIENT_TRACKING_SAMPLES = "insufficient_tracking_samples"
+    INSUFFICIENT_PROP_COVERAGE = "insufficient_prop_coverage"
+    EXCESSIVE_TRACKING_GAP = "excessive_tracking_gap"
+    NO_MEANINGFUL_MOTION = "no_meaningful_motion"
+    INCONSISTENT_DYNAMIC_REFERENCES = "inconsistent_dynamic_references"
+    UNSTABLE_STATIC_REFERENCE = "unstable_static_reference"
+    INCONSISTENT_STATIC_REFERENCES = "inconsistent_static_references"
+
+
+class ReferenceQualityError(ValueError):
+    """A reference-authoring rejection with user-facing measured values.
+
+    ``str(error)`` is the failure code so existing ``ValueError`` handlers keep
+    returning the same ``error_code``; ``details`` carries the measurements.
+    """
+
+    def __init__(self, code: FailureCode, details: Mapping[str, Any] | None = None):
+        super().__init__(code.value)
+        self.code = code.value
+        self.details: dict[str, Any] = {"reason": code.value, **dict(details or {})}
 
 
 @dataclass(frozen=True)
@@ -307,7 +353,7 @@ class MovementTemplate:
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(FailureCode.INVALID_SCHEMA.value) from exc
         if (
-            template.reference_count < 2
+            template.reference_count < minimum_references(template.movement_behavior)
             or len(template.canonical_sequence) != CANONICAL_FRAMES
             or not set(template.required_modalities).issubset(SUPPORTED_MODALITIES)
             or not template.required_modalities
@@ -338,6 +384,11 @@ class SequenceComparison:
             "performance_level": self.performance_level,
             "validation_codes": [code.value for code in self.validation.codes],
         }
+
+
+def minimum_references(movement_behavior: str) -> int:
+    """One held example teaches a static pose; dynamic uses two for noise."""
+    return MIN_STATIC_REFERENCES if movement_behavior == "static" else MIN_DYNAMIC_REFERENCES
 
 
 def _usable(point: Landmark | None) -> bool:
@@ -391,6 +442,96 @@ def _coverage(
     return sum(present) / len(samples) if samples else 0.0, longest
 
 
+def _presence(
+    samples: Sequence[FrameSample], modality: str, *, hand_side: str | None = None
+) -> list[bool]:
+    return [_coverage((frame,), modality, hand_side=hand_side)[0] == 1.0 for frame in samples]
+
+
+def _longest_gap_ms(samples: Sequence[FrameSample], present: Sequence[bool]) -> int:
+    """Elapsed unobserved time, matching the live assessment gap rule."""
+    if not samples:
+        return 0
+    if not any(present):
+        return samples[-1].timestamp_ms - samples[0].timestamp_ms
+    longest = 0
+    last_seen: int | None = None
+    missing = False
+    for frame, observed in zip(samples, present):
+        if observed:
+            origin = last_seen if last_seen is not None else samples[0].timestamp_ms
+            if missing:
+                longest = max(longest, frame.timestamp_ms - origin)
+            last_seen = frame.timestamp_ms
+            missing = False
+        else:
+            missing = True
+    if missing and last_seen is not None:
+        longest = max(longest, samples[-1].timestamp_ms - last_seen)
+    return longest
+
+
+def reference_quality(
+    samples: Sequence[FrameSample],
+    *,
+    clip_duration_ms: int | None = None,
+    movement_behavior: str = "dynamic",
+) -> dict[str, Any]:
+    """Beginner-facing measurements for one reference recording.
+
+    Wall-clock clip duration, processed-sample span, sample count, per-input
+    coverage and the longest prop gap are reported independently.
+    """
+    span = samples[-1].timestamp_ms - samples[0].timestamp_ms if len(samples) > 1 else 0
+    left = _coverage(samples, "hands", hand_side="left")[0]
+    right = _coverage(samples, "hands", hand_side="right")[0]
+    static = movement_behavior == "static"
+    return {
+        "duration_ms": clip_duration_ms if clip_duration_ms is not None else span,
+        "required_duration_ms": MIN_REFERENCE_DURATION_MS,
+        "sample_duration_ms": span,
+        "sample_count": len(samples),
+        "required_sample_count": MIN_STATIC_HOLD_SAMPLES if static else MIN_TRACKING_SAMPLES,
+        "hand_coverage": round(max(left, right), 3),
+        "left_hand_coverage": round(left, 3),
+        "right_hand_coverage": round(right, 3),
+        "pose_coverage": round(_coverage(samples, "pose")[0], 3),
+        "prop_coverage": round(_coverage(samples, "prop_translation")[0], 3),
+        "required_prop_coverage": REFERENCE_MIN_PROP_COVERAGE,
+        "longest_tracking_gap_ms": _longest_gap_ms(samples, _presence(samples, "prop_translation")),
+        "maximum_tracking_gap_ms": REFERENCE_MAX_PROP_GAP_MS,
+        "required_hold_ms": STATIC_HOLD_MS if static else None,
+    }
+
+
+def check_reference_integrity(
+    samples: Sequence[FrameSample],
+    *,
+    clip_duration_ms: int | None = None,
+    movement_behavior: str = "dynamic",
+    reference_index: int | None = None,
+) -> dict[str, Any]:
+    """Behavior-independent integrity: duration, samples, prop evidence.
+
+    Semantic checks (motion, stable hold, hand sides) need every reference
+    and run in :func:`build_template`. Returns the measured quality.
+    """
+    quality = reference_quality(
+        samples, clip_duration_ms=clip_duration_ms, movement_behavior=movement_behavior,
+    )
+    if reference_index is not None:
+        quality["reference_index"] = reference_index
+    if quality["duration_ms"] < MIN_REFERENCE_DURATION_MS:
+        raise ReferenceQualityError(FailureCode.REFERENCE_DURATION_TOO_SHORT, quality)
+    if len(samples) < MIN_TRACKING_SAMPLES:
+        raise ReferenceQualityError(FailureCode.INSUFFICIENT_TRACKING_SAMPLES, quality)
+    if quality["prop_coverage"] < REFERENCE_MIN_PROP_COVERAGE:
+        raise ReferenceQualityError(FailureCode.INSUFFICIENT_PROP_COVERAGE, quality)
+    if quality["longest_tracking_gap_ms"] > REFERENCE_MAX_PROP_GAP_MS:
+        raise ReferenceQualityError(FailureCode.EXCESSIVE_TRACKING_GAP, quality)
+    return quality
+
+
 def validate_sequence(
     samples: Sequence[FrameSample],
     required_modalities: Iterable[str],
@@ -435,12 +576,17 @@ def validate_assessment_sequence(
     required_hand_sides: Iterable[str] = (),
     template: MovementTemplate | None = None,
 ) -> ValidationResult:
-    """Validate real live observations without relaxing reference authoring."""
+    """Validate real live observations with the same cadence rules as authoring."""
     required = tuple(sorted(set(required_modalities)))
     codes: list[FailureCode] = []
     if not set(required).issubset(SUPPORTED_MODALITIES):
         codes.append(FailureCode.INVALID_SCHEMA)
-    if len(samples) < MIN_FRAMES:
+    minimum_samples = (
+        MIN_STATIC_HOLD_SAMPLES
+        if template is not None and template.movement_behavior == "static"
+        else MIN_TRACKING_SAMPLES
+    )
+    if len(samples) < minimum_samples:
         codes.append(FailureCode.INSUFFICIENT_FRAMES)
     timestamps = [frame.timestamp_ms for frame in samples]
     if any(not isinstance(ts, int) for ts in timestamps) or any(
@@ -811,17 +957,7 @@ def _infer_requirements(
     hand_sides = tuple(
         side
         for side in ("left", "right")
-        if all(
-            (coverage := _coverage(reference, "hands", hand_side=side))[0]
-            >= MIN_COVERAGE
-            and coverage[1] <= MAX_TRACK_GAP
-            for reference in references
-        )
-    )
-    pose_reliable = all(
-        (coverage := _coverage(reference, "pose"))[0] >= MIN_COVERAGE
-        and coverage[1] <= MAX_TRACK_GAP
-        for reference in references
+        if all(_reliable(reference, "hands", hand_side=side) for reference in references)
     )
     meaningful_pose_count = sum(
         _pose_motion(reference) >= POSE_MOTION_THRESHOLD for reference in references
@@ -829,9 +965,154 @@ def _infer_requirements(
     required = ["prop_translation"]
     if hand_sides:
         required.append("hands")
-    if pose_reliable and (movement_behavior == "static" or meaningful_pose_count >= 2):
+    if _pose_reliable(references) and (
+        movement_behavior == "static"
+        or meaningful_pose_count >= min(2, len(references))
+    ):
         required.append("pose")
     return tuple(sorted(required)), hand_sides
+
+
+def _reliable(
+    reference: Sequence[FrameSample], modality: str, *, hand_side: str | None = None
+) -> bool:
+    return (
+        _coverage(reference, modality, hand_side=hand_side)[0] >= MIN_COVERAGE
+        and _longest_gap_ms(reference, _presence(reference, modality, hand_side=hand_side))
+        <= REFERENCE_MAX_GAP_MS
+    )
+
+
+def _pose_reliable(references: Sequence[Sequence[FrameSample]]) -> bool:
+    return all(_reliable(reference, "pose") for reference in references)
+
+
+def _median(values: Sequence[float]) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def _smoothed_range(points: Sequence[Landmark]) -> float:
+    """Farthest sustained displacement from the start of one landmark track.
+
+    A 3-sample median rejects one-frame detector spikes, so displacement has
+    to persist across consecutive observations before it counts as movement.
+    """
+    if len(points) < 3:
+        return 0.0
+    filtered = [
+        Landmark(_median([p.x for p in points[i - 1:i + 2]]),
+                 _median([p.y for p in points[i - 1:i + 2]]))
+        for i in range(1, len(points) - 1)
+    ]
+    origin = filtered[0]
+    return max(math.hypot(p.x - origin.x, p.y - origin.y) for p in filtered)
+
+
+def sequence_motion(sequence: Sequence[FrameSample], modality: str) -> float:
+    """Sustained normalized displacement of one modality (template units)."""
+    if modality == "prop_translation":
+        # A prop identity switch starts a new track instead of a jump.
+        segments: list[list[Landmark]] = [[]]
+        previous_track: Any = None
+        for frame in sequence:
+            if not _usable(frame.prop):
+                continue
+            track = frame.prop_metadata.get("track_id")
+            if segments[-1] and track is not None and previous_track is not None and track != previous_track:
+                segments.append([])
+            segments[-1].append(frame.prop)  # type: ignore[arg-type]
+            previous_track = track if track is not None else previous_track
+        return max((_smoothed_range(segment) for segment in segments), default=0.0)
+    tracks: dict[str, list[Landmark]] = {}
+    for frame in sequence:
+        points = frame.pose if modality == "pose" else _semantic_hands(frame.hands)
+        for key, point in points.items():
+            if (modality != "pose" or key in MEANINGFUL_POSE_KEYS) and _usable(point):
+                tracks.setdefault(key, []).append(point)
+    ranges = sorted(
+        (_smoothed_range(points) for points in tracks.values() if len(points) >= 3),
+        reverse=True,
+    )
+    # A grip transition moves only fingertips, and the anchor wrist never
+    # moves in its own frame; average the most-moving quarter of landmarks.
+    top = ranges[:max(1, len(ranges) // 4)]
+    return sum(top) / len(top) if top else 0.0
+
+
+def _units_per_shoulder(
+    reference: Sequence[FrameSample],
+    *,
+    use_pose_anchor: bool,
+    hand_sides: Iterable[str],
+) -> float:
+    """How many template-frame units one shoulder width spans."""
+    sides = frozenset(hand_sides)
+    ratios: list[float] = []
+    scales: list[float] = []
+    for frame in reference:
+        hands = {k: p for k, p in _semantic_hands(frame.hands).items() if _hand_side(k) in sides}
+        _, scale = _anchor_and_scale(frame, use_pose_anchor=use_pose_anchor, hands=hands)
+        scales.append(scale)
+        left = frame.pose.get("11") or frame.pose.get("left_shoulder")
+        right = frame.pose.get("12") or frame.pose.get("right_shoulder")
+        if _usable(left) and _usable(right):
+            assert left is not None and right is not None
+            width = math.hypot(left.x - right.x, left.y - right.y)
+            if width > EPSILON:
+                ratios.append(width / scale)
+    if ratios:
+        return _median(ratios)
+    return NOMINAL_SHOULDER_WIDTH / _median(scales) if scales else 1.0
+
+
+def motion_thresholds(motion_unit: float | None) -> dict[str, float]:
+    """Per-modality meaningful-motion thresholds in template units.
+
+    Legacy templates without ``motion_unit`` keep their original 0.08 rule.
+    """
+    if motion_unit is None:
+        return {m: POSE_MOTION_THRESHOLD for m in SUPPORTED_MODALITIES}
+    return {
+        "hands": MEANINGFUL_MOTION_THRESHOLD * motion_unit,
+        "pose": MEANINGFUL_MOTION_THRESHOLD * motion_unit,
+        "prop_translation": PROP_MOTION_THRESHOLD * motion_unit,
+    }
+
+
+def _motion_evidence(
+    reference: Sequence[FrameSample],
+    required: Sequence[str],
+    hand_sides: Sequence[str],
+) -> tuple[dict[str, Any], float]:
+    """OR-style movement evidence for one dynamic reference.
+
+    Any one reliable signal is enough: hand shape/position, arm pose, prop
+    path, an observed flight, or verified rotation. Values are reported in
+    shoulder widths so the user-facing diagnostics are comparable.
+    """
+    use_pose = "pose" in required
+    normalized = normalize_sequence(reference, use_pose_anchor=use_pose, required_hand_sides=hand_sides)
+    unit = _units_per_shoulder(reference, use_pose_anchor=use_pose, hand_sides=hand_sides)
+    thresholds = motion_thresholds(unit)
+    signals: dict[str, Any] = {}
+    moving: list[str] = []
+    for modality in ("hands", "pose", "prop_translation"):
+        if modality not in required:
+            continue
+        value = sequence_motion(normalized, modality)
+        signals[modality] = round(value / unit, 3)
+        if value >= thresholds[modality]:
+            moving.append(modality)
+    if any(event.kind == "airborne" for event in detect_prop_events(reference)):
+        moving.append("release_catch")
+    trace = _rotation_trace(reference)
+    if (trace.coverage >= MIN_ROTATION_COVERAGE and trace.pair_coverage >= MIN_ROTATION_PAIR_COVERAGE
+            and abs(trace.total_signed_rad) >= MIN_ROTATION_AMOUNT_RAD and _rotation_track_stable(reference)):
+        moving.append("prop_rotation")
+    signals["movement_signals"] = moving
+    return signals, unit
 
 
 def _sequence_distance(
@@ -857,6 +1138,7 @@ def _aggregate_frames(
     *,
     timestamp_ms: int,
     minimum_presence: int,
+    prop_minimum_presence: int | None = None,
 ) -> FrameSample:
     pose_keys = set().union(*(frame.pose.keys() for frame in frames))
     semantic_hands = [_semantic_hands(frame.hands) for frame in frames]
@@ -884,10 +1166,111 @@ def _aggregate_frames(
             )
         },
         prop=_mean_points(
-            [frame.prop for frame in frames], min_count=minimum_presence
+            [frame.prop for frame in frames],
+            min_count=minimum_presence if prop_minimum_presence is None else prop_minimum_presence,
         ),
         prop_metadata=_canonical_prop_metadata(frames),
     )
+
+
+def _validate_reference(
+    reference: Sequence[FrameSample],
+    required: Sequence[str],
+    hand_sides: Sequence[str],
+    *,
+    index: int,
+    movement_behavior: str,
+) -> None:
+    """Per-reference observability with elapsed-time gaps and specific codes."""
+    quality = {**reference_quality(reference, movement_behavior=movement_behavior),
+               "reference_index": index}
+    timestamps = [frame.timestamp_ms for frame in reference]
+    if any(not isinstance(ts, int) for ts in timestamps) or any(
+        b <= a for a, b in zip(timestamps, timestamps[1:])
+    ):
+        raise ReferenceQualityError(FailureCode.INVALID_TIMESTAMPS, quality)
+    if quality["prop_coverage"] < REFERENCE_MIN_PROP_COVERAGE:
+        raise ReferenceQualityError(FailureCode.INSUFFICIENT_PROP_COVERAGE, quality)
+    if quality["longest_tracking_gap_ms"] > REFERENCE_MAX_PROP_GAP_MS:
+        raise ReferenceQualityError(FailureCode.EXCESSIVE_TRACKING_GAP, quality)
+    checks = [("hands", side) for side in hand_sides] + (
+        [("pose", None)] if "pose" in required else []
+    )
+    for modality, side in checks:
+        if _coverage(reference, modality, hand_side=side)[0] < MIN_COVERAGE:
+            raise ReferenceQualityError(
+                FailureCode.INSUFFICIENT_HAND_COVERAGE if modality == "hands"
+                else FailureCode.MISSING_MODALITY,
+                quality,
+            )
+        gap = _longest_gap_ms(reference, _presence(reference, modality, hand_side=side))
+        if gap > REFERENCE_MAX_GAP_MS:
+            raise ReferenceQualityError(
+                FailureCode.EXCESSIVE_TRACKING_GAP, {**quality, "longest_tracking_gap_ms": gap},
+            )
+
+
+def _require_dynamic_motion(
+    references: Sequence[Sequence[FrameSample]],
+    required: tuple[str, ...],
+    hand_sides: tuple[str, ...],
+) -> tuple[tuple[str, ...], float, tuple[str, ...]]:
+    """Every dynamic reference needs at least one sustained movement signal.
+
+    A hand-anchored frame hides wrist/arm translation (the hand is its own
+    origin). When the only movement is visible relative to the body and the
+    upper body was tracked reliably, anchor on the shoulders instead of
+    rejecting a genuine arm-led movement.
+    """
+    evidence = [_motion_evidence(r, required, hand_sides) for r in references]
+    if (not all(signals["movement_signals"] for signals, _ in evidence)
+            and "pose" not in required and _pose_reliable(references)):
+        anchored = tuple(sorted((*required, "pose")))
+        alternative = [_motion_evidence(r, anchored, hand_sides) for r in references]
+        if all(signals["movement_signals"] for signals, _ in alternative):
+            required, evidence = anchored, alternative
+    for index, (signals, _) in enumerate(evidence):
+        if not signals["movement_signals"]:
+            raise ReferenceQualityError(FailureCode.NO_MEANINGFUL_MOTION, {
+                **reference_quality(references[index]), **signals, "reference_index": index,
+            })
+    common = set(evidence[0][0]["movement_signals"])
+    for signals, _ in evidence[1:]:
+        common &= set(signals["movement_signals"])
+    if not common:
+        raise ReferenceQualityError(FailureCode.INCONSISTENT_DYNAMIC_REFERENCES, {
+            "movement_signals_by_reference": [s["movement_signals"] for s, _ in evidence],
+        })
+    return required, _median([unit for _, unit in evidence]), tuple(sorted(common))
+
+
+def _require_consistent_dynamic_references(
+    resampled: Sequence[Sequence[FrameSample]],
+    common_moving: Sequence[str],
+    motion_unit: float,
+) -> None:
+    """Examples may differ in speed and detail, not in the learned action.
+
+    After DTW phase alignment, an example whose aligned error is as large as
+    the movement itself (in every shared moving modality) shows a different
+    action. Event/rotation-only evidence has no path to compare here.
+    """
+    modalities = [m for m in common_moving if m in SUPPORTED_MODALITIES]
+    if len(resampled) < 2 or not modalities:
+        return
+    floor = 0.15 * motion_unit
+    for index, other in enumerate(resampled[1:], start=1):
+        consistent = False
+        for modality in modalities:
+            scale = (sequence_motion(resampled[0], modality) + sequence_motion(other, modality)) / 2
+            error = _sequence_distance(resampled[0], other, (modality,))
+            if error <= max(floor, 0.75 * scale):
+                consistent = True
+                break
+        if not consistent:
+            raise ReferenceQualityError(FailureCode.INCONSISTENT_DYNAMIC_REFERENCES, {
+                "reference_index": index, "movement_signals": list(common_moving),
+            })
 
 
 def build_template(
@@ -895,21 +1278,31 @@ def build_template(
     required_modalities: Iterable[str] | None = None,
     *, movement_behavior: str = "dynamic",
 ) -> MovementTemplate:
-    """Build a stable canonical template from at least two valid captures."""
-    if len(references) < 2:
-        raise ValueError(FailureCode.INVALID_REFERENCE_COUNT.value)
+    """Build a canonical template: one held static example, or two dynamic.
+
+    Raises :class:`ReferenceQualityError` (a ``ValueError``) with a specific
+    code and measured values when a reference cannot teach the movement.
+    """
     if movement_behavior not in {"static", "dynamic"}:
         raise ValueError(FailureCode.INVALID_SCHEMA.value)
-    if movement_behavior == "static":
-        holds = []
-        for reference in references:
-            if not reference or reference[-1].timestamp_ms - reference[0].timestamp_ms < STATIC_HOLD_MS:
-                raise ValueError(FailureCode.INSUFFICIENT_FRAMES.value)
-            hold = trailing_hold_window(reference)
-            if len(hold) < MIN_FRAMES:
-                raise ValueError(FailureCode.INSUFFICIENT_FRAMES.value)
-            holds.append(hold)
-        references = tuple(holds)
+    required_count = minimum_references(movement_behavior)
+    if len(references) < required_count:
+        raise ReferenceQualityError(FailureCode.INVALID_REFERENCE_COUNT, {
+            "reference_count": len(references), "required_reference_count": required_count,
+        })
+    static = movement_behavior == "static"
+    minimum_samples = MIN_STATIC_HOLD_SAMPLES if static else MIN_TRACKING_SAMPLES
+    for index, reference in enumerate(references):
+        quality = reference_quality(reference, movement_behavior=movement_behavior)
+        span = quality["sample_duration_ms"]
+        if (len(reference) < MIN_TRACKING_SAMPLES
+                or (static and (span < STATIC_HOLD_MS
+                                or len(trailing_hold_window(reference)) < minimum_samples))):
+            raise ReferenceQualityError(
+                FailureCode.INSUFFICIENT_TRACKING_SAMPLES, {**quality, "reference_index": index},
+            )
+    if static:
+        references = tuple(trailing_hold_window(reference) for reference in references)
     # The caller may require a modality that capture explicitly promised.
     # Its details (including which hand side) are still inferred from samples.
     if required_modalities is not None and not set(required_modalities).issubset(
@@ -920,6 +1313,15 @@ def build_template(
     # Capture readiness guarantees a hand at the start, but intermittent
     # tracking must not turn a hand-led demonstration into a path-only model.
     # A single reliable side is enough; never impose a two-hand requirement.
+    def weakest_hand(index: int | None = None) -> dict[str, Any]:
+        chosen = index if index is not None else min(
+            range(len(references)),
+            key=lambda i: max(_coverage(references[i], "hands", hand_side=side)[0]
+                              for side in ("left", "right")),
+        )
+        return {**reference_quality(references[chosen], movement_behavior=movement_behavior),
+                "reference_index": chosen}
+
     if not hand_sides and (
         (required_modalities is not None and "hands" in required_modalities)
         or any(
@@ -927,7 +1329,7 @@ def build_template(
             for reference in references for frame in reference
         )
     ):
-        raise ValueError(FailureCode.INSUFFICIENT_HAND_COVERAGE.value)
+        raise ReferenceQualityError(FailureCode.INSUFFICIENT_HAND_COVERAGE, weakest_hand())
     # A second side seen throughout every demonstration is technique evidence,
     # even if gaps keep it below the reliable-side threshold. Avoid silently
     # treating that repeated two-hand attempt as a one-hand movement.
@@ -936,16 +1338,25 @@ def build_template(
             _coverage(reference, "hands", hand_side=side)[0] >= 0.30
             for reference in references
         ):
-            raise ValueError(FailureCode.INSUFFICIENT_HAND_COVERAGE.value)
+            raise ReferenceQualityError(FailureCode.INSUFFICIENT_HAND_COVERAGE, weakest_hand())
+    for index, reference in enumerate(references):
+        _validate_reference(
+            reference, required, hand_sides, index=index, movement_behavior=movement_behavior,
+        )
+    common_moving: tuple[str, ...] = ()
+    if static:
+        motion_unit = _median([
+            _units_per_shoulder(r, use_pose_anchor="pose" in required, hand_sides=hand_sides)
+            for r in references
+        ])
+    else:
+        required, motion_unit, common_moving = _require_dynamic_motion(
+            references, required, hand_sides,
+        )
     normalised: list[tuple[FrameSample, ...]] = []
     durations: list[int] = []
     static_endings: list[FrameSample] = []
-    for reference in references:
-        check = validate_sequence(
-            reference, required, required_hand_sides=hand_sides
-        )
-        if not check.valid:
-            raise ValueError(",".join(code.value for code in check.codes))
+    for index, reference in enumerate(references):
         normalised.append(
             normalize_sequence(
                 reference,
@@ -954,16 +1365,21 @@ def build_template(
             )
         )
         durations.append(reference[-1].timestamp_ms - reference[0].timestamp_ms)
-        if movement_behavior == "static":
+        if static:
             ending = static_reference_target(normalised[-1], required)
             if ending is None:
-                raise ValueError("unstable_static_reference")
+                raise ReferenceQualityError(FailureCode.UNSTABLE_STATIC_REFERENCE, {
+                    **reference_quality(reference, movement_behavior="static"),
+                    "reference_index": index,
+                })
             static_endings.append(ending)
-    if movement_behavior == "static":
+    if static:
         target = static_endings[0]
         if any(not static_frame_matches(target, ending, required) for ending in static_endings[1:]):
-            raise ValueError("inconsistent_static_references")
+            raise ReferenceQualityError(FailureCode.INCONSISTENT_STATIC_REFERENCES)
     resampled = [_resample(seq) for seq in normalised]
+    if not static:
+        _require_consistent_dynamic_references(resampled, common_moving, motion_unit)
     medoid_index = min(
         range(len(resampled)),
         key=lambda index: (
@@ -1004,16 +1420,23 @@ def build_template(
                     canonical_duration * index / (CANONICAL_FRAMES - 1)
                 ),
                 minimum_presence=len(references) // 2 + 1,
+                # A brief YOLO loss in one example is filled by another
+                # example at the same phase instead of erasing that phase.
+                prop_minimum_presence=(len(references) + 1) // 2,
             )
         )
     prop_coverage = sum(frame.prop is not None for frame in canonical) / CANONICAL_FRAMES
-    canonical_validation = validate_sequence(
-        canonical, required, required_hand_sides=hand_sides
-    )
-    if not canonical_validation.valid:
-        raise ValueError(
-            ",".join(code.value for code in canonical_validation.codes)
-        )
+    # Same elapsed-time policy as each reference: a short miss leaves a few
+    # unknown canonical frames (resampling never invents landmarks).
+    for modality, side in [("prop_translation", None), *(("hands", s) for s in hand_sides),
+                           *((("pose", None),) if "pose" in required else ())]:
+        present = _presence(canonical, modality, hand_side=side)
+        prop = modality == "prop_translation"
+        if (sum(present) / CANONICAL_FRAMES < (REFERENCE_MIN_PROP_COVERAGE if prop else MIN_COVERAGE)
+                or _longest_gap_ms(canonical, present)
+                > (REFERENCE_MAX_PROP_GAP_MS if prop else REFERENCE_MAX_GAP_MS)):
+            # Every example lost tracking in the same part of the movement.
+            raise ReferenceQualityError(FailureCode.EXCESSIVE_TRACKING_GAP, {"input": modality})
     # Phase timing is learned from the original reference clocks. Detecting
     # contact on interpolated canonical frames shifts event boundaries and can
     # make a correct catch score like a late one.
@@ -1090,7 +1513,13 @@ def build_template(
             "right_hand": "right" in hand_sides,
         },
         canonical_sequence=tuple(canonical),
-        variability_metadata={"duration_std_ms": _std(durations), "reference_count": float(len(references))},
+        variability_metadata={
+            "duration_std_ms": _std(durations),
+            "reference_count": float(len(references)),
+            # Template-frame units per shoulder width; lets live completion
+            # apply the authoring motion thresholds in the same units.
+            "motion_unit": round(motion_unit, 6),
+        },
         prop_events=prop_events,
         rotation_trace=rotation_trace,
         movement_behavior=movement_behavior,
@@ -1210,21 +1639,98 @@ def _modality_error(a: FrameSample, b: FrameSample, modality: str) -> float | No
 def static_frame_matches(
     target: FrameSample, frame: FrameSample, required_modalities: Sequence[str]
 ) -> bool:
-    """Check pose/prop relationship and individual hand shape in normalized space."""
+    """Match a held position in normalized space, ranked by evidence.
+
+    1. Hand/grip shape is compared relative to each wrist so a slightly
+       different hand position cannot hide or fake a different grip.
+    2. Arm pose uses only elbows/wrists; face/hip landmarks never gate.
+    3. The prop must be present and broadly placed; centre jitter is normal.
+    """
     for modality in required_modalities:
-        if modality in {"hands", "pose"}:
-            expected = target.hands if modality == "hands" else target.pose
-            observed = frame.hands if modality == "hands" else frame.pose
-            if expected and len(expected.keys() & observed.keys()) < len(expected) * 0.9:
+        if modality == "hands":
+            expected = target.hands
+            observed = {key: p for key, p in frame.hands.items() if _usable(p)}
+            if expected and len(expected.keys() & observed.keys()) < len(expected) * 0.8:
                 return False
-            if modality == "hands" and any(
-                math.hypot(point.x - observed[key].x, point.y - observed[key].y) > 0.15
-                for key, point in expected.items() if key in observed
-            ):
+            shape, position = _hand_errors(expected, observed)
+            if not shape and not position:
                 return False
-        error = _modality_error(target, frame, modality)
-        if error is None or error > STATIC_STABILITY_TOLERANCE:
-            return False
+            if any(error > STATIC_HAND_KEYPOINT_TOLERANCE for error in shape):
+                return False
+            if position and sum(position) / len(position) > STATIC_HAND_POSITION_TOLERANCE:
+                return False
+        elif modality == "pose":
+            expected = {k: p for k, p in target.pose.items() if k in MEANINGFUL_POSE_KEYS}
+            if not expected:
+                continue  # shoulders only anchor the frame
+            errors = [e for key, point in expected.items()
+                      if (e := _point_distance(point, frame.pose.get(key))) is not None]
+            if len(errors) < math.ceil(len(expected) / 2):
+                return False
+            if sum(errors) / len(errors) > STATIC_POSE_TOLERANCE:
+                return False
+        else:
+            error = _point_distance(target.prop, frame.prop)
+            if error is None or error > STATIC_PROP_TOLERANCE:
+                return False
+    return True
+
+
+def _hand_errors(
+    expected: Mapping[str, Landmark], observed: Mapping[str, Landmark]
+) -> tuple[list[float], list[float]]:
+    """Wrist-relative shape errors and absolute hand-position errors."""
+    shape: list[float] = []
+    position: list[float] = []
+    for side in ("left", "right"):
+        side_expected = {k: p for k, p in expected.items() if _hand_side(k) == side}
+        if not side_expected:
+            continue
+        wrist = f"{side}:0"
+        if wrist in side_expected and wrist in observed and len(side_expected) > 1:
+            ew, ow = side_expected[wrist], observed[wrist]
+            position.append(math.hypot(ew.x - ow.x, ew.y - ow.y))
+            for key, point in side_expected.items():
+                if key != wrist and key in observed:
+                    shape.append(math.hypot(
+                        (point.x - ew.x) - (observed[key].x - ow.x),
+                        (point.y - ew.y) - (observed[key].y - ow.y),
+                    ))
+        else:
+            position.extend(
+                math.hypot(point.x - observed[key].x, point.y - observed[key].y)
+                for key, point in side_expected.items() if key in observed
+            )
+    return shape, position
+
+
+def final_frames_still(
+    hold: Sequence[FrameSample], required_modalities: Sequence[str]
+) -> bool:
+    """The last three normalized observations show the performer stopped.
+
+    Uses hands and arm pose; the prop is only used when neither is required,
+    because YOLO centre jitter is not performer motion.
+    """
+    if len(hold) < 3:
+        return False
+    last = hold[-1]
+    body = [m for m in ("hands", "pose") if m in required_modalities]
+    for frame in hold[-3:-1]:
+        for modality in body or ["prop_translation"]:
+            if modality == "hands":
+                error = _modality_error(last, frame, "hands")
+            elif modality == "pose":
+                errors = [e for key in MEANINGFUL_POSE_KEYS
+                          if (e := _point_distance(last.pose.get(key), frame.pose.get(key))) is not None]
+                if not errors:
+                    continue
+                error = sum(errors) / len(errors)
+            else:
+                error = _point_distance(last.prop, frame.prop)
+            limit = STATIC_PROP_TOLERANCE if modality == "prop_translation" else STATIC_STABILITY_TOLERANCE
+            if error is None or error > limit:
+                return False
     return True
 
 
@@ -1233,12 +1739,12 @@ def static_reference_target(
 ) -> FrameSample | None:
     """Return the stable ending of a normalized static reference hold, if any.
 
-    The last three frames must all match the ending, so a performer still
-    moving at the end is rejected. Elsewhere in the hold an isolated detector
-    mismatch is tolerated, but authoring stays stricter than live assessment
-    (0.85): at most 10% of frames, and never more than one below 20 frames.
-    The ending is the recent frame agreeing with most of the hold, so one
-    noisy final observation does not become the reference position.
+    The last three frames must all match the ending and be still, so a
+    performer still moving at the end is rejected. Elsewhere in the hold
+    isolated detector misses/jitter are tolerated at the same 85% agreement
+    live assessment uses (always at least one miss). The ending is the recent
+    frame agreeing with most of the hold, so one noisy final observation does
+    not become the reference position.
     """
     if len(hold) < 3:
         return None
@@ -1249,7 +1755,8 @@ def static_reference_target(
             best = (sum(matches), candidate, matches)
     _, target, matches = best
     allowed_mismatches = max(1, int(len(hold) * (1 - STATIC_REFERENCE_MATCH_RATIO)))
-    if not all(matches[-3:]) or matches.count(False) > allowed_mismatches:
+    if (not all(matches[-3:]) or matches.count(False) > allowed_mismatches
+            or not final_frames_still(hold, required_modalities)):
         return None
     return target
 

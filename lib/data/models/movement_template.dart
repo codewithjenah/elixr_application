@@ -10,8 +10,22 @@ import 'teacher_activity_assessment.dart';
 class MovementTemplate {
   static const currentSchemaVersion = 3;
   static const currentCaptureVersion = 1;
-  static const minimumReferences = 2;
+
+  /// One held example teaches a static pose; dynamic movements use two
+  /// examples for noise reduction. Mirrors backend `minimum_references`.
+  static const minimumStaticReferences = 1;
+  static const minimumDynamicReferences = 2;
   static const maximumEncodedBytes = 700 * 1024;
+
+  /// Minimum wall-clock clip length. Mirrors backend
+  /// `MIN_REFERENCE_DURATION_MS` (it holds the 800 ms static ending).
+  static const minimumReferenceDuration = Duration(milliseconds: 1000);
+  static const staticHoldDuration = Duration(milliseconds: 800);
+
+  static int minimumReferencesFor(String movementBehavior) =>
+      movementBehavior == 'static'
+      ? minimumStaticReferences
+      : minimumDynamicReferences;
 
   const MovementTemplate({
     required this.schemaVersion,
@@ -41,7 +55,7 @@ class MovementTemplate {
   final Map<String, dynamic>? rotationTrace;
   final String movementBehavior;
 
-  bool get isReady => referenceCount >= minimumReferences;
+  bool get isReady => referenceCount >= minimumReferencesFor(movementBehavior);
 
   bool get requiresRotation => featureCapabilities['prop_rotation'] == true;
 
@@ -157,7 +171,7 @@ class MovementTemplate {
         durationMs <= 0 ||
         durationMs > 120000 ||
         referenceCount == null ||
-        referenceCount < minimumReferences ||
+        referenceCount < minimumReferencesFor(behavior) ||
         referenceCount > 10 ||
         modalities == null ||
         modalities.isEmpty ||

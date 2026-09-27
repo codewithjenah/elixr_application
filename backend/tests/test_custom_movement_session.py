@@ -17,6 +17,7 @@ from assessment.custom_movement.completion import (
     find_movement_start_index,
 )
 from assessment.custom_movement.template_engine import (
+    ReferenceQualityError,
     trailing_hold_window,
     validate_assessment_sequence,
 )
@@ -242,12 +243,18 @@ def test_reference_trim_rebases_samples_and_invalid_edit_preserves_prior_trim():
     draft = session._custom_references[0]
     assert draft.samples[0].timestamp_ms == 0
     assert draft.samples[-1].timestamp_ms == 900
-    result = session.trim_custom_reference(first["reference_id"], 100, 800)
+    result = session.trim_custom_reference(first["reference_id"], 100, 1500)
     assert result["trim_start_ms"] == 100
-    assert [sample.timestamp_ms for sample in draft.effective_samples()] == list(range(0, 800, 100))
-    with pytest.raises(ValueError, match="invalid_trim_range"):
-        session.trim_custom_reference(first["reference_id"], 100, 150)
-    assert (draft.trim_start_ms, draft.trim_end_ms) == (100, 800)
+    assert [sample.timestamp_ms for sample in draft.effective_samples()] == list(range(0, 900, 100))
+    for start, end in ((100, 100), (800, 150), (0, draft.video_duration_ms + 1)):
+        with pytest.raises(ValueError, match="^invalid_trim_range$"):
+            session.trim_custom_reference(first["reference_id"], start, end)
+    # A well-formed but too-short range reports its measured duration.
+    with pytest.raises(ReferenceQualityError, match="reference_duration_too_short") as short:
+        session.trim_custom_reference(first["reference_id"], 100, 700)
+    assert short.value.details["duration_ms"] == 600
+    assert short.value.details["required_duration_ms"] == 1000
+    assert (draft.trim_start_ms, draft.trim_end_ms) == (100, 1500)
     session.trim_custom_reference(first["reference_id"], 0, draft.video_duration_ms)
     assert draft.effective_samples() == draft.samples
     session.close()
