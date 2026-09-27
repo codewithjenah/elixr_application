@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 
 import '../constants/app_colors.dart';
 import 'profile_border_frame.dart';
@@ -14,8 +14,8 @@ import 'profile_border_frame.dart';
 ///    (profile settings crop flow).
 /// 2. [localPreviewPath] — a just-picked file not yet uploaded, when it
 ///    still exists on disk (legacy / compatibility).
-/// 3. [networkImageUrl] — the saved Firebase Cloud Storage avatar, which
-///    works across Windows machines.
+/// 3. [networkImageUrl] — the saved signed URL for the private Supabase
+///    `profile-images` object, which works across Windows machines.
 /// 4. [legacyLocalPath] — a pre-Cloud-Storage local file path, only usable
 ///    on the PC where it was picked.
 /// 5. [initials] rendered over a tinted circle.
@@ -101,7 +101,10 @@ class ProfileAvatarWidget extends StatelessWidget {
             children: [_initialsFallback(), const ProgressRing(strokeWidth: 2)],
           );
         },
-        errorBuilder: (context, error, stackTrace) => _legacyOrFallback(),
+        errorBuilder: (context, error, stackTrace) {
+          logAvatarLoadFailure(networkImageUrl!, error);
+          return _legacyOrFallback();
+        },
       );
     }
 
@@ -138,6 +141,15 @@ class ProfileAvatarWidget extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Debug-only diagnostic for a failed avatar download. Logs the host and
+  /// object path but never the signed-URL query (a bearer token).
+  static void logAvatarLoadFailure(String url, Object error) {
+    if (!kDebugMode) return;
+    final uri = Uri.tryParse(url);
+    final safe = uri == null ? '<unparseable url>' : '${uri.host}${uri.path}';
+    debugPrint('[ProfileAvatar] image load failed: $safe error=$error');
   }
 
   static File? _existingFileOrNull(String? path) {

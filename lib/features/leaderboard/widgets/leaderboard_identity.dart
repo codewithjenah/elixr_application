@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/profile_avatar.dart';
 import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/profile_border.dart';
 
@@ -68,8 +69,10 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
               if (progress == null) return child;
               return _initialsContent(context);
             },
-            errorBuilder: (context, error, stackTrace) =>
-                _initialsContent(context),
+            errorBuilder: (context, error, stackTrace) {
+              ProfileAvatarWidget.logAvatarLoadFailure(trimmedUrl, error);
+              return _initialsContent(context);
+            },
           )
         : _initialsContent(context);
 

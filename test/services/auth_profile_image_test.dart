@@ -146,6 +146,7 @@ class _FakeProfileImageRepository implements ProfileImageRepositoryBase {
   final List<String> deletedPaths = [];
   Object? uploadError;
   Object? deleteError;
+  void Function(String path)? onDelete;
   ProfileImageUploadResult uploadResult = const ProfileImageUploadResult(
     downloadUrl: 'https://storage.example/new.jpg',
     storagePath: 'users/u1/profile/avatar_2.jpg',
@@ -169,6 +170,7 @@ class _FakeProfileImageRepository implements ProfileImageRepositoryBase {
   }) async {
     deleteCallCount++;
     deletedPaths.add(storagePath);
+    onDelete?.call(storagePath);
     if (deleteError != null) throw deleteError!;
   }
 }
@@ -177,6 +179,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
   final List<({String userId, String? profilePictureUrl, bool clearPicture})>
   identityUpdates = [];
   Object? updateError;
+  void Function()? onUpdate;
 
   @override
   Future<void> updatePublicIdentity({
@@ -191,6 +194,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
       profilePictureUrl: profilePictureUrl,
       clearPicture: clearProfilePicture,
     ));
+    onUpdate?.call();
     if (updateError != null) throw updateError!;
   }
 }
@@ -248,6 +252,29 @@ void main() {
       expect(authRepository.lastPictureUpdate, isNull);
       expect(authService.currentUser?.fullName, 'New Name');
     });
+
+    test(
+      'name-only update keeps the current avatar object in Storage',
+      () async {
+        final user = _testUser(
+          profilePictureUrl: 'https://storage.example/current.jpg',
+          profilePictureStoragePath: 'users/u1/profile/avatar_1.jpg',
+        );
+        authRepository.user = user;
+        authService.seedAuthenticatedUser(user);
+
+        await authService.updateProfileDetails(
+          firstName: 'New',
+          lastName: 'Name',
+        );
+
+        expect(imageRepository.deletedPaths, isEmpty);
+        expect(
+          authService.currentUser?.profilePictureUrl,
+          'https://storage.example/current.jpg',
+        );
+      },
+    );
 
     test(
       'successful image update sets url/storage path and notifies listeners',
@@ -407,6 +434,56 @@ void main() {
 
         expect(imageRepository.deleteCallCount, 1);
         expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_1.jpg']);
+      },
+    );
+
+    test(
+      'syncs the public identity before deleting the replaced object',
+      () async {
+        final events = <String>[];
+        final previousUser = _testUser(
+          profilePictureUrl: 'https://storage.example/old.jpg',
+          profilePictureStoragePath: 'users/u1/profile/avatar_1.jpg',
+        );
+        authRepository.user = previousUser;
+        authService.seedAuthenticatedUser(previousUser);
+        publicProfiles.onUpdate = () => events.add('public');
+        imageRepository.onDelete = (path) => events.add('delete:$path');
+
+        await authService.updateProfilePicture(
+          bytes: Uint8List.fromList([1, 2, 3]),
+          contentType: 'image/jpeg',
+        );
+
+        expect(events, ['public', 'delete:users/u1/profile/avatar_1.jpg']);
+      },
+    );
+
+    test(
+      'keeps the replaced object when the public identity sync fails',
+      () async {
+        final previousUser = _testUser(
+          profilePictureUrl: 'https://storage.example/old.jpg',
+          profilePictureStoragePath: 'users/u1/profile/avatar_1.jpg',
+        );
+        authRepository.user = previousUser;
+        authService.seedAuthenticatedUser(previousUser);
+        publicProfiles.updateError = Exception('public profile unavailable');
+
+        await expectLater(
+          authService.updateProfilePicture(
+            bytes: Uint8List.fromList([1, 2, 3]),
+            contentType: 'image/jpeg',
+          ),
+          throwsA(isA<Exception>()),
+        );
+
+        // The public projection may still reference the old object.
+        expect(imageRepository.deletedPaths, isEmpty);
+        expect(
+          authService.currentUser?.profilePictureUrl,
+          'https://storage.example/new.jpg',
+        );
       },
     );
 

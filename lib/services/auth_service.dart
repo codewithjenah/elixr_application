@@ -1637,17 +1637,21 @@ class AuthService extends ChangeNotifier {
     required ProfilePictureUpdate? pictureUpdate,
   }) async {
     final previousStoragePath = previousUser.profilePictureStoragePath;
+    final isRemoval = pictureUpdate?.isRemoval == true;
+    final replacedObjectPath =
+        pictureUpdate != null &&
+            !isRemoval &&
+            previousStoragePath != null &&
+            previousStoragePath.isNotEmpty &&
+            previousStoragePath != pictureUpdate.storagePath
+        ? previousStoragePath
+        : null;
 
-    // Removal clears every visible projection first. This prevents a stale
-    // public URL from briefly restoring the deleted avatar while Storage
-    // cleanup is still in flight. Replacement retains the existing cleanup
-    // ordering and policy.
-    if (pictureUpdate?.isRemoval != true &&
-        previousStoragePath != null &&
-        previousStoragePath.isNotEmpty) {
-      await _bestEffortDeleteImage(userId, previousStoragePath);
-    }
-
+    // Every visible projection is updated before the previous object is
+    // deleted, so no projection can reference a deleted object. On
+    // replacement, the old object is kept whenever a projection may still
+    // reference it (its sync failed); it is orphaned rather than broken.
+    var leaderboardSynced = true;
     try {
       await _leaderboardRepository?.syncPublicProfile(
         userId: userId,
@@ -1656,6 +1660,7 @@ class AuthService extends ChangeNotifier {
         clearProfilePicture: pictureUpdate?.isRemoval ?? false,
       );
     } catch (error, stackTrace) {
+      leaderboardSynced = false;
       if (kDebugMode) {
         debugPrint(
           'Leaderboard public profile sync failed: userId=$userId error=$error',
@@ -1671,19 +1676,26 @@ class AuthService extends ChangeNotifier {
     // so the save is not reported as successful. A later authenticated
     // session will also repair the projection through the existing owner-side
     // projection sync.
+    var publicIdentitySynced = false;
     try {
       await _publicProfileRepository?.updatePublicIdentity(
         userId: userId,
         displayName: _currentUser?.fullName ?? '',
         profilePictureUrl: _currentUser?.profilePictureUrl,
         role: _currentUser?.role,
-        clearProfilePicture: pictureUpdate?.isRemoval ?? false,
+        clearProfilePicture: isRemoval,
       );
+      publicIdentitySynced = true;
     } finally {
-      if (pictureUpdate?.isRemoval == true &&
+      if (isRemoval &&
           previousStoragePath != null &&
           previousStoragePath.isNotEmpty) {
+        // The user asked for the photo to be gone; delete it regardless.
         await _bestEffortDeleteImage(userId, previousStoragePath);
+      } else if (replacedObjectPath != null &&
+          leaderboardSynced &&
+          publicIdentitySynced) {
+        await _bestEffortDeleteImage(userId, replacedObjectPath);
       }
     }
   }
