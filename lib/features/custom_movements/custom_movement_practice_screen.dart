@@ -44,6 +44,7 @@ class CustomMovementPracticeScreen extends StatefulWidget {
     this.webSocket,
     this.onExit,
     this.sessionService,
+    this.classroomAttemptsRemaining,
   });
 
   final CustomMovement movement;
@@ -61,6 +62,11 @@ class CustomMovementPracticeScreen extends StatefulWidget {
   /// Allows routed personal practice to return to its canonical origin without
   /// changing the pop behavior used by assignment and teacher flows.
   final VoidCallback? onExit;
+
+  /// Remaining classroom attempts when this run started; null means
+  /// unlimited. Only gates the local Practice Again affordance - the server
+  /// remains authoritative for the attempt limit.
+  final int? classroomAttemptsRemaining;
 
   @override
   State<CustomMovementPracticeScreen> createState() =>
@@ -105,6 +111,15 @@ class _CustomMovementPracticeScreenState
       'ELIXR could not start practice. Retry the session.';
   static const _assessmentFailureMessage =
       'ELIXR could not complete the assessment. Start another practice attempt.';
+  static const _incompleteResultMessage =
+      'The assessment result was incomplete. Start another practice attempt.';
+  static const _classroomSaveFailureMessage =
+      'Assessment complete, but the classroom result could not be saved. '
+      'Return to the assignment to check your attempts before trying again.';
+
+  /// Upper bound on exit cleanup. Anything still pending afterwards is
+  /// closed by [dispose], which drops the owned backend transport.
+  static const _exitCleanupTimeout = Duration(seconds: 3);
 
   late final WebSocketService _socket;
   late final bool _ownsSocket;
@@ -122,12 +137,15 @@ class _CustomMovementPracticeScreenState
   int _lastCueSequence = 0;
   _CustomPracticePhase _phase = _CustomPracticePhase.preparing;
   bool _busy = false;
+
+  /// Idempotent exit guard, separate from [_busy] so an in-flight operation
+  /// can never block leaving the screen.
+  bool _leaving = false;
   bool _cameraSelectionBusy = false;
   int? _countdown;
-  Map<String, dynamic>? _result;
   _CustomPracticeFailure? _failure;
-  String? _resultSaveWarning;
   String? _sessionToRelease;
+  int? _classroomAttemptsRemaining;
 
   /// One-shot readiness auto-start gate for the current preparation cycle.
   /// Reset only by a new preparation or a recoverable confirm rejection.
@@ -145,6 +163,7 @@ class _CustomMovementPracticeScreenState
     super.initState();
     _ownsSocket = widget.webSocket == null;
     _socket = widget.webSocket ?? WebSocketService();
+    _classroomAttemptsRemaining = widget.classroomAttemptsRemaining;
     unawaited(_prepare());
   }
 
@@ -204,8 +223,6 @@ class _CustomMovementPracticeScreenState
       setState(() {
         _phase = _CustomPracticePhase.preparing;
         _failure = null;
-        _result = null;
-        _resultSaveWarning = null;
         _autoStartConsumed = false;
         _completionEvidenceJpegBytes = null;
         _countdown = null;
@@ -268,6 +285,7 @@ class _CustomMovementPracticeScreenState
   /// backend-authoritative readiness is stable. There is no manual start.
   void _maybeAutoStart() {
     if (!mounted ||
+        _leaving ||
         _autoStartConsumed ||
         _busy ||
         _cameraSelectionBusy ||
@@ -290,8 +308,6 @@ class _CustomMovementPracticeScreenState
       _busy = true;
       _phase = _CustomPracticePhase.countdown;
       _failure = null;
-      _result = null;
-      _resultSaveWarning = null;
     });
     try {
       final confirm = await _socket.sendConfirmReadiness();
@@ -359,7 +375,7 @@ class _CustomMovementPracticeScreenState
   }
 
   Future<void> _finish() async {
-    if (_busy || _phase != _CustomPracticePhase.recording) return;
+    if (_busy || _leaving || _phase != _CustomPracticePhase.recording) return;
     _recordingTimer?.cancel();
     _recordingTimer = null;
     ({
@@ -367,12 +383,11 @@ class _CustomMovementPracticeScreenState
       Uint8List? evidence,
       int durationSeconds,
     })?
-    personalResult;
+    completed;
     setState(() {
       _busy = true;
       _phase = _CustomPracticePhase.processing;
       _failure = null;
-      _resultSaveWarning = null;
     });
     try {
       _requireAccepted(await _socket.sendStopCustomCapture());
@@ -386,89 +401,37 @@ class _CustomMovementPracticeScreenState
           category: _CustomFailureCategory.operation,
         );
       }
-      final percent = (assessment['score_percent'] as num?)?.toDouble();
-      final rawComponents = assessment['component_scores'];
-      final componentScores = <String, double>{};
-      if (rawComponents is Map) {
-        for (final entry in rawComponents.entries) {
-          if (entry.key is String && entry.value is num) {
-            componentScores[entry.key as String] = (entry.value as num)
-                .toDouble();
-          }
-        }
-      }
-      final assignment = widget.assignment;
-      final total = (assessment['total'] as num?)?.toInt();
-      final level = assessment['performance_level'] as String?;
-      if (assignment != null &&
-          (total == null ||
-              level == null ||
+      final snapshot = CustomAssessmentSnapshot.tryFrom(assessment);
+      final classroomIncomplete =
+          widget.assignment != null &&
+          (snapshot?.total == null ||
+              snapshot?.performanceLevel == null ||
               widget.traineeUid == null ||
-              widget.classroomRepository == null)) {
+              widget.classroomRepository == null);
+      if (snapshot == null || classroomIncomplete) {
         throw const _CustomPracticeFailure(
-          message:
-              'The assessment result was incomplete. Start another practice attempt.',
+          message: _incompleteResultMessage,
           category: _CustomFailureCategory.operation,
         );
       }
-      if (assignment == null && percent == null) {
-        throw const _CustomPracticeFailure(
-          message:
-              'The assessment result was incomplete. Start another practice attempt.',
-          category: _CustomFailureCategory.operation,
-        );
-      }
-      if (assignment == null) {
-        final snapshot = CustomAssessmentSnapshot.tryFrom(assessment);
-        if (snapshot == null) {
-          throw const _CustomPracticeFailure(
-            message:
-                'The assessment result was incomplete. Start another practice attempt.',
-            category: _CustomFailureCategory.operation,
-          );
-        }
-        // Freeze this attempt before teardown: persistence and the result
-        // dialog use only this immutable snapshot.
-        personalResult = (
-          assessment: snapshot,
-          evidence: _completionEvidenceJpegBytes,
-          durationSeconds: _elapsedPracticeSeconds(),
-        );
-      }
-
-      String? resultSaveWarning;
-      if (assignment != null) {
-        final scores = componentScores.map(
-          (key, value) => MapEntry(key, value.toInt()),
-        );
-        try {
-          await widget.classroomRepository!.saveCustomMovementAssignmentAttempt(
-            assignment: assignment,
-            traineeId: widget.traineeUid!,
-            total: total!,
-            performanceLevel: level!,
-            componentScores: scores,
-          );
-        } catch (_) {
-          // Assessment succeeded; keep its result visible and report the save issue.
-          resultSaveWarning =
-              'Assessment complete, but the classroom result could not be saved.';
-        }
-      }
+      // Freeze this attempt before teardown: persistence and the result
+      // dialog use only this immutable snapshot, for personal and classroom
+      // runs alike.
+      completed = (
+        assessment: snapshot,
+        evidence: _completionEvidenceJpegBytes,
+        durationSeconds: _elapsedPracticeSeconds(),
+      );
       await _stopSessionBestEffort();
       if (mounted) {
         _clearLiveCue();
         setState(() {
           _phase = _CustomPracticePhase.completed;
           _presentation.value = null;
-          // Only classroom results render inline; personal results open the
-          // modal result dialog below.
-          _result = assignment == null ? null : assessment;
-          _resultSaveWarning = resultSaveWarning;
         });
       }
     } catch (error) {
-      personalResult = null;
+      completed = null;
       await _stopSessionBestEffort();
       if (mounted) {
         _clearLiveCue();
@@ -481,14 +444,23 @@ class _CustomMovementPracticeScreenState
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-    final completed = personalResult;
-    if (completed != null &&
-        mounted &&
-        _phase == _CustomPracticePhase.completed) {
+    final result = completed;
+    if (result == null ||
+        !mounted ||
+        _leaving ||
+        _phase != _CustomPracticePhase.completed) {
+      return;
+    }
+    if (widget.assignment == null) {
       await _presentPersonalResult(
-        assessment: completed.assessment,
-        evidence: completed.evidence,
-        durationSeconds: completed.durationSeconds,
+        assessment: result.assessment,
+        evidence: result.evidence,
+        durationSeconds: result.durationSeconds,
+      );
+    } else {
+      await _presentClassroomResult(
+        assessment: result.assessment,
+        durationSeconds: result.durationSeconds,
       );
     }
   }
@@ -521,10 +493,10 @@ class _CustomMovementPracticeScreenState
       final preferences =
           widget.sessionService ?? context.read<SessionService>();
       var enabled = await preferences.sessionEvidenceEnabled(ownerUid);
-      if (!mounted) return;
+      if (!mounted || _leaving) return;
       if (enabled == null) {
         enabled = await askSessionEvidenceConsent(context);
-        if (!mounted) return;
+        if (!mounted || _leaving) return;
         await preferences.setSessionEvidenceEnabled(
           userId: ownerUid,
           enabled: enabled,
@@ -566,7 +538,68 @@ class _CustomMovementPracticeScreenState
     } finally {
       saveController.dispose();
     }
-    if (!mounted) return;
+    await _handleResultAction(result);
+  }
+
+  /// Persists one completed classroom attempt through the existing
+  /// reference-match contract, then presents it in the shared result dialog.
+  ///
+  /// `save_reference_match_attempt` claims a new attempt slot on every call,
+  /// so it is not idempotent: it runs exactly once and is never retried from
+  /// here. A failed save keeps the result visible and reports the failure.
+  Future<void> _presentClassroomResult({
+    required CustomAssessmentSnapshot assessment,
+    required int durationSeconds,
+  }) async {
+    final saveController = SessionSummarySaveController(
+      save: () =>
+          widget.classroomRepository!.saveCustomMovementAssignmentAttempt(
+            assignment: widget.assignment!,
+            traineeId: widget.traineeUid!,
+            total: assessment.total!,
+            performanceLevel: assessment.performanceLevel!,
+            componentScores: {
+              for (final entry in assessment.componentScores.entries)
+                if (entry.value != null) entry.key: entry.value!,
+            },
+          ),
+    );
+    SessionSummaryResult? result;
+    try {
+      // Settle the single save first so Practice Again reflects the attempt
+      // this run consumed.
+      await saveController.start();
+      if (!mounted || _leaving) return;
+      final saved = saveController.state == SessionSaveState.saved;
+      final remaining = _classroomAttemptsRemaining;
+      if (saved && remaining != null) {
+        setState(
+          () => _classroomAttemptsRemaining = math.max(0, remaining - 1),
+        );
+      }
+      result = await CustomMovementResultDialog.show(
+        context,
+        movementName: widget.movement.name,
+        durationSeconds: durationSeconds,
+        assessment: assessment,
+        saveController: saveController,
+        contextLabel: CustomMovementResultDialog.classroomContextLabel,
+        backLabel: CustomMovementResultDialog.classroomBackLabel,
+        // A failed save may still have committed server-side (lost
+        // response), so the local count is unknown: send the trainee back to
+        // the assignment, which shows the authoritative attempts.
+        showPracticeAgain: saved && _canPracticeAgain,
+        allowSaveRetry: false,
+        saveFailureMessage: _classroomSaveFailureMessage,
+      );
+    } finally {
+      saveController.dispose();
+    }
+    await _handleResultAction(result);
+  }
+
+  Future<void> _handleResultAction(SessionSummaryResult? result) async {
+    if (!mounted || _leaving) return;
     if (result == SessionSummaryResult.tryAgain) {
       await _tryAgain();
     } else {
@@ -574,9 +607,17 @@ class _CustomMovementPracticeScreenState
     }
   }
 
+  /// Classroom runs may start another attempt only while one remains.
+  bool get _canPracticeAgain =>
+      widget.assignment == null ||
+      _classroomAttemptsRemaining == null ||
+      _classroomAttemptsRemaining! > 0;
+
   Future<void> _tryAgain() async {
     if (_busy ||
+        _leaving ||
         _cameraSelectionBusy ||
+        (_phase == _CustomPracticePhase.completed && !_canPracticeAgain) ||
         (_phase != _CustomPracticePhase.completed &&
             _phase != _CustomPracticePhase.failed)) {
       return;
@@ -584,9 +625,7 @@ class _CustomMovementPracticeScreenState
     setState(() {
       _busy = true;
       _phase = _CustomPracticePhase.preparing;
-      _result = null;
       _failure = null;
-      _resultSaveWarning = null;
       _readinessFeedback.value = null;
       _assessmentProgress.value = null;
     });
@@ -799,20 +838,40 @@ class _CustomMovementPracticeScreenState
     }
   }
 
+  /// Leaves the practice screen exactly once.
+  ///
+  /// Never gated on [_busy]: a failed, disconnected, or still-processing
+  /// session must always be escapable. Cleanup is best effort and bounded by
+  /// [_exitCleanupTimeout]; `stopPracticeSession` coalesces with any stop
+  /// already in flight, so repeated exits never send duplicate stops.
   Future<void> _leave() async {
-    if (_busy) return;
-    setState(() => _busy = true);
+    if (_leaving) return;
+    _leaving = true;
     _recordingTimer?.cancel();
     _recordingTimer = null;
     _clearLiveCue();
-    await _stopSessionBestEffort();
-    if (_ownsSocket) await _socket.disconnect();
+    try {
+      await _releaseForExit().timeout(_exitCleanupTimeout);
+    } on TimeoutException {
+      // Navigate anyway; dispose closes whatever is still pending.
+    }
     if (!mounted) return;
     final onExit = widget.onExit;
     if (onExit != null) {
       onExit();
     } else {
       context.pop();
+    }
+  }
+
+  Future<void> _releaseForExit() async {
+    await _stopSessionBestEffort();
+    if (_ownsSocket) {
+      try {
+        await _socket.disconnect();
+      } catch (_) {
+        // A lost connection has already released its backend session.
+      }
     }
   }
 
@@ -833,7 +892,6 @@ class _CustomMovementPracticeScreenState
 
   @override
   Widget build(BuildContext context) {
-    final result = _result;
     final mirrored = context.watch<SettingsService>().cameraMirrored;
     final savedInstructions = widget.movement.description.trim();
     final instruction = savedInstructions.isEmpty
@@ -886,8 +944,7 @@ class _CustomMovementPracticeScreenState
                   isPreparingCamera: isPreparing,
                   accentBorder:
                       isPreparing ||
-                      (_phase == _CustomPracticePhase.setupChecking &&
-                          result == null),
+                      _phase == _CustomPracticePhase.setupChecking,
                   readyAura: _phase == _CustomPracticePhase.countdown,
                   idleTitle: 'Movement Assessment',
                   idleSubtitle: 'Complete setup before the timed assessment.',
@@ -922,7 +979,6 @@ class _CustomMovementPracticeScreenState
                       : _CustomCountdownOverlay(value: _countdown!),
                 );
                 final panel = _buildSessionPanel(
-                  result,
                   instruction: instruction,
                   desktop: desktop,
                 );
@@ -966,8 +1022,7 @@ class _CustomMovementPracticeScreenState
     );
   }
 
-  TrainingSessionPanel _buildSessionPanel(
-    Map<String, dynamic>? result, {
+  TrainingSessionPanel _buildSessionPanel({
     required String instruction,
     required bool desktop,
   }) {
@@ -1008,13 +1063,10 @@ class _CustomMovementPracticeScreenState
         body:
             'ELIXR is comparing this performance with the learned movement pattern.',
       ),
-      _CustomPracticePhase.completed =>
-        result == null
-            ? const TrainingReadyBrief(
-                title: 'Assessment complete',
-                body: 'Your result is shown in the session summary.',
-              )
-            : _CustomAssessmentResult(result: result),
+      _CustomPracticePhase.completed => const TrainingReadyBrief(
+        title: 'Assessment complete',
+        body: 'Your result is shown in the session summary.',
+      ),
       _CustomPracticePhase.failed => TrainingReadyBrief(
         title: 'Practice needs attention',
         body: _failure?.showsCameraRecovery == true
@@ -1022,9 +1074,7 @@ class _CustomMovementPracticeScreenState
             : 'Review the message below, then try again.',
       ),
     };
-    final statusContent = result != null
-        ? _CustomResultStatus(assignment: widget.assignment != null)
-        : _phase == _CustomPracticePhase.processing
+    final statusContent = _phase == _CustomPracticePhase.processing
         ? Row(
             children: [
               const SizedBox(
@@ -1091,14 +1141,16 @@ class _CustomMovementPracticeScreenState
       _CustomPracticePhase.countdown => 'Get Ready…',
       _CustomPracticePhase.recording => 'Completes automatically',
       _CustomPracticePhase.processing => 'Analyzing performance…',
-      _CustomPracticePhase.completed => 'Practice Again',
+      _CustomPracticePhase.completed =>
+        _canPracticeAgain ? 'Practice Again' : 'No attempts remaining',
       _CustomPracticePhase.failed =>
         _failure?.isSetup == true ? 'Retry Setup' : 'Practice Again',
     };
     final canRunAction = !_busy && !_cameraSelectionBusy;
     final action = switch (_phase) {
       _CustomPracticePhase.recording => null,
-      _CustomPracticePhase.completed ||
+      _CustomPracticePhase.completed =>
+        canRunAction && _canPracticeAgain ? _tryAgain : null,
       _CustomPracticePhase.failed => canRunAction ? _tryAgain : null,
       _ => null,
     };
@@ -1170,12 +1222,7 @@ class _CustomMovementPracticeScreenState
               _failure!.message,
               style: AppTheme.bodySecondary.copyWith(color: AppColors.error),
             )
-          : _resultSaveWarning == null
-          ? null
-          : Text(
-              _resultSaveWarning!,
-              style: AppTheme.bodySecondary.copyWith(color: AppColors.warning),
-            ),
+          : null,
       actionArea: TrainingActionArea(
         kind: actionKind,
         startLabel: actionLabel,
@@ -1385,110 +1432,4 @@ class _CustomLiveCueBadge extends StatelessWidget {
       ),
     );
   }
-}
-
-class _CustomAssessmentResult extends StatelessWidget {
-  const _CustomAssessmentResult({required this.result});
-  final Map<String, dynamic> result;
-  @override
-  Widget build(BuildContext context) {
-    final components = result['component_scores'] as Map? ?? const {};
-    final successful = ((result['total'] as num?)?.toInt() ?? 0) >= 7;
-    final accent = successful ? AppColors.success : AppColors.warning;
-    final feedback = (result['feedback'] as List? ?? const [])
-        .whereType<String>();
-    return Container(
-      key: const ValueKey('custom-assessment-result'),
-      padding: const EdgeInsets.all(AppSpacing.sm + 2),
-      decoration: AppTheme.practiceSectionSurface(context, accent: accent),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            successful
-                ? 'SUCCESS · AUTOMATIC ASSESSMENT'
-                : 'NEEDS IMPROVEMENT · AUTOMATIC ASSESSMENT',
-            style: AppTheme.caption.copyWith(
-              color: accent,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .7,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${(result['score_percent'] as num?)?.round() ?? 0}%',
-            style: AppTheme.metric(context, color: AppColors.primary),
-          ),
-          Text(
-            'Rubric ${(result['total'] as num?)?.toInt() ?? 0} / 12 · ${result['performance_level'] ?? ''}',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          for (final entry in components.entries)
-            _ResultLine(
-              label: _componentLabel(entry.key.toString()),
-              value: entry.value,
-            ),
-          for (final message in feedback)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                message,
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  String _componentLabel(String key) => switch (key) {
-    'body_technique' => 'Body technique',
-    'hand_technique' => 'Hand technique',
-    'prop_path' => 'Prop path',
-    'timing' => 'Timing',
-    'control_stability' => 'Control / stability',
-    _ => key,
-  };
-}
-
-class _ResultLine extends StatelessWidget {
-  const _ResultLine({required this.label, required this.value});
-  final String label;
-  final Object? value;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 1),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-        ),
-        Text(
-          '$value',
-          style: AppTheme.caption.copyWith(
-            fontWeight: FontWeight.w700,
-            color: context.elixTextPrimary,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _CustomResultStatus extends StatelessWidget {
-  const _CustomResultStatus({required this.assignment});
-  final bool assignment;
-  @override
-  Widget build(BuildContext context) => Text(
-    assignment
-        ? 'Classroom result saved · No global XP'
-        : 'Personal result only · No global XP',
-    style: AppTheme.bodySecondary.copyWith(color: context.elixTextSecondary),
-  );
 }

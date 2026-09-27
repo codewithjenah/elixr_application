@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -17,6 +19,8 @@ import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/elix_toast.dart';
+import '../../../core/widgets/custom_movement_reference_image.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
@@ -27,6 +31,7 @@ import '../../../data/repositories/activity_learning_material_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../../data/repositories/custom_movement_repository.dart';
 import '../../custom_movements/custom_movement_authoring_screen.dart';
+import '../../custom_movements/custom_movement_delete_dialog.dart';
 import '../../custom_movements/custom_movement_practice_screen.dart';
 import '../../movements/movements_presentation.dart';
 import '../../learning/movement_lesson_content.dart';
@@ -307,16 +312,7 @@ class _TabBody extends StatelessWidget {
     }
     return switch (controller.tab) {
       TeacherMovementsTab.official => _OfficialList(controller: controller),
-      TeacherMovementsTab.mine => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _TeacherAutomaticMovementsSection(
-            controller: controller,
-            ownerUid: controller.teacherId,
-          ),
-          Expanded(child: _MyMovementsList(controller: controller)),
-        ],
-      ),
+      TeacherMovementsTab.mine => _MyMovementsList(controller: controller),
     };
   }
 }
@@ -333,7 +329,13 @@ Future<void> _showCreateAutomaticMovement(BuildContext context) async {
   );
 }
 
-class _TeacherAutomaticMovementsSection extends StatelessWidget {
+/// Narrowest Teacher custom movement card; keeps all four actions usable.
+const double _teacherCustomMovementCardMinWidth = 300;
+
+/// Teacher-owned automatic reference movements, rendered with the same card
+/// language as the trainee My Movements library. This section does not
+/// scroll: it is one sliver of the My activities scroll view.
+class _TeacherAutomaticMovementsSection extends StatefulWidget {
   const _TeacherAutomaticMovementsSection({
     required this.controller,
     required this.ownerUid,
@@ -342,147 +344,400 @@ class _TeacherAutomaticMovementsSection extends StatelessWidget {
   final TeacherMovementsController controller;
   final String ownerUid;
 
-  Future<CustomMovementRevision?> _revisionFor(
-    CustomMovementRepository repository,
-    CustomMovement movement,
-  ) => repository.getRevision(
-    movementId: movement.id,
-    revisionId: movement.activeRevisionId,
-  );
+  @override
+  State<_TeacherAutomaticMovementsSection> createState() =>
+      _TeacherAutomaticMovementsSectionState();
+}
+
+class _TeacherAutomaticMovementsSectionState
+    extends State<_TeacherAutomaticMovementsSection> {
+  CustomMovementRepository? _repository;
+  Stream<List<CustomMovement>>? _movements;
 
   @override
-  Widget build(BuildContext context) {
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     // Older embedders and focused tests can supply the existing teacher
     // controller without opting into the additive custom-movement feature.
     final repository = context.read<CustomMovementRepository?>();
-    if (repository == null) return const SizedBox.shrink();
+    if (!identical(repository, _repository)) {
+      _repository = repository;
+      _movements = repository?.watchOwnedMovements(ownerUid: widget.ownerUid);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_TeacherAutomaticMovementsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ownerUid != widget.ownerUid) {
+      _movements = _repository?.watchOwnedMovements(ownerUid: widget.ownerUid);
+    }
+  }
+
+  Future<CustomMovementRevision?> _revisionFor(CustomMovement movement) =>
+      _repository!.getRevision(
+        movementId: movement.id,
+        revisionId: movement.activeRevisionId,
+      );
+
+  Future<void> _test(CustomMovement movement) async {
+    final repository = _repository!;
+    final revision = await _revisionFor(movement);
+    if (!mounted || revision == null) return;
+    await Navigator.of(context).push(
+      FluentPageRoute<void>(
+        builder: (_) => CustomMovementPracticeScreen(
+          movement: movement,
+          revision: revision,
+          repository: repository,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _edit(CustomMovement movement) async {
+    final repository = _repository!;
+    final revision = await _revisionFor(movement);
+    if (!mounted || revision == null) return;
+    await CustomMovementAuthoringScreen.show(
+      context,
+      ownerUid: widget.ownerUid,
+      ownerRole: CustomMovementOwnerRole.teacher,
+      repository: repository,
+      existing: movement,
+      existingRevision: revision,
+    );
+  }
+
+  Future<void> _assign(CustomMovement movement) async {
+    final revision = await _revisionFor(movement);
+    if (!mounted || revision == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _AutomaticMovementAssignmentDialog(
+        controller: widget.controller,
+        movement: movement,
+        revision: revision,
+      ),
+    );
+  }
+
+  /// Archive-only owner delete. Assignment snapshots and results keep their
+  /// pinned revision; the active library updates from the owned stream.
+  Future<void> _delete(CustomMovement movement) async {
+    // Never offer a destructive action for another user's movement.
+    if (!movement.isOwnedBy(widget.ownerUid)) return;
+    final deleted = await CustomMovementDeleteDialog.show(
+      context,
+      movement: movement,
+      ownerUid: widget.ownerUid,
+      repository: _repository!,
+      message:
+          '"${movement.name}" will be removed from your active movement '
+          'library. Existing assignment and result history will be kept.',
+      keyPrefix: 'teacher-custom-movement-delete',
+    );
+    if (!mounted || !deleted) return;
+    ElixToast.showSuccess(
+      context,
+      message: '${movement.name} was deleted from your activities.',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = _movements;
+    if (stream == null) return const SizedBox.shrink();
     return StreamBuilder<List<CustomMovement>>(
-      stream: repository.watchOwnedMovements(ownerUid: ownerUid),
+      stream: stream,
       builder: (context, snapshot) {
-        final movements = snapshot.data ?? const <CustomMovement>[];
+        final movements = (snapshot.data ?? const <CustomMovement>[])
+            .where(
+              (movement) =>
+                  movement.isActive && movement.isOwnedBy(widget.ownerUid),
+            )
+            .toList(growable: false);
         if (movements.isEmpty) return const SizedBox.shrink();
+        final canAssign = widget.controller.activeGroups.isNotEmpty;
         return Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
             AppSpacing.sm,
             AppSpacing.lg,
-            AppSpacing.md,
+            AppSpacing.lg,
           ),
-          child: ElixPanelCard(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Automatic reference movements',
-                  style: AppTheme.headingMedium.copyWith(
-                    color: context.elixTextPrimary,
-                  ),
+          child: Column(
+            key: const ValueKey('teacher-automatic-movements'),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Automatic reference movements',
+                style: AppTheme.headingMedium.copyWith(
+                  color: context.elixTextPrimary,
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (final movement in movements)
-                      Container(
-                        padding: const EdgeInsets.all(AppSpacing.sm),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: context.elixBorder),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 180),
-                              child: Text(
-                                movement.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Button(
-                              onPressed: () async {
-                                final revision = await _revisionFor(
-                                  repository,
-                                  movement,
-                                );
-                                if (!context.mounted || revision == null) {
-                                  return;
-                                }
-                                await Navigator.of(context).push(
-                                  FluentPageRoute<void>(
-                                    builder: (_) =>
-                                        CustomMovementPracticeScreen(
-                                          movement: movement,
-                                          revision: revision,
-                                          repository: repository,
-                                        ),
-                                  ),
-                                );
-                              },
-                              child: const Text('Test'),
-                            ),
-                            const SizedBox(width: 6),
-                            Button(
-                              onPressed: () async {
-                                final revision = await _revisionFor(
-                                  repository,
-                                  movement,
-                                );
-                                if (!context.mounted || revision == null) {
-                                  return;
-                                }
-                                await CustomMovementAuthoringScreen.show(
-                                  context,
-                                  ownerUid: ownerUid,
-                                  ownerRole: CustomMovementOwnerRole.teacher,
-                                  repository: repository,
-                                  existing: movement,
-                                  existingRevision: revision,
-                                );
-                              },
-                              child: const Text('Edit'),
-                            ),
-                            const SizedBox(width: 6),
-                            FilledButton(
-                              onPressed: controller.activeGroups.isEmpty
-                                  ? null
-                                  : () async {
-                                      final revision = await _revisionFor(
-                                        repository,
-                                        movement,
-                                      );
-                                      if (!context.mounted ||
-                                          revision == null) {
-                                        return;
-                                      }
-                                      await showDialog<void>(
-                                        context: context,
-                                        builder: (_) =>
-                                            _AutomaticMovementAssignmentDialog(
-                                              controller: controller,
-                                              movement: movement,
-                                              revision: revision,
-                                            ),
-                                      );
-                                    },
-                              child: const Text('Assign'),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Scored automatically against your recorded reference.',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = AppSpacing.md;
+                  final columns = math.max(
+                    1,
+                    ((constraints.maxWidth + spacing) /
+                            (_teacherCustomMovementCardMinWidth + spacing))
+                        .floor(),
+                  );
+                  final width =
+                      (constraints.maxWidth - spacing * (columns - 1)) /
+                      columns;
+                  final height = _cardExtent(context, base: 250, growth: 110);
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: [
+                      for (final movement in movements)
+                        SizedBox(
+                          width: width,
+                          height: height,
+                          child: _TeacherCustomMovementCard(
+                            movement: movement,
+                            onTest: () => _test(movement),
+                            onEdit: () => _edit(movement),
+                            onAssign: canAssign
+                                ? () => _assign(movement)
+                                : null,
+                            onDelete: () => _delete(movement),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
         );
       },
     );
   }
+}
+
+/// Teacher counterpart of the trainee My Movements card: same visual
+/// structure, Teacher actions, and no fabricated personal progress.
+class _TeacherCustomMovementCard extends StatelessWidget {
+  const _TeacherCustomMovementCard({
+    required this.movement,
+    required this.onTest,
+    required this.onEdit,
+    required this.onAssign,
+    required this.onDelete,
+  });
+
+  final CustomMovement movement;
+  final VoidCallback onTest;
+  final VoidCallback onEdit;
+  final VoidCallback? onAssign;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = movement.id;
+    return Semantics(
+      container: true,
+      label: 'Automatic reference movement: ${movement.name}',
+      child: Card(
+        key: ValueKey('teacher-custom-movement-card-$id'),
+        padding: EdgeInsets.zero,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 76,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(
+                      alpha: context.isDarkTheme ? 0.15 : 0.09,
+                    ),
+                    border: Border(
+                      bottom: BorderSide(
+                        color: context.isHighContrast
+                            ? context.elixBorder
+                            : AppColors.primary.withValues(alpha: 0.16),
+                      ),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
+                    child: Row(
+                      children: [
+                        CustomMovementReferenceImage(
+                          movementName: movement.name,
+                          prop: movement.propType,
+                          size: 62,
+                          storagePath: movement.referenceImageStoragePath,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            movement.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: FluentTheme.of(context).typography.subtitle,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'CUSTOM',
+                            style: AppTheme.caption.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: 4,
+                        children: [
+                          _CustomMovementMetaChip(
+                            icon: FluentIcons.speed_high,
+                            label: movement.difficulty,
+                          ),
+                          _CustomMovementMetaChip(
+                            icon: FluentIcons.diet_plan_notebook,
+                            label: movement.propType.displayLabel,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          movement.description.isEmpty
+                              ? 'Execution instructions are missing. Edit this movement to add guidance.'
+                              : movement.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.bodySecondary.copyWith(
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 4,
+                            child: Tooltip(
+                              message: onAssign == null
+                                  ? 'Create an active class to assign this movement.'
+                                  : 'Assign to a class',
+                              child: FilledButton(
+                                key: ValueKey(
+                                  'teacher-custom-movement-assign-$id',
+                                ),
+                                onPressed: onAssign,
+                                child: const Text('Assign'),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            flex: 3,
+                            child: Button(
+                              key: ValueKey('teacher-custom-movement-test-$id'),
+                              onPressed: onTest,
+                              child: const Text('Test'),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            flex: 3,
+                            child: Button(
+                              key: ValueKey('teacher-custom-movement-edit-$id'),
+                              onPressed: onEdit,
+                              child: const Text('Edit'),
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          Tooltip(
+                            message: 'Delete movement',
+                            child: IconButton(
+                              key: ValueKey(
+                                'teacher-custom-movement-delete-$id',
+                              ),
+                              icon: Icon(
+                                FluentIcons.delete,
+                                semanticLabel: 'Delete ${movement.name}',
+                                color: context.elixColors.textSecondary,
+                              ),
+                              onPressed: onDelete,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomMovementMetaChip extends StatelessWidget {
+  const _CustomMovementMetaChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: context.elixCardSurface,
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: context.elixBorder),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: context.elixTextSecondary),
+        const SizedBox(width: 5),
+        Text(label, style: AppTheme.caption),
+      ],
+    ),
+  );
 }
 
 class _AutomaticMovementAssignmentDialog extends StatefulWidget {
@@ -772,51 +1027,74 @@ class _MyMovementsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (controller.myMovements.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: ElixStatusPanel(
-          title: 'Build your first Activity',
-          message:
-              'No activities yet. Create one to assign a teacher-reviewed exercise.',
-          icon: FluentIcons.add,
-          actionLabel: 'Create activity',
-          onAction: controller.busy
-              ? null
-              : () => _showCreateOrEditMovement(context, controller),
-        ),
-      );
-    }
+    // One scroll view for the whole tab: the automatic movement cards and the
+    // Teacher Activity grid scroll together instead of competing for height.
     return LayoutBuilder(
       builder: (context, constraints) => ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: GridView.builder(
+        child: CustomScrollView(
           clipBehavior: Clip.hardEdge,
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            4,
-            AppSpacing.lg,
-            AppSpacing.lg,
-          ),
-          itemCount: controller.myMovements.length,
-          gridDelegate: BalancedSliverGridDelegate(
-            crossAxisCount: elixrActivityGridTrackCapacityFor(
-              // GridView applies this horizontal padding inside the available
-              // constraints, so calculate only the tracks that its content
-              // width can safely accommodate.
-              availableWidth: constraints.maxWidth - (AppSpacing.lg * 2),
-              spacing: AppSpacing.md,
+          slivers: [
+            SliverToBoxAdapter(
+              child: _TeacherAutomaticMovementsSection(
+                controller: controller,
+                ownerUid: controller.teacherId,
+              ),
             ),
-            childCount: controller.myMovements.length,
-            maxSingleCardWidth: 460,
-            mainAxisExtent: _cardExtent(context, base: 450, growth: 200),
-            crossAxisSpacing: AppSpacing.md,
-            mainAxisSpacing: AppSpacing.md,
-          ),
-          itemBuilder: (context, index) => _CustomMovementCard(
-            movement: controller.myMovements[index],
-            controller: controller,
-          ),
+            if (controller.myMovements.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: ElixStatusPanel(
+                    title: 'Build your first Activity',
+                    message:
+                        'No activities yet. Create one to assign a teacher-reviewed exercise.',
+                    icon: FluentIcons.add,
+                    actionLabel: 'Create activity',
+                    onAction: controller.busy
+                        ? null
+                        : () => _showCreateOrEditMovement(context, controller),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  4,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                ),
+                sliver: SliverGrid(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) => _CustomMovementCard(
+                      movement: controller.myMovements[index],
+                      controller: controller,
+                    ),
+                    childCount: controller.myMovements.length,
+                  ),
+                  gridDelegate: BalancedSliverGridDelegate(
+                    crossAxisCount: elixrActivityGridTrackCapacityFor(
+                      // The sliver padding is applied inside the available
+                      // constraints, so calculate only the tracks that its
+                      // content width can safely accommodate.
+                      availableWidth:
+                          constraints.maxWidth - (AppSpacing.lg * 2),
+                      spacing: AppSpacing.md,
+                    ),
+                    childCount: controller.myMovements.length,
+                    maxSingleCardWidth: 460,
+                    mainAxisExtent: _cardExtent(
+                      context,
+                      base: 450,
+                      growth: 200,
+                    ),
+                    crossAxisSpacing: AppSpacing.md,
+                    mainAxisSpacing: AppSpacing.md,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

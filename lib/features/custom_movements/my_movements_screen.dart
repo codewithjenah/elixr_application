@@ -8,16 +8,14 @@ import '../../core/constants/app_colors.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_back_button.dart';
-import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_toast.dart';
-import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/custom_movement_reference_image.dart';
 import '../../data/models/custom_movement.dart';
-import '../../data/models/custom_movement_save_diagnostics.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../services/auth_service.dart';
 import 'custom_movement_authoring_screen.dart';
+import 'custom_movement_delete_dialog.dart';
 
 class MyMovementsScreen extends StatelessWidget {
   const MyMovementsScreen({super.key});
@@ -277,11 +275,14 @@ class _MovementCardState extends State<_MovementCard> {
   }
 
   Future<void> _delete() async {
-    final deleted = await _DeleteMovementDialog.show(
+    final deleted = await CustomMovementDeleteDialog.show(
       context,
       movement: widget.movement,
       ownerUid: widget.ownerUid,
       repository: widget.repository,
+      message:
+          'Delete ${widget.movement.name}? This movement will be removed from My Movements. This action cannot be undone.',
+      keyPrefix: 'my-movement-delete',
     );
     if (!mounted || !deleted) return;
     ElixToast.showSuccess(
@@ -495,112 +496,4 @@ class _MovementMetadataChip extends StatelessWidget {
       ],
     ),
   );
-}
-
-class _DeleteMovementDialog extends StatefulWidget {
-  const _DeleteMovementDialog({
-    required this.movement,
-    required this.ownerUid,
-    required this.repository,
-  });
-
-  final CustomMovement movement;
-  final String ownerUid;
-  final CustomMovementRepository repository;
-
-  static Future<bool> show(
-    BuildContext context, {
-    required CustomMovement movement,
-    required String ownerUid,
-    required CustomMovementRepository repository,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _DeleteMovementDialog(
-        movement: movement,
-        ownerUid: ownerUid,
-        repository: repository,
-      ),
-    );
-    return result == true;
-  }
-
-  @override
-  State<_DeleteMovementDialog> createState() => _DeleteMovementDialogState();
-}
-
-class _DeleteMovementDialogState extends State<_DeleteMovementDialog> {
-  bool _deleting = false;
-  String? _error;
-
-  Future<void> _delete() async {
-    if (_deleting) return;
-    setState(() {
-      _deleting = true;
-      _error = null;
-    });
-    try {
-      await widget.repository.deleteOwnedMovement(
-        movementId: widget.movement.id,
-        ownerUid: widget.ownerUid,
-      );
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop(true);
-    } on Object catch (error, stackTrace) {
-      emitCustomMovementDeleteDiagnostic(error: error, stackTrace: stackTrace);
-      if (!mounted) return;
-      setState(() {
-        _deleting = false;
-        _error = customMovementDeleteFailureMessage(error);
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ElixDialog(
-      title: 'Delete movement?',
-      icon: FluentIcons.delete,
-      iconColor: context.elixColors.error,
-      headerAccentColor: context.elixColors.error,
-      showCloseButton: !_deleting,
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Delete ${widget.movement.name}? This movement will be removed from My Movements. This action cannot be undone.',
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            InfoBar(
-              title: const Text('Could not delete movement'),
-              content: Text(_error!),
-              severity: InfoBarSeverity.error,
-            ),
-          ],
-        ],
-      ),
-      actions: [
-        ElixPrimaryButton(
-          key: const ValueKey('my-movement-delete-cancel'),
-          label: 'Cancel',
-          expanded: false,
-          variant: ElixButtonVariant.secondary,
-          onPressed: _deleting
-              ? null
-              : () => Navigator.of(context, rootNavigator: true).pop(false),
-        ),
-        ElixPrimaryButton(
-          key: const ValueKey('my-movement-delete-confirm'),
-          label: _deleting ? 'Deleting…' : 'Delete',
-          expanded: false,
-          isLoading: _deleting,
-          variant: ElixButtonVariant.destructive,
-          onPressed: _deleting ? null : _delete,
-        ),
-      ],
-    );
-  }
 }

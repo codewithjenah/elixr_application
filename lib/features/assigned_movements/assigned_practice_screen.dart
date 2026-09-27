@@ -213,6 +213,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
           return;
         }
       }
+      int? referenceAttemptsRemaining;
       if (assignment.isReferenceMatched) {
         final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
         final consumedAttempts = attempts
@@ -228,6 +229,9 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
             _error = 'This assignment has no remaining attempts.';
           });
           return;
+        }
+        if (maximumAttempts != null) {
+          referenceAttemptsRemaining = maximumAttempts - consumedAttempts;
         }
       }
       AssignmentAttempt? reservedActivityAttempt;
@@ -330,6 +334,14 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
               traineeUid: traineeId,
               classroomRepository: context
                   .read<ClassroomAssignmentRepository>(),
+              classroomAttemptsRemaining: referenceAttemptsRemaining,
+              // This route is entered with context.go, so there is nothing
+              // to pop: return to the assignment explicitly.
+              onExit: () {
+                if (mounted) {
+                  context.go(AppRoutePaths.assignmentDetail(assignment.id));
+                }
+              },
             );
           });
         case AssignedPracticeDispatch.retiredTemplate:

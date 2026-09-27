@@ -97,9 +97,10 @@ class CustomAssessmentSnapshot {
   }
 }
 
-/// Modal result for personal Custom Movement practice, patterned after the
-/// official [SessionSummarySheet]. It only observes [saveController]; the
-/// practice flow starts the one persistence operation before showing it.
+/// Modal result for Custom Movement practice (personal and classroom),
+/// patterned after the official [SessionSummarySheet]. It only observes
+/// [saveController]; the practice flow starts the one persistence operation
+/// before showing it.
 class CustomMovementResultDialog extends StatelessWidget {
   const CustomMovementResultDialog({
     super.key,
@@ -112,7 +113,16 @@ class CustomMovementResultDialog extends StatelessWidget {
     required this.onPracticeAgain,
     this.saveError,
     this.evidenceJpegBytes,
+    this.contextLabel = personalContextLabel,
+    this.backLabel = personalBackLabel,
+    this.showPracticeAgain = true,
+    this.allowSaveRetry = true,
   });
+
+  static const personalContextLabel = 'Personal practice · No global XP';
+  static const personalBackLabel = 'Back to My Movements';
+  static const classroomContextLabel = 'Classroom assessment · No global XP';
+  static const classroomBackLabel = 'Back to Assignment';
 
   final String movementName;
   final int durationSeconds;
@@ -123,6 +133,13 @@ class CustomMovementResultDialog extends StatelessWidget {
   final VoidCallback onPrimaryAction;
   final VoidCallback onBack;
   final VoidCallback onPracticeAgain;
+  final String contextLabel;
+  final String backLabel;
+  final bool showPracticeAgain;
+
+  /// False when the save operation is not idempotent: a failed save is then
+  /// final for this dialog and the trainee may still leave.
+  final bool allowSaveRetry;
 
   static Future<SessionSummaryResult?> show(
     BuildContext context, {
@@ -131,6 +148,11 @@ class CustomMovementResultDialog extends StatelessWidget {
     required CustomAssessmentSnapshot assessment,
     required SessionSummarySaveController saveController,
     Uint8List? evidenceJpegBytes,
+    String contextLabel = personalContextLabel,
+    String backLabel = personalBackLabel,
+    bool showPracticeAgain = true,
+    bool allowSaveRetry = true,
+    String? saveFailureMessage,
   }) {
     return showDialog<SessionSummaryResult>(
       context: context,
@@ -144,8 +166,10 @@ class CustomMovementResultDialog extends StatelessWidget {
           final saved =
               state == SessionSaveState.saved ||
               state == SessionSaveState.pendingSync;
+          final settled =
+              saved || (state == SessionSaveState.failed && !allowSaveRetry);
           void close(SessionSummaryResult result) {
-            if (!saved) return;
+            if (!settled) return;
             Navigator.of(ctx, rootNavigator: true).pop(result);
           }
 
@@ -158,10 +182,16 @@ class CustomMovementResultDialog extends StatelessWidget {
                   durationSeconds: durationSeconds,
                   assessment: assessment,
                   saveState: state,
-                  saveError: saveController.error,
+                  saveError: state == SessionSaveState.failed
+                      ? saveFailureMessage ?? saveController.error
+                      : saveController.error,
                   evidenceJpegBytes: evidenceJpegBytes,
+                  contextLabel: contextLabel,
+                  backLabel: backLabel,
+                  showPracticeAgain: showPracticeAgain,
+                  allowSaveRetry: allowSaveRetry,
                   onPrimaryAction: () {
-                    if (state == SessionSaveState.failed) {
+                    if (state == SessionSaveState.failed && allowSaveRetry) {
                       unawaited(saveController.retry());
                       return;
                     }
@@ -221,6 +251,7 @@ class CustomMovementResultDialog extends StatelessWidget {
                 children: [
                   _Header(
                     movementName: movementName,
+                    contextLabel: contextLabel,
                     evidenceJpegBytes: evidenceJpegBytes,
                   ),
                   Flexible(
@@ -247,6 +278,9 @@ class CustomMovementResultDialog extends StatelessWidget {
                     onPrimaryAction: onPrimaryAction,
                     onBack: onBack,
                     onPracticeAgain: onPracticeAgain,
+                    backLabel: backLabel,
+                    showPracticeAgain: showPracticeAgain,
+                    allowSaveRetry: allowSaveRetry,
                   ),
                 ],
               ),
@@ -259,9 +293,14 @@ class CustomMovementResultDialog extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.movementName, this.evidenceJpegBytes});
+  const _Header({
+    required this.movementName,
+    required this.contextLabel,
+    this.evidenceJpegBytes,
+  });
 
   final String movementName;
+  final String contextLabel;
   final Uint8List? evidenceJpegBytes;
 
   @override
@@ -314,7 +353,7 @@ class _Header extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Personal practice · No global XP',
+                  contextLabel,
                   style: AppTheme.caption.copyWith(
                     color: context.elixTextSecondary,
                   ),
@@ -553,6 +592,9 @@ class _Actions extends StatelessWidget {
     required this.onPrimaryAction,
     required this.onBack,
     required this.onPracticeAgain,
+    required this.backLabel,
+    required this.showPracticeAgain,
+    required this.allowSaveRetry,
   });
 
   final SessionSaveState saveState;
@@ -560,6 +602,9 @@ class _Actions extends StatelessWidget {
   final VoidCallback onPrimaryAction;
   final VoidCallback onBack;
   final VoidCallback onPracticeAgain;
+  final String backLabel;
+  final bool showPracticeAgain;
+  final bool allowSaveRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -568,25 +613,28 @@ class _Actions extends StatelessWidget {
     final saved =
         saveState == SessionSaveState.saved ||
         saveState == SessionSaveState.pendingSync;
+    final retry = failed && allowSaveRetry;
+    final settled = saved || (failed && !allowSaveRetry);
     final buttons = [
       GameActionButton(
         key: const ValueKey('custom-result-back'),
-        label: 'Back to My Movements',
+        label: backLabel,
         icon: FluentIcons.chrome_back,
-        onPressed: saved ? onBack : null,
+        onPressed: settled ? onBack : null,
         variant: GameActionButtonVariant.secondary,
       ),
-      GameActionButton(
-        key: const ValueKey('custom-result-practice-again'),
-        label: 'Practice Again',
-        icon: FluentIcons.refresh,
-        onPressed: saved ? onPracticeAgain : null,
-        variant: GameActionButtonVariant.secondary,
-      ),
+      if (showPracticeAgain)
+        GameActionButton(
+          key: const ValueKey('custom-result-practice-again'),
+          label: 'Practice Again',
+          icon: FluentIcons.refresh,
+          onPressed: settled ? onPracticeAgain : null,
+          variant: GameActionButtonVariant.secondary,
+        ),
       GameActionButton(
         key: const ValueKey('custom-result-primary-action'),
-        label: failed ? 'Retry Save' : 'Done',
-        icon: failed ? FluentIcons.sync : FluentIcons.check_mark,
+        label: retry ? 'Retry Save' : 'Done',
+        icon: retry ? FluentIcons.sync : FluentIcons.check_mark,
         onPressed: saving ? null : onPrimaryAction,
         isLoading: saving,
       ),

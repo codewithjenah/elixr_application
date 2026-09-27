@@ -1,12 +1,16 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/custom_movement.dart';
+import 'package:elixr_application/data/models/group_assignment.dart';
+import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/movement_template.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
+import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/custom_movement_repository.dart';
 import 'package:elixr_application/features/custom_movements/custom_movement_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
@@ -219,9 +223,19 @@ class _CustomSocket extends WebSocketService {
     return _ack('build_custom_template', referenceCount: acceptedReferences);
   }
 
+  /// When set, stop never resolves until completed (slow backend teardown).
+  Completer<CommandAck>? stopGate;
+
+  /// When set, stop fails immediately (lost backend connection).
+  Object? stopError;
+
   @override
   Future<CommandAck> stopPracticeSession({String? sessionId}) async {
     stopCalls += 1;
+    final gate = stopGate;
+    if (gate != null) return gate.future;
+    final error = stopError;
+    if (error != null) throw error;
     if (rejectNextSessionStop) {
       rejectNextSessionStop = false;
       return _ack('stop', accepted: false);
@@ -313,6 +327,45 @@ class _CustomSocket extends WebSocketService {
 }
 
 class _UnusedRepository extends Fake implements CustomMovementRepository {}
+
+class _ClassroomRepository extends Fake
+    implements ClassroomAssignmentRepository {
+  int saveCalls = 0;
+  bool failSave = false;
+  int? savedTotal;
+  String? savedLevel;
+  Map<String, int>? savedComponents;
+
+  @override
+  Future<void> saveCustomMovementAssignmentAttempt({
+    required GroupAssignment assignment,
+    required String traineeId,
+    required int total,
+    required String performanceLevel,
+    required Map<String, int> componentScores,
+  }) async {
+    saveCalls += 1;
+    savedTotal = total;
+    savedLevel = performanceLevel;
+    savedComponents = componentScores;
+    if (failSave) throw StateError('network down');
+  }
+}
+
+const _referenceAssignment = GroupAssignment(
+  id: 'assignment-ref',
+  teacherId: 'teacher-1',
+  groupId: 'group-1',
+  movementId: 'movement-auto',
+  revisionId: 'revision-auto',
+  origin: MovementOrigin.teacherCreated,
+  assessmentMode: AssessmentMode.referenceMatched,
+  status: GroupAssignmentStatus.active,
+  displayTitle: 'Auto toss',
+  teacherDisplayName: 'Grace Hopper',
+  groupName: 'BSHM 4A',
+  allowedProp: TrainingProp.bottle,
+);
 
 class _RecordingRepository extends Fake implements CustomMovementRepository {
   int savePersonalResultCalls = 0;
@@ -472,6 +525,8 @@ Future<void> _pumpPractice(
   CustomMovementRepository? repository,
   SessionService? sessionService,
   VoidCallback? onExit,
+  ClassroomAssignmentRepository? classroomRepository,
+  int? classroomAttemptsRemaining,
 }) async {
   _useDesktopSurface(tester);
   final movement = _movement();
@@ -485,6 +540,10 @@ Future<void> _pumpPractice(
         webSocket: socket,
         sessionService: sessionService ?? _EvidencePreferences(enabled: false),
         onExit: onExit,
+        assignment: classroomRepository == null ? null : _referenceAssignment,
+        traineeUid: classroomRepository == null ? null : 'trainee-1',
+        classroomRepository: classroomRepository,
+        classroomAttemptsRemaining: classroomAttemptsRemaining,
       ),
     ),
   );
@@ -1347,6 +1406,9 @@ void main() {
       expect(repository.savedSessionIds, ['custom-session-1']);
       expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
       expect(find.text('Session saved'), findsOne);
+      expect(find.text('Personal practice · No global XP'), findsOne);
+      expect(find.text('Back to My Movements'), findsOne);
+      expect(find.text('Classroom assessment · No global XP'), findsNothing);
       expect(find.textContaining('Legacy'), findsNothing);
 
       await tester.tap(
@@ -1573,6 +1635,190 @@ void main() {
       expect(find.text('Cocktail Shaker detected'), findsOne);
       expect(find.text('Bottle detected'), findsNothing);
 
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets(
+    'Teacher-assigned result saves once and opens the classroom result dialog',
+    (tester) async {
+      final socket = _CustomSocket();
+      final classroom = _ClassroomRepository();
+      var exits = 0;
+      await _pumpPractice(
+        tester,
+        socket,
+        classroomRepository: classroom,
+        classroomAttemptsRemaining: 2,
+        onExit: () => exits++,
+      );
+      await _autoStartThroughCountdown(tester, socket);
+      await _completeMovement(tester, socket);
+      // A duplicate completion signal cannot save a second attempt.
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'completed',
+      );
+      await tester.pumpAndSettle();
+
+      expect(classroom.saveCalls, 1);
+      expect(classroom.savedTotal, 10);
+      expect(classroom.savedLevel, 'proficient');
+      expect(classroom.savedComponents, {'Timing': 3, 'Prop path': 2});
+      expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
+      expect(
+        find.byKey(const ValueKey('custom-assessment-result')),
+        findsNothing,
+      );
+      expect(find.text('Auto toss'), findsWidgets);
+      expect(find.text('Classroom assessment · No global XP'), findsOne);
+      expect(find.text('Personal practice · No global XP'), findsNothing);
+      expect(find.text('Back to Assignment'), findsOne);
+      expect(find.text('Back to My Movements'), findsNothing);
+      expect(find.text('83%'), findsOne);
+      expect(find.text('Score 10 / 12'), findsOne);
+      expect(find.text('Proficient'), findsOne);
+      expect(find.text('3 / 3'), findsOne);
+      expect(find.text('•  Good timing'), findsOne);
+      expect(find.text('Session saved'), findsOne);
+      // One attempt remains after this save.
+      expect(
+        find.byKey(const ValueKey('custom-result-practice-again')),
+        findsOne,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('custom-result-back')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(exits, 1);
+      expect(classroom.saveCalls, 1);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets('classroom save failure keeps the result and never re-saves', (
+    tester,
+  ) async {
+    final socket = _CustomSocket();
+    final classroom = _ClassroomRepository()..failSave = true;
+    var exits = 0;
+    await _pumpPractice(
+      tester,
+      socket,
+      classroomRepository: classroom,
+      onExit: () => exits++,
+    );
+    await _autoStartThroughCountdown(tester, socket);
+    await _completeMovement(tester, socket);
+
+    expect(classroom.saveCalls, 1);
+    expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
+    expect(find.text('83%'), findsOne);
+    expect(
+      find.text(
+        'Assessment complete, but the classroom result could not be saved. '
+        'Return to the assignment to check your attempts before trying again.',
+      ),
+      findsOne,
+    );
+    expect(find.textContaining('network down'), findsNothing);
+    // The reference-match save is not idempotent, so it is never retried.
+    expect(find.text('Retry Save'), findsNothing);
+    expect(find.text('Session saved'), findsNothing);
+    // The attempt count is unknown after a failed save; the trainee returns
+    // to the assignment instead of starting another attempt from here.
+    expect(
+      find.byKey(const ValueKey('custom-result-practice-again')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('custom-result-primary-action')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(exits, 1);
+    expect(classroom.saveCalls, 1);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('classroom result hides Practice Again after the last attempt', (
+    tester,
+  ) async {
+    final socket = _CustomSocket();
+    final classroom = _ClassroomRepository();
+    await _pumpPractice(
+      tester,
+      socket,
+      classroomRepository: classroom,
+      classroomAttemptsRemaining: 1,
+      onExit: () {},
+    );
+    await _autoStartThroughCountdown(tester, socket);
+    await _completeMovement(tester, socket);
+
+    expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
+    expect(
+      find.byKey(const ValueKey('custom-result-practice-again')),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('Back still exits after a failed assessment', (tester) async {
+    final socket = _CustomSocket()..rejectStartCustomCapture = true;
+    var exits = 0;
+    await _pumpPractice(tester, socket, onExit: () => exits++);
+    await _autoStartThroughCountdown(tester, socket);
+    expect(find.text('Practice needs attention'), findsOne);
+
+    await tester.tap(find.byKey(const ValueKey('training-header-back')));
+    await tester.pump();
+    expect(exits, 1);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets('Back still exits when the backend connection is lost', (
+    tester,
+  ) async {
+    final socket = _CustomSocket()
+      ..stopError = StateError('WebSocket is not connected');
+    var exits = 0;
+    await _pumpPractice(tester, socket, onExit: () => exits++);
+
+    await tester.tap(find.byKey(const ValueKey('training-header-back')));
+    await tester.pump();
+    expect(exits, 1);
+    await tester.pumpWidget(const SizedBox());
+    await socket.closeTestStreams();
+  });
+
+  testWidgets(
+    'slow teardown cannot trap the trainee and repeated Back exits once',
+    (tester) async {
+      final socket = _CustomSocket()..stopGate = Completer<CommandAck>();
+      var exits = 0;
+      await _pumpPractice(tester, socket, onExit: () => exits++);
+
+      final back = find.byKey(const ValueKey('training-header-back'));
+      await tester.tap(back);
+      await tester.pump();
+      await tester.tap(back);
+      await tester.pump(const Duration(seconds: 1));
+      expect(exits, 0);
+      expect(socket.stopCalls, 1);
+
+      await tester.pump(const Duration(seconds: 3));
+      expect(exits, 1);
+      await tester.tap(back);
+      await tester.pump(const Duration(seconds: 4));
+      expect(exits, 1);
+      expect(socket.stopCalls, 1);
       await tester.pumpWidget(const SizedBox());
       await socket.closeTestStreams();
     },
