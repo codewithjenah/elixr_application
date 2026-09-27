@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
@@ -6,13 +9,20 @@ import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/movement_template.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/custom_movement_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/assigned_movements/assigned_practice_screen.dart';
+import 'package:elixr_application/features/custom_movements/custom_movement_practice_screen.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/camera_device_service.dart';
+import 'package:elixr_application/services/settings_service.dart';
+import 'package:elixr_application/services/websocket_service.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -20,12 +30,223 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class _UnusedAuth extends Fake implements AuthRepositoryBase {}
 
+class _UnusedCustomMovements extends Fake implements CustomMovementRepository {}
+
+class _RouteSettings extends SettingsService {
+  @override
+  bool get cameraMirrored => true;
+
+  @override
+  int? get pendingLegacyCameraIndex => null;
+
+  @override
+  Future<String?> loadSelectedCameraDeviceId() async => null;
+}
+
+class _RouteSocket extends WebSocketService {
+  final stopGate = Completer<CommandAck>();
+  int stopCalls = 0;
+
+  CommandAck _ack(String action) => CommandAck(
+    protocolVersion: 1,
+    requestId: 'route-$action',
+    action: action,
+    accepted: true,
+    sessionId: 'route-session',
+    sessionState: action == 'stop' ? 'idle' : 'readying',
+  );
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  Future<void> connect() async {}
+
+  @override
+  String beginPracticeAttempt() => 'route-session';
+
+  @override
+  Future<CommandAck> sendPrepare({
+    required String movement,
+    required String difficulty,
+    TrainingProp prop = TrainingProp.bottle,
+    String? cameraDeviceId,
+    int? legacyCameraIndex,
+    String? sessionId,
+    bool allowSubmissionRecording = false,
+    TeacherActivityReadinessSpec? readinessSpec,
+    String? sessionMode,
+    List<({String movement, TrainingProp prop})>? allowedMovements,
+    Map<String, dynamic>? customMovementTemplate,
+  }) async => _ack('prepare');
+
+  @override
+  Future<CommandAck> sendBeginReadiness({String? sessionId}) async =>
+      _ack('begin_readiness');
+
+  @override
+  Future<CommandAck> stopPracticeSession({String? sessionId}) {
+    stopCalls++;
+    return stopGate.future;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'assigned Custom Movement Back returns to its exact detail route',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final auth =
+          AuthService(
+            repository: _UnusedAuth(),
+            awaitInitialAuthState: () async {},
+          )..seedAuthenticatedUser(
+            const User(
+              id: 'trainee-1',
+              firstName: 'Ada',
+              lastName: 'Lovelace',
+              email: 'ada@example.com',
+              role: User.roleTrainee,
+            ),
+          );
+      final assignments = InMemoryClassroomAssignmentRepository();
+      final groups = InMemoryGroupRepository();
+      final settings = _RouteSettings();
+      final socket = _RouteSocket();
+      final assignment = GroupAssignment(
+        id: 'assigned-reference-1',
+        teacherId: 'teacher-1',
+        groupId: 'group-1',
+        movementId: 'movement-1',
+        revisionId: 'revision-1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.referenceMatched,
+        status: GroupAssignmentStatus.active,
+        displayTitle: 'Assigned Cascade',
+        teacherDisplayName: 'Grace Hopper',
+        groupName: 'BSHM 4A',
+        allowedProp: TrainingProp.bottle,
+        attemptPolicy: const AssignmentAttemptPolicy.finite(2),
+        movementTemplate: MovementTemplate.tryFrom({
+          'schema_version': 1,
+          'capture_version': 1,
+          'duration_ms': 900,
+          'reference_count': 3,
+          'required_modalities': ['hands', 'prop_translation'],
+          'normalization_metadata': {
+            'anchor': 'shoulder_midpoint',
+            'scale': 'shoulder_width',
+            'mirrored': false,
+          },
+          'feature_capabilities': {
+            'pose': false,
+            'hands': true,
+            'prop_translation': true,
+            'release_catch': false,
+            'prop_rotation': false,
+            'left_hand': true,
+            'right_hand': false,
+          },
+          'canonical_sequence': [
+            {'timestamp_ms': 0, 'pose': <String, dynamic>{}},
+            {'timestamp_ms': 900, 'pose': <String, dynamic>{}},
+          ],
+          'variability_metadata': {'duration_std_ms': 0.0},
+          'prop_events': <Map<String, dynamic>>[],
+        })!,
+      );
+      assignments.assignments[assignment.id] = assignment;
+      groups.seedMembership(
+        GroupMembership(
+          id: GroupMembership.documentId(
+            groupId: assignment.groupId,
+            traineeId: 'trainee-1',
+          ),
+          groupId: assignment.groupId,
+          teacherId: assignment.teacherId,
+          traineeId: 'trainee-1',
+          traineeDisplayName: 'Ada Lovelace',
+          teacherDisplayName: 'Grace Hopper',
+          status: GroupMembershipStatus.approved,
+        ),
+      );
+      final detailPath = AppRoutePaths.assignmentDetail(assignment.id);
+      final router = GoRouter(
+        initialLocation: AppRoutePaths.assignedPractice(assignment.id),
+        routes: [
+          GoRoute(
+            path: '${AppRoutePaths.assignedPracticePrefix}/:assignmentId',
+            builder: (_, state) => AssignedPracticeScreen(
+              assignmentId: state.pathParameters['assignmentId']!,
+              customMovementWebSocket: socket,
+            ),
+          ),
+          GoRoute(
+            path: '${AppRoutePaths.assignedMovements}/:assignmentId',
+            builder: (_, state) => Text(
+              'assignment detail:${state.pathParameters['assignmentId']}',
+            ),
+          ),
+        ],
+      );
+      addTearDown(() {
+        router.dispose();
+        socket.dispose();
+        settings.dispose();
+        auth.dispose();
+        assignments.dispose();
+        groups.dispose();
+      });
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthService>.value(value: auth),
+            Provider<ClassroomAssignmentRepository>.value(value: assignments),
+            Provider<GroupRepository>.value(value: groups),
+            Provider<CustomMovementRepository>.value(
+              value: _UnusedCustomMovements(),
+            ),
+            ChangeNotifierProvider<SettingsService>.value(value: settings),
+            ChangeNotifierProvider<CameraDeviceService>(
+              create: (_) =>
+                  CameraDeviceService(httpGet: (_) async => '{"cameras":[]}'),
+            ),
+          ],
+          child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(CustomMovementPracticeScreen), findsOneWidget);
+      expect(
+        router.routeInformationProvider.value.uri.path,
+        AppRoutePaths.assignedPractice(assignment.id),
+      );
+
+      final back = find.byKey(const ValueKey('training-header-back'));
+      await tester.tap(back);
+      await tester.pump();
+      await tester.tap(back);
+      expect(socket.stopCalls, 1);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(router.routeInformationProvider.value.uri.path, detailPath);
+      expect(find.text('assignment detail:${assignment.id}'), findsOneWidget);
+      expect(socket.stopCalls, 1);
+    },
+  );
 
   testWidgets(
     'historical template assignment stays read-only and never opens the camera',

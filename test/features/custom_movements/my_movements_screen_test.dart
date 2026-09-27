@@ -23,6 +23,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' as shad;
 
 class _UnusedAuthRepository extends Fake implements AuthRepositoryBase {}
 
@@ -43,6 +44,7 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
   bool failDelete = false;
   Object? deleteError;
   Completer<void>? deleteCompleter;
+  Completer<void>? afterDeleteStreamEmitted;
 
   void dispose() => _controller.close();
 
@@ -128,6 +130,7 @@ class _CustomRepository extends Fake implements CustomMovementRepository {
       (movement) => movement.id == movementId && movement.ownerUid == ownerUid,
     );
     _emit();
+    await afterDeleteStreamEmitted?.future;
   }
 
   @override
@@ -224,6 +227,9 @@ Widget _movementsHost({
   ],
   child: FluentApp(
     theme: AppTheme.dark,
+    builder: (context, child) => ElixShadThemeBridge(
+      child: shad.ShadToaster(child: child ?? const SizedBox.shrink()),
+    ),
     home: SizedBox(
       width: 1200,
       height: 900,
@@ -499,6 +505,10 @@ void main() {
 
       expect(repository.deleteCallCount, 0);
       expect(find.text('Own Cascade'), findsOneWidget);
+      expect(
+        find.text('Own Cascade was deleted from My Movements.'),
+        findsNothing,
+      );
 
       await tester.tap(
         find.byKey(const ValueKey('my-movement-delete-actions')),
@@ -512,6 +522,10 @@ void main() {
       expect(repository.deleteCallCount, 1);
       expect(find.text('Own Cascade'), findsNothing);
       expect(find.text('Create your first movement'), findsOneWidget);
+      expect(
+        find.text('Own Cascade was deleted from My Movements.'),
+        findsOneWidget,
+      );
     },
   );
 
@@ -559,6 +573,10 @@ void main() {
       expect(find.text('Could not delete movement'), findsOneWidget);
       expect(find.text('Own Cascade'), findsOneWidget);
       expect(repository.deleteCallCount, 1);
+      expect(
+        find.text('Own Cascade was deleted from My Movements.'),
+        findsNothing,
+      );
     },
   );
 
@@ -600,7 +618,81 @@ void main() {
     );
     expect(find.text('Own Cascade'), findsOneWidget);
     expect(repository.deleteCallCount, 1);
+    expect(
+      find.text('Own Cascade was deleted from My Movements.'),
+      findsNothing,
+    );
   });
+
+  for (final embedded in [false, true]) {
+    testWidgets(
+      '${embedded ? 'embedded' : 'standalone'} library announces deletion after its card disappears',
+      (tester) async {
+        _useDesktopSurface(tester);
+        final auth = _auth();
+        addTearDown(auth.dispose);
+        final removalObserved = Completer<void>();
+        final repository = _CustomRepository([
+          _movement(id: 'vanishing', ownerUid: 'trainee-1'),
+        ])..afterDeleteStreamEmitted = removalObserved;
+        addTearDown(repository.dispose);
+
+        await tester.pumpWidget(
+          embedded
+              ? _movementsHost(auth: auth, repository: repository)
+              : MultiProvider(
+                  providers: [
+                    ChangeNotifierProvider<AuthService>.value(value: auth),
+                    Provider<CustomMovementRepository>.value(value: repository),
+                  ],
+                  child: FluentApp(
+                    theme: AppTheme.dark,
+                    builder: (context, child) => ElixShadThemeBridge(
+                      child: shad.ShadToaster(
+                        child: child ?? const SizedBox.shrink(),
+                      ),
+                    ),
+                    home: const SizedBox(
+                      width: 1200,
+                      height: 800,
+                      child: MyMovementsScreen(),
+                    ),
+                  ),
+                ),
+        );
+        await tester.pumpAndSettle();
+        if (embedded) {
+          await tester.tap(find.byKey(const ValueKey('movement-library-mine')));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(
+          find.byKey(const ValueKey('my-movement-delete-vanishing')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('my-movement-delete-confirm')),
+        );
+        await tester.pump();
+        // The stream removes the card while the repository call is still open.
+        expect(
+          find.byKey(const ValueKey('my-movement-delete-vanishing')),
+          findsNothing,
+        );
+        expect(
+          find.text('Own Cascade was deleted from My Movements.'),
+          findsNothing,
+        );
+
+        removalObserved.complete();
+        await tester.pumpAndSettle();
+        expect(repository.deleteCallCount, 1);
+        expect(
+          find.text('Own Cascade was deleted from My Movements.'),
+          findsOneWidget,
+        );
+      },
+    );
+  }
 
   testWidgets(
     'canonical personal practice returns to Movements with My Movements selected',

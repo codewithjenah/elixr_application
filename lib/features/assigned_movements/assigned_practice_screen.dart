@@ -26,6 +26,7 @@ import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
 import '../../services/auth_service.dart';
 import '../../services/tutorial_progress_service.dart';
+import '../../services/websocket_service.dart';
 
 enum AssignedPracticeDispatch {
   officialGuided,
@@ -95,9 +96,14 @@ String assignedPracticeReservationFailureMessage(Object error) {
 }
 
 class AssignedPracticeScreen extends StatefulWidget {
-  const AssignedPracticeScreen({super.key, required this.assignmentId});
+  const AssignedPracticeScreen({
+    super.key,
+    required this.assignmentId,
+    this.customMovementWebSocket,
+  });
 
   final String assignmentId;
+  final WebSocketService? customMovementWebSocket;
 
   @override
   State<AssignedPracticeScreen> createState() => _AssignedPracticeScreenState();
@@ -335,6 +341,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
               classroomRepository: context
                   .read<ClassroomAssignmentRepository>(),
               classroomAttemptsRemaining: referenceAttemptsRemaining,
+              webSocket: widget.customMovementWebSocket,
               // This route is entered with context.go, so there is nothing
               // to pop: return to the assignment explicitly.
               onExit: () {

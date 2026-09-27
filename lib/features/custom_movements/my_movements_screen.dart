@@ -60,6 +60,23 @@ class MyMovementsLibrary extends StatelessWidget {
     final user = context.watch<AuthService>().currentUser;
     final uid = user?.id;
     final repository = context.read<CustomMovementRepository>();
+    Future<void> deleteMovement(CustomMovement movement) async {
+      final deleted = await CustomMovementDeleteDialog.show(
+        context,
+        movement: movement,
+        ownerUid: uid!,
+        repository: repository,
+        message:
+            'Delete ${movement.name}? This movement will be removed from My Movements. This action cannot be undone.',
+        keyPrefix: 'my-movement-delete',
+      );
+      if (!context.mounted || !deleted) return;
+      ElixToast.showSuccess(
+        context,
+        message: '${movement.name} was deleted from My Movements.',
+      );
+    }
+
     final library = uid == null
         ? const Center(child: Text('Sign in to view your movements.'))
         : StreamBuilder<List<CustomMovement>>(
@@ -143,6 +160,7 @@ class MyMovementsLibrary extends StatelessWidget {
                                 .reduce((a, b) => a > b ? a : b);
                       return _MovementCard(
                         movement: movement,
+                        onDelete: () => deleteMovement(movement),
                         ownerUid: uid,
                         repository: repository,
                         practiceCount: resultsSnapshot.hasData
@@ -239,6 +257,7 @@ Future<void> _createTraineeMovement(BuildContext context, User user) async {
 class _MovementCard extends StatefulWidget {
   const _MovementCard({
     required this.movement,
+    required this.onDelete,
     required this.ownerUid,
     required this.repository,
     required this.practiceCount,
@@ -247,6 +266,7 @@ class _MovementCard extends StatefulWidget {
   });
 
   final CustomMovement movement;
+  final VoidCallback onDelete;
   final String ownerUid;
   final CustomMovementRepository repository;
   final int? practiceCount;
@@ -271,23 +291,6 @@ class _MovementCardState extends State<_MovementCard> {
       repository: widget.repository,
       existing: widget.movement,
       existingRevision: revision,
-    );
-  }
-
-  Future<void> _delete() async {
-    final deleted = await CustomMovementDeleteDialog.show(
-      context,
-      movement: widget.movement,
-      ownerUid: widget.ownerUid,
-      repository: widget.repository,
-      message:
-          'Delete ${widget.movement.name}? This movement will be removed from My Movements. This action cannot be undone.',
-      keyPrefix: 'my-movement-delete',
-    );
-    if (!mounted || !deleted) return;
-    ElixToast.showSuccess(
-      context,
-      message: '${widget.movement.name} was deleted from My Movements.',
     );
   }
 
@@ -457,7 +460,7 @@ class _MovementCardState extends State<_MovementCard> {
                               FluentIcons.delete,
                               color: colors.textSecondary,
                             ),
-                            onPressed: _delete,
+                            onPressed: widget.onDelete,
                           ),
                         ),
                       ],
