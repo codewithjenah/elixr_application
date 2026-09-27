@@ -203,3 +203,88 @@ jobs:
 
       - name: Compile backend Python files
         run: python -m compileall .
+
+  macos_arm64:
+    name: macOS arm64 build and DMG
+    # macos-15 is a GitHub-hosted Apple Silicon (arm64) image.
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Confirm native arm64 host
+        run: test "$(uname -m)" = arm64
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Run Flutter analyzer
+        run: flutter analyze
+
+      - name: Run platform-affected Flutter tests
+        run: >-
+          flutter test
+          test/services/backend_service_test.dart
+          test/services/backend_runtime_test.dart
+          test/services/desktop_google_oauth_flow_test.dart
+          test/services/join_link_service_test.dart
+          test/core/widgets/elixr_video_controller_test.dart
+          test/services/settings_service_persist_test.dart
+
+      - name: Set up Python 3.11 (arm64)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: arm64
+
+      - name: Build backend, app, and DMG
+        env:
+          PYTHON: python3.11
+        run: bash scripts/build_macos_release.sh
+
+      - name: Smoke-test the packaged backend health endpoint
+        run: |
+          BACKEND="build/macos-release/dmg-stage/ELIXR.app/Contents/Resources/backend/elixr_backend"
+          "$BACKEND" --host 127.0.0.1 --port 18765 &
+          pid=$!
+          for i in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:18765/health | grep -q '"ok"'; then
+              echo "health ok after ${i}s"; kill "$pid"; wait "$pid" || true; exit 0
+            fi
+            sleep 1
+          done
+          kill "$pid" || true
+          exit 1
+
+      - name: Launch app and confirm sidecar cleanup
+        run: |
+          APP="build/macos-release/dmg-stage/ELIXR.app"
+          "$APP/Contents/MacOS/ELIXR" &
+          app_pid=$!
+          found=""
+          for i in $(seq 1 90); do
+            if pgrep -P "$app_pid" -f elixr_backend >/dev/null; then found=1; break; fi
+            sleep 1
+          done
+          test -n "$found" || { echo "ELIXR did not start its sidecar"; kill "$app_pid"; exit 1; }
+          kill "$app_pid"; wait "$app_pid" || true
+          for i in $(seq 1 15); do
+            pgrep -f "ELIXR.app/Contents/Resources/backend/elixr_backend" >/dev/null || { echo "sidecar exited"; exit 0; }
+            sleep 1
+          done
+          echo "sidecar still running after app exit"; exit 1
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIXR-macOS-arm64
+          path: build/macos-release/ELIXR-macOS-arm64.dmg
+          if-no-files-found: error

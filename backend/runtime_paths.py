@@ -38,6 +38,10 @@ def model_dir() -> Path:
 def writable_data_root() -> Path:
     """Return a per-user directory suitable for logs and runtime data."""
 
+    if sys.platform == "darwin":
+        # Inside the App Sandbox, HOME is the app's container, so this stays
+        # writable and outside the read-only .app bundle.
+        return Path.home() / "Library" / "Application Support" / APP_DATA_DIR_NAME
     local_app_data = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
     if local_app_data:
         return Path(local_app_data) / APP_DATA_DIR_NAME

@@ -19,7 +19,7 @@ import 'auth_email_callback_server.dart';
 import 'join_link_service.dart';
 import 'trainee_profile_snapshot_store.dart';
 import 'trainee_progression_snapshot_store.dart';
-import 'windows_google_oauth_flow.dart';
+import 'desktop_google_oauth_flow.dart';
 
 /// Account-scoped phrase used as a deliberate-action safeguard in the UI.
 ///
@@ -119,7 +119,7 @@ class AuthService extends ChangeNotifier {
         repository ??
         AuthRepository(
           createMissingProfile: false,
-          googleOAuthFlow: WindowsGoogleOAuthFlow(),
+          googleOAuthFlow: DesktopGoogleOAuthFlow(),
           // Confirmation links return to the loopback callback, which hands
           // the PKCE code back to this app.
           emailRedirectUrl: _verificationRedirectUrl,

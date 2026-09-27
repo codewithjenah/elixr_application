@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../core/constants/music_tracks.dart';
 import '../core/constants/movements.dart';
@@ -152,7 +153,7 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      final file = _settingsFile();
+      final file = await _settingsFile();
       if (await file.exists()) {
         final data =
             jsonDecode(await file.readAsString()) as Map<String, dynamic>;
@@ -604,7 +605,7 @@ class SettingsService extends ChangeNotifier {
   /// even after hot reload left in-memory settings stale.
   Future<String?> loadSelectedCameraDeviceId() async {
     try {
-      final file = _settingsFile();
+      final file = await _settingsFile();
       if (await file.exists()) {
         final data =
             jsonDecode(await file.readAsString()) as Map<String, dynamic>;
@@ -1003,7 +1004,7 @@ class SettingsService extends ChangeNotifier {
 
   Future<bool> _writePayload(Map<String, dynamic> payload) async {
     try {
-      final file = _settingsFile();
+      final file = await _settingsFile();
       await file.parent.create(recursive: true);
       final contents = jsonEncode(payload);
       final writer = _writeSettingsOverride;
@@ -1021,7 +1022,7 @@ class SettingsService extends ChangeNotifier {
   static String _customTrackKey(MusicTrack track) =>
       '${track.id}\u0000${track.displayName}\u0000${track.filePath}';
 
-  File _settingsFile() {
+  Future<File> _settingsFile() async {
     final override = _settingsFileOverride;
     if (override != null) {
       return override;
@@ -1031,6 +1032,13 @@ class SettingsService extends ChangeNotifier {
       if (appData != null) {
         return File('$appData\\Elixr\\$_fileName');
       }
+    }
+    if (Platform.isMacOS) {
+      // The .app bundle and the launch working directory are read-only or
+      // unrelated to the user; Application Support is the writable
+      // per-user location (inside the sandbox container when sandboxed).
+      final support = await getApplicationSupportDirectory();
+      return File('${support.path}/$_fileName');
     }
     return File(_fileName);
   }

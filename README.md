@@ -270,6 +270,34 @@ http://127.0.0.1:8000/cameras
 
 Those URLs are defined in `lib/core/constants/app_constants.dart`.
 
+## Build a macOS (Apple Silicon) DMG
+
+On an arm64 Mac with Xcode, Flutter, and CPython 3.11 (arm64):
+
+```bash
+bash scripts/build_macos_release.sh
+```
+
+This freezes the backend with PyInstaller, builds `flutter build macos
+--release`, places the one-folder backend at
+`ELIXR.app/Contents/Resources/backend/elixr_backend` (the path
+`BackendService` resolves), verifies arm64 slices and bundled models, signs
+inside-out, and writes `build/macos-release/ELIXR-macOS-arm64.dmg`. CI builds
+the same artifact (`ELIXR-macOS-arm64`) on a `macos-15` arm64 runner.
+
+- Without `MACOS_SIGN_IDENTITY` the app is **ad-hoc signed and not
+  notarized**; Gatekeeper warns on other Macs.
+- With `MACOS_SIGN_IDENTITY="Developer ID Application: …"` the app is signed
+  with Hardened Runtime; set `NOTARY_KEYCHAIN_PROFILE` to also notarize and
+  staple.
+
+macOS specifics: capture uses OpenCV's AVFoundation backend (no DirectShow),
+camera identity is `avfoundation:<uniqueID>` (stable across reindexing),
+YOLO runs on ONNX Runtime `CPUExecutionProvider`, and settings live in
+Application Support inside the app's sandbox container. The minimum macOS is
+14.0 (NumPy/PyTorch arm64 wheels). For development, run `backend/` with
+uvicorn on port 8000 and `flutter run -d macos`.
+
 ## Camera discovery and selection
 
 The backend is the only webcam owner. Flutter discovers cameras through the backend and persists the user's choice locally (not in the database).

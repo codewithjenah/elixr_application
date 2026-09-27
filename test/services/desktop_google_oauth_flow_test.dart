@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:elixr_application/services/windows_google_oauth_flow.dart';
+import 'package:elixr_application/services/desktop_google_oauth_flow.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -31,7 +31,7 @@ GoogleBrowserLauncher _returnWith(Map<String, String> params) {
 
 void main() {
   test('returns the PKCE code delivered to the private loopback', () async {
-    final flow = WindowsGoogleOAuthFlow(
+    final flow = DesktopGoogleOAuthFlow(
       browserLauncher: _returnWith({'code': 'one-time-code'}),
     );
 
@@ -41,7 +41,7 @@ void main() {
   });
 
   test('maps provider access denial to the dedicated exception', () async {
-    final flow = WindowsGoogleOAuthFlow(
+    final flow = DesktopGoogleOAuthFlow(
       browserLauncher: _returnWith({'error': 'access_denied'}),
     );
 
@@ -52,7 +52,7 @@ void main() {
   });
 
   test('returns an actionable redirect configuration error', () async {
-    final flow = WindowsGoogleOAuthFlow(
+    final flow = DesktopGoogleOAuthFlow(
       browserLauncher: _returnWith({
         'error': 'invalid_request',
         'error_description': 'redirect url not allowed',
@@ -73,7 +73,7 @@ void main() {
 
   test('ignores requests to paths other than the random callback', () async {
     late Uri callback;
-    final flow = WindowsGoogleOAuthFlow(
+    final flow = DesktopGoogleOAuthFlow(
       timeout: const Duration(seconds: 2),
       browserLauncher: (authorizationUri) async {
         callback = Uri.parse(authorizationUri.queryParameters['redirect_to']!);

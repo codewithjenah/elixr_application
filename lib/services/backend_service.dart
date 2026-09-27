@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../core/constants/app_constants.dart';
 
 /// The active local backend endpoint used by HTTP and WebSocket clients.
@@ -40,21 +42,91 @@ abstract final class BackendRuntime {
   }
 }
 
+/// Desktop hosts that can own a packaged backend sidecar.
+enum BackendHostPlatform { windows, macos, unsupported }
+
+BackendHostPlatform _currentHostPlatform() {
+  if (Platform.isWindows) return BackendHostPlatform.windows;
+  if (Platform.isMacOS) return BackendHostPlatform.macos;
+  return BackendHostPlatform.unsupported;
+}
+
 /// Owns the optional packaged Python backend for this ELIXR process.
 ///
 /// When no sidecar executable is found, this service is a no-op. That is the
 /// development path: the existing manually started backend remains available
 /// on `127.0.0.1:8000`. Only a process started by this instance is stopped.
+///
+/// A macOS release build is always distributed as an `.app` with its sidecar
+/// inside, so a missing sidecar there is reported as a startup error rather
+/// than silently pointing the client at a backend that does not exist.
 class BackendService {
   BackendService({
-    this.startupTimeout = const Duration(seconds: 15),
+    Duration? startupTimeout,
     this.healthTimeout = const Duration(milliseconds: 800),
     this.pollInterval = const Duration(milliseconds: 250),
-  });
+    BackendHostPlatform? hostPlatform,
+    String? resolvedExecutable,
+    bool? requirePackagedBackend,
+  }) : hostPlatform = hostPlatform ?? _currentHostPlatform(),
+       _resolvedExecutable = resolvedExecutable,
+       _requirePackagedBackend = requirePackagedBackend,
+       startupTimeout =
+           startupTimeout ??
+           // First launch of a downloaded macOS app validates the signature
+           // of every bundled native library before the sidecar can import
+           // them; Windows keeps its existing budget.
+           ((hostPlatform ?? _currentHostPlatform()) ==
+                   BackendHostPlatform.macos
+               ? const Duration(seconds: 45)
+               : const Duration(seconds: 15));
 
   final Duration startupTimeout;
   final Duration healthTimeout;
   final Duration pollInterval;
+  final BackendHostPlatform hostPlatform;
+  final String? _resolvedExecutable;
+  final bool? _requirePackagedBackend;
+
+  /// Packaged sidecar locations for [hostPlatform], in lookup order.
+  ///
+  /// These must match the packaging scripts exactly:
+  /// - Windows (`scripts/build_pilot.ps1`): `<app dir>\backend\elixr_backend.exe`
+  /// - macOS (`scripts/build_macos_release.sh`):
+  ///   `ELIXR.app/Contents/Resources/backend/elixr_backend`, resolved from the
+  ///   runner executable at `ELIXR.app/Contents/MacOS/ELIXR`.
+  static List<String> packagedBackendCandidates({
+    required BackendHostPlatform hostPlatform,
+    required String resolvedExecutable,
+  }) {
+    switch (hostPlatform) {
+      case BackendHostPlatform.windows:
+        final appDir = _parentPath(resolvedExecutable, r'\');
+        return <String>[
+          '$appDir\\backend\\elixr_backend.exe',
+          '$appDir\\elixr_backend.exe',
+        ];
+      case BackendHostPlatform.macos:
+        final macOsDir = _parentPath(resolvedExecutable, '/');
+        final contentsDir = _parentPath(macOsDir, '/');
+        return <String>['$contentsDir/Resources/backend/elixr_backend'];
+      case BackendHostPlatform.unsupported:
+        return const <String>[];
+    }
+  }
+
+  static String _parentPath(String path, String separator) {
+    var trimmed = path;
+    while (trimmed.length > 1 && trimmed.endsWith(separator)) {
+      trimmed = trimmed.substring(0, trimmed.length - 1);
+    }
+    // Windows paths may also use forward slashes.
+    final index = separator == r'\'
+        ? trimmed.lastIndexOf(RegExp(r'[\\/]'))
+        : trimmed.lastIndexOf(separator);
+    if (index <= 0) return index == 0 ? separator : '.';
+    return trimmed.substring(0, index);
+  }
 
   Process? _process;
   Future<void>? _startFuture;
@@ -72,11 +144,20 @@ class BackendService {
   }
 
   Future<void> _startInternal() async {
-    if (!Platform.isWindows) return;
+    if (hostPlatform == BackendHostPlatform.unsupported) return;
 
     final executable = _findPackagedExecutable();
     if (executable == null) {
       BackendRuntime.reset();
+      final requirePackaged =
+          _requirePackagedBackend ??
+          (hostPlatform == BackendHostPlatform.macos && kReleaseMode);
+      if (requirePackaged) {
+        BackendRuntime.setStartupError(
+          'The ELIXR vision backend is missing from this installation. '
+          'Reinstall ELIXR from the latest download.',
+        );
+      }
       return;
     }
 
@@ -185,19 +266,13 @@ class BackendService {
   }
 
   File? _findPackagedExecutable() {
-    final applicationDirectory = File(Platform.resolvedExecutable).parent;
-    final candidates = <File>[
-      File(
-        '${applicationDirectory.path}${Platform.pathSeparator}'
-        'backend${Platform.pathSeparator}elixr_backend.exe',
-      ),
-      File(
-        '${applicationDirectory.path}${Platform.pathSeparator}'
-        'elixr_backend.exe',
-      ),
-    ];
+    final candidates = packagedBackendCandidates(
+      hostPlatform: hostPlatform,
+      resolvedExecutable: _resolvedExecutable ?? Platform.resolvedExecutable,
+    );
     for (final candidate in candidates) {
-      if (candidate.existsSync()) return candidate;
+      final file = File(candidate);
+      if (file.existsSync()) return file;
     }
     return null;
   }

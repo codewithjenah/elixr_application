@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:app_links/app_links.dart';
 import 'package:elixr_core/models/coach_code.dart';
 import 'package:flutter/foundation.dart';
-import 'package:win32_registry/win32_registry.dart';
+
+import 'windows_uri_scheme_registration.dart';
 
 class JoinLinkService extends ChangeNotifier {
   JoinLinkService({AppLinks? appLinks}) : _appLinks = appLinks ?? AppLinks();
@@ -24,9 +25,11 @@ class JoinLinkService extends ChangeNotifier {
   Uri? get pendingAuthCallback => _pendingAuthCallback;
 
   Future<void> initialize() async {
+    // macOS declares `elixr://` in the bundle's Info.plist; app_links then
+    // delivers the URL through the same stream below.
     if (Platform.isWindows) {
       try {
-        _registerWindowsScheme();
+        registerWindowsElixrUriScheme();
       } catch (error) {
         if (kDebugMode) {
           debugPrint('Could not register elixr URI scheme: $error');
@@ -83,24 +86,6 @@ class JoinLinkService extends ChangeNotifier {
     if (_pendingCode == null) return;
     _pendingCode = null;
     if (!_disposed) notifyListeners();
-  }
-
-  void _registerWindowsScheme() {
-    final appPath = Platform.resolvedExecutable;
-    const protocolKey = r'Software\Classes\elixr';
-    final root = CURRENT_USER.create(protocolKey);
-    try {
-      root.setValue('', const RegistryValue.string('URL:ELIXR Join Protocol'));
-      root.setValue('URL Protocol', const RegistryValue.string(''));
-      final command = root.create(r'shell\open\command');
-      try {
-        command.setValue('', RegistryValue.string('"$appPath" "%1"'));
-      } finally {
-        command.close();
-      }
-    } finally {
-      root.close();
-    }
   }
 
   @override

@@ -12,7 +12,6 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:video_player_win/video_player_win.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -29,6 +28,7 @@ import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/elix_toast.dart';
+import '../../../core/widgets/elixr_video_controller.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
@@ -1679,9 +1679,7 @@ Future<void> showTeacherActivityAssignmentEditDialogLegacy(
                                             .maximumVideoSizeBytes) {
                                   throw const FormatException('Invalid size');
                                 }
-                                final player = WinVideoPlayerController.file(
-                                  file,
-                                );
+                                final player = ElixrVideoController.file(file);
                                 Duration videoDuration;
                                 try {
                                   await player.initialize();

@@ -1,6 +1,7 @@
-"""Windows camera identity enumeration and runtime-index mapping.
+"""Camera identity enumeration and runtime-index mapping.
 
-Isolates DirectShow device discovery from OpenCV capture. Runtime indices are
+Isolates native device discovery (DirectShow on Windows, AVFoundation on
+macOS) from OpenCV capture. Runtime indices are
 ephemeral OpenCV/DirectShow positions; ``device_id`` is the persisted identity.
 """
 
@@ -15,6 +16,8 @@ logger = logging.getLogger(__name__)
 # Prefix for OpenCV-only fallback identities when native enumeration fails.
 _OPENCV_FALLBACK_PREFIX = "opencv:"
 _DIRECTSHOW_NAME_FALLBACK_PREFIX = "dshow-name:"
+# macOS: AVCaptureDevice.uniqueID, stable across reconnects and reindexing.
+_AVFOUNDATION_PREFIX = "avfoundation:"
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,15 @@ def enumerate_camera_devices() -> list[EnumeratedCamera]:
     On failure or non-Windows platforms, returns an empty list so callers can
     fall back to OpenCV index probing with neutral ``Camera N`` labels.
     """
+    if sys.platform == "darwin":
+        try:
+            return _enumerate_avfoundation_devices()
+        except Exception:
+            logger.exception(
+                "AVFoundation camera enumeration failed; OpenCV index fallback will be used"
+            )
+            return []
+
     if sys.platform != "win32":
         return []
 
@@ -179,6 +191,94 @@ def merge_enumerated_with_usable_indices(
         else:
             merged.append(fallback_device_for_index(index))
     return merged
+
+
+def avfoundation_devices_from_entries(
+    entries: list[tuple[str, str]],
+) -> list[EnumeratedCamera]:
+    """Map ``(uniqueID, localizedName)`` pairs to OpenCV runtime indices.
+
+    Mirrors OpenCV 4.13 ``cap_avfoundation_mac.mm``: the capture index is the
+    position in video + muxed devices sorted by ``uniqueID`` (``NSString
+    compare:``, a literal ordinal comparison). ``uniqueID`` is the persistent
+    AVFoundation identity, so it survives reconnects and reindexing.
+    """
+    ordered = sorted(entries, key=lambda entry: entry[0])
+    return [
+        EnumeratedCamera(
+            device_id=f"{_AVFOUNDATION_PREFIX}{unique_id}",
+            display_name=name or f"Camera {index}",
+            runtime_index=index,
+            identity_stable=True,
+        )
+        for index, (unique_id, name) in enumerate(ordered)
+        if unique_id
+    ]
+
+
+def _enumerate_avfoundation_devices() -> list[EnumeratedCamera]:
+    """List capture devices through the Objective-C runtime (ctypes only).
+
+    Listing devices does not open them and does not require camera
+    authorization; capture itself stays with OpenCV's AVFoundation backend.
+    """
+    import ctypes
+
+    objc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.A.dylib")
+    avfoundation = ctypes.cdll.LoadLibrary(
+        "/System/Library/Frameworks/AVFoundation.framework/AVFoundation"
+    )
+    objc.objc_getClass.restype = ctypes.c_void_p
+    objc.objc_getClass.argtypes = [ctypes.c_char_p]
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    objc.objc_autoreleasePoolPush.restype = ctypes.c_void_p
+    objc.objc_autoreleasePoolPop.argtypes = [ctypes.c_void_p]
+
+    # arm64 objc_msgSend must be called through exact, non-variadic types.
+    address = ctypes.cast(objc.objc_msgSend, ctypes.c_void_p).value
+    send_obj = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(address)
+    send_obj_arg = ctypes.CFUNCTYPE(
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
+    )(address)
+    send_count = ctypes.CFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p, ctypes.c_void_p)(address)
+    send_index = ctypes.CFUNCTYPE(
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong
+    )(address)
+    send_utf8 = ctypes.CFUNCTYPE(ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)(address)
+
+    def sel(name: str) -> int:
+        return objc.sel_registerName(name.encode())
+
+    def text(ns_string: int | None) -> str:
+        if not ns_string:
+            return ""
+        raw = send_utf8(ns_string, sel("UTF8String"))
+        return raw.decode("utf-8", errors="replace") if raw else ""
+
+    device_class = objc.objc_getClass(b"AVCaptureDevice")
+    if not device_class:
+        return []
+
+    pool = objc.objc_autoreleasePoolPush()
+    try:
+        entries: list[tuple[str, str]] = []
+        for media_symbol in ("AVMediaTypeVideo", "AVMediaTypeMuxed"):
+            media_type = ctypes.c_void_p.in_dll(avfoundation, media_symbol).value
+            devices = send_obj_arg(device_class, sel("devicesWithMediaType:"), media_type)
+            if not devices:
+                continue
+            for position in range(send_count(devices, sel("count"))):
+                device = send_index(devices, sel("objectAtIndex:"), position)
+                entries.append(
+                    (
+                        text(send_obj(device, sel("uniqueID"))),
+                        text(send_obj(device, sel("localizedName"))),
+                    )
+                )
+        return avfoundation_devices_from_entries(entries)
+    finally:
+        objc.objc_autoreleasePoolPop(pool)
 
 
 def _enumerate_directshow_devices() -> list[EnumeratedCamera]:

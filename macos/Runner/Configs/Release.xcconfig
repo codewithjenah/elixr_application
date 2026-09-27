@@ -1,0 +1,6 @@
+#include "../../Flutter/Flutter-Release.xcconfig"
+#include "Warnings.xcconfig"
+
+// ELIXR ships a native Apple Silicon build only; the bundled Python
+// backend is frozen for arm64 and has no x86_64 slice.
+ARCHS = arm64

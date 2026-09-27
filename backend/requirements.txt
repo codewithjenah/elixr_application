@@ -11,6 +11,6 @@ onnxruntime-directml==1.23.0; sys_platform == "win32"
 onnxruntime==1.23.2; sys_platform != "win32"
 mediapipe==0.10.9
 matplotlib==3.11.1
-# Windows DirectShow camera identity (FriendlyName + DevicePath). Optional at
-# runtime on non-Windows; discovery falls back to OpenCV indices without it.
-comtypes==1.4.10
+# Windows DirectShow camera identity (FriendlyName + DevicePath). Not used on
+# other hosts: discovery there uses OpenCV index identities (opencv:N).
+comtypes==1.4.10; sys_platform == "win32"

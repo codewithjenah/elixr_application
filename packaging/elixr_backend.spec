@@ -1,5 +1,6 @@
 # PyInstaller one-folder build for the local ELIXR FastAPI/CV sidecar.
 
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import (
@@ -52,15 +53,18 @@ binaries.extend(collect_dynamic_libs("onnxruntime"))
 # their native/runtime pieces. The Torch hook is intentionally retained because
 # the backend can fall back to PyTorch when ONNX is unavailable.
 
-hiddenimports.extend(
-    [
-        "comtypes",
-        "comtypes.client",
-        "comtypes.automation",
-        "comtypes.persist",
-        "comtypes.gen",
-    ]
-)
+if sys.platform == "win32":
+    # DirectShow camera identity only; comtypes is not installed on macOS,
+    # where camera identity comes from AVFoundation through ctypes.
+    hiddenimports.extend(
+        [
+            "comtypes",
+            "comtypes.client",
+            "comtypes.automation",
+            "comtypes.persist",
+            "comtypes.gen",
+        ]
+    )
 hiddenimports.extend(collect_submodules("uvicorn"))
 
 a = Analysis(

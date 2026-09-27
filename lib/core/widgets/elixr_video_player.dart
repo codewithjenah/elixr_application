@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:video_player_win/video_player_win.dart';
 
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import 'elix_status_panel.dart';
+import 'elixr_video_controller.dart';
 
 /// Awaitable native-player release so Windows can delete the MP4 afterward.
 class ElixrPlaybackSession {
@@ -25,7 +25,8 @@ class ElixrPlaybackSession {
   }
 }
 
-/// Windows in-app playback using Media Foundation via `video_player_win`.
+/// In-app playback through [ElixrVideoController]: Media Foundation via
+/// `video_player_win` on Windows, AVFoundation via `video_player` on macOS.
 ///
 /// Submission review playback must pass a local `file:` URI. Do not feed a
 /// Firebase download URL into this widget.
@@ -56,7 +57,7 @@ class ElixrVideoPlayer extends StatefulWidget {
 }
 
 class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
-  WinVideoPlayerController? _controller;
+  ElixrVideoController? _controller;
   String? _error;
   bool _ready = false;
   bool _opening = false;
@@ -162,8 +163,8 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
       return;
     }
     final next = source.isScheme('file') || source.scheme.isEmpty
-        ? WinVideoPlayerController.file(File(source.toFilePath()))
-        : WinVideoPlayerController.networkUrl(source);
+        ? ElixrVideoController.file(File(source.toFilePath()))
+        : ElixrVideoController.networkUrl(source);
     try {
       await next.initialize();
       if (widget.clipStart > Duration.zero) await next.seekTo(widget.clipStart);
@@ -272,7 +273,7 @@ class _ElixrVideoSurface extends StatelessWidget {
     required this.mirrorKey,
   });
 
-  final WinVideoPlayerController controller;
+  final ElixrVideoController controller;
   final bool mirrored;
   final Key mirrorKey;
 
@@ -287,7 +288,7 @@ class _ElixrVideoSurface extends StatelessWidget {
       child: Transform.flip(
         key: mirrorKey,
         flipX: mirrored,
-        child: WinVideoPlayer(controller),
+        child: controller.buildSurface(),
       ),
     );
   }
@@ -302,7 +303,7 @@ class _ElixrVideoControls extends StatefulWidget {
     this.clipEnd,
   });
 
-  final WinVideoPlayerController controller;
+  final ElixrVideoController controller;
   final VoidCallback? onFullscreen;
   final bool isFullscreen;
   final Duration clipStart;
@@ -369,7 +370,7 @@ class _ElixrVideoControlsState extends State<_ElixrVideoControls> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<WinVideoPlayerValue>(
+    return ValueListenableBuilder<ElixrVideoValue>(
       valueListenable: widget.controller,
       builder: (context, value, _) {
         final durationMs = value.duration.inMilliseconds;
@@ -465,7 +466,7 @@ class _FullscreenElixrVideoPlayer extends StatelessWidget {
     required this.onClose,
   });
 
-  final WinVideoPlayerController controller;
+  final ElixrVideoController controller;
   final bool mirrored;
   final Duration clipStart;
   final Duration? clipEnd;

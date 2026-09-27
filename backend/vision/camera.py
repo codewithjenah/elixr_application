@@ -596,7 +596,7 @@ def _capture_profiles(
     *,
     dshow_only: bool = False,
 ) -> list[CaptureProfile]:
-    """Ordered Windows capture profiles.
+    """Ordered capture profiles for the host OS (DirectShow/MSMF on Windows).
 
     Profile order does not classify built-in vs external from the runtime
     index. Every backend/format combination is still attempted; startup
@@ -628,6 +628,17 @@ def _capture_profiles(
         )
         # MJPG first helps many USB cameras; others fall through quickly.
         return [dshow_mjpg, msmf_mjpg, dshow_default, msmf_default]
+
+    if sys.platform == "darwin":
+        # OpenCV's AVFoundation capture ignores CAP_PROP_FOURCC, so an MJPG
+        # variant would only repeat the same open. AVFoundation is the only
+        # native camera API, so ``dshow_only`` (stable identity must not
+        # widen to another API) is already satisfied by this single profile.
+        return [
+            CaptureProfile(
+                cv2.CAP_AVFOUNDATION, "AVFoundation", False, "AVFoundation + default"
+            )
+        ]
 
     return [
         CaptureProfile(None, "Default", False, "Default + default"),

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -86,7 +87,15 @@ Future<void> openActivityLearningMaterialLink(Uri? url) async {
       (url.scheme != 'http' && url.scheme != 'https')) {
     throw const FormatException('Enter a valid HTTP or HTTPS resource link.');
   }
-  await Process.start('explorer.exe', [url.toString()]);
+  if (Platform.isWindows) {
+    await Process.start('explorer.exe', [url.toString()]);
+    return;
+  }
+  // LaunchServices hands the link to the default browser, including from
+  // inside the macOS App Sandbox.
+  if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+    throw StateError('No application could open this link.');
+  }
 }
 
 /// A compact, assignment-scoped Teacher manager. It deliberately does not

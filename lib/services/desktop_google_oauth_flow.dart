@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:flutter/foundation.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 typedef GoogleBrowserLauncher = Future<void> Function(Uri uri);
 
@@ -16,8 +17,8 @@ typedef GoogleBrowserLauncher = Future<void> Function(Uri uri);
 /// with a one-time `code`. The code is useless without the PKCE verifier held
 /// by this app's auth client, and the random path segment keeps other local
 /// processes from guessing the callback.
-class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
-  WindowsGoogleOAuthFlow({
+class DesktopGoogleOAuthFlow implements GoogleOAuthFlow {
+  DesktopGoogleOAuthFlow({
     GoogleBrowserLauncher? browserLauncher,
     this.timeout = const Duration(minutes: 5),
   }) : _browserLauncher = browserLauncher ?? _launchCompatibleBrowser;
@@ -29,9 +30,9 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
   Future<GoogleOAuthCredential> authenticate(
     OAuthAuthorizationUrlBuilder authorizationUrlFor,
   ) async {
-    if (!Platform.isWindows) {
+    if (!Platform.isWindows && !Platform.isMacOS) {
       throw const GoogleOAuthFlowException(
-        'This Google sign-in flow is available only on Windows.',
+        'This Google sign-in flow is available only on Windows and macOS.',
       );
     }
 
@@ -193,6 +194,8 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
   }
 
   static Future<void> _launchCompatibleBrowser(Uri uri) async {
+    if (Platform.isMacOS) return _launchMacOSBrowser(uri);
+
     final environment = Platform.environment;
     final programFilesX86 =
         environment['ProgramFiles(x86)'] ?? environment['PROGRAMFILES(X86)'];
@@ -230,6 +233,22 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
     }
   }
 
+  /// Opens the default browser through LaunchServices (url_launcher), which
+  /// works inside the App Sandbox without spawning a shell command.
+  static Future<void> _launchMacOSBrowser(Uri uri) async {
+    bool launched;
+    try {
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } on Object {
+      launched = false;
+    }
+    if (!launched) {
+      throw const GoogleOAuthFlowException(
+        'ELIXR could not open your default browser. Open a default browser and try again.',
+      );
+    }
+  }
+
   static String _resultPage(String message) {
     final safe = const HtmlEscape().convert(message);
     return '''<!doctype html>
@@ -239,7 +258,7 @@ class WindowsGoogleOAuthFlow implements GoogleOAuthFlow {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign in to ELIXR</title>
   <style>
-    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#101318; color:#f3f5f7; font-family:Segoe UI,sans-serif; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#101318; color:#f3f5f7; font-family:Segoe UI,-apple-system,sans-serif; }
     main { width:min(420px,calc(100% - 48px)); padding:36px; border:1px solid #343b45; border-radius:16px; background:#181d24; text-align:center; box-shadow:0 18px 60px #0008; }
     h1 { letter-spacing:.12em; margin:0 0 12px; }
     p { color:#b9c0ca; line-height:1.5; }

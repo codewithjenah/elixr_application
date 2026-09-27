@@ -5,7 +5,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' as shad;
-import 'package:video_player_win/video_player_win.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -13,6 +12,7 @@ import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/shell/teacher_shell.dart';
+import '../../../core/widgets/elixr_video_controller.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
@@ -348,10 +348,10 @@ class _TeacherMovementBuilderDialogState
         );
       }
 
-      // Media Foundation is the same player used for in-app playback. Opening
+      // The platform player is the same one used for in-app playback. Opening
       // it here verifies the selected file is playable and gives us a trusted
       // duration before anything is uploaded.
-      final player = WinVideoPlayerController.file(file);
+      final player = ElixrVideoController.file(file);
       Duration duration;
       try {
         await player.initialize();

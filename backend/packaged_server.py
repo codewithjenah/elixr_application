@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import os
 import sys
 import threading
+import time
 import traceback
-from ctypes import wintypes
 
 from runtime_paths import model_dir, writable_data_root
 
@@ -87,7 +88,10 @@ def _watch_parent_process(parent_pid: int, server: object) -> None:
     handle keeps the packaged sidecar from retaining the camera indefinitely.
     """
     if sys.platform != "win32":
+        _poll_posix_parent(parent_pid, server)
         return
+
+    from ctypes import wintypes
 
     synchronize = 0x00100000
     wait_object_0 = 0x00000000
@@ -110,6 +114,34 @@ def _watch_parent_process(parent_pid: int, server: object) -> None:
             server.should_exit = True
     finally:
         kernel32.CloseHandle(handle)
+
+
+def _posix_parent_alive(parent_pid: int) -> bool:
+    # A dead owner reparents this sidecar (to launchd on macOS).
+    if os.getppid() != parent_pid:
+        return False
+    try:
+        os.kill(parent_pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _poll_posix_parent(
+    parent_pid: int,
+    server: object,
+    *,
+    interval_s: float = 1.0,
+    sleep=time.sleep,
+) -> None:
+    """macOS/POSIX equivalent of waiting on the owner's process handle."""
+    while not getattr(server, "should_exit", False):
+        if not _posix_parent_alive(parent_pid):
+            server.should_exit = True
+            return
+        sleep(interval_s)
 
 
 def main() -> int:
