@@ -49,6 +49,7 @@ def _reference_video_double(monkeypatch, tmp_path):
                 local_path=str(self.path),
                 frame_capture_times=tuple(started + index * .1 for index in range(20)),
                 fps=10.0,
+                encoded_duration_ms=2000,
                 video_ms_for_capture=lambda observed: max(0, round((observed - started) * 1000)),
             )
 

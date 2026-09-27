@@ -350,6 +350,8 @@ Explicit user selection in the app always uses `camera_device_id` from discovery
 
 Other values such as `TARGET_FPS`, `YOLO_FRAME_SKIP`, JPEG quality, model confidence, scoring weights, and movement thresholds are currently Python constants. Change them deliberately in `backend/config.py`, then test the affected camera and movement behavior.
 
+`TARGET_FPS = 30` is the requested capture rate (`CAP_PROP_FPS`) and the preview pacing for every camera flow, all of which share one capture producer. It is a request: the camera-open log line reports requested versus driver-reported FPS, and the periodic `CV PERF` line reports measured `capture=`, `preview=`, `ai=`, and `yolo=` rates. A camera that delivers less keeps working at its real rate. AI inference is not paced by `TARGET_FPS`: it analyzes the latest frame with one call in flight, and `YOLO_FRAME_SKIP` counts AI ticks. Hold, rubric, tracker-coasting, and multi-person timings are wall-clock seconds and do not change with the camera rate. Submission and reference MP4s place each real frame at its capture-time slot, so a slower camera does not speed up playback.
+
 ## Data model
 
 The Postgres schema lives in `supabase/migrations/`. Every table has RLS

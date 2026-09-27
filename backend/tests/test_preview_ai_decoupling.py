@@ -648,6 +648,23 @@ def test_multiple_people_never_reuses_old_pose_for_presentation(monkeypatch):
     session.close()
 
 
+def test_multiple_person_confirmation_span_is_wall_clock(monkeypatch):
+    """Three fast AI ticks spanning < 0.10 s must not confirm two people,
+    regardless of the camera TARGET_FPS."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "TARGET_FPS", 60, raising=False)
+    session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")
+    session.start()
+    session.pose_detector = MagicMock(last_distinct_person_count=2)
+    base = time.monotonic()
+    for dt in (0.0, 0.04, 0.08):
+        session._observe_custom_people(None, captured_at_monotonic=base + dt)
+    assert session._custom_person_count == 0
+    session._observe_custom_people(None, captured_at_monotonic=base + 0.11)
+    assert session._custom_person_count == 2
+    session.close()
+
+
 def test_duplicate_raw_pose_candidate_keeps_current_body_overlay(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession("Custom Movement", session_mode="custom_capture")

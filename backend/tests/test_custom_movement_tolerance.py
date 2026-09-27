@@ -299,6 +299,7 @@ def _session_with_clip(frame_count: int):
         local_path=str(recorder.path),
         frame_capture_times=tuple(started + i * .1 for i in range(frame_count)),
         fps=10.0,
+        encoded_duration_ms=frame_count * 100,
         video_ms_for_capture=lambda observed: max(0, round((observed - started) * 1000)),
     )
     return session, started

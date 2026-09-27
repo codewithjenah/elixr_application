@@ -7,7 +7,12 @@ _BACKEND_DIR = resource_root()
 _DEFAULT_YOLO_MODEL_PATH = _BACKEND_DIR / "models" / "best.pt"
 _DEFAULT_YOLO_ONNX_MODEL_PATH = _BACKEND_DIR / "models" / "best.onnx"
 
-TARGET_FPS = 20
+# Requested camera rate and preview pacing for every camera flow (one shared
+# capture producer). A request only: OpenCV/driver may deliver less, so the
+# measured `capture=` / `preview=` fields in CV PERF are the source of truth.
+# AI inference is not paced by this value; it runs latest-frame, single
+# in-flight, and its YOLO cadence is YOLO_FRAME_SKIP per AI tick.
+TARGET_FPS = 30
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 JPEG_QUALITY = 70
@@ -226,6 +231,14 @@ MAX_BOTTLES = 2
 # receive a new track_id. Threshold is IoU against the previous box.
 PROP_TRACK_MIN_IOU = 0.3
 PROP_TRACK_MAX_MISSED_FRAMES = 5
+# Wall-clock cap on velocity coasting between YOLO confirmations. YOLO runs
+# every YOLO_FRAME_SKIP AI ticks (not capture frames), so this must not shrink
+# when the camera rate rises. 0.20 s is the historical 2 * skip / 20 FPS.
+PROP_TRACK_MAX_EXTRAPOLATION_LEAD_S = 0.20
+
+# Custom capture confirms two or more people only after 3 consecutive AI
+# ticks spanning at least this long (historical 2 / 20 FPS = 0.10 s).
+CUSTOM_MULTIPLE_PERSON_MIN_SPAN_S = 0.10
 
 
 def _load_yolo_imgsz() -> int:

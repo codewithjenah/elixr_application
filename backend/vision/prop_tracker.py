@@ -26,10 +26,9 @@ import time
 from dataclasses import dataclass, replace
 
 from config import (
+    PROP_TRACK_MAX_EXTRAPOLATION_LEAD_S,
     PROP_TRACK_MAX_MISSED_FRAMES,
     PROP_TRACK_MIN_IOU,
-    TARGET_FPS,
-    YOLO_FRAME_SKIP,
 )
 from vision.types import PropDetection
 
@@ -59,8 +58,8 @@ def box_iou(a: PropDetection, b: PropDetection) -> float:
 
 
 def max_extrapolation_lead_s() -> float:
-    """Upper bound on coasting time: 2x ``YOLO_FRAME_SKIP`` frame-times."""
-    return 2.0 * YOLO_FRAME_SKIP / TARGET_FPS
+    """Wall-clock upper bound on coasting time, independent of camera FPS."""
+    return PROP_TRACK_MAX_EXTRAPOLATION_LEAD_S
 
 
 @dataclass(frozen=True)
@@ -282,8 +281,8 @@ class PropTracker:
 
         Returns the cached ``detections`` unchanged when a track has fewer than
         two YOLO-confirmed observations, was just created, or has no usable
-        velocity. Lead time is clamped to ``2 * YOLO_FRAME_SKIP`` frame-times
-        so a stalled detector cannot run away.
+        velocity. Lead time is clamped to ``max_extrapolation_lead_s()`` so a
+        stalled detector cannot run away.
         """
         lead_cap = max_extrapolation_lead_s() if max_lead_s is None else max_lead_s
         tracks = {track.track_id: track for track in self._tracks}

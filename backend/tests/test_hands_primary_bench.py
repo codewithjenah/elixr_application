@@ -255,7 +255,8 @@ def test_yolo_pose_camera_configuration_remains_unchanged():
     assert FRAME_WIDTH == 640
     assert FRAME_HEIGHT == 480
     assert YOLO_FRAME_SKIP == 2
-    assert TARGET_FPS == 20
+    # 30 FPS is the requested capture/preview rate; AI cadence is independent.
+    assert TARGET_FPS == 30
     assert CAMERA_RELEASE_DEBOUNCE_S == 2.0
     from vision.pose_detector import PoseDetector
 

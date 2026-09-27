@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from config import PROP_TRACK_MAX_MISSED_FRAMES, TARGET_FPS, YOLO_FRAME_SKIP
-from vision.prop_tracker import PropTracker
+from config import (
+    PROP_TRACK_MAX_EXTRAPOLATION_LEAD_S,
+    PROP_TRACK_MAX_MISSED_FRAMES,
+    TARGET_FPS,
+    YOLO_FRAME_SKIP,
+)
+from vision import prop_tracker as prop_tracker_mod
+from vision.prop_tracker import PropTracker, max_extrapolation_lead_s
 from vision.types import PropDetection
 
 
@@ -136,7 +142,7 @@ def test_extrapolate_falls_back_to_cached_without_velocity_history():
 def test_extrapolate_clamps_lead_time_when_yolo_stalls():
     tracker = PropTracker()
     yolo_dt = YOLO_FRAME_SKIP / TARGET_FPS
-    max_lead_s = 2 * YOLO_FRAME_SKIP / TARGET_FPS
+    max_lead_s = PROP_TRACK_MAX_EXTRAPOLATION_LEAD_S
     tracker.update([_box(40)], timestamp=0.0)
     confirmed = tracker.update([_box(60)], timestamp=yolo_dt)
 
@@ -145,8 +151,25 @@ def test_extrapolate_clamps_lead_time_when_yolo_stalls():
 
     assert stalled[0].x1 == capped[0].x1
     assert stalled[0].x2 == capped[0].x2
-    # Unclamped 5s of 200 px/s would move 1000px; clamp keeps it near 40px.
-    assert stalled[0].x1 == pytest.approx(60 + 200.0 * max_lead_s, abs=1.5)
+    # Unclamped 5s of coasting would run hundreds of px; clamp bounds it.
+    velocity_px_s = 20.0 / yolo_dt
+    assert stalled[0].x1 == pytest.approx(60 + velocity_px_s * max_lead_s, abs=1.5)
+
+
+def test_coasting_lead_is_wall_clock_not_camera_frame_derived(monkeypatch):
+    """YOLO confirms per AI tick; raising camera FPS must not shorten coasting."""
+    assert PROP_TRACK_MAX_EXTRAPOLATION_LEAD_S == pytest.approx(0.20)
+    assert not hasattr(prop_tracker_mod, "TARGET_FPS")
+    import config
+
+    monkeypatch.setattr(config, "TARGET_FPS", 60)
+    assert max_extrapolation_lead_s() == pytest.approx(0.20)
+
+    tracker = PropTracker()
+    tracker.update([_box(40)], timestamp=0.0)
+    confirmed = tracker.update([_box(60)], timestamp=0.1)  # 200 px/s
+    coasted = tracker.extrapolate(confirmed, now=0.1 + 0.18)
+    assert coasted[0].x1 == pytest.approx(60 + 200.0 * 0.18, abs=1.5)
 
 
 def test_live_detections_coasts_unmatched_track_after_one_missed_frame():

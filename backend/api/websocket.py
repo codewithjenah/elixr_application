@@ -69,6 +69,7 @@ from config import (
     CUSTOM_PRESENTATION_MAX_GRACE_S,
     CUSTOM_PRESENTATION_CADENCE_MULTIPLIER,
     CUSTOM_INFLIGHT_PRESENTATION_LIMIT_S,
+    CUSTOM_MULTIPLE_PERSON_MIN_SPAN_S,
     FPS_LOG_INTERVAL,
     EVIDENCE_JPEG_QUALITY,
     EVIDENCE_MAX_BYTES,
@@ -566,7 +567,7 @@ class _CustomReferenceDraft:
 
     @property
     def video_duration_ms(self) -> int:
-        return round(len(self.clip.frame_capture_times) * 1000 / self.clip.fps)
+        return self.clip.encoded_duration_ms
 
     @property
     def effective_duration_ms(self) -> int:
@@ -1011,7 +1012,7 @@ class VisionSession:
                 self._custom_multiple_streak >= 3
                 and self._custom_multiple_first_at is not None
                 and self._custom_person_observed_at - self._custom_multiple_first_at
-                >= 2.0 / TARGET_FPS
+                >= CUSTOM_MULTIPLE_PERSON_MIN_SPAN_S
             ) else 0
             if self._custom_person_count == 2 and self._custom_samples is not None:
                 self._custom_multiple_invalid = True
@@ -1180,7 +1181,7 @@ class VisionSession:
                         return False, code, {
                             "valid": False, "accepted": False, "reason": code,
                             "rejected_reason": code, "sample_count": 0,
-                            "duration_ms": round(len(clip.frame_capture_times) * 1000 / clip.fps),
+                            "duration_ms": clip.encoded_duration_ms,
                         }
                 except SubmissionRecorderError as exc:
                     if recorder is not None:
@@ -1205,7 +1206,7 @@ class VisionSession:
                 try:
                     reference_measurements = check_reference_integrity(
                         samples,
-                        clip_duration_ms=round(len(clip.frame_capture_times) * 1000 / clip.fps),
+                        clip_duration_ms=clip.encoded_duration_ms,
                     )
                     codes: list[str] = []
                 except ReferenceQualityError as exc:

@@ -60,9 +60,64 @@ def test_capture_times_map_to_written_mp4_frame_times(tmp_path):
     clip = recorder.stop()
     assert clip.video_ms_for_capture(100.10) == 0
     assert clip.video_ms_for_capture(100.23) == 100
-    assert clip.video_ms_for_capture(100.40) == 200
+    # 100.41 is 310 ms after the first frame; the 0.19 s gap is held, so the
+    # frame lands in MP4 slot 3 rather than being pulled forward to slot 2.
+    assert clip.video_ms_for_capture(100.40) == 300
     assert clip.video_ms_for_capture(100.05) is None
     assert clip.video_ms_for_capture(100.50) is None
+    assert clip.frame_video_indices == (0, 1, 3)
+    assert clip.encoded_frame_count == 4
+    recorder.cleanup()
+
+
+def test_camera_slower_than_fps_keeps_wall_clock_playback(tmp_path):
+    """A 15 FPS camera into a 30 FPS container must not play back 2x fast."""
+    writers: list[FakeWriter] = []
+
+    def factory(path, fps, size):
+        writers.append(FakeWriter(path))
+        return writers[-1]
+
+    recorder = SubmissionRecorder(
+        fps=30, temp_root=tmp_path, writer_factory=factory, monotonic=lambda: 0.0,
+    )
+    recorder.start()
+    real = [index / 15.0 for index in range(31)]  # 2.0 s of real 15 FPS frames
+    for sequence, captured_at in enumerate(real, start=1):
+        assert recorder.write_frame(
+            np.full((8, 8, 3), sequence, dtype=np.uint8),
+            captured_at_monotonic=captured_at, sequence=sequence,
+        )
+    clip = recorder.stop()
+    assert clip.frame_capture_times == tuple(real)
+    assert clip.encoded_frame_count == 61
+    assert abs(clip.encoded_duration_ms - 2033) <= 1
+    assert clip.video_duration_ms == 2000
+    assert clip.video_ms_for_capture(1.0) == 1000
+    # Held slots repeat the previous real frame; nothing is interpolated.
+    written = writers[0].frames
+    assert all(np.array_equal(written[2 * i], written[2 * i + 1]) for i in range(30))
+    assert {int(frame[0, 0, 0]) for frame in written} == set(range(1, 32))
+    recorder.cleanup()
+
+
+def test_frames_faster_than_fps_do_not_stretch_playback(tmp_path):
+    recorder = SubmissionRecorder(
+        fps=10, temp_root=tmp_path,
+        writer_factory=lambda path, fps, size: FakeWriter(path),
+        monotonic=lambda: 0.0,
+    )
+    recorder.start()
+    for sequence in range(1, 22):  # 1.0 s of 20 FPS input into a 10 FPS clip
+        recorder.write_frame(
+            np.zeros((8, 8, 3), dtype=np.uint8),
+            captured_at_monotonic=(sequence - 1) * 0.05, sequence=sequence,
+        )
+    clip = recorder.stop()
+    # Without drops this would be 21 frames (2.1 s). One slot of lead is
+    # tolerated so ordinary capture jitter never discards a real frame.
+    assert 1100 <= clip.encoded_duration_ms <= 1200
+    assert len(clip.frame_capture_times) == clip.encoded_frame_count
     recorder.cleanup()
 
 

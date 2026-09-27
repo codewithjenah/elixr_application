@@ -69,10 +69,23 @@ class SubmissionClipMetadata:
     video_size_bytes: int
     content_type: str = SUBMISSION_CONTENT_TYPE
     sha256: str | None = None
-    # Capture timestamps for frames actually written. VideoWriter assigns
-    # constant-FPS presentation times, so these map detector samples to MP4 time.
+    # Capture timestamps of real camera frames written, in order. VideoWriter
+    # assigns constant-FPS presentation times, so each real frame is placed at
+    # the MP4 frame index matching its capture time (frame_video_indices).
     frame_capture_times: tuple[float, ...] = ()
     fps: float = TARGET_FPS
+    # MP4 frame index of each entry in frame_capture_times. Empty means the
+    # identity mapping (one encoded frame per real frame).
+    frame_video_indices: tuple[int, ...] = ()
+    # Total encoded frames, including holds of the previous real frame that
+    # keep a slower-than-``fps`` camera's playback at wall-clock speed.
+    # Zero means len(frame_capture_times).
+    encoded_frame_count: int = 0
+
+    @property
+    def encoded_duration_ms(self) -> int:
+        count = self.encoded_frame_count or len(self.frame_capture_times)
+        return round(count * 1000 / self.fps)
 
     def video_ms_for_capture(self, captured_at: float) -> int | None:
         times = self.frame_capture_times
@@ -82,6 +95,8 @@ class SubmissionClipMetadata:
         index = min(right, len(times) - 1)
         if index > 0 and abs(times[index - 1] - captured_at) < abs(times[index] - captured_at):
             index -= 1
+        if self.frame_video_indices:
+            index = self.frame_video_indices[index]
         return round(index * 1000 / self.fps)
 
 
@@ -184,6 +199,10 @@ class SubmissionRecorder:
         self._final_metadata: SubmissionClipMetadata | None = None
         self._last_sequence: int | None = None
         self._frame_capture_times: list[float] = []
+        self._frame_video_indices: list[int] = []
+        self._encoded_frames = 0
+        self._video_origin: float | None = None
+        self._last_owned: np.ndarray | None = None
 
     @property
     def is_recording(self) -> bool:
@@ -226,6 +245,10 @@ class SubmissionRecorder:
             self._failed_message = None
             self._last_sequence = None
             self._frame_capture_times = []
+            self._frame_video_indices = []
+            self._encoded_frames = 0
+            self._video_origin = None
+            self._last_owned = None
 
     def write_frame(
         self,
@@ -258,21 +281,33 @@ class SubmissionRecorder:
                 self._finalize_unlocked(reason="cap")
                 return False
             try:
+                # Constant-FPS container: place this real frame at the slot
+                # matching its capture time. A camera slower than ``fps``
+                # holds the previous real frame over the gap so playback keeps
+                # wall-clock speed; a frame more than one slot early (input
+                # faster than ``fps``) is dropped. Holds are never recorded as
+                # capture times, so they never become detector samples.
+                if self._video_origin is None:
+                    self._video_origin = captured_at
+                position = (captured_at - self._video_origin) * self._fps
+                if self._encoded_frames > 0 and position < self._encoded_frames - 1:
+                    return True
                 owned = np.copy(frame, order="C")
                 self._ensure_writer_unlocked(owned)
                 writer = self._writer
                 if writer is None or not writer.isOpened():
                     self._fail_unlocked("record_failed", "Video writer is not open.")
                     return False
-                write_result = writer.write(owned)
-                if is_explicit_write_failure(write_result):
-                    self._fail_unlocked(
-                        "record_failed",
-                        "Video writer rejected the frame.",
-                    )
+                held = self._last_owned
+                while held is not None and self._encoded_frames < round(position):
+                    if not self._write_encoded_unlocked(writer, held):
+                        return False
+                if not self._write_encoded_unlocked(writer, owned):
                     return False
                 self._frames_written += 1
                 self._frame_capture_times.append(captured_at)
+                self._frame_video_indices.append(self._encoded_frames - 1)
+                self._last_owned = owned
                 self._last_frame_at = captured_at
                 self._last_sequence = sequence
                 if self._path is not None:
@@ -338,6 +373,15 @@ class SubmissionRecorder:
 
     def cleanup(self) -> None:
         self.cancel()
+
+    def _write_encoded_unlocked(
+        self, writer: VideoWriterLike, frame: np.ndarray
+    ) -> bool:
+        if is_explicit_write_failure(writer.write(frame)):
+            self._fail_unlocked("record_failed", "Video writer rejected the frame.")
+            return False
+        self._encoded_frames += 1
+        return True
 
     def _ensure_writer_unlocked(self, frame: np.ndarray) -> None:
         if self._writer is not None:
@@ -419,6 +463,8 @@ class SubmissionRecorder:
             sha256=sha256,
             frame_capture_times=tuple(self._frame_capture_times),
             fps=self._fps,
+            frame_video_indices=tuple(self._frame_video_indices),
+            encoded_frame_count=self._encoded_frames,
         )
         self._state = "finalized"
         self._final_metadata = metadata
@@ -474,3 +520,7 @@ class SubmissionRecorder:
         self._final_metadata = None
         self._last_sequence = None
         self._frame_capture_times = []
+        self._frame_video_indices = []
+        self._encoded_frames = 0
+        self._video_origin = None
+        self._last_owned = None
